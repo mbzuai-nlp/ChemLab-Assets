@@ -333,7 +333,7 @@
    "n_sources": 7,
    "n_limitations": 14,
    "isaac_lab": "bridged",
-   "glb_up": "y",
+   "glb_up": "z",
    "output_templates": false,
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/metrohm_914/model.glb",
@@ -1205,7 +1205,7 @@
    "n_sources": 13,
    "n_limitations": 15,
    "isaac_lab": "bridged",
-   "glb_up": "y",
+   "glb_up": "z",
    "output_templates": false,
    "files": {
     "glb": "assets/basic40_batch02/t2_vacuum/ika_rv10/model.glb",
@@ -1251,7 +1251,7 @@
    "n_sources": 8,
    "n_limitations": 22,
    "isaac_lab": "bridged",
-   "glb_up": "y",
+   "glb_up": "z",
    "output_templates": false,
    "files": {
     "glb": "assets/basic40_batch02/t2_vacuum/buchi_lyovapor_l250/model.glb",
@@ -4541,7 +4541,7 @@
    "n_sources": 9,
    "n_limitations": 22,
    "isaac_lab": "bridged",
-   "glb_up": "y",
+   "glb_up": "z",
    "output_templates": false,
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/metrohm_899/model.glb",
@@ -7846,7 +7846,7 @@
    "n_sources": 12,
    "n_limitations": 14,
    "isaac_lab": "bridged",
-   "glb_up": "y",
+   "glb_up": "z",
    "output_templates": false,
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/mt_quantos_q2/model.glb",
@@ -7934,7 +7934,7 @@
    "n_sources": 5,
    "n_limitations": 16,
    "isaac_lab": "bridged",
-   "glb_up": "y",
+   "glb_up": "z",
    "output_templates": false,
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/azenta_heat_sealer/model.glb",
@@ -8026,7 +8026,7 @@
    "n_sources": 6,
    "n_limitations": 14,
    "isaac_lab": "bridged",
-   "glb_up": "y",
+   "glb_up": "z",
    "output_templates": false,
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/preciseflex_400/model.glb",
@@ -8206,7 +8206,7 @@
    "n_sources": 10,
    "n_limitations": 14,
    "isaac_lab": "bridged",
-   "glb_up": "y",
+   "glb_up": "z",
    "output_templates": false,
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/vici_euta/model.glb",

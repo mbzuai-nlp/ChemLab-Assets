@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChemLab-Assets Explorer</title>
+<meta name="description" content="Browse 198 simulation-ready chemistry laboratory instruments in 3D: geometry, working joints, interface points, panel readouts, capabilities and files from the ChemLab-Assets dataset.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 2.5h6M10 2.5v6.2L4.4 18.6A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.8-2.9L14 8.7V2.5' fill='none' stroke='%2315202a' stroke-width='1.8' stroke-linejoin='round'/%3E%3Cpath d='M7.3 15h9.4' stroke='%230a6bc2' stroke-width='1.8'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Fonts load without blocking the page: if Google Fonts is unreachable the system fallbacks are used. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,300..650;1,8..60,400&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="style.css">
+<script>
+  // Theme before first paint: ?__theme= (passed by some Hugging Face embeds), then a stored choice, else the system setting.
+  (function () {
+    try {
+      var t = new URLSearchParams(location.search).get('__theme') || localStorage.getItem('chemlab-explorer-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { /* storage unavailable: follow the system */ }
+  })();
+</script>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }
+</script>
+</head>
+<body>
+<a class="skip-link" href="#stage">Skip to the 3D viewer</a>
+
+<header id="topbar">
+  <a class="brand" href="./" aria-label="ChemLab-Assets Explorer, start page">
+    <svg class="brand-mark" width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2.5h6M10 2.5v6.2L4.4 18.6A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.8-2.9L14 8.7V2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.3 15h9.4" stroke="var(--accent)" stroke-width="1.8"/></svg>
+    <span class="brand-text">
+      <span class="brand-name">ChemLab-Assets <span class="brand-x">Explorer</span></span>
+      <span class="brand-tag" id="tagline">198 simulation-ready chemistry lab instruments in 3D</span>
+    </span>
+  </a>
+
+  <div class="filters">
+    <label class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span class="sr">Search instruments</span>
+      <input id="search" type="search" placeholder="Search name, maker, model or CHEM-ID" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="select">
+      <span class="sr">Filter by domain</span>
+      <select id="domain"><option value="">All domains</option></select>
+    </label>
+  </div>
+
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" data-view="viewer" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="m12 2.8 8 4.6v9.2l-8 4.6-8-4.6V7.4l8-4.6Zm0 9.2 8-4.6M12 12v9.2M12 12 4 7.4"/></svg>3D viewer</button>
+    <button type="button" data-view="table" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M3.5 5h17v14h-17zM3.5 10h17M3.5 14.5h17M9.5 10v9"/></svg>Table</button>
+  </div>
+
+  <nav class="links" aria-label="Project links">
+    <span id="base-note" class="base-note" hidden></span>
+    <a class="btn" id="link-dataset" href="https://huggingface.co/datasets/MBZUAI/ChemLab-Assets" target="_blank" rel="noopener" aria-label="Dataset on Hugging Face" title="ChemLab-Assets dataset on Hugging Face"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span class="btn-text">Dataset</span></a>
+    <a class="btn" id="link-website" href="#" target="_blank" rel="noopener" aria-label="Project website" title="Project website" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-9 9h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3Z"/></svg><span class="btn-text">Website</span></a>
+    <button type="button" class="btn icon" id="theme-btn" aria-label="Colour theme: follow system"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor"/></svg></button>
+  </nav>
+</header>
+
+<aside id="sidebar" aria-label="Instruments">
+  <div class="side-head">
+    <button type="button" id="list-toggle" class="list-toggle" aria-expanded="false" aria-controls="list-wrap"><span>Instruments</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+    <span class="side-title">Instruments</span>
+    <span id="asset-count" class="count" aria-live="polite"></span>
+  </div>
+  <div id="list-wrap">
+    <ul id="asset-list"><li class="list-msg">Loading the catalogue…</li></ul>
+  </div>
+</aside>
+
+<main id="viewer" aria-label="3D viewer">
+  <div id="titlebar">
+    <div class="tb-text">
+      <div class="tb-id" id="inst-id">&nbsp;</div>
+      <h1 id="inst-name">Loading…</h1>
+      <div class="tb-mm" id="inst-mm"></div>
+      <div class="tb-zh" id="inst-zh" lang="zh"></div>
+    </div>
+    <div class="tb-chips" id="inst-chips"></div>
+  </div>
+
+  <div id="stage">
+    <canvas id="gl" tabindex="-1" aria-label="Interactive 3D model. Drag to rotate, scroll or pinch to zoom, click a part to identify it."></canvas>
+    <div id="labels" aria-hidden="true"></div>
+
+    <div class="vt vt-left">
+      <button type="button" class="tool" id="layers-btn" aria-expanded="false" aria-controls="layers"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg>Layers<span class="tool-count" id="layers-count"></span></button>
+      <div id="layers" class="pop" hidden></div>
+    </div>
+    <div class="vt vt-right" role="group" aria-label="Camera view">
+      <button type="button" class="tool" data-cam="iso" title="Isometric view (front-right, from above)">Iso</button><button type="button" class="tool" data-cam="front" title="Front view">Front</button><button type="button" class="tool" data-cam="back" title="Back view">Back</button><button type="button" class="tool" data-cam="left" title="Left view">Left</button><button type="button" class="tool" data-cam="right" title="Right view">Right</button><button type="button" class="tool" data-cam="top" title="Top view">Top</button><button type="button" class="tool" data-cam="fit" title="Fit the model in the view">Fit</button>
+    </div>
+
+    <div id="loader" hidden>
+      <img id="loader-thumb" alt="" width="400" height="300">
+      <div class="loader-card" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <div class="loader-text">
+          <div id="loader-text">Loading model…</div>
+          <div class="progress" aria-hidden="true"><i id="loader-bar"></i></div>
+          <div id="loader-bytes" class="mono"></div>
+        </div>
+      </div>
+    </div>
+    <div id="viewer-error" role="alert" hidden></div>
+    <div id="hint" aria-hidden="true">Drag to rotate · right-drag to pan · scroll to zoom · click a part</div>
+  </div>
+
+  <div id="dock">
+    <section id="joint-panel" aria-label="Joint sliders" hidden>
+      <button type="button" class="jp-head" id="jp-toggle" aria-expanded="false" aria-controls="jp-body">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        <span>Move joints</span><span id="jp-count" class="jp-count"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <div id="jp-body" hidden></div>
+    </section>
+    <section id="pick-card" aria-label="Selected component" aria-live="polite" hidden></section>
+  </div>
+</main>
+
+<section id="panel" aria-label="Instrument details">
+  <div id="tabs" role="tablist" aria-label="Instrument details">
+    <button type="button" role="tab" id="tab-overview" data-tab="overview" aria-controls="tab-body" aria-selected="true">Overview</button>
+    <button type="button" role="tab" id="tab-components" data-tab="components" aria-controls="tab-body" aria-selected="false" tabindex="-1">Components</button>
+    <button type="button" role="tab" id="tab-joints" data-tab="joints" aria-controls="tab-body" aria-selected="false" tabindex="-1" title="Joints &amp; controls">Joints</button>
+    <button type="button" role="tab" id="tab-interfaces" data-tab="interfaces" aria-controls="tab-body" aria-selected="false" tabindex="-1" title="Interfaces &amp; readouts">Interfaces</button>
+    <button type="button" role="tab" id="tab-capabilities" data-tab="capabilities" aria-controls="tab-body" aria-selected="false" tabindex="-1" title="Capabilities &amp; mechanisms">Capabilities</button>
+    <button type="button" role="tab" id="tab-files" data-tab="files" aria-controls="tab-body" aria-selected="false" tabindex="-1">Files</button>
+  </div>
+  <div id="tab-body" role="tabpanel" aria-labelledby="tab-overview" tabindex="0"><p class="empty">Loading…</p></div>
+</section>
+
+<section id="table-view" aria-labelledby="tv-title" hidden>
+  <div class="tv-head">
+    <h2 id="tv-title">All instruments</h2>
+    <span id="tv-count" class="count" aria-live="polite"></span>
+    <span class="tv-hint">Sort by any column. Select a row to open the instrument in 3D.</span>
+  </div>
+  <div class="tv-scroll" tabindex="0" aria-label="Instrument table (scrolls horizontally on small screens)">
+    <table class="grid" id="tv-table"><thead></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<dialog id="lightbox" aria-label="Preview image">
+  <figure class="lb-fig">
+    <img id="lb-img" alt="">
+    <figcaption id="lb-cap"></figcaption>
+  </figure>
+  <button type="button" class="lb-btn lb-prev" id="lb-prev" aria-label="Previous image"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+  <button type="button" class="lb-btn lb-next" id="lb-next" aria-label="Next image"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+  <button type="button" class="lb-btn lb-close" id="lb-close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<noscript><p class="noscript">The ChemLab-Assets Explorer needs JavaScript. The data itself is in the <a href="https://huggingface.co/datasets/MBZUAI/ChemLab-Assets">ChemLab-Assets dataset</a>.</p></noscript>
+<script type="module" src="app.js"></script>
+</body>
+</html>
