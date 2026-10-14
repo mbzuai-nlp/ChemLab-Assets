@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta property="og:title" content="ChemLab-Assets">
+<meta property="og:description" content="198 simulation-ready chemistry laboratory instruments with geometry, joints, executable behaviour models and machine-readable contracts.">
+<meta property="og:image" content="media/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 2.5h6M10 2.5v6.2L4.4 18.6A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.8-2.9L14 8.7V2.5' fill='none' stroke='%2315202a' stroke-width='1.8'/%3E%3Cpath d='M7.3 15h9.4' stroke='%230a6bc2' stroke-width='1.8'/%3E%3C/svg%3E">
+<title>ChemLab-Assets</title>
+<meta name="description" content="198 simulation-ready chemistry laboratory instruments with geometry, joints, executable behaviour models and machine-readable contracts.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,300..650;1,8..60,400&display=swap">
+<style>
+/* Layout: an instrument datasheet. A title block with a rating plate, then Figure 1 (the instrument wall:
+   one row per capability domain, one tile per instrument, so row length is the count), then the sheet's chapters. */
+:root {
+  --paper: #f3f5f6;          /* enamel white, cool */
+  --panel: #ffffff;
+  --ink: #15202a;            /* blue-black */
+  --ink-2: #51606c;
+  --ink-3: #7a8893;
+  --rule: #d4dce1;
+  --rule-strong: #b8c4cc;
+  --accent: #0a6bc2;         /* copper-sulfate blue */
+  --accent-ink: #0a5ca6;     /* links on paper */
+  --accent-soft: #e2eef9;
+  --bar: #0a6bc2;
+  --code-bg: #e9eef1;
+  --shadow: 0 1px 2px rgba(21, 32, 42, .06), 0 8px 24px rgba(21, 32, 42, .08);
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --fs-body: 1.0625rem;
+  --fs-small: .875rem;
+  --fs-label: .72rem;
+  --measure: 66ch;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0e1418; --panel: #151d23; --ink: #e3eaef; --ink-2: #a3b2bd; --ink-3: #7d8c97;
+    --rule: #25313a; --rule-strong: #34434e; --accent: #4f9fe8; --accent-ink: #7ab8f5; --accent-soft: #11283b;
+    --bar: #3d8fe0; --code-bg: #121a20; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0e1418; --panel: #151d23; --ink: #e3eaef; --ink-2: #a3b2bd; --ink-3: #7d8c97;
+  --rule: #25313a; --rule-strong: #34434e; --accent: #4f9fe8; --accent-ink: #7ab8f5; --accent-soft: #11283b;
+  --bar: #3d8fe0; --code-bg: #121a20; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { transition: none !important; animation: none !important; } }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+code, kbd, pre { font-family: var(--font-mono); }
+code { font-size: .86em; background: var(--code-bg); padding: .08em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+p { margin: 0; }
+
+.wrap { width: 100%; max-width: 1180px; margin-inline: auto; padding-inline: 24px; }
+.wide { max-width: 1420px; }
+@media (max-width: 600px) { .wrap { padding-inline: 16px; } }
+
+/* top bar */
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--rule); }
+.topbar .wrap { display: flex; align-items: center; gap: 24px; min-height: 56px; flex-wrap: wrap; padding-block: 6px; }
+.wordmark { font-family: var(--font-display); font-weight: 750; font-stretch: 112%; letter-spacing: .01em; color: var(--ink); text-decoration: none; display: flex; align-items: center; gap: 10px; font-size: 1rem; }
+.wordmark svg { flex: none; }
+.topnav { display: flex; gap: 18px; flex-wrap: wrap; font-family: var(--font-display); font-size: .86rem; }
+.topnav a { color: var(--ink-2); text-decoration: none; }
+.topnav a:hover { color: var(--ink); }
+.topbar .spacer { flex: 1; }
+@media (max-width: 760px) { .topnav { display: none; } .topbar .wrap { gap: 10px; flex-wrap: nowrap; } .wordmark { font-size: .92rem; } }
+
+/* buttons */
+.btn { font-family: var(--font-display); font-size: .9rem; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; padding: 9px 15px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--panel); color: var(--ink); text-decoration: none; cursor: pointer; line-height: 1.2; }
+.btn:hover { border-color: var(--ink-2); text-decoration: none; }
+.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn.primary:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn svg { width: 16px; height: 16px; flex: none; }
+.btn.small { padding: 6px 11px; font-size: .82rem; }
+.btn[aria-disabled="true"] { opacity: .55; pointer-events: none; }
+
+/* title block */
+.title-block { padding-block: 56px 40px; display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 48px; align-items: start; }
+@media (max-width: 980px) { .title-block { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-block: 36px 28px; } }
+.eyebrow { font-family: var(--font-display); font-size: var(--fs-label); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+.title-block h1 { font-size: clamp(2rem, 8.4vw, 5.2rem); font-weight: 800; font-stretch: 120%; letter-spacing: -.012em; line-height: .98; margin-top: 14px; }
+.title-block h1 .hy { color: var(--accent); }
+.deck { font-size: clamp(1.15rem, 2vw, 1.38rem); line-height: 1.5; margin-top: 20px; max-width: 40em; color: var(--ink); }
+.authors { margin-top: 26px; font-family: var(--font-display); font-size: 1rem; line-height: 1.7; }
+.authors .names { display: flex; flex-wrap: wrap; gap: 2px 18px; font-weight: 600; }
+.authors .aff { color: var(--ink-2); font-weight: 400; font-size: .92rem; margin-top: 4px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+
+/* rating plate */
+.plate { position: relative; background: var(--panel); border: 1.5px solid var(--rule-strong); border-radius: 10px; padding: 22px 22px 18px; font-family: var(--font-display); box-shadow: var(--shadow); }
+.plate::before, .plate::after { content: ""; position: absolute; top: 9px; width: 7px; height: 7px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, var(--panel), var(--rule-strong)); box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.plate::before { left: 9px; } .plate::after { right: 9px; }
+.plate-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; border-bottom: 1.5px solid var(--ink); padding-bottom: 8px; margin-bottom: 8px; gap: 4px 12px; }
+.plate-head b { font-weight: 800; font-stretch: 108%; font-size: .98rem; letter-spacing: .02em; white-space: nowrap; }
+.plate-head span { font-family: var(--font-mono); font-size: .74rem; color: var(--ink-2); white-space: nowrap; }
+.plate dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; }
+.plate dt { font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); padding-block: 6px; border-bottom: 1px dashed var(--rule); align-self: stretch; display: flex; align-items: center; }
+.plate dd { margin: 0; font-family: var(--font-mono); font-size: .8rem; padding-block: 6px; border-bottom: 1px dashed var(--rule); font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
+.plate dt:nth-last-of-type(1), .plate dd:last-of-type { border-bottom: 0; }
+
+/* figure 1 — instrument wall */
+.wall-fig { margin: 0; padding-block: 8px 48px; }
+.fig-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding-block: 14px; border-top: 1.5px solid var(--ink); }
+.fig-bar .fig-no { font-family: var(--font-display); font-weight: 700; font-size: .82rem; letter-spacing: .08em; text-transform: uppercase; }
+.search { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--rule-strong); border-radius: 8px; padding: 6px 10px; flex: 0 1 360px; min-width: 0; }
+.search svg { width: 16px; height: 16px; color: var(--ink-3); flex: none; }
+.search input { border: 0; outline: 0; background: transparent; color: var(--ink); font: 500 .9rem var(--font-display); width: 100%; min-width: 0; }
+.fig-bar .count { font-family: var(--font-mono); font-size: .8rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.fig-bar .spacer { flex: 1; }
+.wall { display: grid; gap: 5px; }
+.wall-row { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 14px; align-items: center; }
+.wall-label { display: flex; justify-content: space-between; gap: 10px; font-family: var(--font-display); font-size: .8rem; line-height: 1.2; border-right: 1px solid var(--rule); padding-right: 12px; min-height: 100%; align-items: center; }
+.wall-label .dn { font-weight: 600; }
+.wall-label .dc { font-family: var(--font-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.cells { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(23, minmax(0, 1fr)); gap: 4px; }
+.cell { all: unset; display: block; aspect-ratio: 4 / 3; width: 100%; max-width: 100%; border-radius: 5px; background: var(--panel); box-shadow: inset 0 0 0 1px var(--rule); cursor: pointer; position: relative; transition: transform .14s ease, box-shadow .14s ease, opacity .2s ease, filter .2s ease; }
+.cell img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.cell:hover, .cell:focus-visible { transform: scale(1.9); z-index: 5; box-shadow: var(--shadow), inset 0 0 0 1px var(--rule-strong); }
+.cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wall.filtering .cell:not(.hit) { opacity: .16; filter: grayscale(1); }
+.wall.filtering .cell.hit { box-shadow: inset 0 0 0 2px var(--accent); }
+@media (max-width: 900px) {
+  .wall-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .wall-label { border-right: 0; border-bottom: 1px solid var(--rule); padding: 8px 0 4px; }
+  .cells { grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); }
+  .wall { gap: 12px; }
+}
+.caption { font-size: .93rem; color: var(--ink-2); margin-top: 16px; max-width: var(--measure); }
+.caption b { font-family: var(--font-display); color: var(--ink); font-weight: 700; }
+
+.tip { position: fixed; z-index: 40; pointer-events: none; background: var(--panel); border: 1px solid var(--rule-strong); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 10px; font-family: var(--font-display); font-size: .82rem; max-width: 260px; }
+.tip .tc { font-family: var(--font-mono); font-size: .72rem; color: var(--ink-2); }
+.tip .tn { font-weight: 700; line-height: 1.25; margin-top: 2px; }
+.tip .tm { color: var(--ink-2); line-height: 1.3; }
+
+/* sections */
+.sec { padding-block: 0 56px; }
+.sec::before { content: ""; display: block; height: 1.5px; background: var(--ink); margin-bottom: 56px; }
+.sec-head { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 14px; margin-bottom: 28px; align-items: baseline; }
+.sec-head .eyebrow { padding-top: 6px; }
+.sec-head h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 750; font-stretch: 108%; line-height: 1.12; }
+.sec-body { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 14px; }
+.sec-body > .aside { font-family: var(--font-display); font-size: .82rem; color: var(--ink-2); }
+.sec-body > .main { min-width: 0; }
+@media (max-width: 900px) { .sec-head, .sec-body { grid-template-columns: minmax(0, 1fr); } .sec { padding-block: 0 40px; } .sec::before { margin-bottom: 40px; } }
+.prose { max-width: var(--measure); display: grid; gap: 16px; }
+.prose ul { margin: 0; padding-left: 1.1em; display: grid; gap: 10px; }
+.prose li::marker { color: var(--ink-3); }
+.prose strong { font-family: var(--font-display); font-weight: 650; font-size: .96em; }
+
+.ov-grid { display: grid; grid-template-columns: minmax(0, 66ch) minmax(0, 1fr); gap: 40px; align-items: start; }
+@media (max-width: 1180px) { .ov-grid { grid-template-columns: minmax(0, 1fr); } }
+.excerpt { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; min-width: 0; position: sticky; top: 76px; }
+@media (max-width: 1180px) { .excerpt { position: static; } }
+.excerpt figcaption { display: flex; justify-content: space-between; gap: 12px; font-family: var(--font-mono); font-size: .76rem; color: var(--ink-2); padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+.excerpt pre.code { border-radius: 0; font-size: .76rem; background: var(--panel); }
+.excerpt-note { font-family: var(--font-display); font-size: .76rem; color: var(--ink-3); padding: 0 14px 12px; }
+.prov-grid { display: grid; grid-template-columns: minmax(0, 66ch) minmax(0, 1fr); gap: 40px; align-items: start; }
+@media (max-width: 1180px) { .prov-grid { grid-template-columns: minmax(0, 1fr); } }
+.shot { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+.shot img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+.shot figcaption { font-family: var(--font-display); font-size: .8rem; color: var(--ink-2); padding: 10px 14px; border-top: 1px solid var(--rule); }
+.legacy-note { font-family: var(--font-display); font-size: .8rem; color: var(--ink-2); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; }
+
+/* anatomy */
+.anatomy { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 36px; align-items: start; }
+@media (max-width: 980px) { .anatomy { grid-template-columns: minmax(0, 1fr); } }
+.specimen { position: relative; margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+.specimen img { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; }
+.mark { all: unset; position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: var(--ink); color: var(--paper); font: 700 .8rem/26px var(--font-display); text-align: center; cursor: pointer; box-shadow: 0 0 0 3px var(--panel), 0 2px 8px rgba(0,0,0,.25); transition: transform .15s ease, background .15s ease; }
+.mark.on, .mark:hover, .mark:focus-visible { background: var(--accent); color: #fff; transform: scale(1.18); }
+.specimen figcaption { font-family: var(--font-display); font-size: .8rem; color: var(--ink-2); padding: 10px 14px; border-top: 1px solid var(--rule); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; counter-reset: callout; }
+.legend li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; padding: 12px 12px 12px 8px; border-radius: 10px; cursor: default; transition: background .15s ease; }
+.legend li.on { background: var(--accent-soft); }
+.legend .num { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--ink); font: 700 .8rem/23px var(--font-display); text-align: center; }
+.legend li.on .num { background: var(--accent); border-color: var(--accent); color: #fff; }
+.legend h3 { font-size: 1rem; font-weight: 700; }
+.legend p { font-size: .95rem; color: var(--ink-2); margin-top: 3px; }
+.asset-stats { margin-top: 18px; font-family: var(--font-mono); font-size: .78rem; color: var(--ink-2); line-height: 1.7; }
+
+/* spec table */
+.spec { width: 100%; border-collapse: collapse; font-family: var(--font-display); font-size: .95rem; }
+.spec th, .spec td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--rule); vertical-align: baseline; }
+.spec th { font-weight: 500; color: var(--ink-2); width: 46%; }
+.spec td.v { font-family: var(--font-mono); font-size: .95rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; width: 18%; color: var(--ink); }
+.spec td.n { color: var(--ink-2); font-size: .84rem; }
+.spec tr:last-child th, .spec tr:last-child td { border-bottom: 0; }
+.table-scroll { overflow-x: auto; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; }
+@media (max-width: 980px) { .two { grid-template-columns: minmax(0, 1fr); } }
+
+/* chart */
+.chart-card { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 20px 20px 14px; }
+.chart-card h3 { font-size: 1rem; font-weight: 700; }
+.chart-card .sub { font-family: var(--font-display); font-size: .82rem; color: var(--ink-2); margin-top: 2px; }
+.bars { margin-top: 16px; display: grid; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: minmax(0, 210px) minmax(0, 1fr); gap: 12px; align-items: center; font-family: var(--font-display); font-size: .84rem; }
+.bar-row .bl { color: var(--ink); line-height: 1.25; }
+.bar-track { position: relative; height: 22px; display: flex; align-items: center; gap: 8px; }
+.bar-fill { height: 14px; background: var(--bar); border-radius: 0 4px 4px 0; min-width: 2px; }
+.bar-val { font-family: var(--font-mono); font-size: .78rem; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar-row:hover .bar-fill { filter: brightness(1.12); }
+.bar-row:hover .bl { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 560px) { .bar-row { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+.chart-note { font-size: .82rem; color: var(--ink-2); margin-top: 14px; font-family: var(--font-display); }
+details.tbl { margin-top: 10px; font-family: var(--font-display); font-size: .82rem; }
+details.tbl summary { cursor: pointer; color: var(--accent-ink); }
+details.tbl table { margin-top: 8px; border-collapse: collapse; }
+details.tbl td, details.tbl th { padding: 4px 10px 4px 0; text-align: left; border-bottom: 1px solid var(--rule); }
+details.tbl td:last-child { font-family: var(--font-mono); text-align: right; }
+
+/* code */
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--rule); }
+.tab { all: unset; font-family: var(--font-display); font-size: .88rem; font-weight: 600; padding: 9px 14px; border-radius: 8px 8px 0 0; color: var(--ink-2); cursor: pointer; border: 1px solid transparent; border-bottom: 0; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--ink); background: var(--panel); border-color: var(--rule); }
+.tab:focus-visible { outline: 2px solid var(--accent); }
+.panel-code { background: var(--panel); border: 1px solid var(--rule); border-top: 0; border-radius: 0 0 12px 12px; padding: 18px; }
+pre.code { margin: 0; overflow-x: auto; font-size: .82rem; line-height: 1.6; background: var(--code-bg); border-radius: 8px; padding: 16px 18px; color: var(--ink); tab-size: 4; }
+pre.code .c { color: var(--ink-3); }
+pre.code .k { color: var(--accent-ink); font-weight: 500; }
+pre.code .s { color: var(--ink-2); }
+.out-label { font-family: var(--font-display); font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); margin: 14px 0 6px; }
+.code-note { font-size: .92rem; color: var(--ink-2); margin-top: 12px; max-width: var(--measure); }
+
+/* files */
+.files { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.files th, .files td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.files th { font-family: var(--font-display); font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+.files td:first-child { font-family: var(--font-mono); font-size: .82rem; white-space: nowrap; }
+
+/* cite */
+.cite-box { position: relative; }
+.cite-box pre { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 20px; overflow-x: auto; font-size: .82rem; line-height: 1.6; }
+.cite-box .btn { position: absolute; top: 10px; right: 10px; }
+
+footer { border-top: 1.5px solid var(--ink); padding-block: 32px 48px; font-family: var(--font-display); font-size: .84rem; color: var(--ink-2); }
+footer .wrap { display: grid; gap: 10px; }
+footer p { max-width: 80ch; }
+
+/* detail dialog */
+dialog.sheet { border: 0; padding: 0; background: var(--panel); color: var(--ink); border-radius: 14px; box-shadow: 0 30px 80px rgba(0,0,0,.35); width: min(1040px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur(3px); }
+.sheet-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+@media (max-width: 820px) { .sheet-grid { grid-template-columns: minmax(0, 1fr); } }
+.sheet-media { background: var(--paper); position: relative; min-height: 420px; overflow: hidden; }
+.sheet-media img, .sheet-media model-viewer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; background: transparent; --poster-color: transparent; }
+@media (max-width: 820px) { .sheet-media { min-height: 0; aspect-ratio: 4 / 3; } }
+.media-tabs { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; z-index: 2; }
+.media-msg { position: absolute; left: 12px; right: 12px; top: 12px; font-family: var(--font-display); font-size: .8rem; color: var(--ink-2); background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; }
+.sheet-info { padding: 26px 26px 24px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.sheet-info .chem { font-family: var(--font-mono); font-size: .78rem; color: var(--ink-2); }
+.sheet-info h3 { font-size: 1.45rem; font-weight: 750; font-stretch: 106%; line-height: 1.15; }
+.sheet-info .mm { font-family: var(--font-display); font-size: 1rem; }
+.sheet-info .zh { font-size: .9rem; color: var(--ink-2); }
+.chip { display: inline-block; font-family: var(--font-display); font-size: .74rem; font-weight: 600; letter-spacing: .04em; padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; font-family: var(--font-display); font-size: .86rem; border-top: 1px solid var(--rule); }
+.kv span { padding: 7px 0; border-bottom: 1px solid var(--rule); }
+.kv span:nth-child(odd) { color: var(--ink-2); }
+.kv span:nth-child(even) { font-family: var(--font-mono); font-size: .82rem; text-align: right; font-variant-numeric: tabular-nums; }
+.sheet-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.sheet-close { position: absolute; top: 12px; right: 12px; z-index: 3; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+
+<header class="topbar">
+  <div class="wrap wide">
+    <a class="wordmark" href="#top" aria-label="ChemLab-Assets, back to top">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2.5h6M10 2.5v6.2L4.4 18.6A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.8-2.9L14 8.7V2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.3 15h9.4" stroke="var(--accent)" stroke-width="1.8"/></svg>
+      ChemLab-Assets
+    </a>
+    <nav class="topnav" aria-label="Sections">
+      <a href="#instruments">Instruments</a><a href="#overview">Overview</a><a href="#anatomy">Anatomy</a><a href="#numbers">Numbers</a><a href="#quickstart">Quick start</a><a href="#cite">Cite</a>
+    </nav>
+    <span class="spacer"></span>
+    <a class="btn small" data-link="dataset" href="#">Dataset</a>
+    <a class="btn small" data-link="github" href="#">Code</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="wrap wide title-block">
+    <div>
+      <div class="eyebrow">Open dataset · Release 1.0 · October 2026</div>
+      <h1>ChemLab<span class="hy">-</span>Assets</h1>
+      <p class="deck">198 simulation-ready chemistry laboratory instruments. Each one comes with part-level geometry, working joints, an executable behaviour model and a contract that records what every value means and where it came from.</p>
+      <div class="authors">
+        <div class="names"><span>Zirui Song</span><span>Jiadong Zhang</span><span>Jiahao Zhang</span><span>Xiaojun Chang</span><span>Xiaosong Ma</span><span>Xiuying Chen</span></div>
+        <div class="aff">Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)</div>
+      </div>
+      <div class="actions">
+        <a class="btn primary" data-link="github" href="#"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.88.87 2.34.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.66 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>Code</a>
+        <a class="btn" data-link="dataset" href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Dataset</a>
+        <a class="btn" data-link="explorer" href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="m12 2.8 8 4.6v9.2l-8 4.6-8-4.6V7.4l8-4.6Zm0 9.2 8-4.6M12 12v9.2M12 12 4 7.4"/></svg>3D Explorer</a>
+        <a class="btn" href="#cite"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M7 7h10M7 11h10M7 15h6M5 3h14v18H5z"/></svg>BibTeX</a>
+      </div>
+    </div>
+    <aside class="plate" aria-label="Release summary">
+      <div class="plate-head"><b>CHEMLAB-ASSETS</b><span>REL 1.0 · 2026-10</span></div>
+      <dl>
+        <dt>Instruments</dt><dd>198 in 16 domains</dd>
+        <dt>Manufacturers</dt><dd>115 brands</dd>
+        <dt>Formats</dt><dd>GLB · URDF · OBJ · .blend · JSON</dd>
+        <dt>Units</dt><dd>SI: m, kg, s, K, Pa</dd>
+        <dt>Frame</dt><dd>Z up, front faces −Y</dd>
+        <dt>Runtime</dt><dd>Python 3 · NumPy · SciPy</dd>
+        <dt>Simulator</dt><dd>Isaac Lab via Matterix</dd>
+        <dt>License</dt><dd>MIT code · CC BY-NC 4.0 assets</dd>
+      </dl>
+    </aside>
+  </section>
+
+  <figure class="wrap wide wall-fig" id="instruments">
+    <div class="fig-bar">
+      <span class="fig-no">Figure 1</span>
+      <label class="search" for="q"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input id="q" type="search" placeholder="Search name, maker, model or CHEM-ID" autocomplete="off"></label>
+      <span class="count" id="count" aria-live="polite">198 instruments</span>
+      <span class="spacer"></span>
+    </div>
+    <div class="wall" id="wall" role="list" aria-label="All instruments by capability domain"></div>
+    <figcaption class="caption"><b>Figure 1.</b> The full release. Each row is one capability domain and each tile is one instrument, so a row's length is the number of instruments in that domain. Point at a tile for the model; click it for the instrument's sheet and an interactive 3D view.</figcaption>
+  </figure>
+
+  <section class="wrap wide sec" id="overview">
+    <div class="sec-head"><div class="eyebrow">01 · Overview</div><h2>Instruments a robot can operate, not only look at</h2></div>
+    <div class="sec-body">
+      <div class="aside">Survey basis: 200 instruments and modules used in university chemistry teaching and research.</div>
+      <div class="main ov-grid">
+      <div class="prose">
+        <p>Agents that work in a chemistry lab need more than meshes. They need to know that a fume-hood sash travels 673&nbsp;mm and stops at 457&nbsp;mm, that moving a balance's draft-shield door restarts its stability check, and which quantities a policy may observe and which are hidden ground truth kept for evaluation. ChemLab-Assets ships that knowledge together with the geometry.</p>
+        <p>Every asset is one specific commercial model, built from published brochures, manuals and papers. The models reproduce documented behaviour; they are not manufacturer CAD and have not been calibrated against physical units. Each asset folder contains:</p>
+        <ul>
+          <li><strong>Geometry.</strong> A GLB for viewing, a URDF with primitive collision proxies for simulators, one OBJ mesh per functional part, and the Blender source file.</li>
+          <li><strong>A contract</strong> (<code>asset.contract.json</code>). Components, joints, state slots with units and visibility, callable capabilities with JSON-Schema arguments and declared errors, physical mechanisms, interface points for manipulation, cited sources and the model's known limitations.</li>
+          <li><strong>A runtime.</strong> A Python module that implements the contract: time-stepped process models behind <code>describe</code>, <code>read</code>, <code>invoke</code> and <code>poll</code>, separate agent and evaluator views, request-id idempotency and seeded noise.</li>
+          <li><strong>Reference data.</strong> Output templates built from published measurements, such as DSC thermograms, Raman, IR and mass spectra, GC retention indices and isotope-ratio standards, each with its citation.</li>
+        </ul>
+        <p>All 198 instruments have been converted to USD and stepped in NVIDIA Isaac Lab through the Matterix framework, with joints driven from runtime state and panel buttons pressed in the scene reaching the runtime. The integration code lives in Matterix and is not part of this release.</p>
+      </div>
+      <figure class="excerpt">
+        <figcaption><span>asset.contract.json</span><span>CHEM-199 · excerpt</span></figcaption>
+<pre class="code"><span class="c">// a state slot: typed, with a unit, a visibility and a read binding</span>
+<span class="k">"sash.height_m"</span>: {
+  "value_schema": { "type": "number", "x-unit": "m",
+                    "minimum": 0.0, "maximum": 0.67 },
+  "origin": "derived",
+  "visibility": <span class="k">"agent"</span>,
+  "access": "read_only",
+  "read_binding": { "backend": "host", "artifact_id": "runtime" },
+  "sampling": { "mode": "instant", "time_domain": "simulation" }
+},
+
+<span class="c">// a capability: JSON-Schema arguments, declared errors, effects</span>
+<span class="k">"sash.set"</span>: {
+  "input_schema": {
+    "properties": { "height_m": { "type": "number", "x-unit": "m",
+                                  "minimum": 0.0, "maximum": 0.67 },
+                    "hold": { "type": "boolean" } },
+    "required": ["height_m"] },
+  "errors": [ { "code": "PLANT_REQUIRED", <span class="c">…</span> },
+              { "code": "SASH_LOCKED", "side_effects": "none", <span class="c">…</span> },
+              { "code": "ABOVE_STOP_LOCKED", <span class="c">…</span> }, <span class="c">… 3 more</span> ],
+  "state_effects": [ { "state_id": "sash.height_m",
+                       "timing": "immediate", <span class="c">…</span> }, <span class="c">…</span> ],
+  "implementation": { "process": "verified", "host": "verified",
+                      "scene": "verified", "robot": "absent",
+                      "hardware": "absent" }
+}</pre>
+        <p class="excerpt-note">Abridged: description fields (in Chinese), bindings and the remaining entries are omitted.</p>
+      </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap wide sec" id="anatomy">
+    <div class="sec-head"><div class="eyebrow">02 · Anatomy</div><h2>One asset, read through its contract</h2></div>
+    <div class="anatomy">
+      <figure class="specimen" id="specimen">
+        <img src="media/hero/esco_efa5uduvw.webp" width="1200" height="900" alt="Esco Frontier Acela EFA-5UDUVW-9 benchtop fume hood with Sentinel XL airflow monitor">
+        <button class="mark" style="left:53.8%;top:8.9%" data-k="1" aria-label="Callout 1: exhaust collar">1</button>
+        <button class="mark" style="left:70.8%;top:51.7%" data-k="2" aria-label="Callout 2: airflow monitor">2</button>
+        <button class="mark" style="left:43.3%;top:82.4%" data-k="3" aria-label="Callout 3: vertical sash">3</button>
+        <button class="mark" style="left:39.2%;top:70.6%" data-k="4" aria-label="Callout 4: work zone">4</button>
+        <button class="mark" style="left:21.8%;top:62.8%" data-k="5" aria-label="Callout 5: water and gas cocks">5</button>
+        <figcaption><span><b>Figure 2.</b> Esco Frontier Acela EFA-5UDUVW-9 fume hood · CHEM-199</span><span>1.60 × 0.91 × 1.52 m</span></figcaption>
+      </figure>
+      <div>
+        <ol class="legend" id="legend">
+          <li data-k="1"><span class="num">1</span><div><h3>Exhaust collar</h3><p>Interface point <code>exhaust_collar</code>, Ø305&nbsp;mm. The evaluator sets the building exhaust with <code>exhaust.configure</code>; its true state, <code>exhaust.state</code>, is evaluator-only, so an agent has to infer airflow.</p></div></li>
+          <li data-k="2"><span class="num">2</span><div><h3>Sentinel XL airflow monitor</h3><p>Readouts <code>velocity</code> (m/s or fpm) and <code>status</code>. Its six keys are prismatic joints bound to <code>monitor.press</code>. Until it is field-calibrated with <code>monitor.calibrate</code>, its reading can sit below the true face velocity.</p></div></li>
+          <li data-k="3"><span class="num">3</span><div><h3>Vertical sash</h3><p>Prismatic joint <code>sash_joint</code>, 0–673&nbsp;mm along the 5° face. State slot <code>sash.height_m</code>; capability <code>sash.set</code>, with a stop at 457&nbsp;mm and a key lock.</p></div></li>
+          <li data-k="4"><span class="num">4</span><div><h3>Work zone</h3><p>Interface point <code>work_zone</code>, at least 150&nbsp;mm behind the sash plane. <code>source.place</code> puts open liquids there from a 53-substance vapour library with NIOSH exposure limits.</p></div></li>
+          <li data-k="5"><span class="num">5</span><div><h3>Water and gas cocks</h3><p>Revolute joints <code>knob_water_joint</code> and <code>knob_gas_joint</code>, 0–90°, driven through <code>fixture.set</code>.</p></div></li>
+        </ol>
+        <p class="asset-stats">This asset: 39 components · 11 joints · 32 state slots · 32 capabilities (27 implemented, 5 declared unsupported) · 6 readouts · 10 interface points · 14 cited sources · 30 recorded limitations</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap wide sec" id="numbers">
+    <div class="sec-head"><div class="eyebrow">03 · Numbers</div><h2>The release at a glance</h2></div>
+    <div class="two">
+      <div class="table-scroll">
+        <table class="spec" id="spec">
+          <caption class="sr">Release totals</caption>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="chart-card" id="sources-card">
+        <h3>Where the numbers come from</h3>
+        <p class="sub">3,001 sources cited across the 195 contracts, by kind</p>
+        <div class="bars" id="bars" role="img" aria-label="Bar chart of cited sources by kind"></div>
+        <p class="chart-note">Raw third-party documents are not redistributed; contracts keep the citation and the derived values.</p>
+        <details class="tbl"><summary>Show as table</summary><table id="bars-table"></table></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap wide sec" id="quickstart">
+    <div class="sec-head"><div class="eyebrow">04 · Quick start</div><h2>Download an instrument and run it</h2></div>
+    <div class="sec-body">
+      <div class="aside">Tested with Python 3.12 and NumPy 2.3. No simulator is needed to run the behaviour models.</div>
+      <div class="main">
+        <div class="tabs" role="tablist" aria-label="Quick start">
+          <button class="tab" role="tab" id="tab-get" aria-controls="pane-get" aria-selected="true">1 · Get the data</button>
+          <button class="tab" role="tab" id="tab-run" aria-controls="pane-run" aria-selected="false" tabindex="-1">2 · Run a fume hood</button>
+          <button class="tab" role="tab" id="tab-files" aria-controls="pane-files" aria-selected="false" tabindex="-1">3 · Asset folder</button>
+        </div>
+        <div class="panel-code" role="tabpanel" id="pane-get" aria-labelledby="tab-get">
+<pre class="code"><span class="c"># everything: models, contracts, runtimes and tests (about 1.5 GB)</span>
+pip install -U huggingface_hub
+hf download MBZUAI/ChemLab-Assets --repo-type dataset --local-dir ChemLab-Assets
+pip install -r ChemLab-Assets/requirements.txt
+
+<span class="c"># or one instrument plus the code</span>
+hf download MBZUAI/ChemLab-Assets --repo-type dataset --local-dir ChemLab-Assets \
+    --include "assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/*" "scripts/*" "examples/*"</pre>
+          <p class="code-note">Each row of <code>catalog/catalog.csv</code> gives an instrument's folder, so any subset can be fetched the same way.</p>
+        </div>
+        <div class="panel-code" role="tabpanel" id="pane-run" aria-labelledby="tab-run" hidden>
+<pre class="code"><span class="k">from</span> asset_runtime <span class="k">import</span> esco_efa5uduvw <span class="k">as</span> rt   <span class="c"># run from the repo root with scripts/ on sys.path</span>
+
+hood = rt.EscoEfa5uduvwRuntime(<span class="s">"hood_01"</span>)
+hood.register_principal(<span class="s">"lab"</span>, <span class="s">"evaluator"</span>)   <span class="c"># sets up the world, sees hidden truth</span>
+hood.register_principal(<span class="s">"robot"</span>, <span class="s">"agent"</span>)     <span class="c"># sees what a policy may see</span>
+lab, robot = hood.session(<span class="s">"lab"</span>), hood.session(<span class="s">"robot"</span>)
+
+call(lab, <span class="s">"plant.configure"</span>, **rt.PLANT_EXAMPLE)       <span class="c"># 295.15 K, 101.325 kPa</span>
+call(lab, <span class="s">"exhaust.configure"</span>, **rt.EXHAUST_EXAMPLE)   <span class="c"># building exhaust, damper half open</span>
+call(robot, <span class="s">"sash.set"</span>, height_m=<span class="s">0.457</span>)                 <span class="c"># raise to the 18-inch stop</span>
+call(lab, <span class="s">"sim.step"</span>, dt_s=<span class="s">30.0</span>)
+show(<span class="s">"before calibration"</span>)
+
+v = call(robot, <span class="s">"anemometer.measure"</span>)[<span class="s">"face_velocity_m_s"</span>]
+call(robot, <span class="s">"monitor.calibrate"</span>, reference_m_s=round(v, <span class="s">3</span>))
+call(lab, <span class="s">"sim.step"</span>, dt_s=<span class="s">10.0</span>)
+show(<span class="s">"after calibration"</span>)</pre>
+          <div class="out-label">Output</div>
+<pre class="code">before calibration   reading 0.28 m/s   alarm low
+anemometer           0.309 m/s
+after calibration    reading 0.31 m/s   alarm none</pre>
+          <p class="code-note"><code>call</code> wraps <code>session.invoke(instance_id, capability_id, arguments, request_id)</code> and <code>show</code> reads two agent-visible slots; the full script is <code>examples/quickstart_fume_hood.py</code>. The robot never sees the true face velocity (0.299&nbsp;m/s, evaluator-only). It finds the low reading, measures the opening with an anemometer and calibrates the monitor, as a technician would.</p>
+        </div>
+        <div class="panel-code" role="tabpanel" id="pane-files" aria-labelledby="tab-files" hidden>
+          <div class="table-scroll">
+            <table class="files">
+              <thead><tr><th>File</th><th>What it is for</th></tr></thead>
+              <tbody>
+                <tr><td>model.glb</td><td>Viewing. Asset frame is Z up with the front facing −Y; most GLBs keep that frame, so rotate −90° about X in Y-up viewers (the catalog's <code>glb_up</code> field says which).</td></tr>
+                <tr><td>model.urdf, meshes/</td><td>Simulators. Links, joints with limits, per-part OBJ visuals and primitive collision proxies.</td></tr>
+                <tr><td>model.blend</td><td>Blender source with named parts, materials and textures.</td></tr>
+                <tr><td>asset.contract.json</td><td>The contract: components, state slots, capabilities, mechanisms, ports, sources, limitations.</td></tr>
+                <tr><td>geometry_manifest.json</td><td>Part list, frames, dimensions and the joint layout.</td></tr>
+                <tr><td>collision_proxies.json</td><td>Primitive colliders per part, in the asset frame.</td></tr>
+                <tr><td>instrument_model.json, *_templates.json</td><td>Runtime parameters and reference-data output templates, where the instrument has them.</td></tr>
+                <tr><td>scripts/asset_runtime/&lt;slug&gt;.py</td><td>The runtime (at the repository root), with its tests in <code>tests/</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap wide sec" id="provenance">
+    <div class="sec-head"><div class="eyebrow">05 · Provenance &amp; limits</div><h2>What the models claim, and what they don't</h2></div>
+    <div class="sec-body">
+      <div class="aside">Every capability records its verification level for process, host, scene, robot and hardware.</div>
+      <div class="main prov-grid">
+      <div class="prose">
+        <p>Each state slot and capability lists the sources it rests on. Manufacturer documents give dimensions, ranges and operating limits; papers, standards and open databases give the measurements behind instrument outputs; where neither exists, the contract states the assumption explicitly. Values a real operator cannot see, such as true exhaust flow or sample composition, are evaluator-only slots: 1,035 of the 6,280 state slots.</p>
+        <p>786 capabilities are declared but marked unsupported, so an agent can tell a missing feature from a failed call. No capability claims robot-contact or real-hardware validation. Treat the assets as documented, testable behaviour models for embodied-AI research, not as certified digital twins.</p>
+      </div>
+      <figure class="shot">
+        <img src="media/figs/isaac_esco.webp" width="1280" height="720" loading="lazy" alt="Two fume-hood instances rendered in Isaac Sim, one with the sash raised">
+        <figcaption><b>Figure 3.</b> The CHEM-199 fume hood as a USD articulation in Isaac Sim (RTX renderer), captured during the Matterix scene check.</figcaption>
+      </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap wide sec" id="cite">
+    <div class="sec-head"><div class="eyebrow">06 · Cite</div><h2>BibTeX</h2></div>
+    <div class="sec-body">
+      <div class="aside">If you use the assets, please cite the release.</div>
+      <div class="main cite-box">
+<pre id="bibtex">@misc{song2026chemlabassets,
+  title        = {ChemLab-Assets: Simulation-Ready Chemistry Laboratory
+                  Instruments with Executable Behaviour Contracts},
+  author       = {Song, Zirui and Zhang, Jiadong and Zhang, Jiahao and
+                  Chang, Xiaojun and Ma, Xiaosong and Chen, Xiuying},
+  year         = {2026},
+  howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
+  note         = {Dataset, release 1.0}
+}</pre>
+        <button class="btn small" id="copy-bib" type="button">Copy</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap wide">
+    <p>Code (runtimes, tools, examples) is released under the MIT License. 3D models, contracts and data are released under CC BY-NC 4.0. Third-party data keep their own terms; see NOTICE.md.</p>
+    <p>Product names and trademarks belong to their owners and are used only to identify the instrument being modelled. This project is not affiliated with or endorsed by any manufacturer.</p>
+  </div>
+</footer>
+
+<dialog class="sheet" id="sheet" aria-labelledby="sheet-title">
+  <button class="btn small sheet-close" id="sheet-close" type="button">Close</button>
+  <div class="sheet-grid">
+    <div class="sheet-media" id="sheet-media"></div>
+    <div class="sheet-info">
+      <div class="chem" id="sheet-chem"></div>
+      <h3 id="sheet-title"></h3>
+      <div class="mm" id="sheet-mm"></div>
+      <div class="zh" id="sheet-zh" lang="zh"></div>
+      <div><span class="chip" id="sheet-domain"></span></div>
+      <div class="kv" id="sheet-kv"></div>
+      <div class="sheet-links" id="sheet-links"></div>
+    </div>
+  </div>
+</dialog>
+
+<div class="tip" id="tip" hidden></div>
+
+<script>
+(() => {
+  const LINKS = {
+    github: "https://github.com/mbzuai-nlp/ChemLab-Assets",
+    dataset: "https://huggingface.co/datasets/MBZUAI/ChemLab-Assets",
+    explorer: "https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer",
+  };
+  const LOCAL_MODELS = window.CHEMLAB_LOCAL_MODELS || [];   // GLBs shipped next to the page (preview builds)
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmt = (n) => Number(n).toLocaleString("en-US");
+
+  document.querySelectorAll("[data-link]").forEach((a) => {
+    const url = LINKS[a.dataset.link];
+    if (url && !url.startsWith("__")) { a.href = url; a.target = "_blank"; a.rel = "noopener"; }
+    else { a.setAttribute("aria-disabled", "true"); a.title = "Link available after the public release"; }
+  });
+
+  /* ---------- sources chart (single series, one hue, values labelled) ---------- */
+  const SOURCES = [
+    ["Publications, standards and open databases", 1528],
+    ["Manufacturer brochures and manuals", 792],
+    ["Project code and geometry records", 479],
+    ["Stated modelling assumptions", 172],
+    ["Product photos (reference only)", 30],
+  ];
+  const max = Math.max(...SOURCES.map((s) => s[1]));
+  $("#bars").innerHTML = SOURCES.map(([k, v]) => {
+    const pct = (100 * v / 3001).toFixed(1);
+    return `<div class="bar-row" title="${esc(k)}: ${fmt(v)} sources (${pct}%)"><span class="bl">${esc(k)}</span>` +
+      `<span class="bar-track"><span class="bar-fill" style="width:${(78 * v / max).toFixed(2)}%"></span><span class="bar-val">${fmt(v)}</span></span></div>`;
+  }).join("");
+  $("#bars-table").innerHTML = "<tr><th>Kind</th><th>Sources</th></tr>" + SOURCES.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${fmt(v)}</td></tr>`).join("");
+
+  /* ---------- anatomy callouts ---------- */
+  const marks = [...document.querySelectorAll(".mark")], items = [...document.querySelectorAll("#legend li")];
+  const light = (k) => { marks.forEach((m) => m.classList.toggle("on", m.dataset.k === k)); items.forEach((i) => i.classList.toggle("on", i.dataset.k === k)); };
+  marks.forEach((m) => { m.addEventListener("mouseenter", () => light(m.dataset.k)); m.addEventListener("focus", () => light(m.dataset.k)); m.addEventListener("click", () => { light(m.dataset.k); items.find((i) => i.dataset.k === m.dataset.k)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }); });
+  items.forEach((i) => i.addEventListener("mouseenter", () => light(i.dataset.k)));
+  $("#specimen").addEventListener("mouseleave", () => light(null));
+  $("#legend").addEventListener("mouseleave", () => light(null));
+
+  /* ---------- quick-start tabs ---------- */
+  const tabs = [...document.querySelectorAll(".tab")];
+  const select = (t) => tabs.forEach((x) => { const on = x === t; x.setAttribute("aria-selected", on); x.tabIndex = on ? 0 : -1; $("#" + x.getAttribute("aria-controls")).hidden = !on; });
+  tabs.forEach((t, i) => { t.addEventListener("click", () => select(t)); t.addEventListener("keydown", (e) => { if (e.key === "ArrowRight" || e.key === "ArrowLeft") { const n = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]; select(n); n.focus(); } }); });
+
+  /* ---------- copy BibTeX ---------- */
+  $("#copy-bib").addEventListener("click", async (e) => {
+    const btn = e.currentTarget, text = $("#bibtex").textContent;
+    try { await navigator.clipboard.writeText(text); btn.textContent = "Copied"; }
+    catch { const r = document.createRange(); r.selectNodeContents($("#bibtex")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = "Selected, press Ctrl+C"; }
+    setTimeout(() => (btn.textContent = "Copy"), 1800);
+  });
+
+  /* ---------- catalog: wall, spec table, sheet ---------- */
+  let CAT = null;
+  const tip = $("#tip");
+  function showTip(a, el) {
+    tip.innerHTML = `<div class="tc">${esc(a.c || "")}</div><div class="tn">${esc(a.n)}</div><div class="tm">${esc(a.mk)} ${esc(a.md)}</div>`;
+    tip.hidden = false;
+    const r = el.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    let x = r.left + r.width / 2 - tw / 2, y = r.top - th - 26;
+    if (y < 64) y = r.bottom + 26;
+    x = Math.max(8, Math.min(innerWidth - tw - 8, x));
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+  const hideTip = () => (tip.hidden = true);
+
+  function renderWall() {
+    const by = {};
+    CAT.assets.forEach((a) => (by[a.d] ||= []).push(a));
+    $("#wall").innerHTML = CAT.domains.map((d) => {
+      const list = (by[d.key] || []).sort((x, y) => (x.c || "Z").localeCompare(y.c || "Z"));
+      return `<div class="wall-row" role="listitem"><div class="wall-label"><span class="dn">${esc(d.name)}</span><span class="dc">${d.count}</span></div>` +
+        `<ul class="cells" aria-label="${esc(d.name)}">` + list.map((a) =>
+          `<li><button class="cell" type="button" data-s="${a.s}" aria-label="${esc(a.n)}, ${esc(a.mk)} ${esc(a.md)}"><img src="media/thumb/${a.s}.webp" alt="" loading="lazy" decoding="async" width="400" height="300"></button></li>`).join("") +
+        `</ul></div>`;
+    }).join("");
+    const bySlug = Object.fromEntries(CAT.assets.map((a) => [a.s, a]));
+    $("#wall").addEventListener("mouseover", (e) => { const b = e.target.closest(".cell"); if (b) showTip(bySlug[b.dataset.s], b); });
+    $("#wall").addEventListener("focusin", (e) => { const b = e.target.closest(".cell"); if (b) showTip(bySlug[b.dataset.s], b); });
+    $("#wall").addEventListener("mouseleave", hideTip);
+    $("#wall").addEventListener("focusout", hideTip);
+    $("#wall").addEventListener("click", (e) => { const b = e.target.closest(".cell"); if (b) { hideTip(); openSheet(bySlug[b.dataset.s]); } });
+    addEventListener("scroll", hideTip, { passive: true });
+
+    const q = $("#q");
+    q.addEventListener("input", () => {
+      const terms = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const wall = $("#wall");
+      if (!terms.length) { wall.classList.remove("filtering"); $("#count").textContent = `${CAT.assets.length} instruments`; return; }
+      let n = 0;
+      wall.querySelectorAll(".cell").forEach((b) => {
+        const a = bySlug[b.dataset.s];
+        const hay = [a.n, a.mk, a.md, a.c, a.zh, a.s, CAT.domains.find((d) => d.key === a.d)?.name].join(" ").toLowerCase();
+        const hit = terms.every((t) => hay.includes(t));
+        b.classList.toggle("hit", hit); n += hit;
+      });
+      wall.classList.add("filtering");
+      $("#count").textContent = `${n} of ${CAT.assets.length} instruments`;
+    });
+  }
+
+  function renderSpec() {
+    const t = CAT.totals, jt = { prismatic: 0, revolute: 0, continuous: 0 };
+    CAT.assets.forEach((a) => Object.entries(a.jt || {}).forEach(([k, v]) => (jt[k] = (jt[k] || 0) + v)));
+    const rows = [
+      ["Instruments", t.instruments, "one commercial model each"],
+      ["Capability domains", t.domains, ""],
+      ["Manufacturers", t.makers, ""],
+      ["Functional components", t.components, "named parts with function and physical meaning"],
+      ["Joints", t.joints, `${fmt(jt.prismatic)} prismatic · ${fmt(jt.revolute)} revolute · ${fmt(jt.continuous)} continuous`],
+      ["State slots", t.state_slots, "typed, with units and visibility"],
+      ["Capabilities", t.capabilities, "JSON-Schema arguments and declared errors"],
+      ["Readouts", t.readouts, "displays, LEDs and indicator lamps"],
+      ["Interface points", t.interface_points, "place, grasp, port and fixture frames"],
+      ["Cited sources", t.sources, ""],
+    ];
+    $("#spec tbody").innerHTML = rows.map(([k, v, n]) => `<tr><th scope="row">${esc(k)}</th><td class="v">${fmt(v)}</td><td class="n">${esc(n)}</td></tr>`).join("");
+  }
+
+  const sheet = $("#sheet");
+  let mvLoading = null;
+  function loadModelViewer() {
+    if (customElements.get("model-viewer")) return Promise.resolve();
+    mvLoading ||= new Promise((ok, fail) => {
+      const s = document.createElement("script");
+      s.type = "module"; s.src = "https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js";
+      s.onload = () => customElements.whenDefined("model-viewer").then(ok); s.onerror = fail;
+      document.head.appendChild(s);
+    });
+    return mvLoading;
+  }
+  function modelUrl(a) {
+    if (!a.f.glb) return null;
+    return LOCAL_MODELS.includes(a.s) ? `models/${a.s}${window.CHEMLAB_LOCAL_MODEL_EXT || ".glb"}` : CAT.base + a.f.glb;
+  }
+  function showImage(a) {
+    $("#sheet-media").innerHTML = `<img src="media/hero/${a.s}.webp" alt="${esc(a.n)}, ${esc(a.mk)} ${esc(a.md)}" width="1200" height="900">` +
+      `<div class="media-tabs"><button class="btn small" type="button" id="to-3d">View in 3D</button></div>`;
+    $("#to-3d").addEventListener("click", () => show3D(a));
+  }
+  async function show3D(a) {
+    const media = $("#sheet-media");
+    media.innerHTML = `<div class="media-msg">Loading the 3D model…</div>`;
+    try { await loadModelViewer(); } catch { media.innerHTML = `<div class="media-msg">The 3D viewer could not load here. Open the instrument in the 3D Explorer instead.</div>`; return; }
+    const mv = document.createElement("model-viewer");
+    mv.setAttribute("src", modelUrl(a));
+    mv.setAttribute("alt", `${a.n}, ${a.mk} ${a.md}`);
+    mv.setAttribute("camera-controls", "");
+    mv.setAttribute("shadow-intensity", "0.6");
+    mv.setAttribute("exposure", "1.05");
+    mv.setAttribute("camera-orbit", "-30deg 72deg auto");
+    if (a.up === "z") mv.setAttribute("orientation", "0deg -90deg 0deg");
+    mv.addEventListener("load", () => media.querySelector(".media-msg")?.remove());
+    mv.addEventListener("error", () => { const m = media.querySelector(".media-msg"); if (m) m.textContent = "The model file could not be fetched from here. Use the 3D Explorer or download the GLB."; });
+    media.appendChild(mv);
+    const back = document.createElement("div");
+    back.className = "media-tabs";
+    back.innerHTML = `<button class="btn small" type="button">Show render</button>`;
+    back.firstChild.addEventListener("click", () => showImage(a));
+    media.appendChild(back);
+  }
+  function openSheet(a) {
+    const dom = CAT.domains.find((d) => d.key === a.d);
+    $("#sheet-chem").textContent = [a.c, "instrument." + a.s].filter(Boolean).join(" · ");
+    $("#sheet-title").textContent = a.n;
+    $("#sheet-mm").textContent = `${a.mk} ${a.md}`;
+    $("#sheet-zh").textContent = a.zh || "";
+    $("#sheet-domain").textContent = dom ? dom.name : "";
+    const [nc, nj, ns, ncap, nimp, nr, ni, nsrc] = a.k;
+    const size = a.sz ? a.sz.map((v) => Math.round(v * 1000)).join(" × ") + " mm" : "—";
+    const legacy = !a.f.contract;
+    const kv = [["Size (W × D × H)", size], ["Components", fmt(nc)], ["Joints", fmt(nj)], ["State slots", legacy && !ns ? "—" : fmt(ns)],
+      ["Capabilities", `${fmt(ncap)} (${fmt(nimp)} implemented)`], ["Readouts", fmt(nr)], ["Interface points", fmt(ni)], ["Cited sources", legacy && !nsrc ? "—" : fmt(nsrc)]];
+    $("#sheet-kv").innerHTML = kv.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join("") +
+      (legacy ? `<p class="legacy-note" style="grid-column:1/-1;margin:10px 0 0">First-generation asset (September 2026). It is described by <code>physics_annotations.json</code> and its own runtime instead of an asset contract.</p>` : "");
+    const tree = LINKS.dataset + "/tree/main/" + a.p;
+    const links = [[`${LINKS.explorer}#instrument.${a.s}`, "Open in 3D Explorer", true], [tree, "Browse files", false]];
+    if (a.f.contract) links.push([LINKS.dataset + "/blob/main/" + a.f.contract, "Contract", false]);
+    if (a.f.glb) links.push([CAT.base + a.f.glb, "GLB", false]);
+    if (a.f.urdf) links.push([LINKS.dataset + "/blob/main/" + a.f.urdf, "URDF", false]);
+    $("#sheet-links").innerHTML = links.map(([u, t, p]) => `<a class="btn small${p ? " primary" : ""}" href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>`).join("");
+    showImage(a);
+    if (!sheet.open) sheet.showModal();
+  }
+  $("#sheet-close").addEventListener("click", () => sheet.close());
+  sheet.addEventListener("click", (e) => { if (e.target === sheet) sheet.close(); });
+  sheet.addEventListener("close", () => ($("#sheet-media").innerHTML = ""));
+
+  fetch("data/catalog.json").then((r) => r.json()).then((c) => { CAT = c; renderWall(); renderSpec(); })
+    .catch(() => { $("#wall").innerHTML = `<p class="caption">The instrument catalog (data/catalog.json) could not be loaded.</p>`; });
+})();
+</script>
+
+</html>

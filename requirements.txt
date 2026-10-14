@@ -1,0 +1,11 @@
+# runtimes (tested with Python 3.12)
+numpy>=2.0,<2.4        # np.trapz is used by three runtimes and was removed in NumPy 2.4
+scipy>=1.13
+pillow>=10
+opencv-python-headless>=4.10
+CoolProp==7.2.0        # sft_sft110 and tousimis_autosamdri815 only
+# tests
+pytest>=8
+jsonschema>=4.10
+# tools/download_assets.py
+huggingface_hub>=0.24

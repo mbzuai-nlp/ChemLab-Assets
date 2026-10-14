@@ -1,0 +1,9 @@
+# models and data are downloaded from Hugging Face (tools/download_assets.py)
+/assets/
+/previews/
+/release_manifest.json
+__pycache__/
+*.pyc
+*.blend1
+.DS_Store
+.venv/

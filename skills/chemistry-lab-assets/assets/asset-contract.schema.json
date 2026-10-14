@@ -1,0 +1,1397 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "asset_type_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+    },
+    "asset_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "name_zh": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "type": "string",
+      "minLength": 1
+    },
+    "asset_kind": {
+      "enum": [
+        "instrument",
+        "passive",
+        "tool",
+        "robot",
+        "accessory"
+      ]
+    },
+    "coverage": {
+      "enum": [
+        "full",
+        "subset",
+        "scaffold"
+      ]
+    },
+    "description_zh": {
+      "type": "string",
+      "minLength": 1
+    },
+    "coordinate_system": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "defined",
+            "assumed",
+            "not_applicable"
+          ]
+        },
+        "length_unit": {
+          "const": "m"
+        },
+        "angle_unit": {
+          "const": "rad"
+        },
+        "handedness": {
+          "anyOf": [
+            {
+              "enum": [
+                "right",
+                "left"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "up_axis": {
+          "anyOf": [
+            {
+              "enum": [
+                "+X",
+                "-X",
+                "+Y",
+                "-Y",
+                "+Z",
+                "-Z"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "frame": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "length_unit",
+        "angle_unit",
+        "handedness",
+        "up_axis",
+        "frame"
+      ],
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "sources": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "components": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/component"
+      },
+      "minProperties": 1
+    },
+    "state_slots": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/slot"
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/capability"
+      }
+    },
+    "model_bindings": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/model_binding"
+      }
+    },
+    "ports": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/port"
+      }
+    },
+    "mechanisms": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/mechanism"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "asset_type_id",
+    "asset_version",
+    "name_zh",
+    "category",
+    "asset_kind",
+    "coverage",
+    "description_zh",
+    "coordinate_system",
+    "artifacts",
+    "sources",
+    "components",
+    "state_slots",
+    "capabilities",
+    "model_bindings",
+    "ports",
+    "mechanisms",
+    "limitations",
+    "extensions"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chemistry-lab:asset-contract:1.0.0",
+  "title": "Chemistry Lab Asset Contract 1.0.0",
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "available",
+            "planned"
+          ]
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "format",
+        "status",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "manufacturer",
+            "photo",
+            "measurement",
+            "code",
+            "assumption",
+            "publication"
+          ]
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "reference",
+        "locator",
+        "note"
+      ],
+      "additionalProperties": false
+    },
+    "property": {
+      "type": "object",
+      "properties": {
+        "value": {},
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "meaning_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "enum": [
+            "documented",
+            "measured",
+            "photo_estimate",
+            "assumption",
+            "unknown"
+          ]
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "meaning_zh",
+        "evidence",
+        "source_ids",
+        "uncertainty"
+      ],
+      "additionalProperties": false
+    },
+    "geometry": {
+      "type": "object",
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "visual",
+            "collision",
+            "both"
+          ]
+        }
+      },
+      "required": [
+        "artifact_id",
+        "selector",
+        "role"
+      ],
+      "additionalProperties": false
+    },
+    "component": {
+      "type": "object",
+      "properties": {
+        "name_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "function_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "physical_meaning_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "geometry_status": {
+          "enum": [
+            "bound",
+            "declared",
+            "absent"
+          ]
+        },
+        "geometry": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/geometry"
+          }
+        },
+        "capability_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "passive_reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "properties": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/property"
+          }
+        }
+      },
+      "required": [
+        "name_zh",
+        "function_zh",
+        "physical_meaning_zh",
+        "parent",
+        "geometry_status",
+        "geometry",
+        "capability_ids",
+        "passive_reason",
+        "properties"
+      ],
+      "additionalProperties": false
+    },
+    "read_binding": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "enum": [
+            "process",
+            "scene",
+            "sensor",
+            "hardware",
+            "derived",
+            "host"
+          ]
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "accessor": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "backend",
+        "artifact_id",
+        "accessor"
+      ],
+      "additionalProperties": false
+    },
+    "write_via": {
+      "type": "object",
+      "properties": {
+        "capability_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "argument": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixed_arguments": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "capability_id",
+        "argument",
+        "fixed_arguments"
+      ],
+      "additionalProperties": false
+    },
+    "slot": {
+      "type": "object",
+      "properties": {
+        "component_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "value_schema": {
+          "type": "object"
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reference_conditions": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "meaning_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "enum": [
+            "setpoint",
+            "process_truth",
+            "sensor",
+            "derived",
+            "scene"
+          ]
+        },
+        "access": {
+          "enum": [
+            "read_only",
+            "read_write",
+            "internal"
+          ]
+        },
+        "visibility": {
+          "enum": [
+            "agent",
+            "debug",
+            "evaluator"
+          ]
+        },
+        "read_binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/read_binding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "write_via": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/write_via"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sampling": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "enum": [
+                "instant",
+                "interval_mean",
+                "integral",
+                "series",
+                "static"
+              ]
+            },
+            "time_domain": {
+              "enum": [
+                "simulation",
+                "wall",
+                "none"
+              ]
+            },
+            "window_description": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "mode",
+            "time_domain",
+            "window_description"
+          ],
+          "additionalProperties": false
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "component_ids",
+        "value_schema",
+        "unit",
+        "reference_conditions",
+        "meaning_zh",
+        "origin",
+        "access",
+        "visibility",
+        "read_binding",
+        "write_via",
+        "sampling",
+        "source_ids"
+      ],
+      "additionalProperties": false
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "enum": [
+            "process",
+            "scene",
+            "robot",
+            "hardware",
+            "host",
+            "composite"
+          ]
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "invocation": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "backend",
+        "artifact_id",
+        "entrypoint",
+        "invocation"
+      ],
+      "additionalProperties": false
+    },
+    "precondition": {
+      "type": "object",
+      "properties": {
+        "description_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "enforced_by": {
+          "enum": [
+            "runtime",
+            "adapter",
+            "host",
+            "manual",
+            "not_enforced"
+          ]
+        },
+        "check": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "description_zh",
+        "state_ids",
+        "enforced_by",
+        "check"
+      ],
+      "additionalProperties": false
+    },
+    "effect": {
+      "type": "object",
+      "properties": {
+        "state_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "description_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timing": {
+          "enum": [
+            "immediate",
+            "on_step",
+            "on_completion",
+            "external"
+          ]
+        }
+      },
+      "required": [
+        "state_id",
+        "description_zh",
+        "timing"
+      ],
+      "additionalProperties": false
+    },
+    "model_effects": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "direct",
+            "coupled",
+            "host_required"
+          ]
+        },
+        "description_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "mode",
+        "description_zh",
+        "binding_ids"
+      ],
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "synchronous",
+            "asynchronous"
+          ]
+        },
+        "time_domain": {
+          "enum": [
+            "simulation",
+            "wall",
+            "none"
+          ]
+        },
+        "completion_criterion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "completion_state_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cancellation": {
+          "enum": [
+            "unsupported",
+            "best_effort",
+            "supported"
+          ]
+        },
+        "retry": {
+          "enum": [
+            "safe_repeat",
+            "same_request_id",
+            "never_automatic"
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "partial_failure_zh": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "mode",
+        "time_domain",
+        "completion_criterion",
+        "completion_state_ids",
+        "timeout_s",
+        "cancellation",
+        "retry",
+        "resources",
+        "partial_failure_zh"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "meaning_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "side_effects": {
+          "enum": [
+            "none",
+            "partial",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "meaning_zh",
+        "side_effects"
+      ],
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "layer": {
+          "enum": [
+            "contract",
+            "process",
+            "scene",
+            "robot",
+            "hardware",
+            "host"
+          ]
+        },
+        "status": {
+          "enum": [
+            "not_run",
+            "passed",
+            "failed"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_artifact_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "layer",
+        "status",
+        "method",
+        "environment",
+        "checked_at",
+        "evidence_artifact_id",
+        "evidence_note"
+      ],
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "properties": {
+        "function_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "query",
+            "device_command",
+            "robot_skill",
+            "simulation",
+            "analysis",
+            "configuration"
+          ]
+        },
+        "visibility": {
+          "enum": [
+            "agent",
+            "debug",
+            "evaluator"
+          ]
+        },
+        "component_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "availability": {
+          "enum": [
+            "declared",
+            "implemented",
+            "unsupported"
+          ]
+        },
+        "input_schema": {
+          "type": "object"
+        },
+        "output_schema": {
+          "type": "object"
+        },
+        "implementation": {
+          "type": "object",
+          "properties": {
+            "process": {
+              "enum": [
+                "absent",
+                "declared",
+                "implemented",
+                "verified",
+                "not_applicable"
+              ]
+            },
+            "scene": {
+              "enum": [
+                "absent",
+                "declared",
+                "implemented",
+                "verified",
+                "not_applicable"
+              ]
+            },
+            "robot": {
+              "enum": [
+                "absent",
+                "declared",
+                "implemented",
+                "verified",
+                "not_applicable"
+              ]
+            },
+            "hardware": {
+              "enum": [
+                "absent",
+                "declared",
+                "implemented",
+                "verified",
+                "not_applicable"
+              ]
+            },
+            "host": {
+              "enum": [
+                "absent",
+                "declared",
+                "implemented",
+                "verified",
+                "not_applicable"
+              ]
+            }
+          },
+          "required": [
+            "process",
+            "scene",
+            "robot",
+            "hardware",
+            "host"
+          ],
+          "additionalProperties": false
+        },
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/binding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/precondition"
+          }
+        },
+        "state_effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/effect"
+          }
+        },
+        "observes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "model_effects": {
+          "$ref": "#/$defs/model_effects"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/error"
+          }
+        },
+        "example_arguments": {
+          "type": "object"
+        },
+        "verification": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/verification"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "function_zh",
+        "kind",
+        "visibility",
+        "component_ids",
+        "availability",
+        "input_schema",
+        "output_schema",
+        "implementation",
+        "binding",
+        "preconditions",
+        "state_effects",
+        "observes",
+        "model_effects",
+        "execution",
+        "errors",
+        "example_arguments",
+        "verification",
+        "limitations",
+        "source_ids"
+      ],
+      "additionalProperties": false
+    },
+    "model_binding": {
+      "type": "object",
+      "properties": {
+        "component_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "enum": [
+            "joint",
+            "pose",
+            "material",
+            "visibility",
+            "display"
+          ]
+        },
+        "attribute": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mapping_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authority": {
+          "enum": [
+            "process",
+            "scene",
+            "host",
+            "none"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "none",
+            "process_to_scene",
+            "scene_to_process",
+            "host_to_both"
+          ]
+        },
+        "sync_status": {
+          "enum": [
+            "unbound",
+            "declared",
+            "implemented",
+            "verified"
+          ]
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "component_id",
+        "artifact_id",
+        "target",
+        "channel",
+        "attribute",
+        "unit",
+        "limits",
+        "state_id",
+        "mapping_zh",
+        "authority",
+        "direction",
+        "sync_status",
+        "source_ids"
+      ],
+      "additionalProperties": false
+    },
+    "port": {
+      "type": "object",
+      "properties": {
+        "component_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "medium": {
+          "enum": [
+            "gas",
+            "liquid",
+            "electrical",
+            "data",
+            "mechanical",
+            "thermal"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "in",
+            "out",
+            "bidirectional"
+          ]
+        },
+        "frame": {
+          "type": "string",
+          "minLength": 1
+        },
+        "meaning_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connection_constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "component_id",
+        "medium",
+        "direction",
+        "frame",
+        "meaning_zh",
+        "connection_constraints"
+      ],
+      "additionalProperties": false
+    },
+    "mechanism": {
+      "type": "object",
+      "properties": {
+        "component_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "state_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "meaning_zh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementation": {
+          "enum": [
+            "absent",
+            "qualitative",
+            "lumped",
+            "numerical",
+            "calibrated"
+          ]
+        },
+        "equations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/property"
+          }
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "uniqueItems": true
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "component_ids",
+        "state_ids",
+        "meaning_zh",
+        "implementation",
+        "equations",
+        "parameters",
+        "source_ids",
+        "limitations"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
