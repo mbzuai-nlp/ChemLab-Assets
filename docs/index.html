@@ -126,7 +126,8 @@ p { margin: 0; }
 .wall-label { display: flex; justify-content: space-between; gap: 10px; font-family: var(--font-display); font-size: .8rem; line-height: 1.2; border-right: 1px solid var(--rule); padding-right: 12px; min-height: 100%; align-items: center; }
 .wall-label .dn { font-weight: 600; }
 .wall-label .dc { font-family: var(--font-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.cells { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(23, minmax(0, 1fr)); gap: 4px; }
+.cells { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; }
+@media (min-width: 901px) { .cells li.brk { grid-column-start: 1; } }
 .cell { all: unset; display: block; aspect-ratio: 4 / 3; width: 100%; max-width: 100%; border-radius: 5px; background: var(--panel); box-shadow: inset 0 0 0 1px var(--rule); cursor: pointer; position: relative; transition: transform .14s ease, box-shadow .14s ease, opacity .2s ease, filter .2s ease; }
 .cell img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .cell:hover, .cell:focus-visible { transform: scale(1.9); z-index: 5; box-shadow: var(--shadow), inset 0 0 0 1px var(--rule-strong); }
@@ -332,7 +333,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       <span class="spacer"></span>
     </div>
     <div class="wall" id="wall" role="list" aria-label="All instruments by capability domain"></div>
-    <figcaption class="caption"><b>Figure 1.</b> The full release. Each row is one capability domain and each tile is one instrument, so a row's length is the number of instruments in that domain. Point at a tile for the model; click it for the instrument's sheet and an interactive 3D view.</figcaption>
+    <figcaption class="caption"><b>Figure 1.</b> The full release. Each row is one capability domain and each tile is one instrument, so a row's length shows how many instruments the domain has; the largest domain, with 23, continues on a second line. Point at a tile for the model; click it for the instrument's sheet and an interactive 3D view.</figcaption>
   </figure>
 
   <section class="wrap wide sec" id="overview">
@@ -627,14 +628,16 @@ after calibration    reading 0.31 m/s   alarm none</pre>
   }
   const hideTip = () => (tip.hidden = true);
 
+  const WALL_COLS = 16;
   function renderWall() {
     const by = {};
     CAT.assets.forEach((a) => (by[a.d] ||= []).push(a));
     $("#wall").innerHTML = CAT.domains.map((d) => {
       const list = (by[d.key] || []).sort((x, y) => (x.c || "Z").localeCompare(y.c || "Z"));
+      const per = Math.ceil(list.length / Math.ceil(list.length / WALL_COLS));   // long domains split into even lines
       return `<div class="wall-row" role="listitem"><div class="wall-label"><span class="dn">${esc(d.name)}</span><span class="dc">${d.count}</span></div>` +
-        `<ul class="cells" aria-label="${esc(d.name)}">` + list.map((a) =>
-          `<li><button class="cell" type="button" data-s="${a.s}" aria-label="${esc(a.n)}, ${esc(a.mk)} ${esc(a.md)}"><img src="media/thumb/${a.s}.webp" alt="" loading="lazy" decoding="async" width="400" height="300"></button></li>`).join("") +
+        `<ul class="cells" aria-label="${esc(d.name)}">` + list.map((a, i) =>
+          `<li${i && i % per === 0 ? ' class="brk"' : ""}><button class="cell" type="button" data-s="${a.s}" aria-label="${esc(a.n)}, ${esc(a.mk)} ${esc(a.md)}"><img src="media/thumb/${a.s}.webp" alt="" loading="lazy" decoding="async" width="400" height="300"></button></li>`).join("") +
         `</ul></div>`;
     }).join("");
     const bySlug = Object.fromEntries(CAT.assets.map((a) => [a.s, a]));
