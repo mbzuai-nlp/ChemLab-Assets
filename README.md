@@ -14,7 +14,7 @@ part-level geometry · working joints · executable behaviour models · machine-
 <img alt="Asset licence" src="https://img.shields.io/badge/assets-CC%20BY--NC%204.0-15202a">
 <img alt="Python" src="https://img.shields.io/badge/python-3.12-15202a">
 
-Zirui Song · Jiadong Zhang · Jiahao Zhang · Xiaojun Chang · Xiaosong Ma · Xiuying Chen<br>
+Zirui Song · Jiadong Zhang · Jiahao Zhang  · Xiaosong Ma · Xiaojun Chang· Xiuying Chen<br>
 Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 **English** · [中文](README_zh.md)
