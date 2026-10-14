@@ -114,7 +114,7 @@ p { margin: 0; }
 
 /* figure 1 — instrument wall */
 .wall-fig { margin: 0; padding-block: 8px 48px; }
-.fig-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding-block: 14px; border-top: 1.5px solid var(--ink); }
+.fig-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 18px; padding-block: 14px; border-top: 1.5px solid var(--ink); }
 .fig-bar .fig-no { font-family: var(--font-display); font-weight: 700; font-size: .82rem; letter-spacing: .08em; text-transform: uppercase; }
 .search { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--rule-strong); border-radius: 8px; padding: 6px 10px; flex: 0 1 360px; min-width: 0; }
 .search svg { width: 16px; height: 16px; color: var(--ink-3); flex: none; }
@@ -126,8 +126,9 @@ p { margin: 0; }
 .wall-label { display: flex; justify-content: space-between; gap: 10px; font-family: var(--font-display); font-size: .8rem; line-height: 1.2; border-right: 1px solid var(--rule); padding-right: 12px; min-height: 100%; align-items: center; }
 .wall-label .dn { font-weight: 600; }
 .wall-label .dc { font-family: var(--font-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.cells { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; }
-@media (min-width: 901px) { .cells li.brk { grid-column-start: 1; } }
+.cells { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.cells li { flex: 0 0 calc((100% - 60px) / 16); }
+.cells li.br { flex-basis: 100%; height: 0; }
 .cell { all: unset; display: block; aspect-ratio: 4 / 3; width: 100%; max-width: 100%; border-radius: 5px; background: var(--panel); box-shadow: inset 0 0 0 1px var(--rule); cursor: pointer; position: relative; transition: transform .14s ease, box-shadow .14s ease, opacity .2s ease, filter .2s ease; }
 .cell img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .cell:hover, .cell:focus-visible { transform: scale(1.9); z-index: 5; box-shadow: var(--shadow), inset 0 0 0 1px var(--rule-strong); }
@@ -137,10 +138,12 @@ p { margin: 0; }
 @media (max-width: 900px) {
   .wall-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .wall-label { border-right: 0; border-bottom: 1px solid var(--rule); padding: 8px 0 4px; }
-  .cells { grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); }
+  .cells li { flex: 0 0 52px; }
+  .cells li.br { display: none; }
   .wall { gap: 12px; }
 }
 .caption { font-size: .93rem; color: var(--ink-2); margin-top: 16px; max-width: var(--measure); }
+.wall-fig .caption { margin-inline: auto; text-align: center; }
 .caption b { font-family: var(--font-display); color: var(--ink); font-weight: 700; }
 
 .tip { position: fixed; z-index: 40; pointer-events: none; background: var(--panel); border: 1px solid var(--rule-strong); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 10px; font-family: var(--font-display); font-size: .82rem; max-width: 260px; }
@@ -330,8 +333,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       <span class="fig-no">Figure 1</span>
       <label class="search" for="q"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input id="q" type="search" placeholder="Search name, maker, model or CHEM-ID" autocomplete="off"></label>
       <span class="count" id="count" aria-live="polite">198 instruments</span>
-      <span class="spacer"></span>
-    </div>
+      </div>
     <div class="wall" id="wall" role="list" aria-label="All instruments by capability domain"></div>
     <figcaption class="caption"><b>Figure 1.</b> The full release. Each row is one capability domain and each tile is one instrument, so a row's length shows how many instruments the domain has; the largest domain, with 23, continues on a second line. Point at a tile for the model; click it for the instrument's sheet and an interactive 3D view.</figcaption>
   </figure>
@@ -637,7 +639,7 @@ after calibration    reading 0.31 m/s   alarm none</pre>
       const per = Math.ceil(list.length / Math.ceil(list.length / WALL_COLS));   // long domains split into even lines
       return `<div class="wall-row" role="listitem"><div class="wall-label"><span class="dn">${esc(d.name)}</span><span class="dc">${d.count}</span></div>` +
         `<ul class="cells" aria-label="${esc(d.name)}">` + list.map((a, i) =>
-          `<li${i && i % per === 0 ? ' class="brk"' : ""}><button class="cell" type="button" data-s="${a.s}" aria-label="${esc(a.n)}, ${esc(a.mk)} ${esc(a.md)}"><img src="media/thumb/${a.s}.webp" alt="" loading="lazy" decoding="async" width="400" height="300"></button></li>`).join("") +
+          `${i && i % per === 0 ? '<li class="br" aria-hidden="true"></li>' : ""}<li><button class="cell" type="button" data-s="${a.s}" aria-label="${esc(a.n)}, ${esc(a.mk)} ${esc(a.md)}"><img src="media/thumb/${a.s}.webp" alt="" loading="lazy" decoding="async" width="400" height="300"></button></li>`).join("") +
         `</ul></div>`;
     }).join("");
     const bySlug = Object.fromEntries(CAT.assets.map((a) => [a.s, a]));
