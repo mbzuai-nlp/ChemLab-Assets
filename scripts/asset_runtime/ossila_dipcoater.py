@@ -69,6 +69,13 @@ cap('coating.measure',obj({}),RESULT,['display_digits'],'理想位移/速度/循
 cap('product.read',obj({}),PRODUCT,['substrate','bath'],'有限浴/分段液膜/固体/蒸发评价账本','query','evaluator')
 cap('product.collect',obj({'recipient_id':TEXT}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['substrate','clamp_jaw'],'露出液面且停止后的宿主释放事务','device_command','evaluator',{'recipient_id':'output_slide'},['substrate.configured','truth.ledger','clamp.target_m'])
 cap('reference.lookup',obj({'substance_id':TEXT,'temperature_k':number('K',1)}),obj({'vapor_pressure_pa':number('Pa',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT}),['bath'],'NIST原始温区蒸气压参考','query','agent',{'substance_id':'ethanol','temperature_k':298.15})
+REF_T=298.15;REF_TOL=.5
+FIT_EVIDENCE={'nist_srd69_saturation_fit':'derived_NIST_SRD69_saturation_Antoine_fit_no_extrapolation','thermoml_vapour_pressure_fit':'derived_ThermoML_article_Antoine_fit_no_extrapolation','clausius_clapeyron_local':'derived_local_Clausius_Clapeyron_PubChem_point_NIST_dHvap_no_extrapolation'}
+PROPS_OUT=obj({'temperature_k':number('K',0),'density_kg_m3':number('kg/m^3',0),'viscosity_pa_s':number('Pa*s',0),'surface_tension_n_m':number('N/m',0),'vapor_pressure_pa':number('Pa',0),'normal_boiling_point_k':number('K',0),'molar_mass_kg_mol':number('kg/mol',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT})
+cap('reference.properties',obj({'substance_id':TEXT}),PROPS_OUT,['bath'],'298.15K真实纯溶剂物性（密度/黏度/表面张力/蒸气压/沸点；NIST SRD69、ThermoML实测中位数、PubChem），记录不完整则拒绝','query','agent',{'substance_id':'toluene'})
+BATH_REF=obj({k:v for k,v in BATH['properties'].items() if k not in ('solvent_density_kg_m3', 'viscosity_pa_s', 'surface_tension_n_m')})
+BATH_REF_EXAMPLE=dict({k:v for k,v in BATH_EXAMPLE.items() if k in BATH_REF['properties']},solvent_id='toluene')
+cap('bath'+'.configure_from_reference',BATH_REF,obj(dict({k:number(BATH['properties'][k]['x-unit'],0) for k in ('solvent_density_kg_m3', 'viscosity_pa_s', 'surface_tension_n_m')},configured=BOOL,evidence=TEXT)),['bath'],'液浴溶剂密度/黏度/表面张力取自库内298.15K真实物性（LLD用）；宿主温度须为298.15±0.5K','configuration','evaluator',BATH_REF_EXAMPLE,['bath.configured', 'truth.ledger'])
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,z,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=z
 for key in ['plant','method','bath','substrate']:slot(key+'.configured',BOOL,'1',key+'配置或存在标记','setpoint')
@@ -110,7 +117,16 @@ class OssilaDipcoaterRuntime:
         if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
         r=self.templates[sid];fits=[f for f in r['fits'] if f['temperature_range_k'][0]<=t<=f['temperature_range_k'][1]]
         if not fits:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
-        f=fits[0];return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence='derived_NIST_Antoine_no_extrapolation',source=r['source'],template_source=TEMPLATE_REL)
+        f=fits[0];kind=f.get('kind','nist_antoine');return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence=FIT_EVIDENCE.get(kind,'derived_NIST_Antoine_no_extrapolation'),source=r['source'] if kind=='nist_antoine' else f.get('source',r['source']),template_source=TEMPLATE_REL)
+    def _properties(self,sid):
+        if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
+        r=self.templates[sid];p=r.get('properties_298_15K') or {};keys=('density_kg_m3','viscosity_pa_s','surface_tension_n_m')
+        if not r.get('usable_at_298_15K') or any(k not in p for k in keys) or not r.get('normal_boiling_point'):raise ActionRejected('REFERENCE_INCOMPLETE')
+        vp=self._reference(sid,REF_T)
+        return dict(temperature_k=REF_T,density_kg_m3=p['density_kg_m3']['value'],viscosity_pa_s=p['viscosity_pa_s']['value'],surface_tension_n_m=p['surface_tension_n_m']['value'],vapor_pressure_pa=vp['vapor_pressure_pa'],
+                    normal_boiling_point_k=r['normal_boiling_point']['value_k'],molar_mass_kg_mol=r['molar_mass_kg_mol'],
+                    evidence=';'.join(k+':'+p[k]['evidence'] for k in keys)+';vapor_pressure:'+vp['evidence'],
+                    source=';'.join(dict.fromkeys(str(p[k].get('source_name')) for k in keys)),template_source=TEMPLATE_REL)
     def _volume(self,masses):
         b=self.bath_cfg
         return masses[0]/b['solvent_density_kg_m3']+masses[1]/b['solute_density_kg_m3'] if b else 0.
@@ -157,7 +173,12 @@ class OssilaDipcoaterRuntime:
         self.operation_id=self.instance_id+':motion:'+str(self._operation_count);return dict(phase=self.phase,operation_id=self.operation_id)
     def invoke(self,capability,**a):
         if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][0],a)
+        validate(CAPS[capability][0],a);orig=capability;used=None
+        if capability=='bath.configure_from_reference':
+            if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
+            if abs(self.plant['temperature_k']-REF_T)>REF_TOL:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
+            props=self._properties(a['solvent_id']);fill={'solvent_density_kg_m3':props['density_kg_m3'],'viscosity_pa_s':props['viscosity_pa_s'],'surface_tension_n_m':props['surface_tension_n_m']}
+            used=dict(fill,evidence='library_298.15K:'+props['evidence']);a=dict(a,**fill);validate(BATH,a);capability='bath.configure'
         if capability.endswith('.configure') and self.phase=='running':raise ActionRejected('BUSY')
         if capability=='plant.configure':
             if self.plant or not a['accept_uncalibrated_model']:raise ActionRejected('PRECONDITION_FAILED')
@@ -208,13 +229,16 @@ class OssilaDipcoaterRuntime:
         elif capability=='coating.measure':return dict(phase=self.phase,stage=self.stage,position_m=self.q,speed_m_s=self.speed,cycle_index=self.cycle_index,elapsed_s=self.elapsed_s,evidence='ideal_panel_proxy_not_thickness_sensor',template_source=TEMPLATE_REL)
         elif capability=='product.read':return self._product()
         elif capability=='reference.lookup':return self._reference(a['substance_id'],a['temperature_k'])
+        elif capability=='reference.properties':return self._properties(a['substance_id'])
         elif capability=='product.collect':
             if not self.sample_present or self.phase=='running' or self._bottom()<self._surface()+.0001:raise ActionRejected('PRECONDITION_FAILED')
             self.collected[0]+=sum(f[0] for f in self.film);self.collected[1]+=sum(f[1] for f in self.film)+sum(self.solid)
             self.film=[[0.,0.] for _ in range(64)];self.solid=[0.]*64;self.sample_present=False;self.gap_target=.012
             out=dict(recipient_id=a['recipient_id'],attachment_event='host_release_substrate')
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][1],out);self.revision+=1;return copy.deepcopy(out)
+        validate(CAPS[capability][1],out)
+        if used is not None:out=dict(out,**used);validate(CAPS[orig][1],out)
+        self.revision+=1;return copy.deepcopy(out)
 
     def _film_step(self,dt,up_speed):
         if not self.bath_cfg:return
@@ -307,7 +331,7 @@ class OssilaDipcoaterSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_ossila_dipcoater_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_ossila_dipcoater_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -360,7 +384,7 @@ def export_ossila_dipcoater_contract_metadata():
             execution=dict(mode='asynchronous' if asynchronous else 'synchronous',time_domain='simulation',completion_criterion='轴达到目标或全部循环计时完成；不保证干燥/膜质量' if asynchronous else '事务完成，物理时钟未推进',
                 completion_state_ids=['cycle.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',retry='same_request_id',
                 resources=['host_clock','finite_bath','substrate_attachment','request_cache'],partial_failure_zh='停止/故障保留已沉积材料和挥发，残余液体继续蒸发；不回滚，不提供跨进程幂等'),
-            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','INVALID_GEOMETRY','BATH_OVERFLOW','BATH_EXHAUSTED','MODEL_OUT_OF_RANGE']],
+            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','REFERENCE_INCOMPLETE','INVALID_GEOMETRY','BATH_OVERFLOW','BATH_EXHAUSTED','MODEL_OUT_OF_RANGE']],
             example_arguments=copy.deepcopy(ex),verification=[],limitations=['无膜厚传感器；崩碰由宿主/几何事件输入，不是实机安全认证'],source_ids=['manufacturer_primary','simulation_assumption'])
     mech=dict(component_ids=['motor','carriage','substrate','bath','clamp_jaw'],state_ids=list(slots),meaning_zh='有限浴/变液面/LLD弯月面沉积/64段双面液膜/蒸发',
         implementation='lumped',equations=[
@@ -369,11 +393,12 @@ def export_ossila_dipcoater_contract_metadata():
           'Ca=mu*U/gamma; h_LLD=.94*sqrt(gamma/(rho*g))*Ca^(2/3), Ca<=.02, complete wetting Newtonian assumption',
           'new film volume=2*width*strip_length*emerged_fraction*h_LLD, limited by finite bath inventory',
           'wet film re-immersed returns proportionally to bath; dry solid is assumed insoluble and retained',
-          'P_sat=100000*10^(A-B/(T+C)); original NIST temperature range only',
+          'P_sat=100000*10^(A-B/(T+C)); first library fit whose own temperature interval contains T (NIST Antoine rows first; NIST SRD69 saturation fit, ThermoML article fit or local Clausius-Clapeyron where NIST has no row at that T); never extrapolated',
+          'bath.configure_from_reference: liquid properties = library values at 298.15 K (NIST SRD69 / median of ThermoML articles / PubChem HSDB), only at host temperature 298.15+/-0.5 K',
           'evap_kg_s=k_mass*exposed_area*P_sat*M/(R*T)*solvent_mass_fraction, inventory limited',
           'initial_species=bath+film+solid+evaporated+collected; nonvolatile solute evaporation=0'],
         parameters={},source_ids=['manufacturer_primary','nist_vapor_pressure','lld_theory','simulation_assumption'],
-        limitations=['LLD只适用低Ca、完全润湿Newtonian流体；未标定动态接触角、重力排液、流变/凝胶化/再溶解、结晶、挥发冷却或CFD。','65种真实蒸气压参考不等于50种实测浸涂膜厚；35种覆盖298.15K。','几何固定示例25×75mm基片和0.0072m²槽，其他宿主几何参数不自动缩放网格。','变速规则按位移线性插值是假设；菜单、20程序/用户存储、重复性未复刻或校准。','夹口与崩碰开关属宿主权威，没有机器人/硬件接触验证。','64空间条带会造成网格误差；多次湿膜回浴和不溶干层只是教学近似。','代理API过滤不等于文件/进程部署隔离；原始Runtime仅供受信任宿主。'])
+        limitations=['LLD只适用低Ca、完全润湿Newtonian流体；未标定动态接触角、重力排液、流变/凝胶化/再溶解、结晶、挥发冷却或CFD。','库内溶剂298.15K真实物性（密度/黏度/表面张力/蒸气压/沸点）只替代宿主假设的液体物性，不等于实测浸涂膜厚；LLD厚度仍为synthetic，公开LLD实测数据仅见图形（未数字化）。','几何固定示例25×75mm基片和0.0072m²槽，其他宿主几何参数不自动缩放网格。','变速规则按位移线性插值是假设；菜单、20程序/用户存储、重复性未复刻或校准。','夹口与崩碰开关属宿主权威，没有机器人/硬件接触验证。','64空间条带会造成网格误差；多次湿膜回浴和不溶干层只是教学近似。','代理API过滤不等于文件/进程部署隔离；原始Runtime仅供受信任宿主。'])
     spec=importlib.util.spec_from_file_location('_dip_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'dip_coating':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'bath.configure':(BATH,BATH_EXAMPLE),'substrate.configure':(SAMPLE,SAMPLE_EXAMPLE)})
     mech['parameters']={k.lower():v for k,v in mech['parameters'].items()}

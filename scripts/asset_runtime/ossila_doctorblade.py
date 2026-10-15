@@ -71,6 +71,13 @@ cap('product.read',obj({}),PRODUCT,['substrate','reservoir','waste_tray'],'有�
 cap('product.collect',obj({'recipient_id':TEXT}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['substrate'],'停止后宿主释放基板并转移膜账本','device_command','evaluator',{'recipient_id':'coated_slide'},['substrate.configured','truth.ledger'])
 cap('reservoir.empty',obj({}),obj({'emptied':BOOL}),['reservoir','waste_tray'],'停止后宿主清空残余料至废料，非自驱清洗','configuration','evaluator',{},['charge.configured','truth.ledger'])
 cap('reference.lookup',obj({'substance_id':TEXT,'temperature_k':number('K',1)}),obj({'vapor_pressure_pa':number('Pa',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT}),['reservoir'],'NIST有效原始温区蒸气压参考','query','agent',{'substance_id':'ethanol','temperature_k':298.15})
+REF_T=298.15;REF_TOL=.5
+FIT_EVIDENCE={'nist_srd69_saturation_fit':'derived_NIST_SRD69_saturation_Antoine_fit_no_extrapolation','thermoml_vapour_pressure_fit':'derived_ThermoML_article_Antoine_fit_no_extrapolation','clausius_clapeyron_local':'derived_local_Clausius_Clapeyron_PubChem_point_NIST_dHvap_no_extrapolation'}
+PROPS_OUT=obj({'temperature_k':number('K',0),'density_kg_m3':number('kg/m^3',0),'viscosity_pa_s':number('Pa*s',0),'surface_tension_n_m':number('N/m',0),'vapor_pressure_pa':number('Pa',0),'normal_boiling_point_k':number('K',0),'molar_mass_kg_mol':number('kg/mol',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT})
+cap('reference.properties',obj({'substance_id':TEXT}),PROPS_OUT,['reservoir'],'298.15K真实纯溶剂物性（密度/黏度/表面张力/蒸气压/沸点；NIST SRD69、ThermoML实测中位数、PubChem），记录不完整则拒绝','query','agent',{'substance_id':'toluene'})
+CHARGE_REF=obj({k:v for k,v in CHARGE['properties'].items() if k not in ('solvent_density_kg_m3', 'viscosity_pa_s')})
+CHARGE_REF_EXAMPLE=dict({k:v for k,v in CHARGE_EXAMPLE.items() if k in CHARGE_REF['properties']},solvent_id='toluene')
+cap('charge'+'.configure_from_reference',CHARGE_REF,obj(dict({k:number(CHARGE['properties'][k]['x-unit'],0) for k in ('solvent_density_kg_m3', 'viscosity_pa_s')},configured=BOOL,evidence=TEXT)),['reservoir'],'装料溶剂密度/黏度取自库内298.15K真实纯溶剂物性；宿主温度须为298.15±0.5K','configuration','evaluator',CHARGE_REF_EXAMPLE,['charge.configured', 'truth.ledger'])
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,z,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=z
 for key in ['plant','method','charge','substrate']:slot(key+'.configured',BOOL,'1',key+'配置或存在标记','setpoint')
@@ -113,7 +120,16 @@ class OssilaDoctorbladeRuntime:
         if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
         r=self.templates[sid];fits=[f for f in r['fits'] if f['temperature_range_k'][0]<=t<=f['temperature_range_k'][1]]
         if not fits:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
-        f=fits[0];return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence='derived_NIST_Antoine_no_extrapolation',source=r['source'],template_source=TEMPLATE_REL)
+        f=fits[0];kind=f.get('kind','nist_antoine');return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence=FIT_EVIDENCE.get(kind,'derived_NIST_Antoine_no_extrapolation'),source=r['source'] if kind=='nist_antoine' else f.get('source',r['source']),template_source=TEMPLATE_REL)
+    def _properties(self,sid):
+        if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
+        r=self.templates[sid];p=r.get('properties_298_15K') or {};keys=('density_kg_m3','viscosity_pa_s','surface_tension_n_m')
+        if not r.get('usable_at_298_15K') or any(k not in p for k in keys) or not r.get('normal_boiling_point'):raise ActionRejected('REFERENCE_INCOMPLETE')
+        vp=self._reference(sid,REF_T)
+        return dict(temperature_k=REF_T,density_kg_m3=p['density_kg_m3']['value'],viscosity_pa_s=p['viscosity_pa_s']['value'],surface_tension_n_m=p['surface_tension_n_m']['value'],vapor_pressure_pa=vp['vapor_pressure_pa'],
+                    normal_boiling_point_k=r['normal_boiling_point']['value_k'],molar_mass_kg_mol=r['molar_mass_kg_mol'],
+                    evidence=';'.join(k+':'+p[k]['evidence'] for k in keys)+';vapor_pressure:'+vp['evidence'],
+                    source=';'.join(dict.fromkeys(str(p[k].get('source_name')) for k in keys)),template_source=TEMPLATE_REL)
 
     def _volume(self,m):
         c=self.charge_cfg
@@ -144,7 +160,12 @@ class OssilaDoctorbladeRuntime:
         if abs(value/quantum-round(value/quantum))>1e-6:raise ActionRejected('INVALID_ARGUMENT')
     def invoke(self,capability,**a):
         if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][0],a)
+        validate(CAPS[capability][0],a);orig=capability;used=None
+        if capability=='charge.configure_from_reference':
+            if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
+            if abs(self.plant['temperature_k']-REF_T)>REF_TOL:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
+            props=self._properties(a['solvent_id']);fill={'solvent_density_kg_m3':props['density_kg_m3'],'viscosity_pa_s':props['viscosity_pa_s']}
+            used=dict(fill,evidence='library_298.15K:'+props['evidence']);a=dict(a,**fill);validate(CHARGE,a);capability='charge.configure'
         if capability=='plant.configure':
             if self.plant or not a['accept_uncalibrated_model']:raise ActionRejected('PRECONDITION_FAILED')
             self.plant=copy.deepcopy(a);out={'configured':True}
@@ -194,6 +215,7 @@ class OssilaDoctorbladeRuntime:
             return dict(phase=self.phase,stage=self.stage,position_m=self.q,speed_m_s=self.speed,left_gap_m=self.gaps[0],right_gap_m=self.gaps[1],elapsed_s=self.elapsed_s,evidence='ideal_panel_and_gauges_NOT_thickness_sensor',template_source=TEMPLATE_REL)
         elif capability=='product.read':return self._product()
         elif capability=='reference.lookup':return self._reference(a['substance_id'],a['temperature_k'])
+        elif capability=='reference.properties':return self._properties(a['substance_id'])
         elif capability=='product.collect':
             if self.phase=='running' or not self.sample_present:raise ActionRejected('PRECONDITION_FAILED')
             for i in range(2):self.collected[i]+=sum(f[i] for f in self.film)
@@ -205,7 +227,9 @@ class OssilaDoctorbladeRuntime:
             # Configuration retained so densities and historical ledger remain meaningful; refill is unsupported.
             out={'emptied':True}
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][1],out);self.revision+=1;return copy.deepcopy(out)
+        validate(CAPS[capability][1],out)
+        if used is not None:out=dict(out,**used);validate(CAPS[orig][1],out)
+        self.revision+=1;return copy.deepcopy(out)
     def _deposit(self,lo,hi,speed):
         if hi<=lo or not self.charge_cfg or self._volume(self.bead)<=1e-30:return
         c=self.charge_cfg;s=self.sample;dl=s['length_m']/64;cuts=[lo]+[s['start_m']+i*dl for i in range(65) if lo<s['start_m']+i*dl<hi]+[hi]
@@ -260,7 +284,7 @@ class OssilaDoctorbladeSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_ossila_doctorblade_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_ossila_doctorblade_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -313,7 +337,7 @@ def export_ossila_doctorblade_contract_metadata():
             execution=dict(mode='asynchronous' if asynchronous else 'synchronous',time_domain='simulation',completion_criterion='轴达到目标；不保证干燥/膜质量' if asynchronous else '事务完成，物理时钟未推进',
                 completion_state_ids=['cycle.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',retry='same_request_id',
                 resources=['host_clock','finite_charge','substrate_attachment','request_cache'],partial_failure_zh='停止/故障保留已沉积材料和挥发，残余液体继续蒸发；不回滚，不提供跨进程幂等'),
-            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','INVALID_GEOMETRY','RESERVOIR_OVERFLOW','RESERVOIR_EXHAUSTED','MODEL_OUT_OF_RANGE']],
+            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','REFERENCE_INCOMPLETE','INVALID_GEOMETRY','RESERVOIR_OVERFLOW','RESERVOIR_EXHAUSTED','MODEL_OUT_OF_RANGE']],
             example_arguments=copy.deepcopy(ex),verification=[],limitations=['无膜厚传感器；急停是教学锁存，不是实机安全认证；调隙需宿主手动行为'],source_ids=['manufacturer_primary','simulation_assumption'])
 
     mech=dict(component_ids=['motor','carriage','blade','reservoir','substrate','waste_tray'],state_ids=list(slots),meaning_zh='有限浆料/移动刮刀/固定基板/64条带薄隙流/蒸发',
@@ -324,11 +348,12 @@ def export_ossila_doctorblade_contract_metadata():
           'H=bead_volume/reservoir_area; deltaP=rho*g*H; Q/width=U*gap_mean/2+deltaP*mean_cube/(12*mu*contact_length)',
           'dV/dx=-a-b*V; a=width*gap_mean/2; b=width*rho*g*mean_cube/(12*mu*length*U*reservoir_area); exact positive inventory-limited segment integral',
           'film receives overlap strips; outside substrate -> waste; species transfer by bead mass fraction',
-          'P_sat=100000*10^(A-B/(T+C)); original NIST temperature range only',
+          'P_sat=100000*10^(A-B/(T+C)); first library fit whose own temperature interval contains T (NIST Antoine rows first; NIST SRD69 saturation fit, ThermoML article fit or local Clausius-Clapeyron where NIST has no row at that T); never extrapolated',
+          'charge.configure_from_reference: liquid properties = library values at 298.15 K (NIST SRD69 / median of ThermoML articles / PubChem HSDB), only at host temperature 298.15+/-0.5 K',
           'evap_kg_s=k_mass*exposed_area*P_sat*M/(R*T)*solvent_mass_fraction, inventory limited',
           'initial_species=bead+film+waste+evaporated+collected; nonvolatile solute evaporation=0'],
         parameters={},source_ids=['manufacturer_primary','nist_vapor_pressure','simulation_assumption'],
-        limitations=['平行板Couette-Poiseuille教学近似；g/刀口长度<=.1，Newtonian液体，无自由液面/弯月面/屈服应力/剪切变稀/颗粒/润湿标定。','65种真实蒸气压不等于50种实测刮涂膜厚；35种覆盖298.15K。','选择100mm刮刀、8mm固定玻璃台；200mm、真空台、加热、注液、气刀没有实现。','单前向恒速涂布+后端回零+硬停；20程序100步骤/软停/前端回零和完整LCD菜单未实现。','64条带，不沿宽度解析膜剖面；不建结晶、流平、干燥收缩、挥发冷却或CFD。','理想测微器示值不证明厂家3µm精度；手动调隙为宿主运动学，不是电动执行或力反馈。','急停释放且关开电源才可恢复，需重新回零；未验证硬件断电、制动距离或安全等级。','几何固定100×200mm示例基板；宿主不同基板参数不自动改网格。','废料接收器假设覆盖，不计算废料蒸发；单次装料不可补液。','代理API过滤不等于文件/进程隔离；原始Runtime仅供受信任宿主。'])
+        limitations=['平行板Couette-Poiseuille教学近似；g/刀口长度<=.1，Newtonian液体，无自由液面/弯月面/屈服应力/剪切变稀/颗粒/润湿标定。','库内溶剂298.15K真实物性（密度/黏度/表面张力/蒸气压/沸点）只替代宿主假设的液体物性，不等于实测刮涂膜厚；浆料流变仍需宿主实测。','选择100mm刮刀、8mm固定玻璃台；200mm、真空台、加热、注液、气刀没有实现。','单前向恒速涂布+后端回零+硬停；20程序100步骤/软停/前端回零和完整LCD菜单未实现。','64条带，不沿宽度解析膜剖面；不建结晶、流平、干燥收缩、挥发冷却或CFD。','理想测微器示值不证明厂家3µm精度；手动调隙为宿主运动学，不是电动执行或力反馈。','急停释放且关开电源才可恢复，需重新回零；未验证硬件断电、制动距离或安全等级。','几何固定100×200mm示例基板；宿主不同基板参数不自动改网格。','废料接收器假设覆盖，不计算废料蒸发；单次装料不可补液。','代理API过滤不等于文件/进程隔离；原始Runtime仅供受信任宿主。'])
     spec=importlib.util.spec_from_file_location('_blade_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'doctor_blade':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'charge.configure':(CHARGE,CHARGE_EXAMPLE),'substrate.configure':(SAMPLE,SAMPLE_EXAMPLE)})
     mech['parameters']={k.lower():v for k,v in mech['parameters'].items()}

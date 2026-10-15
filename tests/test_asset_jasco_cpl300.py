@@ -210,4 +210,89 @@ class Cpl300ProtocolTests(unittest.TestCase):
   for k in UNSUPPORTED:
    snap=h.debug_snapshot();r=self.invoke(a,h,k,rid=k);self.assertEqual(r['status'],'unsupported');self.assertTrue(same(snap,h.debug_snapshot()))
 
+REAL=None
+def real_library():
+ global REAL
+ if REAL is None:REAL=JascoCpl300Runtime().library
+ return REAL
+
+def measured_run(template_id,solvent,ex,start,stop,interval,em_bw=1e-9,accept=True,noise=False,peak=1.,mode='step'):
+ h=JascoCpl300Runtime(library=real_library());h.invoke('plant.configure',**dict(PLANT_EXAMPLE,poisson_noise=noise))
+ method=dict(METHOD_EXAMPLE,excitation_m=ex,start_m=start,stop_m=stop,interval_m=interval,em_bandwidth_m=em_bw,ex_bandwidth_m=5e-9,scan_mode=mode)
+ sample=dict(SAMPLE_EXAMPLE,kind='measured_cpl',template_id=template_id,solvent=solvent,synthetic_glum=0.,accept_synthetic_cpl=False,accept_unknown_conditions=accept,peak_pl_relative=peak)
+ configure(h,method,dict(BLANK_EXAMPLE,solvent=solvent));h.invoke('blank.start');finish(h)
+ load_sample(h,sample);return h,run(h)
+
+class Cpl300MeasuredLiteratureTests(unittest.TestCase):
+ """Real literature g_lum emitters (cpl_measured): sign per enantiomer, windows, conditions, curve replay."""
+ @classmethod
+ def setUpClass(cls):cls.lib=real_library();cls.m=cls.lib['cpl_measured']
+ def test_library_counts_are_honest(self):
+  c=self.lib['counts'];usable=[k for k,v in self.m.items() if v['runtime_enantiomers']]
+  self.assertEqual(c['literature_glum_emitters'],len(self.m));self.assertEqual(c['runtime_usable_real_cpl_emitters'],len(usable));self.assertGreaterEqual(len(usable),50)
+  self.assertEqual(len({v['name'] for v in self.m.values()}),len(self.m))
+  for v in self.m.values():
+   self.assertTrue(v['source']['doi'] and v['source']['raw_sha256']);self.assertIn(v['source']['licence_flag'],['permissive','non_commercial','licence_not_stated_in_cached_PMC_XML_RSC_open_access'])
+   for cd in v['conditions']:
+    for pts in cd['enantiomers'].values():
+     for q in pts:self.assertTrue(q['quote'] and q['locator'] and -2<=q['glum']<=2 and q['digitized'] is False)
+ def test_camphorquinone_source_curves_replay_both_enantiomers(self):
+  for lab,sign in [('S',1),('R',-1)]:
+   cv=self.m['cpl_lit_001']['curves'][lab];x=np.array(cv['wavelength_m']);g=np.array(cv['glum']);c=cv['pl_max_wavelength_m']
+   h,r=measured_run('cpl_lit_001:'+lab,'any solvent (unknown in source)',450e-9,c-10e-9,c+10e-9,5e-9,em_bw=.1e-9)
+   self.assertEqual(r['provenance']['glum_evidence'],'measured_literature');self.assertIn('source_data_curve',r['provenance']['pl_evidence'])
+   for p in r['points']:
+    self.assertEqual(np.sign(p['glum']),sign);self.assertAlmostEqual(p['glum'],float(np.interp(p['emission_m'],x,g)),delta=4e-4)
+   pl=[p['pl'] for p in r['points']];self.assertAlmostEqual(max(pl),1.,delta=.06)
+ def test_scalar_lanthanide_line_sign_per_enantiomer(self):
+  for lab,g in [('RR',.09),('SS',-.09)]:
+   h,r=measured_run('cpl_lit_035:'+lab,'acetonitrile',340e-9,597.5e-9,598.5e-9,.5e-9,em_bw=1e-9)
+   self.assertEqual(len(r['points']),3)
+   for p in r['points']:self.assertAlmostEqual(p['glum'],g,places=10);self.assertAlmostEqual(p['pl'],1.,places=10)
+   self.assertEqual(r['provenance']['glum_evidence'],'measured_literature' if lab=='RR' else 'measured_literature_with_derived_sign')
+ def test_sample_across_classes_noise_free(self):
+  cases=[('cpl_lit_043:P','dichloromethane',None,420e-9,1.0e-3),('cpl_lit_045:PP','ethanol/dichloromethane 1:1',350e-9,769e-9,-.11),('cpl_lit_045:MM','ethanol/dichloromethane 1:1',350e-9,729e-9,-.08),
+   ('cpl_lit_032:S','0.1 M HEPES buffer, pH 7.3',340e-9,595e-9,-.240),('cpl_lit_036:induced','(1R)-alpha-pinene',None,537e-9,.0044),('cpl_lit_036:induced','(1S)-alpha-pinene',None,537e-9,-.0049),
+   ('cpl_lit_050:SS','dichloromethane',320e-9,382e-9,1.2e-3),('cpl_lit_050:RR','dichloromethane',320e-9,382e-9,-1.2e-3),('cpl_lit_022:gamma_CD_natural','water',280e-9,454e-9,-.019),
+   ('cpl_lit_008:R','dichloromethane',355e-9,530e-9,-2.7e-3),('cpl_lit_017:pS','hexane',306e-9,422e-9,-6.10e-3),('cpl_lit_002:minus_first_eluted','acetonitrile',None,490e-9,.009),('cpl_lit_042:R','toluene',None,515e-9,-2.0e-3),('cpl_lit_042:R','dichloromethane',None,515e-9,1.9e-3)]
+  for tid,solv,ex,lam,g in cases:
+   with self.subTest(tid=tid,solvent=solv):
+    h,r=measured_run(tid,solv,ex if ex else 300e-9,lam-.4e-9,lam+.4e-9,.4e-9,em_bw=.5e-9)
+    for p in r['points']:self.assertAlmostEqual(p['glum'],g,places=10);self.assertEqual(p['glum_quality'],'valid')
+ def test_every_runtime_record_replays_its_value(self):
+  n=0
+  for rid,v in self.m.items():
+   for lab in v['runtime_enantiomers']:
+    if v.get('curves'):continue
+    cd=next(c for c in v['conditions'] if lab in c['runtime_enantiomers']);q=cd['enantiomers'][lab][0];lo,hi=q['validity_window_m'];c=(lo+hi)/2;d=min(.2e-9,(hi-lo)/4)
+    ex=cd['excitation_m'] or max(250e-9,lo-60e-9)
+    h,r=measured_run(f'{rid}:{lab}',cd['solvent'] or 'unknown',ex,c-d,c+d,d,em_bw=min(1e-9,hi-lo))
+    hits=[p['glum'] for p in cd['enantiomers'][lab] if p['validity_window_m'][0]<=c-d and c+d<=p['validity_window_m'][1]]
+    for p in r['points']:self.assertAlmostEqual(p['glum'],hits[0],places=10,msg=f'{rid}:{lab}')
+    n+=1
+  self.assertEqual(n,sum(len(v['runtime_enantiomers']) for v in self.m.values() if not v.get('curves')));self.assertGreaterEqual(n,80)
+ def test_measured_poisson_noise_converges_to_literature_value(self):
+  h,r=measured_run('cpl_lit_032:S','0.1 M HEPES buffer, pH 7.3',340e-9,590e-9,600e-9,1e-9,em_bw=5e-9,noise=True)
+  g=np.array([p['glum'] for p in r['points']]);self.assertTrue(np.all(np.isfinite(g)));self.assertAlmostEqual(float(g.mean()),-.240,delta=.01)
+ def test_measured_conditions_are_enforced(self):
+  h=JascoCpl300Runtime(library=real_library());h.invoke('plant.configure',**PLANT_EXAMPLE)
+  base=dict(SAMPLE_EXAMPLE,kind='measured_cpl',template_id='cpl_lit_035:RR',solvent='acetonitrile',synthetic_glum=0.,accept_synthetic_cpl=False,accept_unknown_conditions=True)
+  for patch,code in [(dict(solvent='toluene'),'SOURCE_CONDITIONS_MISMATCH'),(dict(template_id='cpl_lit_035:PP'),'UNKNOWN_REFERENCE'),(dict(template_id='cpl_lit_035'),'UNKNOWN_REFERENCE'),(dict(synthetic_glum=.1),'SAMPLE_COMPOSITION'),(dict(accept_unknown_conditions=False),'UNKNOWN_CONDITIONS_ACK_REQUIRED'),(dict(template_id='cpl_lit_001:S',solvent='x',accept_unknown_conditions=False),'UNKNOWN_CONDITIONS_ACK_REQUIRED')]:
+   with self.subTest(code=code):
+    snap=h.debug_snapshot()
+    with self.assertRaises(ActionRejected) as ctx:h.invoke('sample.load',**dict(base,**patch))
+    self.assertEqual(str(ctx.exception),code);self.assertTrue(same(snap,h.debug_snapshot()))
+  ok=dict(METHOD_EXAMPLE,excitation_m=340e-9,start_m=597.5e-9,stop_m=598.5e-9,interval_m=.5e-9,em_bandwidth_m=1e-9)
+  for method,code in [(dict(ok,start_m=596e-9),'REFERENCE_WAVELENGTH_RANGE'),(dict(ok,excitation_m=360e-9),'SOURCE_CONDITIONS_MISMATCH'),(dict(ok,em_bandwidth_m=3e-9),'SOURCE_BANDWIDTH_LIMIT'),
+                      (dict(ok,scan_axis='excitation',emission_m=598e-9,start_m=330e-9,stop_m=350e-9,interval_m=10e-9),'REFERENCE_AXIS_UNSUPPORTED')]:
+   with self.subTest(code=code):
+    h=JascoCpl300Runtime(library=real_library());h.invoke('plant.configure',**dict(PLANT_EXAMPLE,poisson_noise=False))
+    configure(h,method,dict(BLANK_EXAMPLE,solvent='acetonitrile'));h.invoke('blank.start');finish(h);load_sample(h,base)
+    snap=h.debug_snapshot()
+    with self.assertRaises(ActionRejected) as ctx:h.invoke('acquisition.start')
+    self.assertEqual(str(ctx.exception),code);self.assertTrue(same(snap,h.debug_snapshot()))
+ def test_reference_read_exposes_measured_record_unchanged(self):
+  h=JascoCpl300Runtime(library=real_library());r=h.invoke('reference.read',reference_id='cpl_lit_045')
+  self.assertEqual(json.loads(r['reference_json']),self.m['cpl_lit_045'])
+
 if __name__=='__main__':unittest.main()

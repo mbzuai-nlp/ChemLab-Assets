@@ -14,7 +14,7 @@ Sources (all public web services, fetched politely with a delay and cached; re-r
     pubchem_nmr_13c.json PUG-View section "13C NMR Spectra"
     pubchem_uv.json      PUG-View section "UV Spectra" (lambda-max text records)
 
-Usage:  python fetch_sources.py [--ids a,b,c] [--delay 0.6] [--force]
+Usage:  python fetch_sources.py [--ids a,b,c] [--delay 0.6] [--force] [--skip-unlisted]
 """
 from __future__ import annotations
 
@@ -62,25 +62,43 @@ def get(session: requests.Session, url: str, params: dict | None, dest: Path, de
     return None
 
 
+def nist_listed_masks(page: bytes) -> set[str]:
+    """Masks of the data sections a NIST WebBook compound page links to ('Other data available'), e.g. {'4', '80', '200'}."""
+    if b"Registry Number Not Found" in page or b'<h1 id="Top">' not in page:
+        return set()
+    return {m.decode() for m in re.findall(rb"Mask=([0-9A-F]+)#", page)}
+
+
 def jcamp_ok(blob: bytes | None) -> bool:
     return bool(blob) and b"Spectrum not found" not in blob[:200] and b"##XYDATA" in blob or (bool(blob) and b"##PEAK TABLE" in blob)
 
 
-def fetch_compound(session, row, delay, force, log):
+def fetch_compound(session, row, delay, force, log, skip_unlisted=False):
     sid, name_en, name_zh, cas, cls = row
     d = RAW / sid
     d.mkdir(parents=True, exist_ok=True)
     cid = nist_id(cas)
     # --- NIST pages
-    get(session, NIST, {"ID": cid, "Mask": "2000", "Units": "SI"}, d / "gc.html", delay, force, log)
-    get(session, NIST, {"ID": cid, "Mask": "4", "Units": "SI"}, d / "thermo.html", delay, force, log)
-    ir_page = get(session, NIST, {"ID": cid, "Mask": "80", "Units": "SI"}, d / "ir.html", delay, force, log) or b""
-    uv_page = get(session, NIST, {"ID": cid, "Mask": "400", "Units": "SI"}, d / "uv.html", delay, force, log) or b""
+    gc_page = get(session, NIST, {"ID": cid, "Mask": "2000", "Units": "SI"}, d / "gc.html", delay, force, log) or b""
+    listed = nist_listed_masks(gc_page) if skip_unlisted and gc_page else None
+
+    def wanted(mask: str, dest: Path) -> bool:
+        """With --skip-unlisted, do not request data NIST's own 'Other data available' list says it does not hold."""
+        if listed is None or mask in listed or dest.exists():
+            return True
+        log(f"    skip {dest.name}: Mask={mask} not listed on the NIST page")
+        return False
+
+    if wanted("4", d / "thermo.html"):
+        get(session, NIST, {"ID": cid, "Mask": "4", "Units": "SI"}, d / "thermo.html", delay, force, log)
+    ir_page = (get(session, NIST, {"ID": cid, "Mask": "80", "Units": "SI"}, d / "ir.html", delay, force, log) or b"") if wanted("80", d / "ir.html") else b""
+    uv_page = (get(session, NIST, {"ID": cid, "Mask": "400", "Units": "SI"}, d / "uv.html", delay, force, log) or b"") if wanted("400", d / "uv.html") else b""
     for kind, page, typ in (("ir", ir_page, "IR"), ("uv", uv_page, "UVVis")):
         indices = sorted({int(m) for m in re.findall(rb"Index=(\d+)", page)})[:MAX_SPECTRA_PER_TYPE]
         for idx in indices:
             get(session, NIST, {"JCAMP": cid, "Index": str(idx), "Type": typ}, d / f"{kind}_{idx}.jdx", delay, force, log)
-    get(session, NIST, {"JCAMP": cid, "Index": "0", "Type": "Mass"}, d / "ms_0.jdx", delay, force, log)
+    if wanted("200", d / "ms_0.jdx"):
+        get(session, NIST, {"JCAMP": cid, "Index": "0", "Type": "Mass"}, d / "ms_0.jdx", delay, force, log)
     # --- PubChem
     props = "MolecularFormula,MolecularWeight,SMILES,ConnectivitySMILES,XLogP,IUPACName,Title"
     blob = get(session, f"{PUBCHEM}/pug/compound/name/{cas}/property/{props}/JSON", None, d / "pubchem_props.json", delay, force, log)
@@ -106,6 +124,8 @@ def main():
     ap.add_argument("--ids", default="", help="comma-separated subset of substance ids")
     ap.add_argument("--delay", type=float, default=0.6, help="seconds to wait after every request")
     ap.add_argument("--force", action="store_true", help="re-download files already cached")
+    ap.add_argument("--skip-unlisted", action="store_true",
+                    help="skip thermo/IR/UV/MS requests for data types the compound's NIST page (gc.html) does not list (fewer requests; same result)")
     args = ap.parse_args()
     rows = COMPOUNDS if not args.ids else [r for r in COMPOUNDS if r[0] in set(args.ids.split(","))]
     RAW.mkdir(parents=True, exist_ok=True)
@@ -119,7 +139,7 @@ def main():
             for i, row in enumerate(rows, 1):
                 log(f"[{i}/{len(rows)}] {row[0]} ({row[3]})")
                 try:
-                    fetch_compound(session, row, args.delay, args.force, log)
+                    fetch_compound(session, row, args.delay, args.force, log, skip_unlisted=args.skip_unlisted)
                 except Exception as exc:  # keep going; the builder reports what is missing
                     log(f"  FAILED {row[0]}: {exc!r}")
         log("=== done")

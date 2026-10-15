@@ -165,6 +165,54 @@ class TestHIT300(unittest.TestCase):
   h=setup();s=h.session();op=s.invoke(instance_id=h.instance_id,capability_id='acquisition.start',arguments={},request_id='s')['operation_id'];step(h,1.);s.cancel(op,'cancel');result=s.poll(op);self.assertEqual(result['result']['completed_indents'],0);self.assertIsNone(result['result']['points'][0]['analysis']);self.assertEqual(result['result']['points'][0]['analysis_error'],'INCOMPLETE_UNLOADING');cleanup(h);self.assertEqual(s.poll(op),result);self.ledger(h)
  def test_40_zero_thermal_margin_rejects_sub_ulp_heat(self):
   h=setup(plant={'temperature_max_k':296.15});r=run(h);self.assertEqual(r['error_code'],'THERMAL_MODEL_RANGE');self.assertEqual(h.thermal_excess_j,0.);self.assertEqual(h.plastic_work,0.);self.assertEqual(r['completed_indents'],0);self.ledger(h)
+ def test_41_synthesized_scalar_records_reproduce_source_H_Er_and_are_labelled(self):
+  lib=rt.library()['substances'];synth=[k for k,r in lib.items() if r.get('runtime_usable') and r.get('runtime_basis')==rt.SYNTHESIS_BASIS]
+  self.assertGreaterEqual(len(synth),5)
+  # one record per material class (native 316L plus every open-access class present), deterministic order
+  picks={};[picks.setdefault(lib[k].get('material_class') or lib[k]['material_identity'],k) for k in sorted(synth)]
+  seen=set()
+  for cls,rid in sorted(picks.items()):
+   r=lib[rid];s=r['runtime_scalars'];peak=min(.005,s['load_domain_max_n'])
+   h=setup(sample={'reference_id':rid},method={'peak_load_n':peak});res=run(h);a=res['points'][0]['analysis']
+   self.assertEqual(res['phase'],'succeeded',rid);self.assertIsNotNone(a,rid)
+   self.assertAlmostEqual(a['hardness_pa']/s['hardness_pa'],1.,delta=.03,msg=rid);self.assertAlmostEqual(a['reduced_modulus_pa']/s['reduced_modulus_pa'],1.,delta=.03,msg=rid)
+   proj=json.loads(res['projection_json']);self.assertEqual(proj['basis'],rt.SYNTHESIS_BASIS);self.assertTrue(proj['synthesized_curve']);self.assertFalse(proj['measured_curve']);self.assertAlmostEqual(proj['synthesis_peak_load_n'],peak)
+   self.assertTrue(res['evidence'].startswith('SYNTHESIZED'));self.assertIsNone(r['values']['load_n']);self.assertIsNone(r['values']['depth_m'])
+   seen.add(round(a['reduced_modulus_pa']/1e9,1));self.ledger(h)
+  self.assertEqual(len(seen),len(picks))
+ def test_42_synthesis_requires_projection_acceptance_and_source_load_domain(self):
+  lib=rt.library()['substances'];rid='hit300_316l_h1_mean';r=lib[rid]
+  h=rt.AntonpaarHit300Runtime('synth_reject');call(h,'plant.configure',**rt.PLANT_EXAMPLE)
+  self.rejected(h,'specimen.load','PROJECTION_NOT_ACCEPTED',**dict(rt.SAMPLE_EXAMPLE,reference_id=rid,accept_projection=False))
+  with self.assertRaisesRegex(rt.ActionRejected,'REFERENCE_LOAD_DOMAIN'):rt.synthesis_model(r,True,r['runtime_scalars']['load_domain_max_n']*1.01)
+  h=setup(sample={'reference_id':rid},method={'peak_load_n':.11});self.rejected(h,'acquisition.start','REFERENCE_LOAD_DOMAIN')
+  bad=copy.deepcopy(r);bad['runtime_scalars']['unloading_exponent']=2.5
+  with self.assertRaisesRegex(rt.ActionRejected,'INVALID_REFERENCE'):rt.synthesis_model(bad,True)
+  # peak load sets the synthesis point; two peaks give the same H/Er (self-similar ideal Berkovich)
+  out=[]
+  for peak in [.002,.02]:
+   h=setup('peak'+str(peak),sample={'reference_id':rid},method={'peak_load_n':peak,'loading_rate_n_s':peak/3,'unloading_rate_n_s':peak/3});a=run(h)['points'][0]['analysis'];out.append((a['hardness_pa'],a['reduced_modulus_pa'],a['max_depth_m']))
+  self.assertAlmostEqual(out[0][0]/out[1][0],1.,delta=.02);self.assertAlmostEqual(out[0][1]/out[1][1],1.,delta=.02);self.assertAlmostEqual(out[1][2]/out[0][2],10**.5,delta=.05)
+ def test_43_selected_measured_replicates_cover_all_brittle_materials(self):
+  lib=rt.library()['substances'];measured={}
+  for k,r in lib.items():
+   if r.get('runtime_usable') and r.get('runtime_basis')!=rt.SYNTHESIS_BASIS:measured.setdefault(r['material_identity'],[]).append(k)
+  self.assertEqual(set(measured),{'alumina','boron_carbide','silicon_carbide','granite','borofloat33','soda_lime_glass'})
+  moduli={}
+  for mat in ['alumina','boron_carbide','silicon_carbide','granite']:
+   rid=sorted(measured[mat],key=lambda k:lib[k]['conditions']['source_group'])[0];r=lib[rid];d=r['runtime_domain']
+   self.assertIn('selection_rule',d);self.assertIn(rid,d['valid_replicates']);self.assertEqual(rt.source_model(r,False)['projection']['plastic_projection_nodes'],0)
+   h=setup(sample={'reference_id':rid},method={'peak_load_n':min(.004,r['conditions']['peak_load_n']*.9)});res=run(h);self.assertEqual(res['phase'],'succeeded',rid);self.assertNotIn('SYNTHESIZED',res['evidence']);moduli[mat]=res['points'][0]['analysis']['reduced_modulus_pa'];self.ledger(h)
+  self.assertEqual(len({round(v/1e9) for v in moduli.values()}),4)
+ def test_44_library_coverage_is_counted_not_padded(self):
+  lib=rt.library();cov=lib['coverage'];subs=lib['substances']
+  mats={r['material_identity'] for r in subs.values() if r.get('identity_count_eligible',True)};run_mats={r['material_identity'] for r in subs.values() if r['runtime_usable'] and r.get('identity_count_eligible',True)}
+  self.assertEqual(cov['distinct_reference_materials'],len(mats));self.assertEqual(cov['runtime_materials'],len(run_mats));self.assertEqual(cov['minimum_50_runtime_materials_met'],len(run_mats)>=50)
+  for r in subs.values():
+   if r['kind']=='published_scalar_hardness_modulus':
+    self.assertIn(r['evidence'],['measured_literature','derived']);self.assertTrue(r['source']['sha256']);self.assertTrue(r['source']['verbatim_snippet']);self.assertIsNone(r['values']['load_n'])
+    self.assertTrue(r['runtime_usable'] or r.get('runtime_block_reason'))
+  self.assertFalse(subs['p3ht_20240118_constant_loading_rate']['runtime_usable']);self.assertFalse(any(r['runtime_usable'] for r in subs.values() if r['kind']=='author_processed_indentation_scalar_series'))
  def test_zz_real_inputs_outputs_states_metadata_and_effects(self):
   spec=importlib.util.spec_from_file_location('hit_asset_tool',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);meta=rt.export_antonpaar_hit300_contract_metadata();json.dumps(meta,allow_nan=False)
   for k,c in meta['capabilities'].items():self.assertEqual(tool.lint_schema(c['input_schema'],path=k+'.input'),[]);self.assertEqual(tool.lint_schema(c['output_schema'],path=k+'.output'),[])

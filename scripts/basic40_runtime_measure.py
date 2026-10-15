@@ -745,6 +745,16 @@ GAMRY_REFERENCE620_TYPE = "instrument.gamry_reference620"
 GAMRY_REFERENCE620_PORTS = ("working_electrode", "reference_electrode", "counter_electrode", "cell")
 GAMRY_REFERENCE620_MIN_INTERVAL_S = 3.333e-6
 GAMRY_REFERENCE620_MAX_SAMPLES = 10000  # Runtime resource budget, not a vendor specification.
+GAMRY_REFERENCE620_TEMPLATE_CAPABILITIES = ("template.list", "template.read", "electrochem.template_cv")
+
+
+def _gamry_template_module():
+    """Lazy import of the public-data template extension (scripts/basic40_templates/gamry_ref620.py)."""
+    try:
+        from .basic40_templates import gamry_ref620 as module
+    except ImportError:
+        from basic40_templates import gamry_ref620 as module
+    return module
 
 
 def _gamry_number(value):
@@ -947,6 +957,15 @@ class GamryReference620Runtime:
     def describe_host(self):
         return _gamry_copy.deepcopy(self._metadata["host_capabilities"])
 
+    def host_load_template_cell(self, instance_id, cell):
+        """Trusted host only: attach a template-backed cell (public redox library); agents never see its contents."""
+        with self._lock:
+            inst = self._instances.get(instance_id) if type(instance_id) is str else None
+            if inst is None or inst["running"]:
+                raise ValueError("A known instance without active playback is required")
+            inst["template_cell"] = _gamry_template_module().build_cell(cell)
+            return {"loaded": True, "template_backed": True, "synthetic": False}
+
     @staticmethod
     def _values(inst):
         values = {"power.enabled": inst["enabled"], "waveform.program": inst["program"],
@@ -1069,6 +1088,7 @@ class GamryReference620Session:
             spec = _gamry_copy.deepcopy(host._metadata["asset_types"][GAMRY_REFERENCE620_TYPE])
             spec["state_slots"] = {sid: value for sid, value in spec["state_slots"].items() if self._visible(value)}
             spec["capabilities"] = {cid: value for cid, value in spec["capabilities"].items() if self._visible(value)}
+            spec["capabilities"].update(_gamry_template_module().capability_metadata())  # additive public-data extension
             for capability in spec["capabilities"].values():
                 capability["state_effects"] = [effect for effect in capability["state_effects"] if effect["state_id"] in spec["state_slots"]]
                 capability["observes"] = [sid for sid in capability["observes"] if sid in spec["state_slots"]]
@@ -1126,6 +1146,9 @@ class GamryReference620Session:
 
     def _checked(self, instance_id, inst, cap, args, request_id):
         host = self.__host
+        if cap in GAMRY_REFERENCE620_TEMPLATE_CAPABILITIES:  # additive public-data extension; legacy capabilities unchanged
+            return _gamry_template_module().invoke(self, host, instance_id, inst, cap, args, request_id,
+                                                   evaluator=self._visible({"visibility": "debug"}))
         fail = lambda code, status="rejected": self._error(instance_id, code, request_id, status)
         capabilities = host._metadata["asset_types"][GAMRY_REFERENCE620_TYPE]["capabilities"]
         if cap not in capabilities or not self._visible(capabilities[cap]):
@@ -1238,6 +1261,16 @@ from decimal import Decimal as _m914_Decimal, ROUND_HALF_UP as _m914_ROUND_HALF_
 
 METROHM914_TYPE = "instrument.metrohm_914"
 METROHM914_CHANNELS = {"ph": (-13.0, 20.0, "1"), "conductance": (1e-7, 0.5, "S"), "do": (0.0, 0.05, "kg/m3")}
+METROHM914_TEMPLATE_CAPABILITIES = ("template.list", "template.read", "electrochemistry.template_reading")
+
+
+def _m914_template_module():
+    """Lazy import of the public-data template extension (scripts/basic40_templates/metrohm_914.py)."""
+    try:
+        from .basic40_templates import metrohm_914 as module
+    except ImportError:
+        from basic40_templates import metrohm_914 as module
+    return module
 
 
 def _m914_number(value):
@@ -1416,6 +1449,15 @@ class Metrohm914Runtime:
 
     def describe_host(self):
         return _m914_copy.deepcopy(self._metadata["host_capabilities"])
+
+    @staticmethod
+    def host_template_sample(solution):
+        """Trusted host only: complete explicit truth sample (for host_step) built from public standards/pKa data."""
+        return _m914_template_module().build_sample(solution)["sample"]
+
+    def host_step_template(self, time_s, *, solutions, inputs=None):
+        """Trusted host only: host_step with template-built samples, then attach their provenance to the instances."""
+        return _m914_template_module().host_step_template(self, time_s, solutions, inputs)
 
     @staticmethod
     def _reset(inst):
@@ -1620,6 +1662,7 @@ class Metrohm914Session:
                 return self._error(instance_id, "ACCESS_DENIED")
             spec = _m914_copy.deepcopy(self.__host._metadata["asset_types"][METROHM914_TYPE])
             spec["state_slots"] = {n: s for n, s in spec["state_slots"].items() if self._visible(s)}
+            spec["capabilities"].update(_m914_template_module().capability_metadata())  # additive public-data extension
             for cap in spec["capabilities"].values():
                 cap["state_effects"] = [e for e in cap["state_effects"] if e["state_id"] in spec["state_slots"]]
                 cap["observes"] = [n for n in cap["observes"] if n in spec["state_slots"]]
@@ -1672,6 +1715,9 @@ class Metrohm914Session:
 
     def _checked(self, instance_id, inst, cap, args, request_id):
         host = self.__host
+        if cap in METROHM914_TEMPLATE_CAPABILITIES:  # additive public-data extension; legacy capabilities unchanged
+            return _m914_template_module().invoke(self, host, instance_id, inst, cap, args, request_id,
+                                                  evaluator=self._visible({"visibility": "debug"}))
         fail = lambda code, status="rejected": self._error(instance_id, code, request_id, status)
         definitions = host._metadata["asset_types"][METROHM914_TYPE]["capabilities"]
         if cap not in definitions:
@@ -1820,6 +1866,16 @@ KF899_WATER_MOLAR_MASS_KG_MOL = 0.01801528
 KF899_KG_PER_COULOMB = KF899_WATER_MOLAR_MASS_KG_MOL / (2 * KF899_FARADAY_C_MOL)
 KF899_START_DRIFT_MIN_KG_S = 1e-9 / 60
 KF899_START_DRIFT_MAX_KG_S = 999e-9 / 60
+METROHM899_TEMPLATE_CAPABILITIES = ("template.list", "template.read", "coulometry.template_report")
+
+
+def _kf899_template_module():
+    """Lazy import of the public-data template extension (scripts/basic40_templates/metrohm_899.py)."""
+    try:
+        from .basic40_templates import metrohm_899 as module
+    except ImportError:
+        from basic40_templates import metrohm_899 as module
+    return module
 
 
 def _kf899_number(value):
@@ -2011,6 +2067,7 @@ class Metrohm899Host:
             if instance["state"]["coulometry.running"]:
                 raise ValueError("Cannot replace a running sample")
             candidate = _kf899_copy.deepcopy(instance)
+            candidate.pop("template", None)  # a new explicit fixture replaces any template-backed sample record
             s = candidate["state"]
             s.update({"sample.present": True, "reagent.ready": reagent_ready,
                       "truth.sample_water_kg": float(water_mass_kg), "truth.water_remaining_kg": float(water_mass_kg),
@@ -2024,6 +2081,12 @@ class Metrohm899Host:
             self._kf899_instances[instance_id] = candidate
             self._kf899_host_requests[key] = fingerprint
             return {"status": "succeeded", "loaded": True, "synthetic": True}
+
+    def load_template_sample(self, *, instance_id, substance_id, sample_mass_kg, background_drift_kg_s, reagent_ready, request_id, temperature_k=None):
+        """Host-only: weigh a public water-library material (hydrate, KF standard, water-saturated solvent) into the cell."""
+        return _kf899_template_module().load_template_sample(self, instance_id=instance_id, substance_id=substance_id,
+            sample_mass_kg=sample_mass_kg, background_drift_kg_s=background_drift_kg_s, reagent_ready=reagent_ready,
+            request_id=request_id, temperature_k=temperature_k)
 
     def step(self, dt_s):
         """Integrate all devices against one clock; reads never call this method.
@@ -2137,6 +2200,7 @@ class Metrohm899Session:
                 return self._kf899_response(instance_id, status="rejected", code="UNKNOWN_INSTANCE")
             meta = export_metrohm899_contract_metadata()
             meta["state_slots"] = {k: v for k, v in meta["state_slots"].items() if self._kf899_visible(k)}
+            meta["capabilities"].update(_kf899_template_module().capability_metadata())  # additive public-data extension
             for cap in meta["capabilities"].values():
                 cap["state_effects"] = [e for e in cap["state_effects"] if self._kf899_visible(e["state_id"])]
             meta.pop("host_capabilities")
@@ -2184,6 +2248,12 @@ class Metrohm899Session:
                 if previous[0] != fingerprint:
                     return self._kf899_response(instance_id, request_id, "rejected", code="REQUEST_CONFLICT")
                 return _kf899_copy.deepcopy(previous[1])
+            if capability_id in METROHM899_TEMPLATE_CAPABILITIES:  # additive public-data extension; legacy capabilities unchanged
+                response = _kf899_template_module().invoke(self, host, instance_id, capability_id, arguments, request_id,
+                    evaluator=host._kf899_principals[self._kf899_principal]["visibility"] != "agent")
+                host._kf899_requests[key] = (fingerprint, _kf899_copy.deepcopy(response))
+                host._kf899_logs.append({"instance_id": instance_id, "principal_id": self._kf899_principal, "request_id": request_id, "capability_id": capability_id, "status": response["status"]})
+                return _kf899_copy.deepcopy(response)
             meta = export_metrohm899_contract_metadata()
             definition = meta["capabilities"].get(capability_id)
             if definition is None:
@@ -2358,6 +2428,16 @@ METROHM_OMNIS_CYLINDERS_M3 = (5e-6, 1e-5, 2e-5, 5e-5)
 METROHM_OMNIS_STEPS_PER_CYLINDER = 100000
 METROHM_OMNIS_MAX_SPEED_RAD_S = 60 * _omnis_math.pi
 METROHM_OMNIS_MAX_POINTS = 1024
+METROHM_OMNIS_TEMPLATE_CAPABILITIES = ("template.list", "template.read", "titration.template_report")
+
+
+def _omnis_template_module():
+    """Lazy import of the public-data template extension (scripts/basic40_templates/metrohm_omnis.py)."""
+    try:
+        from .basic40_templates import metrohm_omnis as module
+    except ImportError:
+        from basic40_templates import metrohm_omnis as module
+    return module
 
 
 def _omnis_num(unit, minimum=None, maximum=None, nullable=False, positive=False):
@@ -2628,6 +2708,7 @@ class MetrohmOmnisRuntime:
             if sample["volume_m3"] <= 0 or sample["acid_moles"] < 0 or sample["temperature_k"] <= 0:
                 raise ValueError("Positive sample volume/temperature and nonnegative acid required")
             candidate = _omnis_copy.deepcopy(inst)
+            candidate.pop("template", None)  # a new explicit fixture replaces any template-backed analyte
             candidate["truth"] = {k: float(v) for k, v in sample.items()}
             self._reset_run(candidate)
             candidate["revision"] += 1
@@ -2635,8 +2716,14 @@ class MetrohmOmnisRuntime:
                 self.scene_adapter(instance_id, self._scene(candidate))
             self._instances[instance_id] = candidate
 
+    def host_load_template_sample(self, instance_id, analyte):
+        """Trusted host only: analyte/titrant from the public acid-base library (weak/polyprotic charge balance)."""
+        return _omnis_template_module().load_template_sample(self, instance_id, analyte)
+
     @staticmethod
     def _potential(inst):
+        if inst.get("template") is not None:  # template-backed analyte: library pKa(T) charge balance
+            return _omnis_template_module().potential(inst)
         truth = inst["truth"]
         volume = MetrohmOmnisRuntime._volume(inst)
         d = (truth["acid_moles"] - inst["concentration"] * volume) / (1000 * (truth["volume_m3"] + volume))
@@ -2787,6 +2874,7 @@ class MetrohmOmnisSession:
                 return self._error(instance_id, "ACCESS_DENIED")
             spec = _omnis_copy.deepcopy(self.__host._metadata["asset_types"][METROHM_OMNIS_TYPE])
             spec["state_slots"] = {k: v for k, v in spec["state_slots"].items() if self._visible(v)}
+            spec["capabilities"].update(_omnis_template_module().capability_metadata())  # additive public-data extension
             return {"protocol_version": "1.0.0", "asset_type_id": METROHM_OMNIS_TYPE, "instance_id": instance_id, "adapter": "basic40_runtime_measure.MetrohmOmnisSession", **spec,
                 "limitations": _omnis_copy.deepcopy(self.__host._metadata["limitations"])}
 
@@ -2831,6 +2919,9 @@ class MetrohmOmnisSession:
 
     def _checked(self, instance_id, inst, cap, args, request_id):
         host = self.__host
+        if cap in METROHM_OMNIS_TEMPLATE_CAPABILITIES:  # additive public-data extension; legacy capabilities unchanged
+            return _omnis_template_module().invoke(self, host, instance_id, inst, cap, args, request_id,
+                                                   evaluator=self._visible({"visibility": "debug"}))
         fail = lambda code, status="rejected": self._error(instance_id, code, request_id, status)
         caps = host._metadata["asset_types"][METROHM_OMNIS_TYPE]["capabilities"]
         if cap not in caps:
@@ -3264,7 +3355,7 @@ class MagritekSpinsolve80Runtime:
         config = inst["method"] or {}
         for key in ("nucleus", "pulse_sequence", "scans", "relaxation_delay_s", "acquisition_time_s", "points", "decoupling", "gradient_enabled"):
             values["method." + key] = config.get(key)
-        values.update({"method.carrier_frequency_hz": 80e6 if config.get("nucleus") == "1H" else None, "acquisition.status": inst["status"], "acquisition.completed_scans": inst["completed_scans"], "acquisition.elapsed_s": inst["elapsed"], "measurement.sample_time_s": inst["sample_time"], "measurement.synthetic": True, "measurement.fid": inst["fid"], "measurement.spectrum": inst["spectrum"], "measurement.integral_hz": inst["integral"], "truth.registered_samples": [{"sample_id": k, "signals": v} for k, v in sorted(inst["samples"].items())]})
+        values.update({"method.carrier_frequency_hz": 80e6 if config.get("nucleus") == "1H" else None, "acquisition.status": inst["status"], "acquisition.completed_scans": inst["completed_scans"], "acquisition.elapsed_s": inst["elapsed"], "measurement.sample_time_s": inst["sample_time"], "measurement.synthetic": True, "measurement.fid": inst["fid"], "measurement.spectrum": inst["spectrum"], "measurement.integral_hz": inst["integral"], "truth.registered_samples": [{"sample_id": k, "signals": v} for k, v in sorted(inst["samples"].items()) if k not in inst.get("template_samples", {})]})
         return _sp80_copy.deepcopy(values)
 
     @staticmethod
@@ -3353,6 +3444,7 @@ class MagritekSpinsolve80Session:
                 return self._error(instance_id, "ACCESS_DENIED")
             spec = _sp80_copy.deepcopy(self.__host._metadata["asset_types"][SPINSOLVE80_TYPE])
             spec["state_slots"] = {k: v for k, v in spec["state_slots"].items() if self._visible(v)}
+            spec["capabilities"].update(_sp80_template_module().capability_metadata())  # template-backed sample queries (additive)
             return {"protocol_version": "1.0.0", "asset_type_id": SPINSOLVE80_TYPE, "instance_id": instance_id, "adapter": "basic40_runtime_measure.MagritekSpinsolve80Session", **spec, "limitations": _sp80_copy.deepcopy(self.__host._metadata["limitations"])}
 
     def read(self, *, instance_id, state_ids=None):
@@ -3394,6 +3486,8 @@ class MagritekSpinsolve80Session:
 
     def _checked(self, instance_id, inst, cap, args, request_id):
         host = self.__host
+        if cap in ("template.read", "nmr.read_template_spectrum"):  # additive template-backed queries (read-only)
+            return _sp80_template_module().session_query(self, host, instance_id, inst, cap, args, request_id)
         definition = host._metadata["asset_types"][SPINSOLVE80_TYPE]["capabilities"].get(cap)
         if definition is None:
             return self._error(instance_id, "UNKNOWN_CAPABILITY", request_id)
@@ -3554,6 +3648,28 @@ def _sp80_host_step_decimal(self, time_s):
 MagritekSpinsolve80Runtime.host_step = _sp80_host_step_decimal
 # Remove unused sentinel from the first append without rewriting shared content.
 del MAGRIΤEK_SPINSOLVE80_RESERVED
+
+
+# CHEM-068 template-backed samples (HMDB peak lists, scripts/basic40_templates/magritek_spinsolve80.py); host-only, additive.
+def _sp80_template_module():
+    """Lazy import of the public-data NMR template extension."""
+    try:
+        from .basic40_templates import magritek_spinsolve80 as module
+    except ImportError:
+        from basic40_templates import magritek_spinsolve80 as module
+    return module
+
+
+def _sp80_register_template_sample(self, instance_id, sample_id, composition, *, solvent=None):
+    _sp80_template_module().register_template_sample(self, instance_id, sample_id, composition, solvent=solvent)
+
+
+def _sp80_template_sample_truth(self, instance_id):
+    return _sp80_template_module().template_sample_truth(self, instance_id)
+
+
+MagritekSpinsolve80Runtime.register_template_sample = _sp80_register_template_sample
+MagritekSpinsolve80Runtime.template_sample_truth = _sp80_template_sample_truth
 
 # BEGIN CHEM-160 RIGAKU MINIFLEX600 APPEND-ONLY RUNTIME
 import copy as _mf_copy
@@ -3964,6 +4080,7 @@ class RigakuMiniFlex600Session:
             spec = _mf_copy.deepcopy(self.__host._metadata["asset_types"][RIGAKU_MINIFLEX600_TYPE])
             visible = {k: v for k, v in spec["state_slots"].items() if self._visible(v)}
             spec["state_slots"] = visible
+            spec["capabilities"].update(_mf_template_module().capability_metadata())  # template-backed sample queries (additive)
             for cap in spec["capabilities"].values():
                 cap["state_effects"] = [e for e in cap["state_effects"] if e["state_id"] in visible]
                 cap["observes"] = [s for s in cap["observes"] if s in visible]
@@ -4021,6 +4138,8 @@ class RigakuMiniFlex600Session:
     def _checked(self, instance_id, inst, cap, args, request_id):
         host = self.__host
         fail = lambda code, status="rejected": self._error(instance_id, code, request_id, status)
+        if cap in ("template.read", "xrd.read_template_pattern"):  # additive template-backed queries (read-only)
+            return _mf_template_module().session_query(self, host, instance_id, inst, cap, args, request_id)
         caps = host._metadata["asset_types"][RIGAKU_MINIFLEX600_TYPE]["capabilities"]
         if cap not in caps:
             return fail("UNKNOWN_CAPABILITY")
@@ -4145,6 +4264,28 @@ def write_rigaku_miniflex600_runtime_reports(output_directory):
     for name, value in (("runtime_validation.json", report), ("runtime_metadata.json", metadata)):
         (directory / name).write_text(_mf_json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return report
+
+
+# CHEM-160 template-backed powder samples (RRUFF/COD XRD library, scripts/basic40_templates/rigaku_miniflex600.py); host-only, additive.
+def _mf_template_module():
+    """Lazy import of the public-data XRD template extension."""
+    try:
+        from .basic40_templates import rigaku_miniflex600 as module
+    except ImportError:
+        from basic40_templates import rigaku_miniflex600 as module
+    return module
+
+
+def _mf_host_load_template_sample(self, instance_id, phases):
+    return _mf_template_module().load_template_sample(self, instance_id, phases)
+
+
+def _mf_template_sample_truth(self, instance_id):
+    return _mf_template_module().template_sample_truth(self, instance_id)
+
+
+RigakuMiniFlex600Runtime.host_load_template_sample = _mf_host_load_template_sample
+RigakuMiniFlex600Runtime.template_sample_truth = _mf_template_sample_truth
 # END CHEM-160 RIGAKU MINIFLEX600 APPEND-ONLY RUNTIME
 
 # CHEM-102 independent review: append-only fixes for failed-request replay and

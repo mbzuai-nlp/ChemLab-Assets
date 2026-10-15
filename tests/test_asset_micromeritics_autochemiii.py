@@ -3,6 +3,12 @@ from pathlib import Path
 from unittest import mock
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'scripts'))
 from asset_runtime import micromeritics_autochemiii as rt
+
+def _need(p):
+    """Raise FileNotFoundError for a missing build record or source cache (the public release skips such tests)."""
+    if not Path(p).exists():
+        raise FileNotFoundError(2, "not present in this tree", str(p))
+
 OBSERVED=[]
 
 def call(h,k,**a):
@@ -24,6 +30,24 @@ def finish(h,seconds=100):
   h.step(rt.DT)
   if h.phase!='running':break
  return h.invoke('acquisition.result')
+
+
+def derived_run(reference_id,mode,peak_index=0,mass=2e-5,preexponential=1e10,stoich=None,extra_k=150.):
+ h=rt.MicromeriticsAutochemiiiRuntime('derived_'+mode);call(h,'plant.configure',**dict(rt.PLANT_EXAMPLE,controller_w_k=1000.))
+ d=call(h,'reference.derive_sample',reference_id=reference_id,mode=mode,sample_mass_kg=mass,ramp_k_s=10/60,preexponential_s=preexponential,peak_index=peak_index,particle_diameter_m=1e-4,reaction_enthalpy_j_mol=0.,adsorbate_per_surface_atom=stoich)
+ call(h,'sample.load',**d['sample']);gas=dict(rt.GAS_EXAMPLE,amount_mol=5.)
+ if mode=='tpr':gas['mole_fractions']=[.9,0.,0.,.1,0.,0.,0.,0.,0.]
+ call(h,'gas.load',**gas)
+ if mode=='pulse':
+  fractions=[0.]*9;fractions[rt.SPECIES.index(d['sample']['adsorbate'])]=1.;call(h,'gas.load',**dict(rt.GAS_EXAMPLE,bank='loop',mole_fractions=fractions))
+  segments=[dict(target_k=308.15,ramp_k_s=10/60,hold_s=30.)];duration=200.
+ else:
+  beta=d['reference_ramp_k_s'] or 10/60;target=273.15+round(d['peak_temperature_k']-273.15+extra_k);segments=[dict(target_k=target,ramp_k_s=beta,hold_s=0.)];duration=(target-298.15)/beta+1200.
+ call(h,'furnace.set_open',opened=False);call(h,'power.set',enabled=True);call(h,'method.configure',**dict(rt.METHOD_EXAMPLE,mode=mode,segments=segments,maximum_duration_s=duration,pulse_count=5,pulse_interval_s=10.));call(h,'gas.open',enabled=True);call(h,'acquisition.start')
+ trace=[]
+ while h.phase=='running':
+  before=h.bound;h.step(rt.DT);trace.append((h.temperature,before-h.bound))
+ return h,d,trace
 
 class TestAutoChemIII(unittest.TestCase):
  def assert_ledger(self,h):
@@ -123,6 +147,38 @@ class TestAutoChemIII(unittest.TestCase):
   call(h,'sample.set_position',distance_m=0.);call(h,'sample.release',angle_rad=0.);call(h,'sample.remove');call(h,'gas.unload',bank='carrier',inlet=1);call(h,'power.set',enabled=False);call(h,'service.set',distance_m=.1);self.assert_ledger(h)
  def test_24_reference_curves_and_summary_are_not_tcd(self):
   h=setup();a=call(h,'reference.query',reference_id='parlett2023_nio_sio2');b=call(h,'reference.query',reference_id='rodbuk2025_cu_ti_itq2_tpd');c=call(h,'reference.query',reference_id='garidzirai2021_pt_alumina');self.assertEqual(json.loads(b['reference_json'])['values']['signal_unit'],'Pa');self.assertEqual(json.loads(c['reference_json'])['values']['metal_dispersion_fraction'],.38);self.assertIn('source',json.loads(a['reference_json']))
+ def test_24b_reference_list_coverage_and_provenance(self):
+  h=setup();listed=call(h,'reference.list')['references'];lib=rt.library()['substances'];usable=[x for x in listed if x['runtime_modes']]
+  self.assertEqual(len(listed),len(lib));self.assertGreaterEqual(len({x['material_group'] for x in usable}),50);self.assertGreaterEqual(len(usable),100)
+  for x in usable:
+   r=lib[x['reference_id']];src=r['source']
+   self.assertEqual(r['evidence'],'measured_literature');self.assertTrue(r['accessed']);self.assertTrue(src['url'].startswith('https://'));self.assertTrue(src['license'].startswith('CC'));self.assertTrue(src['locator']);self.assertEqual(len(src['sha256']),64);_need(rt.ROOT/src['file'])
+  meta=json.loads((rt.ASSET/'output_templates.json').read_text())['coverage'];self.assertTrue(meta['ge50_material_families_met']);self.assertFalse(meta['ge50_chemical_substances_met'])
+ def test_24c_derived_tpr_reproduces_published_peak_and_uptake(self):
+  for ref in ['freitas2025_bulk_cuo','ceo2_morph2024_rod','ni_kaolin_scs2026_ni','mno2_al2o3_2026_1pt']:
+   h,d,trace=derived_run(ref,'tpr');record=rt.library()['substances'][ref]
+   self.assertEqual(d['evidence'],'derived');self.assertEqual(d['ramp_basis'],'reference');self.assertAlmostEqual(d['amount_mol'],record['values']['h2_consumption_mol_kg']*2e-5,places=15)
+   peak=max(trace,key=lambda x:x[1])[0];self.assertLess(abs(peak-record['values']['h2_tpr_peak_temperature_k'][0]),6.,ref)
+   self.assertEqual(h.phase,'succeeded');self.assertLess(h.bound,1e-3*d['amount_mol']);self.assertAlmostEqual(h.exhaust[rt.SPECIES.index('h2o')]+h.cell[rt.SPECIES.index('h2o')],d['amount_mol'],delta=1e-3*d['amount_mol']);self.assert_ledger(h)
+ def test_24d_derived_tpd_zeolite_oxide_clay(self):
+  for ref,index in [('hzsm5_nuhma2022_parent',1),('solidacid2023_gamma_al2o3',0),('minerals2020_cli',0),('garidzirai2021_pt_alumina',1)]:
+   h,d,trace=derived_run(ref,'tpd',peak_index=index,mass=1e-4);record=rt.library()['substances'][ref]
+   self.assertAlmostEqual(d['amount_mol'],record['values']['nh3_total_acidity_mol_kg']*1e-4,places=15);peak=max(trace,key=lambda x:x[1])[0]
+   self.assertLess(abs(peak-record['values']['nh3_peak_temperature_k'][index]),6.,ref);self.assertLess(h.bound,1e-3*d['amount_mol']);self.assert_ledger(h)
+  self.assertEqual(call(setup(),'reference.derive_sample',**dict(rt.CAPS['reference.derive_sample']['example_arguments'],reference_id='hzsm5_nuhma2022_5la',mode='tpd'))['ramp_basis'],'requested_assumed')
+ def test_24e_derived_pulse_capacity_from_uptake_or_dispersion(self):
+  h,d,trace=derived_run('ir2021_al2o3','pulse',mass=1e-4,preexponential=50.);self.assertEqual(d['stoichiometry_basis'],'direct_uptake');self.assertEqual(d['sample']['adsorbate'],'h2')
+  self.assertAlmostEqual(d['amount_mol'],rt.library()['substances']['ir2021_al2o3']['values']['chemisorbed_uptake_mol_kg']*1e-4,places=15);self.assertEqual(h.pulses,5);self.assertAlmostEqual(h.bound,d['amount_mol'],delta=1e-3*d['amount_mol']);self.assertLessEqual(h.bound,d['amount_mol']);self.assert_ledger(h)
+  h=setup();args=dict(rt.CAPS['reference.derive_sample']['example_arguments'],reference_id='pt_zro2_2025_1pt',mode='pulse',sample_mass_kg=1e-4);before=copy.deepcopy(h.__dict__)
+  with self.assertRaisesRegex(rt.ActionRejected,'STOICHIOMETRY_REQUIRED'):h.invoke('reference.derive_sample',**args)
+  self.assertEqual(before,h.__dict__);r=call(h,'reference.derive_sample',**dict(args,adsorbate_per_surface_atom=1.));self.assertEqual(r['stoichiometry_basis'],'evaluator_input');self.assertAlmostEqual(r['amount_mol'],.72*.01/.195084*1e-4)
+  r=call(h,'reference.derive_sample',**dict(args,reference_id='pt_tio2_2026_ns'));self.assertEqual(r['sample']['adsorbate'],'co');r=call(h,'reference.derive_sample',**dict(args,reference_id='garidzirai2021_pt_alumina',adsorbate_per_surface_atom=1.));self.assertAlmostEqual(r['amount_mol'],.38*.0048/.195084*1e-4)
+ def test_24f_derive_rejections_are_atomic(self):
+  h=setup();base=dict(rt.CAPS['reference.derive_sample']['example_arguments']);before=copy.deepcopy(h.__dict__)
+  for change,error in [({'reference_id':'parlett2023_nio_sio2'},'REFERENCE_NOT_RUNTIME_USABLE'),({'reference_id':'missing'},'INVALID_REFERENCE'),({'peak_index':5},'INVALID_ARGUMENT'),({'mode':'pulse'},'REFERENCE_NOT_RUNTIME_USABLE'),({'sample_mass_kg':.02},'INVALID_ARGUMENT')]:
+   with self.assertRaisesRegex(rt.ActionRejected,error):h.invoke('reference.derive_sample',**dict(base,**change))
+   self.assertEqual(before,h.__dict__)
+  e1=rt.redhead_activation(558.,10/60,1e10);e2=rt.redhead_activation(558.,20/60,1e10);self.assertLess(e2,e1);self.assertAlmostEqual(e1/(rt.R*558.**2),1e10/(10/60)*math.exp(-e1/(rt.R*558.)),delta=1e-9*e1/(rt.R*558.**2))
  def test_25_terminal_source_is_snapshot(self):
   h=setup(sample={'reference_id':'parlett2023_nio_sio2'});h.invoke('acquisition.start');r=finish(h);h.invoke('gas.open',enabled=False);h.invoke('furnace.set_open',opened=True);h.invoke('sample.remove');h.invoke('sample.load',**dict(rt.SAMPLE_EXAMPLE,reference_id='garidzirai2021_pt_alumina'));self.assertEqual(r,h.invoke('acquisition.result'))
  def test_26_invalid_composition(self):

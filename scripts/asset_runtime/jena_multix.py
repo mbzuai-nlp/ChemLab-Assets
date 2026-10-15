@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast,copy,csv,hashlib,importlib.util,io,json,math
 from pathlib import Path
 import numpy as np
-ROOT=Path(__file__).resolve().parents[2];SLUG='jena_multix';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-085';PROTOCOL_VERSION=ASSET_VERSION='1.0.0'
+ROOT=Path(__file__).resolve().parents[2];SLUG='jena_multix';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-085';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.0'
 TEMPLATE_REL='assets/expansion_batch04/t3_analytical/jena_multix/output_templates/library.json'
 FARADAY=96485.33212331001;M_CL=.03545;M_O2=.031998;MAX_RESULTS=256;MAX_CURVES=32;MAX_WINDOWS=10000
 class ActionRejected(ValueError):pass
@@ -111,6 +111,19 @@ def _source_amount(r,a):
    return float(r['concentration_kg_m3'])*a['volume_m3']*a['reference_fraction']
   if r.get('mass_fraction_kg_kg') is not None:return float(r['mass_fraction_kg_kg'])*a['mass_kg']*a['reference_fraction']
  raise ActionRejected('REFERENCE_QUERY_ONLY')
+RECOVERY_KIND='published_compound_recovery';RECOVERY_FIELDS=('chlorine_equivalent_mass_kg','concentration_kg_m3')
+def _recovery_check(r,mode):
+ # Published compound recovery (2026-10-14 library expansion): delivered Cl-equivalent = basis value x source aliquot x
+ # derived stoichiometric/halide Cl-equivalent factor x published recovery. Recomputed here so a record can only be
+ # loaded in its own mode and only with an internally consistent, finite derivation.
+ if mode not in (r.get('supported_modes') or []):raise ActionRejected('RECOVERY_MODE_MISMATCH')
+ d=r.get('derivation')
+ if not isinstance(d,dict) or d.get('target_field') not in RECOVERY_FIELDS:raise ActionRejected('REFERENCE_QUERY_ONLY')
+ parts=[d.get(k) for k in ('basis_value','aliquot','cl_equivalent_factor','applied_recovery')]
+ if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<0 for v in parts) or not 0<parts[3]<=2:raise ActionRejected('REFERENCE_QUERY_ONLY')
+ q=math.prod(parts);stored=r.get(d['target_field'])
+ if not isinstance(stored,(int,float)) or not math.isclose(q,stored,rel_tol=1e-9,abs_tol=1e-30) or any(r.get(k) is not None for k in ('chlorine_equivalent_mass_kg','concentration_kg_m3','mass_fraction_kg_kg') if k!=d['target_field']):raise ActionRejected('RECOVERY_DERIVATION_MISMATCH')
+ return q
 class JenaMultixRuntime:
  def __init__(self,instance_id='multix_01',library=None):
   self.instance_id=instance_id;self.library=copy.deepcopy(library) if library is not None else _library();self.templates=self.library.get('compounds',{});self.plant=None;self.method=copy.deepcopy(METHOD_EXAMPLE);self.sample=None;self.time_s=0.;self.revision=0;self.powered=False;self.gas=False;self.doors={k:0. for k in ['main_left','main_right','chlorine']};self.direction='vertical';self.angle=0.;self.injection=0.;self.port_open=False;self.port_angle=0.;self.abd_powered=False;self.abd_stopped=False;self._abd_off_seen=False;self.cooldown=0.;self.target=1223.15;self.temperature=298.15;self.tube_type='open';self.cell_type='sensitive';self.cell_prepared=False;self.phase='idle';self.elapsed_s=0.;self.warning='';self.windows=[];self.charge=0.;self._pending_charge=0.;self._pending_dt=0.;self._pending_saturated=False;self._pending_end=0.;self._last_point=None;self._run_method=None;self._run_key='';self._run_blank=None;self._run_curve=None;self._run_kind='';self._run_direction='vertical';self._result_cache=None;self._record_id='';self._record_counter=0;self._selected='';self._records={};self._curves={};self._blanks={};self._standard_refs={};self.operation_id='';self._op_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={};self._operation_records={};self._rng=np.random.default_rng(0)
@@ -191,6 +204,7 @@ class JenaMultixRuntime:
     if sum(species.get(e,0.)*M for e,M in [('Cl',.03545),('Br',.079904),('I',.12690447),('F',.0189984)])>a['mass_kg']:raise ActionRejected('SPECIES_EXCEED_SAMPLE_MASS')
    elif a['kind']!='blank':
     r=self._reference(a['template_id'])
+    if r.get('record_kind')==RECOVERY_KIND:_recovery_check(r,self.method['mode'])
     if r.get('input_form') is not None and r['input_form']!=a['input_form'] or r.get('supported_modes') is not None and self.method['mode'] not in r['supported_modes']:raise ActionRejected('SOURCE_STAGE_MISMATCH')
     mass=_source_amount(r,a)
     if r.get('physical_input_eligible') is False or r.get('physical_loading_eligible') is False:raise ActionRejected('REFERENCE_QUERY_ONLY')
@@ -463,7 +477,8 @@ LIMITATIONS=[
 'Cancellation preserves all generated/observed partial charge and irreversible burned material, plus unburned sample/gas/cell residual. sample.unload returns only unburned material and explicitly separated residue; product.drain disposes remaining equivalents without regenerating silver. No implicit sample restoration.',
 'Public calibration references must be actual saved complete standard observations in this instance, with exact acquisition signature and three distinct source-reference doses. Linear calibration is conditional and interpolation-only; negative and uncalibrated values remain null with diagnostics, not forced zero. Reference aliquot fractions require explicit preparation assumption.',
 'Process-local256 result/32curve/10000window capacity is engineering, not documented OEM persistence. Owner-bound asynchronous terminal snapshots remain queryable after new measurement and result deletion. Agent/evaluator return filtering is not OS/container/filesystem isolation.',
-'Body nominal.810W*.550D*.460H m/about30kg plus installedABD.520W*.500D*.210H m10kg are distinct documented items; horizontal system spaceabout1.4m wide. Real local CAD, masses, gas connections and chemistry/hardware/robot validation remain separate.'
+'Body nominal.810W*.550D*.460H m/about30kg plus installedABD.520W*.500D*.210H m10kg are distinct documented items; horizontal system spaceabout1.4m wide. Real local CAD, masses, gas connections and chemistry/hardware/robot validation remain separate.',
+'Published compound-recovery templates (EPA SW-846 9020B/9021/9023, Ding et al. 2022 Se Pu, ES&T 2023 SI, Thermo AN-72333, multi X SP_0041) load as prepared inputs: delivered Cl-equivalent = source basis x source aliquot x derived stoichiometric/halide Cl-equivalent factor x published recovery, recomputed and mode-checked at load (RECOVERY_MODE_MISMATCH, RECOVERY_DERIVATION_MISMATCH). Most recoveries were measured on other TOX/AOX/CIC instruments; the host combustion_recovery still applies on top, so outputs are not replays of the published recoveries.'
 ]
 SAMPLE['properties']['volume_m3']['description']='实际液体原始体积，仅extract/liquid使用；其他输入必须0，不是POX气量或AOX原水体积。'
 def export_jena_multix_contract_metadata():

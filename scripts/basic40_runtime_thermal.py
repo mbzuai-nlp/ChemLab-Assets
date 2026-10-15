@@ -2210,6 +2210,17 @@ MULTIWAVE_7101_CAPACITY_J_K = -MULTIWAVE_7101_LOSS_W_K * MULTIWAVE_7101_REFERENC
     -MULTIWAVE_7101_LOSS_W_K * (MULTIWAVE_7101_REFERENCE_K - MULTIWAVE_7101_AMBIENT_K) / MULTIWAVE_7101_REFERENCE_POWER_W)
 MULTIWAVE_7101_OPEN_LOSS_W_K = 5.0  # Assumed extra passive loss, not factory active cooling.
 MULTIWAVE_7101_SOURCE = 'https://www.anton-paar.com/?L=1&document=60434&eID=documentsDownload'
+# 2026-10 template hook (scripts/basic40_templates/multiwave_7101.py): template.read, digestion.load_template,
+# digestion.evaluate; library assets/reactions/multiwave_7101_digestion_library/templates.json. Additive only.
+_MULTIWAVE_TEMPLATE_CAPS = ('template.read', 'digestion.load_template', 'digestion.evaluate')
+
+
+def _multiwave_template_module():
+    try:
+        from basic40_templates import multiwave_7101 as module
+    except ImportError:
+        from scripts.basic40_templates import multiwave_7101 as module
+    return module
 
 
 def _multiwave_object(properties):
@@ -2306,7 +2317,8 @@ def export_multiwave_7101_metadata():
         'factory_ramp_rate_K_s': p(None, 'K/s', 'unknown', 'No7101 ramp rating established; 70degC/min statement is specific to7301 and is not reused.'),
         'factory_cooldown_time_s': p(None, 's', 'unknown', 'Not calibrated to a7101/rack-specific cooldown benchmark.'),
     }
-    return {'asset_types': {MULTIWAVE_7101_TYPE: {'catalog_id': 'CHEM-047', 'model': 'Anton Paar Multiwave 7101, 24 x 8 mL rack', 'asset_version': '1.0.0', 'state_slots': slots, 'capabilities': caps, 'declared_capabilities': unsupported, 'parameters': params}},
+    caps.update(_multiwave_template_module().capability_specs())  # 2026-10 template hook (additive capabilities)
+    return {'asset_types': {MULTIWAVE_7101_TYPE: {'catalog_id': 'CHEM-047', 'model': 'Anton Paar Multiwave 7101, 24 x 8 mL rack', 'asset_version': '1.1.0', 'state_slots': slots, 'capabilities': caps, 'declared_capabilities': unsupported, 'parameters': params}},
         'host_capabilities': {'sim.step': {'kind': 'simulation', 'visibility': 'trusted_host_only', 'input_schema': _multiwave_object({'dt_s': n('s', 0, 86400)}), 'binding': 'Multiwave7101Runtime.step(dt_s)', 'partial_failure': 'Clock/process commit before callbacks; synchronization failure may leave partially updated scene.'}},
         'trusted_scene_callback': 'scene_adapter(instance_id,updates): full public scene snapshot; door.angle_rad maps about negativeX; rack.occupied_slots holds24 visual flags; no process_truth is passed.',
         'result_schema_scope': 'capability.output_schema validates response.result only',
@@ -2441,7 +2453,9 @@ class Multiwave7101Runtime:
         if dt_s == 0: return
         with self._lock:
             for inst in self._instances.values():
+                before = copy.deepcopy(inst['state']) if inst.get('template_digestion') else None  # 2026-10 template hook
                 self._advance(inst['state'], float(dt_s))
+                if before is not None: _multiwave_template_module().track_step(self._advance, inst, before, self.time_s, float(dt_s))
                 inst['revision'] += 1
             self.time_s += float(dt_s)
             if self.scene_adapter:
@@ -2527,6 +2541,7 @@ class Multiwave7101Session:
         if cap in spec['declared_capabilities']: return fail('UNSUPPORTED', 'unsupported')
         if cap not in spec['capabilities']: return fail('UNKNOWN_CAPABILITY')
         if set(args) != set(spec['capabilities'][cap]['input_schema']['properties']): return fail('INVALID_ARGUMENT')
+        if cap in _MULTIWAVE_TEMPLATE_CAPS: return self._template_checked(sid, inst, cap, args, request_id)  # 2026-10 template hook
         if cap in ('power.set', 'microwave.set_enabled') and type(args['enabled']) is not bool: return fail('INVALID_ARGUMENT')
         if cap == 'thermal.set_temperature' and (not _number(args['temperature_K']) or not host.ambient_temperature_K <= args['temperature_K'] <= MULTIWAVE_7101_MAX_K): return fail('INVALID_ARGUMENT')
         if cap == 'microwave.set_power' and (not _number(args['power_W']) or not 0 <= args['power_W'] <= 1500): return fail('INVALID_ARGUMENT')
@@ -2567,6 +2582,18 @@ class Multiwave7101Session:
                 try: host.scene_adapter(sid, host._scene_payload(state))
                 except Exception: return fail('DEVICE_ERROR', 'failed')
             inst['state'], inst['revision'] = state, inst['revision'] + 1
+        return self._envelope(sid, request_id, result=result)
+
+    def _template_checked(self, sid, inst, cap, args, request_id):
+        """2026-10 template hook: delegate to scripts/basic40_templates/multiwave_7101.py; rejections leave state unchanged."""
+        module = _multiwave_template_module()
+        try:
+            result, contents = module.handle(cap, args, inst['state'], inst.get(module.STATE_KEY))
+        except module.Rejected as exc:
+            if exc.code in ('INVALID_ARGUMENT', 'PRECONDITION_FAILED', 'UNKNOWN_CAPABILITY'): return self._error(sid, exc.code, request_id)
+            return self._envelope(sid, request_id, status='rejected', error={'code': exc.code, 'message': module.ERRORS[exc.code], 'retryable': False, 'side_effects': 'none', 'progress': None})
+        if contents is not None:
+            inst[module.STATE_KEY], inst['revision'] = contents, inst['revision'] + 1
         return self._envelope(sid, request_id, result=result)
 
     def write(self, *, instance_id, state_id, value, request_id):

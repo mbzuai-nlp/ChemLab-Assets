@@ -4,6 +4,12 @@ from pathlib import Path
 import numpy as np
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'scripts'))
 from asset_runtime import ta_dma850 as rt
+
+def _need(p):
+    """Raise FileNotFoundError for a missing build record or source cache (the public release skips such tests)."""
+    if not Path(p).exists():
+        raise FileNotFoundError(2, "not present in this tree", str(p))
+
 OBSERVED=[];STATES=[];SCHEMA_REPORT={}
 def state(h):return json.dumps(h.__dict__,sort_keys=True,allow_nan=False)
 def call(h,k,**a):
@@ -147,4 +153,69 @@ class TestDMA850(unittest.TestCase):
    self.assertEqual(set(values),set(rt.SLOTS));json.dumps(values,allow_nan=False)
    for k,v in values.items():rt.validate(rt.SLOTS[k]['schema'],v)
   self.assertTrue(all(not c['state_effects'] for k,c in meta['capabilities'].items() if c['kind'] in ['query','analysis']));SCHEMA_REPORT.update(actual_returns=len(OBSERVED),states=len(STATES))
+# ---- 2026-10-15 real-data library: every runtime-usable record must drive an actual observed run ----
+def source_rows(ref,f):
+ v=ref['values'];return sorted((T,E,D) for T,F,E,D in zip(v['temperature_k'],v['frequency_hz'],v['storage_modulus_pa'],v['loss_modulus_pa']) if math.isclose(F,f,rel_tol=1e-7,abs_tol=1e-9))
+def pick_point(ref):
+ """Most populated source frequency; an actual source row inside the runtime domain closest to 298.15 K with E'>0, E''>=0."""
+ freqs=rt.source_frequencies(ref);f=max(freqs,key=lambda q:len(source_rows(ref,q)));d=ref['runtime_domain']
+ rows=[r for r in source_rows(ref,f) if d['minimum_temperature_k']<=r[0]<=d['maximum_temperature_k'] and r[1]>0 and r[2]>=0 and 113.15<=r[0]<=873.15]
+ T=min(rows,key=lambda r:(abs(r[0]-298.15),r[0]))[0];return T,f
+def adaptive_sample(rid,T,f,mode='source_anchor',strain_bias=2e-3):
+ """Explicit engineering geometry chosen so preload/dynamic force respect 1e-4..18 N and the 2 % linear strain domain."""
+ ref=rt.library()['substances'][rid];E,D=rt.source_pair(ref,T,f);W=.004;P=.05;A=P/(E*strain_bias);t=A/W
+ if t>.002:W,t=.008,.002;A=W*t;P=A*E*strain_bias
+ if t<1e-6:t=1e-6;A=W*t;P=A*E*strain_bias
+ s=copy.deepcopy(rt.SAMPLE_EXAMPLE);s.update(width_m=W,thickness_m=t,mass_kg=A*.01*1200.);s['response']=dict(s['response'],mode=mode,reference_id=rid,temperature_k=T,frequency_hz=f)
+ return s,P,E,D
+def single_block(T,f,control='strain',**kw):
+ m=copy.deepcopy(rt.METHOD_EXAMPLE);m['blocks'][0].update(temperature_k=T,frequency_hz=f,control=control,strain_amplitude=5e-4,settle_cycles=3,measure_cycles=2,**kw);m['heating_rate_k_s']=20/60;m['cooling_rate_k_s']=10/60;m['timeout_s']=20000.;return m
+def plant_for(T):return dict(cooler='NPC',ambient_k=283.15,controller_gain_w_k=200.) if T<283.15 else dict(ambient_k=max(283.15,min(298.15,T)),controller_gain_w_k=200.)
+RUNTIME_SUMMARY={}
+class TestDMA850RealLibrary(unittest.TestCase):
+ rejected=TestDMA850.rejected;ledger=TestDMA850.ledger
+ def test_43_every_runtime_record_drives_observed_run(self):
+  ids=rt.runtime_reference_ids();lib=rt.library()['substances'];self.assertGreaterEqual(len(ids),1);done={}
+  for rid in ids:
+   ref=lib[rid];T,f=pick_point(ref);s,P,E,D=adaptive_sample(rid,T,f);h=setup(sample=s,plant=plant_for(T),method=single_block(T,f),preload=P);r=run(h)
+   self.assertEqual(r['phase'],'succeeded',(rid,T,f,r['error_code']));a=r['blocks'][0]['analysis'];mag=math.hypot(E,D)
+   self.assertAlmostEqual(a['storage_modulus_pa']/E,1,delta=.006,msg=rid);self.assertLess(abs(a['loss_modulus_pa']-D),.006*mag,rid);self.assertEqual(r['reference_id'],rid);self.ledger(h)
+   done[rid]=dict(identity=ref['material_identity'],T=T,f=f,mode=ref['conditions'].get('mode'))
+  RUNTIME_SUMMARY.update(done);identities={v['identity'] for v in done.values()}
+  self.assertEqual(len(identities),len({lib[k]['material_identity'] for k in ids}))
+ def test_44_curve_temperature_sweep_reproduces_source_and_transition(self):
+  rid='polycarbonate_ta_dma850_single_cantilever';ref=rt.library()['substances'][rid];temps=[421.15,425.15,429.15,433.15,437.15,441.15];f=ref['values']['frequency_hz'][0]
+  s=copy.deepcopy(rt.SOURCE_CURVE_SAMPLE_EXAMPLE);s['response']=dict(s['response'],reference_id=rid,temperature_k=temps[0],frequency_hz=1.)
+  m=copy.deepcopy(rt.METHOD_EXAMPLE);m['blocks']=[dict(m['blocks'][0],temperature_k=T,frequency_hz=1.,control='force',force_amplitude_n=.01) for T in temps];m['heating_rate_k_s']=20/60
+  m['timeout_s']=20000.;h=setup(sample=s,plant=dict(controller_gain_w_k=200.),method=m,preload=.03);r=run(h);self.assertEqual(r['phase'],'succeeded',r['error_code']);src=[]
+  for b,T in zip(r['blocks'],temps):
+   E,D=rt.source_pair(ref,T,1.);src.append(D/E);a=b['analysis'];mag=math.hypot(E,D);self.assertAlmostEqual(a['storage_modulus_pa']/E,1,delta=.01,msg=T);self.assertLess(abs(a['loss_modulus_pa']-D),.01*mag,T)
+  self.assertGreater(max(src)/min(src),5.)
+  tr=call(h,'analysis.transition',temperature_k=[b['mean_temperature_k'] for b in r['blocks']],tan_delta=[b['analysis']['tan_delta'] for b in r['blocks']],frequency_hz=[b['frequency_hz'] for b in r['blocks']])
+  i=int(np.argmax(src));self.assertTrue(tr['bracketed']);self.assertAlmostEqual(tr['transition_temperature_k'],r['blocks'][i]['mean_temperature_k'],places=9)
+  l=self.ledger(h);self.assertNotEqual(l['constitutive_update_j'],0.)
+ def test_45_curve_frequency_sweep_at_source_temperature(self):
+  rid='foam_pe_table4';ref=rt.library()['substances'][rid];self.assertEqual(ref['conditions']['mode'],'compression');self.assertEqual(ref['runtime_transfer']['source_mode'],'compression')
+  s,P,E,D=adaptive_sample(rid,295.15,1.,mode='source_curve');m=single_block(295.15,1.);m['blocks']=[dict(m['blocks'][0],frequency_hz=f) for f in [.1,1.,10.]]
+  h=setup(sample=s,plant=dict(ambient_k=295.15),method=m,preload=P);r=run(h);self.assertEqual(r['phase'],'succeeded',r['error_code'])
+  for b in r['blocks']:
+   E,D=rt.source_pair(ref,295.15,b['frequency_hz']);a=b['analysis'];self.assertAlmostEqual(a['storage_modulus_pa']/E,1,delta=.006);self.assertLess(abs(a['loss_modulus_pa']-D),.006*math.hypot(E,D))
+  self.ledger(h)
+ def test_46_curve_guards_atomic_and_reference_only_rejected(self):
+  rid='polycarbonate_ta_dma850_single_cantilever';s=copy.deepcopy(rt.SOURCE_CURVE_SAMPLE_EXAMPLE);s['response']=dict(s['response'],reference_id=rid,temperature_k=310.15,frequency_hz=1.)
+  m=single_block(310.15,1.);h=setup(sample=s,method=m,preload=.05);bad=copy.deepcopy(m);bad['blocks'][0]['temperature_k']=470.15;self.rejected(h,'method.configure','SOURCE_TEMPERATURE_RANGE',**bad)
+  bad=copy.deepcopy(m);bad['blocks'][0]['frequency_hz']=2.;self.rejected(h,'method.configure','SOURCE_FREQUENCY_RANGE',**bad)
+  lib=rt.library()['substances'];h=rt.TaDma850Runtime();call(h,'plant.configure',**rt.PLANT_EXAMPLE)
+  for ref_only in [k for k,v in lib.items() if not v.get('runtime_usable')][:8]+['dif72_protein_dma850_reference','darus_pla_dry_mastercurve','spu_ha_dma_tg']:
+   if ref_only in lib and not lib[ref_only].get('runtime_usable'):
+    s2=copy.deepcopy(s);s2['response']['reference_id']=ref_only;self.rejected(h,'sample.load','.',**s2)
+  s2=copy.deepcopy(s);s2['response']['accept_condition_transfer']=False;self.rejected(h,'sample.load','CONDITION_TRANSFER',**s2)
+ def test_47_runtime_records_traceable_licensed_and_not_scalar(self):
+  lib=rt.library();subs=lib['substances'];ids=rt.runtime_reference_ids()
+  for rid in ids:
+   r=subs[rid];src=r['source'];self.assertTrue(src.get('url') or src.get('doi'),rid);self.assertTrue(src.get('locator'),rid);self.assertNotIn('scalar',r['kind'],rid)
+   f=ROOT/src['file'];_need(f);self.assertEqual(hashlib.sha256(f.read_bytes()).hexdigest(),src['sha256'],rid)
+   self.assertIn(r['conditions'].get('mode'),lib['runtime_transfer_policy']['transferable_modes'],rid);self.assertNotIn('shear',r['conditions'].get('mode'),rid);self.assertNotIn('torsion',r['conditions'].get('mode'),rid);self.assertEqual(r['runtime_transfer']['source_mode'],r['conditions'].get('mode'),rid)
+   if r.get('evidence',{}).get('loss_modulus_derived_from_tan_delta') if isinstance(r.get('evidence'),dict) else False:self.assertTrue(any('tan' in t for t in r['evidence']['transformations']),rid)
+  cov=lib['coverage'];self.assertEqual(cov['runtime_records'],len(ids));self.assertEqual(cov['runtime_materials'],len({subs[k]['material_identity'] for k in ids}))
 if __name__=='__main__':unittest.main(verbosity=2)

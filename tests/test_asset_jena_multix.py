@@ -208,5 +208,56 @@ class MultiX(unittest.TestCase):
   r=ready();measure(r,'blank');q=measure(r,kind='standard',fraction=1.);self.assertTrue(any('endpoint unresolved' in x for x in q['quality']));self.assertIsNone(q['chlorine_equivalent_mass_kg']);self.assertGreater(q['windows'][-1]['current_a'],.0005);self.rejected(r,'calibration.fit','INVALID_STANDARD_OBSERVATION',curve_id='bad',record_ids=[q['record_id'],'x','y'])
  def test_76_liquid_cooling_waits_for_return_to_sluice(self):
   r=ready(horizontal=True);load(r,'blank',input_form='liquid',volume_m3=1e-8);r.invoke('measurement.start');r.step(.6);self.assertGreater(r.injection,.2);r.invoke('measurement.stop');r.step(.1);self.assertGreater(r.injection,0);self.assertEqual(r.cooldown,200.)
+class PublishedRecoveryTemplates(unittest.TestCase):
+ """2026-10-14 library expansion: real published compound recoveries as runtime inputs (sample across classes)."""
+ @classmethod
+ def setUpClass(cls):cls.j=_load_actual_library();cls.C=cls.j['compounds']
+ def actual(self,horizontal=False,mode=None):r=ready(horizontal=horizontal,mode=mode);r.templates=self.C;r.library={'compounds':self.C};return r
+ def expected(self,rid,a):
+  r=self.C[rid];d=r['derivation'];q=d['basis_value']*d['aliquot']*d['cl_equivalent_factor']*d['applied_recovery']
+  self.assertAlmostEqual(q/r[d['target_field']],1.,places=12)
+  return q*a['reference_fraction']*(a['volume_m3'] if d['target_field']=='concentration_kg_m3' else 1.)
+ def run_record(self,r,rid,fraction=1.,**extra):
+  measure(r,'blank',**{k:v for k,v in extra.items() if k in ('input_form','volume_m3','mass_kg')})
+  if r.direction=='horizontal':r.step(r.cooldown+1.)  # documented 200 s liquid-boat cooldown is consumed, not skipped
+  a=load(r,'sample',fraction,template_id=rid,**extra);self.assertAlmostEqual(r.sample['equiv']*M_CL/self.expected(rid,a),1.,places=12)
+  r.invoke('measurement.start');r.step(r.method['integration_s']);q=r.invoke('result.read');self.assertTrue(q['complete']);self.assertGreater(q['blank_corrected_charge_c'],0);return q
+ def test_77_aox_recoveries_across_classes(self):
+  # trihalomethane-like aromatic (EPA 9020B bromobenzene), iodophenol (Se Pu, CC BY), brominated acetanilide (Thermo, vendor)
+  for rid in ['rec_epa9020b_01','rec_sepu2022_20','rec_thermo72333_05','rec_epa9020b_13']:
+   with self.subTest(rid=rid):
+    rec=self.C[rid];self.assertEqual(rec['supported_modes'],['AOX']);self.assertTrue(rec['cas']);self.assertTrue(rec['inchi_key']);self.assertIn(rec['license_flag'],['us_government_public_domain','CC_BY_4.0','vendor_document_numbers_and_conditions_only'])
+    f=min(1.,2.5e-9/rec['chlorine_equivalent_mass_kg']);r=self.actual();q=self.run_record(r,rid,f,mass_kg=rec['source_sample_mass_kg']*f);self.assertAlmostEqual(q['faraday_equivalent_mass_kg']/(self.expected(rid,r.sample['configuration'])*PLANT_EXAMPLE['combustion_recovery']*PLANT_EXAMPLE['detector_gain']),1.,delta=.05)
+ def test_78_pox_gas_inputs_and_mode_mismatch(self):
+  for rid in ['rec_epa9021_01','pox_aj_dcm_stock_check','pox_aj_process_water_2']:
+   with self.subTest(rid=rid):r=self.actual(mode='POX');self.run_record(r,rid)
+  r=self.actual();self.assertEqual(self.C['rec_epa9021_03']['input_form'],'purged_gas')
+  with self.assertRaises(ActionRejected) as ex:r.invoke('sample.load',**(SAMPLE_EXAMPLE|dict(template_id='rec_epa9021_03',input_form='loaded_carbon')))
+  self.assertEqual(str(ex.exception),'RECOVERY_MODE_MISMATCH');self.assertIsNone(r.sample)
+ def test_79_eox_extract_and_tx_liquid_recoveries(self):
+  r=self.actual(mode='EOX');self.run_record(r,'rec_epa9023_03',volume_m3=1e-7,mass_kg=8e-5)
+  for rid in ['rec_est2023_02','rec_est2023_14']:
+   with self.subTest(rid=rid):
+    r=self.actual(horizontal=True);self.assertEqual(self.C[rid]['input_form'],'liquid');self.run_record(r,rid,input_form='liquid',volume_m3=5e-8)
+ def test_80_reference_only_and_tampered_records_rejected(self):
+  for rid,mode in [('rec_est2023_cp_1','TX'),('rec_est2023_01','TX'),('epa1984_table6_13','POX'),('epa1984_recovery_21','POX')]:
+   with self.subTest(rid=rid):
+    r=self.actual(horizontal=mode=='TX',mode=mode);form={'TX':'liquid','POX':'purged_gas'}[mode]
+    if mode=='TX':r.step(1.);r.invoke('sample_port.toggle');r.step(.5)
+    with self.assertRaises(ActionRejected) as ex:r.invoke('sample.load',**(SAMPLE_EXAMPLE|dict(template_id=rid,input_form=form,volume_m3=5e-8 if form=='liquid' else 0.)))
+    self.assertIn(str(ex.exception),['REFERENCE_QUERY_ONLY','SOURCE_STAGE_MISMATCH']);self.assertIsNone(r.sample)
+  bad=copy.deepcopy(self.C['rec_epa9020b_02']);bad['chlorine_equivalent_mass_kg']*=1.5;r=self.actual();r.templates=dict(self.C,tampered=bad)
+  with self.assertRaises(ActionRejected) as ex:r.invoke('sample.load',**(SAMPLE_EXAMPLE|dict(template_id='tampered')))
+  self.assertEqual(str(ex.exception),'RECOVERY_DERIVATION_MISMATCH')
+ def test_81_coverage_and_derived_halogen_content(self):
+  cov=self.j['coverage'];self.assertGreaterEqual(cov['distinct_measured_chemical_substances'],41);self.assertEqual(cov['gap_to_50_measured_chemical_substances'],max(0,50-cov['distinct_measured_chemical_substances']))
+  pub=[r for r in self.C.values() if r['record_kind']=='published_compound_recovery'];self.assertGreaterEqual(len(pub),90)
+  AW={'H':1.008,'C':12.011,'N':14.007,'O':15.999,'P':30.974,'Cl':35.45,'Br':79.904,'I':126.90}
+  for r in pub:
+   self.assertTrue(r['license_flag']);self.assertIsNotNone(r['reported_recovery_fraction'])
+   if r['source'] in ('epa9020b',):
+    n={a:int(b or 1) for a,b in re.findall(r'([A-Z][a-z]?)([0-9]*)',r['molecular_formula'])};f=sum(n.get(x,0) for x in ('Cl','Br','I'))*35.45/sum(AW[a]*k for a,k in n.items())
+    self.assertAlmostEqual(r['derivation']['cl_equivalent_factor'],f,places=12)
+  self.assertEqual({r['substance_identity'] for r in pub if r['source']=='est2023_si'},{'tris(1-chloro-2-propyl) phosphate','tris(1,3-dichloro-2-propyl) phosphate','decabromodiphenyl ether',"2,2',3,4,4',5',6-heptabromodiphenyl ether"})
 def _load_actual_library():return json.loads((ROOT/TEMPLATE_REL).read_text())
 if __name__=='__main__':unittest.main()

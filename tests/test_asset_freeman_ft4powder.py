@@ -138,4 +138,66 @@ class TestFT4Powder(unittest.TestCase):
    cases=[v for v in OBSERVED if v[0]==k];self.assertTrue(cases,k)
    for _,a,r in cases:self.assertEqual(tool.validate_value(a,meta['capabilities'][k]['input_schema']),[],k);self.assertEqual(tool.validate_value(r,meta['capabilities'][k]['output_schema']),[],k)
   for k,v in h.read().items():self.assertEqual(tool.validate_value(v,meta['state_slots'][k]['value_schema']),[],k)
+ def test_33_library_coverage_anchors_and_provenance(self):
+  lib=rt.library();sub=lib['substances'];groups={r['material_group'] for r in sub.values() if r['identity_count_eligible'] and r['material_group']}
+  self.assertGreaterEqual(len(groups),50);self.assertEqual(len(groups),lib['counts']['runtime_material_groups'])
+  import hashlib
+  for k,r in sub.items():
+   self.assertTrue(r['runtime_usable'] and r['runtime_anchors'],k);self.assertIn(r['evidence'],['measured','measured_literature','derived','assumption'])
+   for f in ['url','file','sha256','locator','licence_flag']:self.assertTrue(r['source'].get(f),(k,f))
+  for f,h in {(r['source']['file'],r['source']['sha256']) for r in sub.values()}:self.assertEqual(hashlib.sha256((ROOT/f).read_bytes()).hexdigest(),h,f)
+  ref=json.loads((rt.ASSET/'powder_flow_reference_library.json').read_text())['substances']
+  self.assertTrue(ref and all(not r['runtime_usable'] and not r['runtime_anchors'] for r in ref.values()))
+  self.assertTrue(all(r['source']['licence_flag']=='non_cc_publisher_free_access' for r in sub.values() if r['source']['source_id']=='wcco2020'))
+ def test_34_measured_yield_locus_reproduced_across_classes(self):
+  # clay mineral, inorganic carbonate, micronized API, food protein, alloy
+  for rid in ['carriers2022_bentonite','ferrite2024_srco3','inhalation2026_ts_m','mpc2022_c_mpc','ss316lsi2019_mean']:
+   rec=rt.library()['substances'][rid];h=setup('shear',plant={'shear_tau_s':.01},sample={'reference_id':rid,'cohesion_pa':1.,'friction_angle_rad':.1},method={'normal_stresses_pa':[2000.,4000.,6000.]});call(h,'acquisition.start');r=finish(h);self.assertEqual(r['phase'],'succeeded',rid)
+   anchor=json.loads(r['reference_anchor_json']);self.assertEqual(anchor['anchor']['method'],'measured_yield_locus');self.assertFalse(anchor['engineering_inputs_only'])
+   fit=call(h,'analysis.shear_yield',normal_stress_pa=[x['normal_stress_pa'] for x in r['points']],shear_stress_pa=[x['shear_stress_pa'] for x in r['points']])
+   self.assertLess(abs(fit['cohesion_pa']-rec['values']['cohesion_pa']),1.+1e-3*rec['values']['cohesion_pa'],rid);self.assertLess(abs(fit['friction_angle_rad']-rec['values']['angle_of_internal_friction_rad']),2e-3,rid);self.assert_ledger(h)
+ def test_35_ffc_anchors_reproduce_published_ffc(self):
+  def construct(c,phi,sp):
+   # independent vector construction: unit normal of tau=c+sigma*tan(phi); major circle tangent at pre-shear point; UYS circle through origin
+   t=c+sp*math.tan(phi);n=np.array([math.sin(phi),-math.cos(phi)]);radius=t/math.cos(phi);centre=np.array([sp,t])+radius*n;self.assertLess(abs(centre[1]),1e-9*max(1.,t))
+   s1=centre[0]+radius;sc=2*c*math.tan(math.pi/4+phi/2);return s1/sc,math.asin(radius/centre[0])
+  for rid in ['strathclyde_row_003','pharmres2025_itraconazole','pharmres2025_cornstarch','parteck_slc2022_pure_ms']:
+   rec=rt.library()['substances'][rid]
+   for phi in [.3,.6]:
+    h=setup('shear',sample={'reference_id':rid,'friction_angle_rad':phi});sh=h.anchors['shear'];self.assertEqual(sh['method'],'ffc_with_engineering_angle');self.assertEqual(sh['friction_angle_rad'],phi)
+    ffc,_=construct(sh['cohesion_pa'],phi,sh['preconsolidation_stress_pa']);self.assertAlmostEqual(ffc,rec['values']['flow_function_coefficient'],places=9)
+  for rid in ['metal_copper_2020','metal_titanium_2020','metal_alloy_316l_2020']:
+   rec=rt.library()['substances'][rid];sh=rec['runtime_anchors']['shear'];self.assertEqual(sh['method'],'ffc_and_effective_angle')
+   ffc,phi_e=construct(sh['cohesion_pa'],sh['friction_angle_rad'],10000.);self.assertAlmostEqual(ffc,rec['values']['flow_function_coefficient'],places=8);self.assertAlmostEqual(phi_e,rec['values']['effective_internal_friction_angle_rad'],places=9)
+   h=setup('shear',sample={'reference_id':rid});self.assertEqual(h.anchors['shear']['friction_angle_rad'],sh['friction_angle_rad'])
+ def test_36_compression_anchor_reproduces_published_cps(self):
+  for rid in ['ferrite2024_fe2o3','biomass2021_straw_vbm','microfeeder2020_granulac200','tungsten2024_w_41_20um']:
+   cps=rt.library()['substances'][rid]['values']['compressibility_fraction'];h=setup('compression',plant={'compression_tau_s':.01},sample={'reference_id':rid,'compression_modulus_pa':1e7},method={'normal_stresses_pa':[15000.],'hold_s':5.});call(h,'acquisition.start');r=finish(h)
+   self.assertEqual(r['phase'],'succeeded',rid);self.assertAlmostEqual(r['points'][-1]['compressibility_fraction'],cps,delta=1e-6,msg=rid);self.assert_ledger(h)
+ def test_37_dynamic_anchors_new_classes_true_work(self):
+  def seventh(rid,mass,fraction=.2):
+   h=setup(sample={'reference_id':rid,'mass_kg':mass,'initial_history_factor':1.,'force_work_fraction':fraction},method={'start_position_m':.160,'end_position_m':.170,'weighed_mass_kg':mass});h.invoke('acquisition.start')
+   while not (h.segment=='measure_down' and h.cycle==6):h.step(.1)
+   before=h.mechanical
+   while h.segment=='measure_down':h.step(.1)
+   down=h.mechanical-before
+   while not (h.segment=='measure_up' and h.cycle==6):h.step(.1)
+   before=h.mechanical
+   while h.phase=='running' and h.segment=='measure_up':h.step(.1)
+   return h,down,h.mechanical-before
+  lib=rt.library()['substances']
+  # food powder: BFE (10 mL reference) and SE both measured
+  h,down,up=seventh('milkpowder2026_smp_rh23',.015);rec=lib['milkpowder2026_smp_rh23'];self.assertAlmostEqual(down,rec['values']['basic_flowability_energy_j']*(.015/600.)/10e-6,places=7);self.assertAlmostEqual(up,rec['values']['specific_energy_j_kg']*.015,places=7)
+  # excipient grade: 25 mL reference vessel
+  h,down,up=seventh('mcc36_2022_b1',.015);rec=lib['mcc36_2022_b1'];self.assertAlmostEqual(down,rec['values']['basic_flowability_energy_j']*(.015/600.)/25e-6,places=7);self.assertAlmostEqual(up,rec['values']['specific_energy_j_kg']*.015,places=7)
+  # API with SE only: downstroke uses the explicit fallback, upstroke the measured SE
+  h,down,up=seventh('lowdose_api2020_spironolactone',.015,.05);self.assertAlmostEqual(down,rt.SAMPLE_EXAMPLE['missing_bfe_j'],places=7);self.assertAlmostEqual(up,91.55*.015,places=7);self.assertEqual(json.loads(h.result_anchor)['anchor']['engineering_fields'],['missing_bfe_j'])
+  # food acid with BFE only (25 mL)
+  h,down,up=seventh('fruit_tablet2020_citric_acid_monohydrate',.015,.05);self.assertAlmostEqual(down,1.488*(.015/600.)/25e-6,places=7);self.assertAlmostEqual(up,rt.SAMPLE_EXAMPLE['missing_specific_energy_j_kg']*.015,places=7)
+ def test_38_unanchored_modes_explicit(self):
+  h=setup(sample={'reference_id':'strathclyde_row_003'});self.rejected(h,'acquisition.start','REFERENCE_MODE_UNANCHORED')
+  h=rt.FreemanFt4powderRuntime();h.invoke('plant.configure',**rt.PLANT_EXAMPLE)
+  for rid in ['in718_2022_powder','strathclyde_row_009','cipro2021_sodium_starch_glycolate']:self.rejected(h,'sample.load','INVALID_REFERENCE',**dict(rt.SAMPLE_EXAMPLE,reference_id=rid))
+  h=setup('shear');call(h,'acquisition.start');r=finish(h);a=json.loads(r['reference_anchor_json']);self.assertTrue(a['engineering_inputs_only']);self.assertEqual(a['anchored_modes'],['dynamic'])
+  h=setup();call(h,'acquisition.start');r=finish(h);a=json.loads(r['reference_anchor_json']);self.assertEqual(a['anchor']['measured_fields'],['basic_flowability_energy_j','specific_energy_j_kg'])
 if __name__=='__main__':unittest.main()

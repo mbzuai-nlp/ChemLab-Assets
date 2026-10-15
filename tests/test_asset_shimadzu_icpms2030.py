@@ -191,4 +191,52 @@ class ProtocolTests(unittest.TestCase):
   with self.assertRaisesRegex(m.ActionRejected,'CALIBRATION_FIT_INVALID'):r.invoke('calibration.fit',curve_id='overflow',observations=obs,accept_same_response_conditions=True)
   self.assertEqual(before,r.debug_snapshot())
 
+class CrmLibraryTests(unittest.TestCase):
+ """2026-10-14: CRM-derived records from assets/reactions/crm_element_library (NIST/USGS certificate values)."""
+ SHARED=ROOT/'assets/reactions/crm_element_library/templates.json'
+ PLANT=dict(ion_transmission=1e-4,detector_dead_time_s=1e-9,argon_inventory_mol=100.)
+ @classmethod
+ def setUpClass(cls):
+  import hashlib
+  cls.lib=json.loads(cls.SHARED.read_text());cls.byid={r['substance_id']:r for r in cls.lib['templates']};cls.sha=hashlib.sha256(cls.SHARED.read_bytes()).hexdigest();cls.rt=m.ShimadzuIcpms2030Runtime()
+ def run_crm(self,standard,dilutions,sample,sample_df,isotopes):
+  method=m.METHOD_EXAMPLE|dict(mass_numbers=sorted(self.rt.isotopes[i]['mass_number'] for i in isotopes),quantifications=[dict(isotope_id=i,basis='element') for i in isotopes])
+  r=ready(method,**self.PLANT);assay(r,m.BLANK_EXAMPLE);obs=[]
+  for d in dilutions:obs.append(dict(reference_id=standard,dilution_factor=d,channels=assay(r,m.STANDARD_EXAMPLE|dict(template_id=standard,dilution_factor=d,sample_id='crm_std'))['assays'][0]['channels']))
+  r.invoke('calibration.fit',curve_id='crm',observations=obs,accept_same_response_conditions=True);r.invoke('calibration.select',curve_id='crm')
+  res=assay(r,m.SAMPLE_EXAMPLE|dict(template_id=sample,dilution_factor=sample_df,sample_id='crm_unknown'));return r,{x['isotope_id']:x for x in res['concentrations']}
+ def test_every_crm_value_traces_to_shared_certificate_record(self):
+  crm={k:v for k,v in self.rt.templates.items() if k.startswith('crm_')};self.assertEqual(len(crm),33)
+  self.assertEqual(self.rt.library['sources']['crm_element_library']['sha256'],self.sha)
+  for rid,r in crm.items():
+   self.assertEqual(r['source'],'crm_element_library');self.assertTrue(r['certified_assigned']);self.assertIsNone(r['raw_ion_count_array'])
+   for el,c in r['element_concentrations_kg_m3'].items():
+    p=r['crm_values'][el];shared=self.byid[p['shared_substance_id']];self.assertEqual(shared['element'],el);self.assertEqual(p['source_sha256'],shared['source_sha256']);self.assertEqual(p['shared_library_sha256'],self.sha)
+    if r['record_kind']=='crm_certified_water':self.assertEqual(c,shared['mass_concentration']['value_kg_m3'])
+    else:
+     prep=r['preparation'];mass=prep.get('sample_mass_kg') or next(a['aliquot_mass_kg'] for a in prep['aliquots'] if a['element']==el)
+     self.assertAlmostEqual(c,shared['value']*mass/prep['final_volume_m3'],delta=1e-15*max(1,c))
+ def test_quantitative_coverage_definition_and_oem_split(self):
+  cov=self.rt.library['coverage'];self.assertEqual(cov['distinct_elements_with_oem_quantitative_measured_values'],28);self.assertGreaterEqual(cov['distinct_elements_with_quantitative_measured_values'],50);self.assertEqual(cov['quantitative_element_gap_to_50'],0)
+  self.assertTrue(cov['nist1643f_cross_check']['agree']);self.assertNotIn('crm_nist_srm_1643f',self.rt.templates)
+  els={e for k,v in self.rt.templates.items() if k.startswith('crm_') for e,c in v['element_concentrations_kg_m3'].items() if c is not None};self.assertLessEqual(els,set(self.rt.library['elements']))
+ def test_nitric_mix_calibration_recovers_certified_1640a_water(self):
+  isotopes=['mn_55','cu_65','sr_88','ba_137'];_,got=self.run_crm('crm_nist3100_mix_nitric_main',[10000.,500.,30.],'crm_nist_srm_1640a',1.,isotopes)
+  truth=self.rt.templates['crm_nist_srm_1640a']['element_concentrations_kg_m3']
+  for i in isotopes:e=self.rt.isotopes[i]['element'];self.assertLess(abs(got[i]['concentration_kg_m3']-truth[e])/truth[e],.02,i)
+ def test_rare_earth_mix_measures_usgs_bhvo2_digest(self):
+  isotopes=['y_89','la_139','ce_140','nd_146'];_,got=self.run_crm('crm_nist3100_mix_rare_earth',[10000.,1000.,200.],'crm_digest_usgs_bhvo_2',10.,isotopes)
+  truth=self.rt.templates['crm_digest_usgs_bhvo_2']['element_concentrations_kg_m3']
+  for i in isotopes:e=self.rt.isotopes[i]['element'];self.assertLess(abs(got[i]['concentration_kg_m3']-truth[e])/truth[e],.02,i)
+ def test_noble_metal_hf_and_anion_mixes_are_calibration_standards(self):
+  for rid,e in [('crm_nist3100_mix_hcl_matrix','Pt'),('crm_nist3100_mix_hf_matrix','Hf'),('crm_nist3100_mix_anion_forming','P')]:
+   tr=json.loads(self.rt.invoke('template.read',substance_id=rid)['template_json']);self.assertIn(e,tr['calibration_eligible_elements']);self.assertEqual(tr['record_kind'],'crm_gravimetric_mixed_standard')
+  isotopes=['rh_103','pt_195','au_197'];_,got=self.run_crm('crm_nist3100_mix_hcl_matrix',[100000.,10000.,1000.],'crm_nist3100_mix_hcl_matrix',5000.,isotopes)
+  truth=self.rt.templates['crm_nist3100_mix_hcl_matrix']['element_concentrations_kg_m3']
+  for i in isotopes:e=self.rt.isotopes[i]['element'];self.assertLess(abs(got[i]['concentration_kg_m3']-truth[e])/truth[e],.02,i)
+ def test_certified_water_is_not_a_calibration_standard(self):
+  r=ready(None,**self.PLANT);assay(r,m.BLANK_EXAMPLE);r.invoke('sample.unload',recipient_id='host');r.invoke('sample.load',**(m.STANDARD_EXAMPLE|dict(template_id='crm_nist_srm_1640a')));before=r.debug_snapshot()
+  with self.assertRaisesRegex(m.ActionRejected,'CALIBRATION_REFERENCE_REQUIRED'):r.invoke('measurement.start')
+  self.assertEqual(before,r.debug_snapshot())
+
 if __name__=='__main__':unittest.main()

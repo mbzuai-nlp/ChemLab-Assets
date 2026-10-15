@@ -217,4 +217,50 @@ class ProtocolTests(unittest.TestCase):
  def test_agent_result_does_not_disclose_loaded_template_identity(self):
   r=ready();r.invoke('sample.load',**dict(m.BLANK_EXAMPLE,sample_id='SECRET_SAMPLE_LABEL'));assay_result=r.invoke('result.read');serialized=json.dumps([assay_result,r.session().read(instance_id=r.instance_id)]);self.assertNotIn('SECRET_SAMPLE_LABEL',serialized)
 
+class CrmLibraryTests(unittest.TestCase):
+ """2026-10-14: CRM-derived records from assets/reactions/crm_element_library (NIST/USGS certificate values)."""
+ SHARED=ROOT/'assets/reactions/crm_element_library/templates.json'
+ @classmethod
+ def setUpClass(cls):
+  cls.lib=json.loads(cls.SHARED.read_text());cls.byid={r['substance_id']:r for r in cls.lib['templates']};cls.sha=hashlib.sha256(cls.SHARED.read_bytes()).hexdigest()
+  cls.rt=m.ShimadzuIcpe9800Runtime();cls.line={v['element']:k for k,v in cls.rt.lines.items() if v.get('spectrum_eligible')}
+ def run_crm(self,standard,dilutions,sample,sample_df,elements):
+  r=ready();method=dict(m.METHOD_EXAMPLE,line_ids=[self.line[e] for e in elements]);r.invoke('plasma.extinguish');r.step(.1);r.invoke('method.configure',**method);r.invoke('plasma.ignite');r.step(.5)
+  assay(r,m.BLANK_EXAMPLE);obs=[]
+  for d in dilutions:
+   res=assay(r,dict(m.STANDARD_EXAMPLE,template_id=standard,dilution_factor=d,sample_id='crm_std_'+str(d)));obs.append(dict(reference_id=standard,dilution_factor=d,line_integrals=[x for x in res['assays'][0]['line_integrals'] if x['line_id'] in method['line_ids']]))
+  r.invoke('calibration.fit',curve_id='crm',observations=obs,accept_same_response_conditions=True);r.invoke('calibration.select',curve_id='crm')
+  res=assay(r,dict(m.SAMPLE_EXAMPLE,template_id=sample,dilution_factor=sample_df,sample_id='crm_unknown'));return r,{x['element']:x for x in res['concentrations']}
+ def test_every_crm_value_traces_to_shared_certificate_record(self):
+  crm={k:v for k,v in self.rt.templates.items() if k.startswith('crm_')};self.assertEqual(len(crm),34)
+  for rid,r in crm.items():
+   self.assertEqual(r['source']['sha256'],self.sha,rid);self.assertTrue(r['certified_assigned'])
+   for el,c in r['element_concentrations_kg_m3'].items():
+    p=r['crm_values'][el];shared=self.byid[p['shared_substance_id']];self.assertEqual(shared['element'],el);self.assertEqual(p['source_sha256'],shared['source_sha256'])
+    if r['record_kind']=='crm_certified_water':self.assertEqual(c,shared['mass_concentration']['value_kg_m3'])
+    else:
+     prep=r['preparation'];m_kg=prep.get('sample_mass_kg') or next(a['aliquot_mass_kg'] for a in prep['aliquots'] if a['element']==el)
+     self.assertAlmostEqual(c,shared['value']*m_kg/prep['final_volume_m3'],delta=1e-15*max(1,c))
+ def test_crm_coverage_reaches_fifty_line_elements(self):
+  els={e for k,v in self.rt.templates.items() if k.startswith('crm_') for e,c in v['element_concentrations_kg_m3'].items() if c is not None}
+  self.assertGreaterEqual(len(els&set(self.line)),50);self.assertGreaterEqual(self.rt.library['coverage']['distinct_elements_with_measured_concentration'],50)
+ def test_nitric_mix_calibration_recovers_certified_1640a_water(self):
+  r,got=self.run_crm('crm_nist3100_mix_nitric_main',[5000.,1000.,200.],'crm_nist_srm_1640a',1.,['Sr','Ba','Cu','Zn'])
+  truth=self.rt.templates['crm_nist_srm_1640a']['element_concentrations_kg_m3']
+  for e in ['Sr','Ba','Cu','Zn']:self.assertLess(abs(got[e]['concentration_kg_m3']-truth[e])/truth[e],.02,e)
+  self.assertEqual(r.invoke('result.read')['template_source'],m.TEMPLATE_REL)
+ def test_rare_earth_mix_measures_usgs_bhvo2_digest(self):
+  _,got=self.run_crm('crm_nist3100_mix_rare_earth',[20000.,1000.,200.],'crm_digest_usgs_bhvo_2',1.,['La','Ce','Nd','Y'])
+  truth=self.rt.templates['crm_digest_usgs_bhvo_2']['element_concentrations_kg_m3']
+  for e in ['La','Ce','Nd','Y']:self.assertLess(abs(got[e]['concentration_kg_m3']-truth[e])/truth[e],.02,e)
+ def test_noble_metal_and_hf_mixes_are_calibration_standards(self):
+  for rid,e in [('crm_nist3100_mix_hcl_matrix','Pt'),('crm_nist3100_mix_hf_matrix','Hf'),('crm_nist3100_mix_anion_forming','P')]:
+   tr=json.loads(self.rt.invoke('template.read',substance_id=rid)['template_json']);self.assertIn(e,tr['calibration_eligible_elements']);self.assertEqual(tr['record_kind'],'crm_gravimetric_mixed_standard')
+  _,got=self.run_crm('crm_nist3100_mix_hcl_matrix',[10000.,1000.,100.],'crm_nist3100_mix_hcl_matrix',500.,['Pt','Pd','Au'])
+  for e in ['Pt','Pd','Au']:self.assertIsNotNone(got[e]['concentration_kg_m3'])
+ def test_water_srm_is_not_a_calibration_standard(self):
+  r=ready();before=r.debug_snapshot()
+  with self.assertRaisesRegex(m.ActionRejected,'CALIBRATION_REFERENCE_REQUIRED'):r.invoke('sample.load',**dict(m.STANDARD_EXAMPLE,template_id='crm_nist_srm_1643f'))
+  self.assertEqual(before,r.debug_snapshot())
+
 if __name__=='__main__':unittest.main()

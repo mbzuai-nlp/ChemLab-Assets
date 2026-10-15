@@ -242,4 +242,74 @@ class ContraaTests(unittest.TestCase):
  def test_park_retract_then_rotate_respects_elapsed_time(self):
   h=make('furnace');h.injector=.1;h.sampler_arm=math.pi;h.invoke('sampler.park');h.step(.1);self.assertAlmostEqual(h.injector,.06);self.assertEqual(h.sampler_arm,math.pi);h.step(.15);self.assertAlmostEqual(h.injector,0.);self.assertEqual(h.sampler_arm,math.pi);h.step(.05);self.assertLess(h.sampler_arm,math.pi)
 
+# --- shared CRM element library records (crm_*) -------------------------------------------------------------------
+SHARED_CRM=ROOT/'assets/reactions/crm_element_library/templates.json'
+def make_element(el,line_id):
+ h=rt.JenaContraa800Runtime();h.invoke('plant.configure',**dict(rt.PLANT_EXAMPLE,detector_noise_sd=0.));ln=h.lines[line_id]
+ h.invoke('method.configure',**dict(rt.METHOD_EXAMPLE,element=el,line_id=line_id,wavelength_m=ln['wavelength_m']));h.invoke('power.set',enabled=True);h.step(.3);h.invoke('flame.ignite');h.step(.1);return h
+def crm_calibrate(h,std,dilutions=(1000.,100.,10.)):
+ blank(h);obs=[]
+ for d in dilutions:
+  load(h,dict(rt.STANDARD_EXAMPLE,sample_id='crm_std',template_id=std,dilution_factor=d));h.invoke('measurement.start');r=finish(h)
+  obs.append(dict(reference_id=std,dilution_factor=d,injection_volume_m3=h.method['injection_volume_m3'],integrated_absorbance_s=r['assays'][0]['integrated_absorbance_s']))
+ fit=h.invoke('calibration.fit',curve_id='crm_'+std,observations=obs,accept_same_response_conditions=True);h.invoke('calibration.select',curve_id=fit['curve_id']);return fit
+def crm_measure(h,rid,d):
+ load(h,dict(rt.SAMPLE_EXAMPLE,sample_id=rid,template_id=rid,dilution_factor=d));h.invoke('measurement.start');r=finish(h);return r,h.templates[rid]['concentration_kg_m3']/d
+
+class CrmTemplateTests(unittest.TestCase):
+ @classmethod
+ def setUpClass(cls):
+  cls.h=rt.JenaContraa800Runtime();cls.crm={k:v for k,v in cls.h.templates.items() if k.startswith('crm_')}
+  cls.shared=json.loads(SHARED_CRM.read_text());cls.shared_sha=__import__('hashlib').sha256(SHARED_CRM.read_bytes()).hexdigest();cls.srec={r['substance_id']:r for r in cls.shared['templates']}
+ def test_crm_classes_and_element_coverage(self):
+  kinds={}
+  for r in self.crm.values():kinds.setdefault(r['record_kind'],set()).add(r['element'])
+  self.assertEqual(set(kinds),{'crm_working_standard_derived','crm_certified_water_concentration','crm_total_digest_derived'})
+  legacy={r['element'] for r in self.h.templates.values() if r['record_kind']=='measured_concentration'}
+  real=legacy.union(*kinds.values());self.assertGreaterEqual(len(real),50)
+  self.assertEqual(len(real),self.h.library['coverage']['distinct_elements_with_real_certified_or_measured_concentration'])
+  self.assertTrue({'Fe','Ca','Mg','Al','La','Hg','Au','Pt','Tl'}<=real)
+  line_elements={l['element'] for l in self.h.lines.values()};self.assertTrue(real<=line_elements);self.assertEqual(line_elements-real,{'Ru','Ir'})
+ def test_crm_provenance_points_to_shared_library_and_certificate(self):
+  for rid in ['crm_nist_srm_3126a__fe','crm_nist_srm_1643f__cu','crm_nist_srm_1640a__ca','crm_nist_srm_2709a__mn','crm_usgs_bhvo_2__fe','crm_nist_srm_1633c__hg']:
+   with self.subTest(rid=rid):
+    r=self.crm[rid];p=r['provenance'];s=self.srec[p['shared_substance_id']]
+    self.assertEqual(p['shared_library'],'assets/reactions/crm_element_library/templates.json');self.assertEqual(p['shared_library_sha256'],self.shared_sha);self.assertEqual(r['source']['sha256'],self.shared_sha)
+    self.assertEqual((s['material_id'],s['element']),(r['conditions']['material_id'],r['element']));self.assertEqual(p['source'],s['source']);self.assertRegex(p['source'],r'^https://(tsapps\.nist\.gov|d9-wret\.s3)');self.assertIn('page',p['locator'].lower())
+    self.assertIn(p['original']['value'],p['original']['line']);self.assertIsNone(r['licence_flag'])
+ def test_crm_concentrations_follow_declared_preparation(self):
+  ws=self.crm['crm_nist_srm_3101a__al'];s=self.srec[ws['source']['shared_substance_id']]
+  self.assertEqual(ws['evidence'],'derived_from_certified_mass_fraction');self.assertAlmostEqual(s['value'],.010011,places=12);self.assertAlmostEqual(ws['concentration_kg_m3'],s['value']*1e-4/1e-4,places=15)
+  self.assertEqual(ws['derivation']['formula'],'c = w * m_aliquot / V_final')
+  w=self.crm['crm_nist_srm_1643f__cu'];self.assertEqual(w['evidence'],'certificate_printed_mass_concentration');self.assertAlmostEqual(w['concentration_kg_m3'],21.66e-6,places=15)
+  dg=self.crm['crm_nist_srm_2709a__mn'];self.assertEqual(dg['record_kind'],'crm_total_digest_derived');self.assertAlmostEqual(dg['concentration_kg_m3'],self.srec[dg['source']['shared_substance_id']]['value']*2.5e-4/5e-5,places=15);self.assertIn('assumption',dg['derivation'])
+  usgs=self.crm['crm_usgs_bhvo_2__fe'];self.assertEqual(usgs['value_category'],'literature_estimate');self.assertTrue(any('literature estimate' in x for x in usgs['limitations']))
+ def test_crm_template_read_roundtrip(self):
+  for rid in ['crm_nist_srm_3152a__na','crm_nist_srm_1640a__sr','crm_usgs_agv_2__la']:
+   with self.subTest(rid=rid):self.assertEqual(json.loads(self.h.invoke('template.read',substance_id=rid)['template_json']),self.crm[rid])
+ def test_crm_standard_calibrates_non_legacy_iron_and_recovers_water_and_digests(self):
+  h=make_element('Fe','nist_fe_248p32707');fit=crm_calibrate(h,'crm_nist_srm_3126a__fe');self.assertGreater(fit['r_squared'],.999)
+  for rid,d in [('crm_nist_srm_1643f__fe',1.),('crm_nist_srm_2709a__fe',1000.),('crm_usgs_bhvo_2__fe',1000.)]:
+   with self.subTest(rid=rid):
+    r,expected=crm_measure(h,rid,d);self.assertIsNotNone(r['concentration_kg_m3']);self.assertAlmostEqual(r['concentration_kg_m3']/expected,1.,delta=.01)
+    self.assertEqual(h.invoke('product.read')['active_template_id'],rid)
+  self.balance_ok(h)
+ def test_crm_manganese_water_and_soil_digest(self):
+  h=make_element('Mn','nist_mn_279p482');crm_calibrate(h,'crm_nist_srm_3132__mn')
+  for rid,d in [('crm_nist_srm_2709a__mn',10.),('crm_nist_srm_1640a__mn',1.)]:
+   with self.subTest(rid=rid):r,expected=crm_measure(h,rid,d);self.assertAlmostEqual(r['concentration_kg_m3']/expected,1.,delta=.01)
+ def test_crm_copper_standard_measures_legacy_manufacturer_sample(self):
+  h=make_element('Cu','cu_324754');crm_calibrate(h,'crm_nist_srm_3114__cu')
+  for rid in ['crm_nist_srm_1643f__cu','aj_wastewater_inlet_cu']:
+   with self.subTest(rid=rid):r,expected=crm_measure(h,rid,1.);self.assertAlmostEqual(r['concentration_kg_m3']/expected,1.,delta=.01)
+ def test_crm_instance_element_fixed_and_line_mismatch(self):
+  h=make_element('Fe','nist_fe_248p32707');h.invoke('sample.load',**dict(rt.SAMPLE_EXAMPLE,template_id='crm_nist_srm_1643f__fe'));h.invoke('sample.unload',recipient_id='host')
+  with self.assertRaises(rt.ActionRejected) as cm:h.invoke('sample.load',**dict(rt.SAMPLE_EXAMPLE,template_id='crm_nist_srm_1643f__cu'))
+  self.assertEqual(str(cm.exception),'INSTANCE_ELEMENT_FIXED')
+ def test_crm_sample_load_does_not_mutate_library(self):
+  h=make_element('Hg','nist_hg_253p6521');before=copy.deepcopy(h.templates['crm_nist_srm_1633c__hg'])
+  h.invoke('sample.load',**dict(rt.SAMPLE_EXAMPLE,template_id='crm_nist_srm_1633c__hg',dilution_factor=2.));self.assertAlmostEqual(h.sample['concentration'],before['concentration_kg_m3']/2,places=18);self.assertEqual(h.templates['crm_nist_srm_1633c__hg'],before)
+ def balance_ok(self,h):
+  l=h.invoke('product.read');self.assertAlmostEqual(l['element_mass_kg']['residual'],0.,delta=1e-18);self.assertAlmostEqual(l['liquid_volume_m3']['residual'],0.,delta=1e-15)
+
 if __name__=='__main__':unittest.main()

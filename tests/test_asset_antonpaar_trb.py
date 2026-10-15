@@ -124,7 +124,9 @@ class TestTRB(unittest.TestCase):
  def test_29_strict_source_conditions_and_reference_eligibility(self):
   h=setup(sample={'accept_condition_transfer':False});run(h);h=setup(sample={'accept_condition_transfer':False},drive={'mode':'linear'});self.rejected(h,'acquisition.start','REFERENCE_CONDITIONS')
   h=setup(sample={'accept_condition_transfer':False},lubricant={});self.rejected(h,'acquisition.start','REFERENCE_LUBRICATION')
-  h=setup();access(h);call(h,'specimen.remove');record=next(v for v in rt.library()['substances'].values() if not v.get('runtime_usable'));self.rejected(h,'specimen.load','INVALID_REFERENCE',**dict(rt.SAMPLE_EXAMPLE,reference_id=next(k for k,v in rt.library()['substances'].items() if v==record)))
+  h=setup();access(h);call(h,'specimen.remove');self.rejected(h,'specimen.load','INVALID_REFERENCE',**dict(rt.SAMPLE_EXAMPLE,reference_id='missing_reference'))
+  for v in list(rt.library()['substances'].values())[:25]:
+   with self.assertRaisesRegex(rt.ActionRejected,'INVALID_REFERENCE'):rt.curve(dict(v,runtime_usable=False))
  def test_30_unknown_temperature_requires_explicit_acceptance(self):
   h=setup(sample={'accept_unknown_conditions':False});h.reference['conditions']['temperature_k']=None;self.rejected(h,'acquisition.start','UNKNOWN_REFERENCE_CONDITIONS')
  def test_31_zero_radius_stop_distance_and_sampling(self):
@@ -151,6 +153,41 @@ class TestTRB(unittest.TestCase):
   h=setup();s=h.session();first=s.invoke(instance_id=h.instance_id,capability_id='acquisition.start',arguments={},request_id='first')['operation_id'];h.step(.2);r=s.cancel(first,'cancel');second=s.invoke(instance_id=h.instance_id,capability_id='acquisition.start',arguments={},request_id='second')['operation_id'];before=state(h);self.assertEqual(s.cancel(first,'cancel'),r);self.assertEqual(state(h),before);self.assertEqual(h.phase,'running')
   with self.assertRaisesRegex(rt.ActionRejected,'REQUEST_CONFLICT'):s.cancel(second,'cancel')
   self.assertEqual(state(h),before)
+ def test_35d_native_scalar_mean_replayed_as_labelled_constant_mu(self):
+  lib=rt.library()['substances'];rid='trb3_si_dry';mu=lib[rid]['runtime_scalars']['friction_coefficient'];self.assertEqual(mu,lib[rid]['values']['mean_friction_coefficient'])
+  h=setup(sample={'reference_id':rid},pin={'radius_m':.003},load=1.);r=run(h);self.assertEqual(r['phase'],'succeeded');self.assertAlmostEqual(r['sliding_distance_m'],.2)
+  self.assertAlmostEqual(h.friction_energy,1.*mu*.2,places=10);self.assertTrue(r['evidence'].startswith('Published scalar friction coefficient'));self.assertIn('Scalar replay',r['evidence'])
+  late=[x for x in r['rows'] if x['friction_coefficient'] is not None][-1];self.assertAlmostEqual(late['friction_coefficient'],mu,delta=.01);self.ledger(h)
+  h=setup(sample={'reference_id':rid},pin={'radius_m':.003},load=1.,method={'source_start_distance_m':1.});self.rejected(h,'acquisition.start','REFERENCE_DISTANCE_RANGE')
+ def test_35e_speed_series_interpolated_at_actual_speed_and_range_policy(self):
+  lib=rt.library()['substances'];rid='nist_self_sic';rs=lib[rid]['runtime_scalars'];v=np.array(rs['speeds_m_s']);m=np.array(rs['friction_coefficients'])
+  for omega in [10.,17.5,25.]:
+   h=setup('sp'+str(omega),sample={'reference_id':rid},load=5.,drive={'angular_speed_rad_s':omega});r=run(h,1.);s=.01*omega
+   self.assertAlmostEqual(h.ref_mu[0],float(np.interp(math.log(s),np.log(v),m)),places=12);self.assertFalse(h.scalar_info['speed_clamped']);self.ledger(h)
+  h=setup(sample={'reference_id':rid},load=5.,drive={'angular_speed_rad_s':5.});r=run(h,1.);self.assertTrue(h.scalar_info['speed_clamped']);self.assertEqual(h.ref_mu[0],m[0]);self.assertIn('"speed_clamped": true',r['evidence'])
+  h=setup(sample={'reference_id':rid,'accept_condition_transfer':False},load=5.,drive={'angular_speed_rad_s':5.});self.rejected(h,'acquisition.start','REFERENCE_CONDITIONS')
+  with self.assertRaisesRegex(rt.ActionRejected,'REFERENCE_CONDITIONS'):rt.scalar_curve(lib[rid],.01,True,False)
+ def test_35f_unknown_distance_domain_requires_explicit_acceptance(self):
+  rid='nist_nc132_air';self.assertIsNone(rt.library()['substances'][rid]['runtime_scalars']['sliding_distance_domain_m'])
+  h=rt.AntonpaarTrbRuntime('unknown_domain');call(h,'plant.configure',**rt.PLANT_EXAMPLE);self.rejected(h,'specimen.load','UNKNOWN_REFERENCE_CONDITIONS',**dict(rt.SAMPLE_EXAMPLE,reference_id=rid,accept_unknown_conditions=False))
+  h=setup(sample={'reference_id':rid},pin={'radius_m':.003},load=9.8);r=run(h);self.assertEqual(r['phase'],'succeeded');self.assertEqual(h.ref_x[-1],rt.UNBOUNDED_DOMAIN_M);self.assertIn('"domain_known": false',r['evidence']);self.ledger(h)
+ def test_35g_pair_coverage_counted_not_padded(self):
+  lib=rt.library();cov=lib['coverage'];subs=lib['substances']
+  el=lambda r:r.get('identity_count_eligible',True)
+  self.assertEqual(cov['distinct_material_pairs'],len({r['material_pair_identity'] for r in subs.values() if el(r)}));self.assertEqual(cov['runtime_material_pairs'],len({r['material_pair_identity'] for r in subs.values() if r['runtime_usable'] and el(r)}))
+  self.assertEqual(cov['minimum_50_runtime_materials_met'],cov['runtime_material_pairs']>=50)
+  for r in subs.values():
+   if r['kind'] in ('published_pair_friction','published_raw_friction_curve'):self.assertTrue(r['source']['sha256']);self.assertTrue(r['runtime_usable'] or r.get('runtime_block_reason'))
+   if r['runtime_usable'] and r.get('runtime_basis') not in rt.SCALAR_BASES:self.assertIn('sliding_distance_m',r['values'])
+ def test_35h_open_access_pairs_scalar_and_measured_curves(self):
+  lib=rt.library()['substances']
+  for rid in ['oa_pmc12349581_iglidur_i180_vs_100cr6_infill100','oa_pmc10706974_hbn_vs_sic_3p14','oa_pmc12430089_crn_vs_al2o3_10n','oa_nist_z00374_dlc_vs_steel_rh0','oa_pmc12299352_gbz12_vs_gci_dry']:
+   r=lib[rid];mu=r['runtime_scalars']['friction_coefficient'];h=setup(rid,sample={"reference_id":rid},load=5.);res=run(h);self.assertEqual(res['phase'],'succeeded',rid)
+   self.assertAlmostEqual(h.friction_energy,5.*mu*res['sliding_distance_m'],places=9);self.assertIn('Published scalar friction coefficient',res['evidence']);self.ledger(h)
+  for rid in ['oa_dryad_tatan_aisi52100_vs_al2o3','oa_dryad_tatan_tatan_r1_vs_al2o3','oa_mendeley_peek_fg340_vs_52100_block_on_ring']:
+   r=lib[rid];x=np.array(r['values']['sliding_distance_m']);y=np.array(r['values']['friction_coefficient']);self.assertTrue(np.all(np.diff(x)>0));self.assertGreater(len(x),1000)
+   h=setup(rid,sample={"reference_id":rid},load=1.);res=run(h);s=res['sliding_distance_m'];q=np.r_[0,x[(x>0)&(x<s)],s]
+   self.assertAlmostEqual(h.friction_energy,1.*np.trapz(np.interp(q,x,y),q),places=10);self.assertTrue(res['evidence'].startswith('Original positive empirical'));self.ledger(h)
  def test_36_actual_all_api_outputs_and_state_schema(self):
   h=setup();call(h,'sim.step',dt_s=.1);call(h,'acquisition.start');h.step(.3);call(h,'acquisition.stop');access(h);call(h,'motion.home');h.step(4.);call(h,'thermal.set_temperature',temperature_k=296.15);call(h,'sensor.calibrate',**rt.CAPS['sensor.calibrate']['example_arguments']);call(h,'reference.query',reference_id=rt.SAMPLE_EXAMPLE['reference_id']);call(h,'analysis.hertz',**rt.CAPS['analysis.hertz']['example_arguments']);call(h,'analysis.wear_profile',**rt.CAPS['analysis.wear_profile']['example_arguments']);call(h,'emergency.stop');call(h,'emergency.reset');cleanup(h)
   h=setup(lubricant={});cleanup(h);call(h,'ledger.read');call(h,'acquisition.result');meta=rt.export_antonpaar_trb_contract_metadata();seen={k for k,a,r in OBSERVED};self.assertEqual(set(rt.CAPS)-set(rt.UNSUPPORTED)-seen,set())

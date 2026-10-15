@@ -5,6 +5,12 @@ from unittest import mock
 import numpy as np
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'scripts'))
 from asset_runtime import biolin_mediuml as rt
+
+def _need(p):
+    """Raise FileNotFoundError for a missing build record or source cache (the public release skips such tests)."""
+    if not Path(p).exists():
+        raise FileNotFoundError(2, "not present in this tree", str(p))
+
 OBSERVED=[]
 def call(h,k,**a):
  r=h.invoke(k,**a);OBSERVED.append((k,copy.deepcopy(a),copy.deepcopy(r)));return r
@@ -50,7 +56,7 @@ class TestMediumL(unittest.TestCase):
   lib=rt.library();ids=['statins2020_dmpc_control','statins2020_dmpe_control','statins2020_dmps_control'];pressures=[]
   for rid in ids:
    rec=copy.deepcopy(lib['substances'][rid]);h=setup(sample={'reference_id':rid});compress(h);pressures.append(h._eos()[0]);self.assertEqual(h.reference,rec);self.assertGreater(len(rec['values']['molecular_area_m2']),600);self.assertEqual(rec['conditions']['temperature_k'],294.15);self.assertEqual(h.source,json.dumps(rec['source'],ensure_ascii=False));self.ledger(h)
-  self.assertEqual(len(set(round(p,8) for p in pressures)),3);self.assertGreaterEqual(len(lib['substances']),46);self.assertEqual(sum(v.get('runtime_usable') is True for v in lib['substances'].values()),3)
+  self.assertEqual(len(set(round(p,8) for p in pressures)),3);self.assertGreaterEqual(len(lib['substances']),46);self.assertTrue(all(lib['substances'][rid]['runtime_usable'] for rid in ids));self.assertEqual(sum(v.get('runtime_usable') is True for v in lib['substances'].values()),lib['response_coverage']['runtime_records'])
  def test_03_negative_noise_and_local_derivative_not_clipped(self):
   rec=rt.library()['substances']['statins2020_dmpc_control'];a,p=rt.curve(rec);self.assertLess(min(p),0);found=False
   for j in range(len(a)-1):
@@ -174,5 +180,61 @@ class TestMediumL(unittest.TestCase):
 
  def test_38_partial_layers_are_normalized_by_whole_substrate(self):
   h=deposition_ready();call(h,'acquisition.start');h.step(3.);call(h,'acquisition.stop');r=call(h,'acquisition.result');s=r['strokes'][0];full=rt.SUBSTRATE_EXAMPLE['width_m']*rt.SUBSTRATE_EXAMPLE['height_m']*rt.SUBSTRATE_EXAMPLE['faces'];self.assertAlmostEqual(r['equivalent_layers_from_area'],s['transfer_ratio']*s['swept_area_m2']/full);self.assertGreater(r['equivalent_layers_from_area'],0);self.assertLess(r['equivalent_layers_from_area'],.2);self.assertEqual(r['completed_strokes'],0)
+
+ def _run_reference(self,rid,gamma=.0728):
+  """Load any runtime-usable record at an in-domain spreading amount, compress inside its runtime window."""
+  rec=rt.library()['substances'][rid];dom=rec['runtime_domain'];amax=dom['maximum_molecular_area_m2'];amin=dom['minimum_molecular_area_m2']
+  n=rt.AREA_MAX/(.9*amax*rt.NA);a_target=max(1.05*amin,1.01*.9*amax/10.8);target=a_target*n*rt.NA
+  h=rt.BiolinMediumlRuntime('expansion_'+rid)
+  for k,a in [('plant.configure',rt.PLANT_EXAMPLE),('subphase.load',dict(rt.SUBPHASE_EXAMPLE,surface_tension_n_m=gamma)),('power.set',{'enabled':True}),('balance.tare',{}),
+              ('solution.load',dict(rt.SAMPLE_EXAMPLE,reference_id=rid,concentration_mol_m3=n/50e-9)),('film.spread',{'volume_m3':50e-9})]:call(h,k,**a)
+  h.step(4.);self.assertAlmostEqual(h.surface_mol,n,delta=n*1e-12)
+  call(h,'method.configure',**dict(rt.METHOD_EXAMPLE,target_area_m2=target,duration_s=120.));call(h,'acquisition.start');r=finish(h,130)
+  return h,rec,r,n,target
+ def test_39_expansion_records_run_across_material_classes(self):
+  lib=rt.library()['substances']
+  sample=['uw2026_dppc_water','uw2025_dopc','uw2026_cpc_pbs','uw2025_dspe_peg2000_pbs','repod2023_palmitic_acid','rodare2023_oleic_acid','rodare2023_heptadecyl_punicine','zenodo2021_pbd_b_peo',
+          'epmc3682106_hepc','epmc10671155_oleanolic_acid','epmc8280729_cyclosporin_a','epmc9483982_f10h10oh','epmc12080323_dopg']
+  kinds=set()
+  for rid in sample:
+   h,rec,r,n,target=self._run_reference(rid);kinds.add(rec['kind'])
+   self.assertEqual(r['phase'],'succeeded',rid);self.assertAlmostEqual(h.area,target,delta=1e-9);self.assertEqual(r['reference_id'],rid)
+   x=h.area/(n*rt.NA);p,c=rt.eos(rec,x);self.assertAlmostEqual(h._eos()[0],p,places=12)
+   if rt.is_scalar_model(rec):
+    a0,s,w,lo,hi=rt.model_parameters(rec);self.assertAlmostEqual(p,s*w*math.log1p(math.exp((a0-x)/w)),places=12);self.assertIn('Derived engineering EOS',r['evidence'])
+   else:
+    a,pp=rt.curve(rec);self.assertAlmostEqual(p,float(np.interp(x,a,pp)),places=12);self.assertIn('Measured source compression arrays',r['evidence'])
+   self.assertGreater(r['rows'][-1]['surface_pressure_n_m'],r['rows'][0]['surface_pressure_n_m'],rid);self.assertEqual(h.source,json.dumps(rec['source'],ensure_ascii=False));self.ledger(h)
+  self.assertEqual(kinds,{'measured_compression_isotherm','measured_scalar_isotherm_parameters'})
+ def test_40_scalar_eos_reproduces_published_constraints(self):
+  lib=rt.library()['substances'];models=[r for r in lib.values() if rt.is_scalar_model(r)];self.assertGreaterEqual(len(models),13)
+  for rec in models:
+   a0,s,w,lo,hi=rt.model_parameters(rec);sc=rec['scalars'];alo=sc['lift_off_area']['value_si'];pc=sc['collapse_pressure']['value_si']
+   self.assertAlmostEqual(rt.model_eos(a0,s,w,alo)[0],1e-4,delta=1e-9,msg=rec['substance_id'])
+   self.assertLessEqual(rt.eos(rec,lo)[0],pc*(1+1e-6));self.assertAlmostEqual(hi,2*alo,places=30)
+   if 'collapse_area' in sc and sc['collapse_area']['value_si']>=lo*(1-1e-12):self.assertAlmostEqual(rt.eos(rec,sc['collapse_area']['value_si'])[0],pc,delta=pc*1e-3)
+   else:self.assertAlmostEqual(rt.eos(rec,lo)[0],pc,delta=pc*1e-6)
+   grid=np.linspace(lo,alo,4001);cs=[rt.eos(rec,x)[1] for x in grid]
+   if 'max_compression_modulus' in sc:self.assertAlmostEqual(max(cs),sc['max_compression_modulus']['value_si'],delta=.011*sc['max_compression_modulus']['value_si'],msg=rec['substance_id'])
+   if 'limiting_area' in sc:self.assertAlmostEqual(a0,sc['limiting_area']['value_si'],places=30)
+   x=.5*(lo+alo);d=x*1e-7;fd=-(rt.eos(rec,x+d)[0]-rt.eos(rec,x-d)[0])/(2*d)*x;self.assertAlmostEqual(rt.eos(rec,x)[1],fd,delta=abs(fd)*1e-5+1e-9)
+   a,p=rt.curve(rec);self.assertTrue(np.all(np.diff(a)>0) and np.all(np.diff(p)<0));self.assertEqual(rec['runtime_model']['evidence'],'derived')
+   for q in sc.values():self.assertEqual(q['evidence'],'measured_literature')
+ def test_41_coverage_and_reference_only_guards(self):
+  lib=rt.library();cov=lib['response_coverage'];subs=lib['substances']
+  self.assertGreaterEqual(cov['distinct_reference_materials'],50);self.assertGreaterEqual(cov['runtime_materials'],35);self.assertFalse(cov['minimum_50_runtime_materials_met'])
+  self.assertEqual(cov['runtime_materials'],len({r['material_identity'] for r in subs.values() if r['runtime_usable']}));self.assertEqual(cov['digitized_points'],0)
+  for rid in ['rodare2023_sodium_oleate','epmc9654498_cholesterol','epmc10305212_amphotericin_b','epmc10249408_gmo']:self.assertFalse(subs[rid]['runtime_usable']);self.assertIn('Reference only',subs[rid]['runtime_reason'])
+  for rid,r in subs.items():
+   _need(ROOT/r['source']['file']);self.assertEqual(hashlib.sha256((ROOT/r['source']['file']).read_bytes()).hexdigest(),r['source']['sha256'],rid)
+   if r['runtime_usable'] and r['values']['molecular_area_m2']:self.assertTrue(all(x>y for x,y in zip(r['values']['molecular_area_m2'],r['values']['molecular_area_m2'][1:])),rid)
+  h=setup();cleanup(h);call(h,'subphase.load',**rt.SUBPHASE_EXAMPLE);self.rejected(h,'solution.load','INVALID_REFERENCE',**dict(rt.SAMPLE_EXAMPLE,reference_id='epmc9654498_cholesterol'))
+ def test_42_scalar_eos_domain_and_dilute_extension(self):
+  rec=rt.library()['substances']['epmc3682106_ocpc'];a0,s,w,lo,hi=rt.model_parameters(rec)
+  for x in [lo*.999,hi*1.001,float('nan')]:
+   with self.assertRaises(rt.ActionRejected):rt.eos(rec,x)
+  self.assertEqual(rt.eos(rec,hi*1.5,True),(0.,0.));bad=copy.deepcopy(rec);bad['runtime_model']['parameters_si']['limiting_area_m2']=hi*2
+  with self.assertRaises(rt.ActionRejected):rt.model_parameters(bad)
+  h=setup(sample={'reference_id':'epmc3682106_ocpc','concentration_mol_m3':rt.AREA_MAX/(.9*hi*rt.NA)/50e-9});x=h.area/(h.surface_mol*rt.NA);self.assertLess(x,hi);self.rejected(h,'barrier.move','EOS_AREA_RANGE',area_m2=lo*h.surface_mol*rt.NA*.99,speed_m_s=.0045)
 
 if __name__=='__main__':unittest.main()

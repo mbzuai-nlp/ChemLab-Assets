@@ -1,6 +1,6 @@
 # Licence for assets and data
 
-Copyright (c) 2026 Zirui Song, Jiadong Zhang, Jiahao Zhang, Xiaojun Chang, Xiaosong Ma, Xiuying Chen.
+Copyright (c) 2026 Zirui Song, Jiadong Zhang, Jiahao Zhang, Xiaosong Ma, Xiaojun Chang, Xiuying Chen.
 
 The 3D models (GLB, URDF, OBJ/MTL, Blender files, textures), asset contracts
 (`asset.contract.json`), geometry manifests, collision proxies, instrument models,

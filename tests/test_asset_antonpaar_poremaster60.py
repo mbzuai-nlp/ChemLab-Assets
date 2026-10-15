@@ -1,7 +1,13 @@
-import unittest,sys,copy,math,json,hashlib,zipfile
+import unittest,sys,copy,math,json,hashlib,zipfile,io
 from pathlib import Path
 from unittest import mock
 ROOT=Path(__file__).resolve().parents[1];OUT=ROOT/'outputs/expansion_batch03/t4_measure/antonpaar_poremaster60';sys.path.insert(0,str(OUT));from example_setup import rt,setup,run,high,call,OBSERVED
+
+def _need(p):
+    """Raise FileNotFoundError for a missing build record or source cache (the public release skips such tests)."""
+    if not Path(p).exists():
+        raise FileNotFoundError(2, "not present in this tree", str(p))
+
 class PorosimetryTests(unittest.TestCase):
  def test_01_si_washburn_and_mass_normalized_measurement(self):
   r=setup();out=run(r)
@@ -111,7 +117,7 @@ class PorosimetryTests(unittest.TestCase):
     if 'raw_member_sha256' in source:
      with zipfile.ZipFile(path) as archive:self.assertEqual(hashlib.sha256(archive.read(source['locator'].split(' / ')[0])).hexdigest(),source['raw_member_sha256'])
    if rt.CURVES[(k,'extrusion')][0]:
-    self.assertIn(v['evidence'],['measured','measured_literature']);self.assertEqual(v['conditions']['extrusion_status'],'experimental_descent_from_source_peak');self.assertTrue(v['source']['url']);self.assertTrue(v['source']['sha256'])
+    self.assertTrue(v['evidence'] in ['measured','measured_literature'] or (v['evidence']=='derived' and v['pressure_axis']=='measured' and v['volume_basis']=='saturation_x_specific_pore_volume'));self.assertEqual(v['conditions']['extrusion_status'],'experimental_descent_from_source_peak');self.assertTrue(v['source']['url']);self.assertTrue(v['source']['sha256'])
   d=rt.LIB['substances']['dggs_09BG010-38.5b'];p=d['value'][0];self.assertAlmostEqual(p['pressure_pa'],1.64*rt.PSI);self.assertAlmostEqual(p['volume_m3_kg'],7.07868e-8);self.assertAlmostEqual(d['conditions']['closure_m3_kg'],.0025669119*.001)
  def test_26_metadata_exposes_real_contract(self):
   d=rt.export_antonpaar_poremaster60_contract_metadata();self.assertEqual(set(d['state_slots']),set(rt.SLOTS));self.assertEqual(len(d['capabilities']),28);self.assertEqual(sum(c['availability']=='implemented' for c in d['capabilities'].values()),21)
@@ -145,4 +151,59 @@ class PorosimetryTests(unittest.TestCase):
    for stop in ['acquisition.stop','emergency.stop','power.set']:
     q=setup();call(q,'acquisition.start');q.step(1.);call(q,stop,**({'enabled':False} if stop=='power.set' else {}))
   self.assertTrue(set(rt.IMMEDIATE_EFFECTS)<=observed)
+ # ---- 2026-10 library extension: >=50 distinct material groups, all runtime-usable ----
+ SAMPLE_REFS=['tb2012_berea_sandstone','clay_opalinus_init','pc_paste_wc05_20c','bam_d_15','ceramic_membrane_150kda','pvdf_hfp_go20_membrane','globugraphite_reference','airlime_c0l100_28d','polymer_foam_pan440','sdc_1_washburn','mercia_mudstone_150146','bioglass_bg_p_0ti_850c']
+ def _low(self,ref,mass=.0001):
+  xs,_=rt.CURVES[(ref,'intrusion')];lo=max(xs[0],.2*rt.PSI);hi=min(xs[-1],50*rt.PSI);self.assertLess(lo,hi,ref)
+  return [lo*(hi/lo)**(i/3) for i in range(3)]+[hi]
+ def _load(self,ref,mass=.0001):
+  r=rt.AntonpaarPoremaster60Runtime('ext_'+ref);p=rt.PLANT_EXAMPLE;call(r,'plant.configure',**p);call(r,'cell.configure',bulb_volume_m3=3.2e-6,stem_capacity_m3=.5e-6);call(r,'power.set',enabled=True)
+  for i in range(3):xmax=[50*rt.PSI,1500*rt.PSI,rt.P_MAX][i];call(r,'pressure.calibrate',range_index=i,reference_pa=[0.,xmax],measured_pa=[0.,xmax])
+  call(r,'volume.calibrate',reference_volume_m3=[0.,.2e-6],measured_capacitance_f=[p['capacitance_offset_f'],.2e-6/p['capacitance_volume_factor_m3_f']+p['capacitance_offset_f']]);call(r,'mercury.fill',mass_kg=.1)
+  bulk=max(rt.CURVES[(ref,'intrusion')][1])*mass*1.5+1e-9;call(r,'guard0.set',angle_rad=1.4);call(r,'sample.load',sample_id='s_'+ref,reference_id=ref,true_dry_mass_kg=mass,true_bulk_volume_m3=bulk,dry=True,accept_cross_instrument_transfer=True);call(r,'guard0.set',angle_rad=0.)
+  fill=r.bulb-bulk+r.capacity;grid=[0.]+[rt.P_MAX*i/1000 for i in range(1,1001)];call(r,'blank.calibrate',pressures_pa=grid,volumes_m3=[fill*(-math.expm1(-v/p['hg_bulk_modulus_pa']))+p['glass_compliance_m3_pa']*v for v in grid])
+  m=copy.deepcopy(rt.METHOD_EXAMPLE);m.update(entered_mass_kg=mass,pressures_pa=self._low(ref));call(r,'method.configure',**m);return r
+ def test_32_extension_counts_and_provenance(self):
+  subs=rt.LIB['substances'];self.assertGreaterEqual(len(rt.MATERIAL_GROUPS),50);self.assertGreaterEqual(len(subs),114)
+  ext=[v for v in subs.values() if v.get('extension')=='2026-10'];self.assertGreaterEqual(len(ext),50)
+  for v in subs.values():
+   self.assertIn(v['evidence'],['measured','measured_literature','derived']);self.assertTrue(v['licence']);self.assertTrue(v['source']['url']);self.assertTrue(v['source']['sha256']);self.assertIsNone(v['cas']);self.assertFalse(v.get('digitized'))
+   self.assertNotIn('NC',v['licence'].replace('NON','')) 
+   if v['evidence']=='derived':self.assertTrue(v['processing'])
+   if v['pressure_axis']=='washburn_assumed_params':
+    w=v['washburn_parameters'];k=(2 if w['geometry']=='radius' else 4)
+    for q in v['value']:
+     r=q['source_diameter_m']/(2 if w['geometry']=='radius' else 1);self.assertAlmostEqual(q['pressure_pa'],-k*w['gamma_n_m']*math.cos(math.radians(w['theta_deg']))/r,delta=1e-9*q['pressure_pa'])
+  classes={v['material_class'] for v in subs.values()};self.assertGreaterEqual(len(classes),8)
+  ot=json.loads((ROOT/'assets/expansion_batch03/t4_measure/antonpaar_poremaster60/output_templates.json').read_text());self.assertEqual(ot['distinct_material_group_count'],len(rt.MATERIAL_GROUPS));self.assertEqual(ot['runtime_usable_count'],len(subs))
+ def test_33_every_reference_is_runtime_configurable(self):
+  for ref in rt.LIB['substances']:
+   xs,ys=rt.CURVES[(ref,'intrusion')];self.assertGreater(len(xs),3,ref);self.assertTrue(all(b>=a for a,b in zip(ys,ys[1:])),ref);self.assertTrue(all(b>a for a,b in zip(xs,xs[1:])),ref)
+   with self.subTest(ref=ref):r=self._load(ref);self.assertIsNotNone(r.method,ref)
+ def test_34_extension_low_high_cycle_across_classes(self):
+  for ref in self.SAMPLE_REFS:
+   r=self._load(ref);out=run(r);self.assertEqual(out['phase'],'succeeded',ref);xs,ys=rt.CURVES[(ref,'intrusion')]
+   for p in out['points']:self.assertLess(abs(p['specific_volume_m3_kg']-rt.interp(xs,ys,p['pressure_pa'])),2e-6+.02*max(ys),ref)
+   call(r,'guard0.set',angle_rad=1.4);call(r,'cap.set',lift_m=.19);call(r,'cell.transfer',destination='high');call(r,'guard0.set',angle_rad=0.);call(r,'cap.set',lift_m=0.)
+   xe,_=rt.CURVES[(ref,'extrusion')];peak=max(xe) if xe and max(xe)<=rt.P_MAX else min(xs[-1],rt.P_MAX);lo=max(50*rt.PSI,xs[0]);ps=[lo*(peak/lo)**(i/4) for i in range(4)]+[peak]
+   if xe and max(xe)<=rt.P_MAX:ps+=[x for x in [peak/10,peak/100] if x>max(xe[0],20*rt.PSI)]
+   m=copy.deepcopy(rt.METHOD_EXAMPLE);m.update(stage='high',entered_mass_kg=r.sample['true_dry_mass_kg'],pressure_rate_pa_s=2e7,pressure_tolerance_pa=7000.,pressures_pa=ps);call(r,'method.configure',**m);out=run(r)
+   self.assertEqual(out['phase'],'succeeded',ref);self.assertEqual(out['evidence'],rt.LIB['substances'][ref]['evidence']+'_reference_with_explicit_engineering_transfer')
+   hp=[p for p in out['points'] if p['stage']=='high' and p['branch']=='intrusion'];self.assertTrue(hp)
+   for p in hp:self.assertLess(abs(p['specific_volume_m3_kg']-rt.interp(xs,ys,p['pressure_pa'])),2e-6+.02*max(ys),ref)
+   if xe and max(xe)<=rt.P_MAX and len(ps)>5:self.assertTrue(any(p['branch']=='extrusion' for p in out['points']),ref)
+   if rt.LIB['substances'][ref]['pressure_axis']=='washburn_assumed_params':self.assertTrue(any('washburn_assumed_params' in w for w in out['warnings']),ref)
+ def test_35_extension_values_recheck_raw(self):
+  _need(OUT/'sources'/'vendor');sys.path.insert(0,str(OUT/'sources'/'vendor'));import xlrd
+  d=rt.LIB['substances']['tb2012_berea_sandstone'];c=d['conditions'];w=xlrd.open_workbook(str(OUT/d['source']['file']),logfile=io.StringIO()).sheet_by_name('MICP')
+  spv=c['micp_porosity_fraction']/(c['grain_density_kg_m3']*(1-c['helium_porosity_fraction']))
+  for q in d['value'][::17]:row=w.row_values(q['source_row']-1);self.assertAlmostEqual(q['pressure_pa'],row[0]*rt.PSI,places=6);self.assertAlmostEqual(q['volume_m3_kg'],row[4]/100*spv,places=15)
+  d=rt.LIB['substances']['bam_d_15'];raw=zipfile.ZipFile(OUT/d['source']['file']).read(d['source']['locator'].split(' / ')[0]).decode('latin-1').splitlines()
+  for q in d['value'][::50]:
+   cells=[x.strip().replace(',','.') for x in raw[q['source_row']-1].split(';')];j=0 if q['branch']=='intrusion' else 2;self.assertAlmostEqual(q['pressure_pa'],float(cells[j])*1e6,places=3);self.assertAlmostEqual(q['volume_m3_kg'],float(cells[j+1])*1e-6,places=12)
+  rep=json.loads((OUT/'extension_source_validation.json').read_text());self.assertEqual(rep['status'],'passed');self.assertGreaterEqual(rep['records'],50)
+ def test_36_template_reference_reports_material_metadata(self):
+  r=rt.AntonpaarPoremaster60Runtime()
+  for ref,cls,axis in [('globugraphite_reference','carbon','measured'),('sdc_2_washburn','ceramic','washburn_assumed_params'),('hemp_shiv','plant_biomass','measured')]:
+   out=call(r,'template.reference',substance_id=ref);self.assertEqual(out['material_class'],cls);self.assertEqual(out['pressure_axis'],axis);self.assertTrue(out['licence']);self.assertEqual(out['material_group'],rt.LIB['substances'][ref]['material_group'])
 if __name__=='__main__':unittest.main()

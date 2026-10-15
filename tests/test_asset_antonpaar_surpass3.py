@@ -19,7 +19,7 @@ class Tests(unittest.TestCase):
   for k in ['volume_residual_m3','k_residual_mol','cl_residual_mol','electroneutral_residual_mol','titrant_residual_m3','gas_mole_residual']:self.assertLess(abs(l[k]),1e-13,k)
   self.assertLess(abs(l['work_residual_j']),1e-10);self.assertGreaterEqual(h.V-sum(h.chamber),-1e-15)
  def test_01_original_references(self):
-  h=setup();self.assertEqual(len(h.library['substances']),70);self.assertAlmostEqual(call(h,'template.reference',{'substance_id':'nanomile_2'})['zeta_v'],-.00121);self.assertFalse(call(h,'template.reference',{'substance_id':'nanomile_2'})['applicable_to_surpass']);self.assertEqual(call(h,'template.reference',{'substance_id':'cotton_agcl'})['zeta_v'],-.019)
+  h=setup();self.assertEqual(len(h.library['substances']),h.library['counts']['total_records']);self.assertEqual(sum(k.startswith('nanomile_') for k in h.library['substances']),69);self.assertAlmostEqual(call(h,'template.reference',{'substance_id':'nanomile_2'})['zeta_v'],-.00121);self.assertFalse(call(h,'template.reference',{'substance_id':'nanomile_2'})['applicable_to_surpass']);self.assertEqual(call(h,'template.reference',{'substance_id':'cotton_agcl'})['zeta_v'],-.019)
   with self.assertRaisesRegex(r.ActionRejected,'PARTICLE_REFERENCE_ONLY'):setup(sample={'reference_id':'nanomile_2'})
  def test_02_complete_ols_and_iep(self):
   h=finish(setup());self.assertEqual(h.phase,'succeeded');self.assertEqual(len(h.fits),16);self.assertAlmostEqual(h._iep(),4.1,places=6)
@@ -73,4 +73,63 @@ class Tests(unittest.TestCase):
    with self.assertRaisesRegex(r.ActionRejected,'UNSUPPORTED'):h.invoke(k)
   for dt in [True,-1,float('nan'),float('inf')]:
    with self.assertRaises(r.ActionRejected):h.step(dt)
+ # ---- literature macroscopic surfaces (zeta_library.json runtime modes) ----
+ def lit(self,sid,targets,kcl=1.,cycles=1,**sample):
+  h=finish(setup(method={'ph_targets':targets,'cycles':cycles},liquid={'kcl_mol_m3':kcl},sample=dict({'reference_id':sid,'sample_id':'private_'+sid},**sample)));return h
+ def test_19_curve_records_across_classes(self):
+  for sid,targets in [('cotton_fabric_bleached_pmc7178377',[8.,5.]),('pip_pa_nf_lab_pmc12073387',[6.,4.]),('titanium_cp_pmc9324478',[5.,4.5]),('glass_slide_pmc7077729',[4.,3.]),('pvdf_nh2_hyperbranched_pmc5512528',[8.,7.5]),('nf90_compiled_pmc9317247',[6.,4.])]:
+   e=r.AntonpaarSurpass3Runtime().library['substances'][sid]['electrolyte'];h=self.lit(sid,targets,accept_electrolyte_mismatch=not(e['salt']=='KCl' and e['concentration_mol_m3']==1.));ref=h.library['substances'][sid];self.assertIn(ref['runtime_mode'],('anchor_curve','measured_curve'));self.assertEqual(h.phase,'succeeded',sid);self.assertEqual(len(h.fits),len(targets)*2)
+   for f in h.fits:self.assertAlmostEqual(f['zeta_from_i_v'],r.reference_zeta(ref,f['ph'],-.01),places=9);self.assertGreater(f['r2_i'],.999999)
+   res=call(h,'process.measure');self.assertIn(sid,res['template_source']);self.assertTrue(any('piecewise-linear' in w for w in res['warnings']));self.ledger(h)
+  h=self.lit('psf_membrane_m0_pmc6926845',[6.,5.],accept_electrolyte_mismatch=True);ref=h.library['substances']['psf_membrane_m0_pmc6926845'];self.assertEqual(ref['runtime_mode'],'measured_curve')
+  for f in h.fits:self.assertAlmostEqual(f['zeta_from_i_v'],r.reference_zeta(ref,f['ph'],-.01),places=9)
+  ref=h.library['substances']['nf90_compiled_pmc9317247']
+  for x,y in zip(ref['curve']['ph'],ref['curve']['zeta_v']):self.assertAlmostEqual(r.reference_zeta(ref,x,-.05),y,places=12)
+  self.assertEqual(r.reference_zeta(ref,2.,-.05),ref['curve']['zeta_v'][0]);self.assertEqual(r.reference_zeta(ref,11.5,-.05),ref['curve']['zeta_v'][-1])
+  c=h.library['substances']['cotton_cationized_chptac_pmc8510459'];self.assertGreater(r.reference_zeta(c,2.5,-.05),0);self.assertAlmostEqual(r.reference_zeta(c,2.5,-.05),.0075/3.24*.76,places=12)
+  n=h.library['substances']['pvdf_nh2_hyperbranched_pmc5512528'];self.assertLess(r.reference_zeta(n,10.,-.05),0)
+ def test_20_published_iep_reproduced(self):
+  h=self.lit('pip_pa_nf_lab_pmc12073387',[4.3,4.5]);self.assertLess(abs(h._iep()-4.4),.05)
+  h=self.lit('cotton_cationized_chptac_pmc8510459',[3.,3.5]);self.assertLess(abs(h._iep()-3.26),.05)
+  h=self.lit('ptfe_untreated_pmc6213335',[3.,4.],ph_slope_v=-.01);self.assertAlmostEqual(h._iep(),3.4,places=6)
+  for f in h.fits:self.assertAlmostEqual(f['zeta_from_i_v'],-.01*(f['ph']-3.4),places=9)
+  self.assertTrue(any('host assumption' in w for w in call(h,'process.measure')['warnings']))
+ def test_21_electrolyte_mismatch_and_ph_range(self):
+  h=setup(method={'ph_targets':[6.],'cycles':1},sample={'reference_id':'psf_membrane_nmp_pmc11279014'})
+  with self.assertRaisesRegex(r.ActionRejected,'ELECTROLYTE_MISMATCH'):call(h,'acquisition.start')
+  h=finish(setup(method={'ph_targets':[6.],'cycles':1},sample={'reference_id':'psf_membrane_nmp_pmc11279014','accept_electrolyte_mismatch':True}));self.assertEqual(h.phase,'succeeded');self.assertAlmostEqual(h.fits[0]['zeta_from_i_v'],-.03009,places=9)
+  self.assertTrue(any('mismatch' in w for w in call(h,'process.measure')['warnings']))
+  h=setup(method={'ph_targets':[10.],'cycles':1},liquid={'kcl_mol_m3':1.},sample={'reference_id':'cotton_fabric_bleached_pmc7178377','accept_ph_extrapolation':False})
+  with self.assertRaisesRegex(r.ActionRejected,'PH_OUTSIDE_REFERENCE'):call(h,'acquisition.start')
+  h=finish(setup(method={'ph_targets':[8.],'cycles':1},liquid={'kcl_mol_m3':1.},sample={'reference_id':'cotton_fabric_bleached_pmc7178377','accept_ph_extrapolation':False}));self.assertEqual(h.phase,'succeeded')
+  h=finish(setup(method={'ph_targets':[10.],'cycles':1},liquid={'kcl_mol_m3':1.},sample={'reference_id':'cotton_fabric_bleached_pmc7178377'}));self.assertAlmostEqual(h.fits[0]['zeta_from_i_v'],-.020,places=9)
+  h=setup(method={'ph_targets':[6.],'cycles':1},liquid={'kcl_mol_m3':1.},sample={'reference_id':'sapphire_c_pmc4084798'})
+  with self.assertRaisesRegex(r.ActionRejected,'ELECTROLYTE_MISMATCH'):call(h,'acquisition.start')
+ def test_22_load_rules_and_listing(self):
+  for sample,code in [({'reference_id':'ptfe_untreated_pmc6213335','accept_ph_extrapolation':False},'LOAD_PRECONDITION'),({'reference_id':'gold_on_glass_pmc12199473','ph_slope_v':.01},'LOAD_PRECONDITION'),({'reference_id':'no_such_surface'},'UNKNOWN_REFERENCE'),({'reference_id':'nanomile_5'},'PARTICLE_REFERENCE_ONLY'),({'reference_id':'cotton_fabric_bleached_pmc7178377','accept_geometry_transfer':False},'LOAD_PRECONDITION')]:
+   with self.assertRaisesRegex(r.ActionRejected,code):setup(sample=sample)
+  h=r.AntonpaarSurpass3Runtime();lst=call(h,'template.list')['references'];ids={x['substance_id'] for x in lst};lib=h.library
+  self.assertEqual(len(lst),lib['counts']['runtime_usable_records']);self.assertFalse(any(i.startswith('nanomile_') for i in ids));self.assertIn('cotton_agcl',ids)
+  self.assertGreaterEqual(len({x['surface_identity'] for x in lst}),50);self.assertGreaterEqual(len({x['material_class'] for x in lst}),7)
+  v=call(h,'template.reference',{'substance_id':'xle_compiled_pmc9317247'});self.assertEqual(v['runtime_mode'],'anchor_curve');self.assertEqual(v['iep_ph'],3.5);self.assertEqual(v['curve_points'],6);self.assertIn('europepmc',v['template_source'].lower()+lib['substances']['xle_compiled_pmc9317247']['source']['url'])
+  v=call(h,'template.reference',{'substance_id':'gold_on_glass_pmc12199473'});self.assertEqual((v['runtime_mode'],v['ph'],v['zeta_v']),('point_host_slope',6.4,-.076));self.assertEqual(v['electrolyte'],'KCl 1.0 mol/m3')
+  v=call(h,'template.reference',{'substance_id':'nanomile_2'});self.assertEqual(v['runtime_mode'],'reference_only')
+ def test_23_every_usable_record_loads_and_is_finite(self):
+  h0=r.AntonpaarSurpass3Runtime();ids=[x['substance_id'] for x in call(h0,'template.list')['references']]
+  for sid in ids:
+   ref=h0.library['substances'][sid];h=setup(sample={'reference_id':sid,'accept_electrolyte_mismatch':True});self.assertEqual(h.sample['reference_id'],sid)
+   for ph in [2.,3.5,5.,7.,9.,12.]:z=r.reference_zeta(ref,ph,-.01);self.assertTrue(math.isfinite(z) and abs(z)<.3,sid)
+   for p in ref.get('published_points') or []:
+    if ref['curve']:self.assertAlmostEqual(r.reference_zeta(ref,p['ph'],-.01),p['zeta_v'],places=12)
+   if ref['runtime_mode']=='iep_host_slope':self.assertEqual(r.reference_zeta(ref,ref['iep_ph'],-.01),0.)
+   self.assertTrue(ref['source'].get('locator') or ref['source'].get('page'));self.assertIn(ref['evidence'],('measured_literature','documented_reference'))
+ def test_24_sample_runs_by_class(self):
+  done=set();h0=r.AntonpaarSurpass3Runtime()
+  for x in call(h0,'template.list')['references']:
+   if x['material_class'] in done or x['substance_id']=='cotton_agcl':continue
+   done.add(x['material_class']);ref=h0.library['substances'][x['substance_id']];e=ref['electrolyte'] or {}
+   kcl=e.get('concentration_mol_m3') if e.get('salt')=='KCl' and e.get('concentration_mol_m3') and e['concentration_mol_m3']<=60 else 1.
+   t=min(max(ref['curve']['ph'][0],3.),9.) if ref['curve'] else 6.
+   h=self.lit(x['substance_id'],[t],kcl=kcl,accept_electrolyte_mismatch=True);self.assertEqual(h.phase,'succeeded',x);self.assertAlmostEqual(h.fits[0]['zeta_from_i_v'],r.reference_zeta(ref,h.fits[0]['ph'],-.01),places=9);self.ledger(h)
+  self.assertGreaterEqual(len(done),7)
 if __name__=='__main__':unittest.main()

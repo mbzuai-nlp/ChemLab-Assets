@@ -186,4 +186,51 @@ class Edx7200Tests(unittest.TestCase):
  def test_68_profile_candidates_independent_of_hidden_elements(self):
   a=copy.deepcopy(self.cal);load(a,SAMPLE_EXAMPLE);a.invoke('measurement.start');b=copy.deepcopy(self.cal);record=copy.deepcopy(b.templates['blackmass_ec_a']);record['element_mass_fractions']={'Cu':.01};b.templates['host_fixture']=record;load(b,SAMPLE_EXAMPLE|dict(template_id='host_fixture'));b.invoke('measurement.start');self.assertEqual(a._candidate_elements,b._candidate_elements);self.assertTrue(np.array_equal(a._shapes,b._shapes));self.assertEqual(a._key(),b._key())
 
+class CrmLibraryTests(unittest.TestCase):
+ """2026-10-14: solid CRM records from assets/reactions/crm_element_library (NIST certificates, USGS information sheets)."""
+ SHARED=ROOT/'assets/reactions/crm_element_library/templates.json'
+ @classmethod
+ def setUpClass(cls):
+  cls.lib=json.loads(cls.SHARED.read_text());cls.byid={r['substance_id']:r for r in cls.lib['templates']};cls.sha=hashlib.sha256(cls.SHARED.read_bytes()).hexdigest();cls.rt=ShimadzuEdx7200Runtime('crm')
+ def run_crm(self,standards,target,lines,phase='powder'):
+  h=ShimadzuEdx7200Runtime('edx');h.invoke('plant.configure',**PLANT_EXAMPLE);h.invoke('method.configure',**dict(METHOD_EXAMPLE,selected_lines=lines,integration_s=2.,window_s=1.));h.invoke('power.set',enabled=True);h.step(2)
+  acquire(h,BLANK_EXAMPLE|dict(phase=phase));obs=[]
+  for rid in standards:
+   r=acquire(h,STANDARD_EXAMPLE|dict(template_id=rid,phase=phase));obs.append(dict(reference_id=rid,reference_fraction=1.,acquisition_signature=r['acquisition_signature'],line_observations=r['assays'][0]['line_observations']))
+  h.invoke('calibration.fit',curve_id='crm',observations=obs,accept_same_matrix_response=True);h.invoke('calibration.select',curve_id='crm')
+  r=acquire(h,SAMPLE_EXAMPLE|dict(template_id=target,phase=phase));truth=h.templates[target]['element_mass_fractions']
+  return {x['element']:(x['mass_fraction'],truth[x['element']]) for x in r['mass_fractions']},r
+ def assertRecovered(self,got,tol):
+  for e,(x,y) in got.items():
+   self.assertIsNotNone(x,e);self.assertLess(abs(x/y-1),tol,(e,x,y))
+ def test_crm_records_trace_to_shared_certificate_values(self):
+  crm={k:v for k,v in self.rt.templates.items() if k.startswith('crm_')};self.assertEqual(len(crm),32)
+  for rid,r in crm.items():
+   self.assertEqual(r['evidence']['source_sha256'],self.sha);self.assertEqual(r['source'],'crm_element_library');self.assertFalse(r['source_normalization_applied'])
+   total=sum(r['element_mass_fractions'].values());self.assertLessEqual(total,1.);self.assertAlmostEqual(r['unmodelled_remainder_mass_fraction'],1-total,places=12)
+   for e,v in r['element_mass_fractions'].items():
+    p=r['crm_values'][e];x=self.byid[p['shared_substance_id']];self.assertEqual((x['element'],x['value'],x['source_sha256']),(e,v,p['source_sha256']))
+    self.assertIsNone(p['licence_flag']);self.assertTrue(11<=x['atomic_number']<=92)
+   for e in r['calibration_eligible_elements']:
+    c=r['crm_values'][e];self.assertTrue(c['value_category'] in ('certified','reference','non_certified') or c['value_category']=='literature_estimate' and self.byid[c['shared_substance_id']]['uncertainty'] is not None)
+ def test_crm_bulk_element_coverage_reaches_fifty(self):
+  cov=self.rt.library['coverage'];els={e for k,v in self.rt.templates.items() if k.startswith('crm_') for e in v['element_mass_fractions']}
+  self.assertGreaterEqual(len(els),50);self.assertEqual(cov['measured_bulk_element_gap_to_50'],0);self.assertEqual(cov['manufacturer_measured_bulk_elements'],12);self.assertEqual(cov['crm_licence_flagged_values'],0)
+ def test_soil_crm_measured_against_other_soil_crms(self):
+  got,r=self.run_crm(['crm_nist_srm_2709a','crm_nist_srm_2710a','crm_nist_srm_2586','crm_nist_srm_2780a','crm_nist_srm_1633c'],'crm_nist_srm_2711a',['k_ka1','ti_ka1','ba_ka1','mn_ka1','zn_ka1','sr_ka1'])
+  self.assertRecovered(got,.05);self.assertIn('synthetic',r['evidence']);self.assertNotIn('2711a',json.dumps(r))
+ def test_usgs_rock_crm_measured_against_other_rocks(self):
+  got,_=self.run_crm(['crm_usgs_agv_2','crm_usgs_bcr_2','crm_usgs_bir_1a','crm_usgs_g_3'],'crm_usgs_bhvo_2',['ca_ka1','mn_ka1','fe_ka1','zn_ka1','sr_ka1','zr_ka1'])
+  self.assertRecovered(got,.05)
+ def test_nist_glass_crm_measured_against_other_glasses(self):
+  got,_=self.run_crm(['crm_nist_srm_610','crm_nist_srm_614','crm_nist_srm_616'],'crm_nist_srm_612',['sr_ka1','rb_ka1','th_la1','u_la1'],phase='solid')
+  self.assertRecovered(got,.10)  # trace glass: unselected certified/added elements overlap the U/Th L lines in the synthetic spectrum
+ def test_information_value_is_loadable_but_not_a_calibrant(self):
+  rec=json.loads(self.rt.invoke('template.read',substance_id='crm_nist_srm_610')['template_json']);self.assertEqual(rec,self.rt.templates['crm_nist_srm_610']);self.assertIn('Co',rec['element_mass_fractions']);self.assertNotIn('Co',rec['calibration_eligible_elements']);self.assertEqual(rec['crm_values']['Co']['value_category'],'information')
+  h=ShimadzuEdx7200Runtime('edx');h.invoke('plant.configure',**PLANT_EXAMPLE);h.invoke('method.configure',**dict(METHOD_EXAMPLE,selected_lines=['co_ka1']));h.invoke('power.set',enabled=True);h.step(2)
+  acquire(h,BLANK_EXAMPLE|dict(phase='solid'));obs=[]
+  for rid in ['crm_nist_srm_610','crm_nist_srm_612','crm_nist_srm_614']:
+   x=acquire(h,STANDARD_EXAMPLE|dict(template_id=rid,phase='solid'));obs.append(dict(reference_id=rid,reference_fraction=1.,acquisition_signature=x['acquisition_signature'],line_observations=x['assays'][0]['line_observations']))
+  with self.assertRaisesRegex(ActionRejected,'REFERENCE_NOT_CALIBRATION_ELIGIBLE'):h.invoke('calibration.fit',curve_id='co',observations=obs,accept_same_matrix_response=True)
+
 if __name__=='__main__':unittest.main()

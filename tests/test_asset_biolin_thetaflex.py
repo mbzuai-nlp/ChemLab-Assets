@@ -7,7 +7,48 @@ O=Path(__file__).resolve().parents[1]/'outputs/expansion_batch03/t4_measure/biol
 rt=ex.rt
 class TestThetaFlex(unittest.TestCase):
  def test_library_real_counts(self):
-  l=rt.LIB;self.assertEqual(len(l['substances']),168);self.assertEqual(len(l['experimental_images']),127);self.assertEqual(len(l['excluded_rows']),8);self.assertFalse(l['coverage']['distinct_chemical_species_ge50']);self.assertTrue(all(v['source'] and v['evidence'] for v in l['substances'].values()))
+  l=rt.LIB;legacy=json.loads((O/'legacy_reference_values_hashes.json').read_text())['reference_values_sha256'];self.assertEqual(list(l['substances'])[:168],list(legacy));self.assertEqual(len(l['substances']),341);self.assertEqual(l['coverage']['legacy_response_templates'],168);self.assertEqual(len(l['experimental_images']),127);self.assertEqual(len(l['excluded_rows']),8);self.assertTrue(all(v['source'] and v['evidence'] for v in l['substances'].values()))
+  c=l['coverage'];self.assertGreaterEqual(c['runtime_usable_distinct_pure_liquids'],50);self.assertGreaterEqual(c['permissive_licence_runtime_usable_distinct_pure_liquids'],50);self.assertTrue(c['distinct_chemical_species_ge50']);self.assertEqual(c['digitized_records'],0)
+ def test_new_records_provenance_and_identity(self):
+  new={k:v for k,v in rt.LIB['substances'].items() if v['kind']=='pure_liquid_pair' and not k.startswith('ptfe_pure_row')};self.assertEqual(len(new),173)
+  for k,v in new.items():
+   s=v['source'];self.assertEqual(v['evidence'],'measured_literature');self.assertFalse(v['digitized']);self.assertTrue(s['url'] and s['accessed'] and s['locator'] and s['sha256'] and s['licence'],k);self.assertIn(v['liquid_id'],rt.LIQUIDS)
+   self.assertAlmostEqual(math.degrees(v['values']['contact_angle_rad']),float(v['raw_source']['theta_deg']),places=9)
+  self.assertTrue(all('non_permissive' in v['source']['licence_flag'] for k,v in new.items() if k.startswith('il_pereira2015_')))
+  counted=[L for L in rt.LIQUIDS.values() if L['counted_as_distinct_pure_species']];self.assertGreaterEqual(sum(bool(L['cas']) for L in counted),60)
+  self.assertFalse(rt.LIQUIDS['tricresyl_phosphate']['counted_as_distinct_pure_species']);self.assertFalse(rt.LIQUIDS['cis_decalin']['counted_as_distinct_pure_species'])
+  v=json.loads((O/'thin_library_validation.json').read_text());self.assertEqual(v['status'],'passed')
+ def _reference_run(self,rid,use_props,volume=2e-10,instance='ref'):
+  h=rt.BiolinThetaFlexRuntime(instance);h.invoke('plant.configure',**rt.PLANT_EXAMPLE);h.invoke('sample.load',reference_id=rid,accept_unknown_conditions=True,use_reference_liquid_properties=use_props);h.invoke('stock.load',reference_id=rid,volume_m3=2e-7)
+  h.invoke('power.set',enabled=True);h.invoke('camera.calibrate',known_length_m=.001,observed_pixels=.001/(h.method['field_width_m']/rt.W));h.invoke('stage.move',x_m=.04,y_m=.02,z_m=.025);ex.finish(h);ex.put_drop(h,volume);h.invoke('acquisition.start');return h,ex.finish(h)
+ def test_published_pairs_across_classes_measured_from_pixels(self):
+  cases=[('il_pereira2015_c4c1im_ntf2_ptfe',False),('il_pereira2015_c4c1im_pf6_glass',False),('il_blanco2016_p66614_ntf2_steel',True),('il_blanco2019_n8881_c18_wc',False),('probe_blanco2019_water_steel',True),('hsp2024_formamide_pmma',True),('hsp2024_diiodomethane_cnpmma',False),('hts_cho2004_aniline',False),('hts_cho2004_benzene',True),('ptfe_pure_row40',False)]
+  for rid,props in cases:
+   with self.subTest(rid=rid):
+    h,r=self._reference_run(rid,props);ref=rt.LIB['substances'][rid]['values']['contact_angle_rad'];row=r['rows'][-1]
+    self.assertEqual(r['phase'],'succeeded');self.assertLess(abs(row['mean_rad']-ref),math.radians(2.));self.assertLess(abs(row['observed_volume_m3']/h.volume-1),.03);self.assertEqual(json.loads(r['template_source'])['source_id'],rt.LIB['substances'][rid]['source']['source_id'])
+ def test_reference_liquid_properties_drive_profile_and_ledger(self):
+  rid='il_blanco2016_p66614_ntf2_steel';L=rt.LIQUIDS['il_p66614_ntf2'];self.assertAlmostEqual(L['density']['value_kg_m3'],1071.1);self.assertAlmostEqual(L['surface_tension']['value_n_m'],.029327)
+  a,_=self._reference_run(rid,True,volume=1e-9,instance='a');b,_=self._reference_run(rid,False,volume=1e-9,instance='b');self.assertAlmostEqual(a._rho_gamma()[0],1071.1);self.assertAlmostEqual(a._rho_gamma()[1],.029327);self.assertEqual(b._rho_gamma(),(rt.PLANT_EXAMPLE['density_kg_m3'],rt.PLANT_EXAMPLE['surface_tension_n_m']))
+  za=rt.profile(a.volume,a.theta,*a._rho_gamma())[1][0];zb=rt.profile(b.volume,b.theta,*b._rho_gamma())[1][0];self.assertLess(za,zb)
+  m0=a._ledger()['mass_error_kg'];a.loaded+=1e-12;self.assertLess(abs(a._ledger()['mass_error_kg']-m0-1e-12*1071.1),1e-17)
+  h=rt.BiolinThetaFlexRuntime();h.invoke('plant.configure',**rt.PLANT_EXAMPLE);before=copy.deepcopy(h.__dict__)
+  with self.assertRaisesRegex(rt.ActionRejected,'LIQUID_PROPERTIES_UNAVAILABLE'):h.invoke('sample.load',reference_id='il_pereira2015_c4c1im_ac_ptfe',accept_unknown_conditions=True,use_reference_liquid_properties=True)
+  self.assertEqual(before,h.__dict__);h.invoke('sample.load',reference_id='il_pereira2015_c4c1im_ac_ptfe',accept_unknown_conditions=False);self.assertIsNone(h.liquid)
+  with self.assertRaisesRegex(rt.ActionRejected,'UNKNOWN_CONDITIONS'):rt.BiolinThetaFlexRuntime().invoke('sample.load',reference_id='hts_cho2004_water',accept_unknown_conditions=False)
+ def test_reference_owrk_reproduces_published_surface_energy(self):
+  h=rt.BiolinThetaFlexRuntime();s=h.session()
+  for tag,ref in rt.LIB['solid_surface_energy_references'].items():
+   obs=[dict(angle_rad=rt.LIB['substances'][f'probe_blanco2019_{k}_{tag}']['values']['contact_angle_rad'],liquid_id=k) for k in ['water','diiodomethane']]
+   r=s.invoke(instance_id=h.instance_id,capability_id='analysis.surface_energy_reference',arguments={'observations':obs},request_id='sfe'+tag);self.assertEqual(r['status'],'succeeded')
+   self.assertLess(abs(r['result']['total_j_m2']-ref['total_j_m2']),2e-4);self.assertLess(abs(r['result']['dispersive_j_m2']-ref['dispersive_j_m2']),2e-4)
+  r=s.invoke(instance_id=h.instance_id,capability_id='analysis.surface_energy_reference',arguments={'observations':[dict(angle_rad=1.,liquid_id='water'),dict(angle_rad=1.,liquid_id='il_c4c1im_ac')]},request_id='nocomp');self.assertEqual(r['error']['code'],'LIQUID_COMPONENTS_UNAVAILABLE')
+ def test_reference_queries_hide_angles(self):
+  h=rt.BiolinThetaFlexRuntime();s=h.session();state=h.read();revision=h.revision
+  r=s.invoke(instance_id=h.instance_id,capability_id='reference.liquid',arguments={'liquid_id':'formamide'},request_id='liq')['result'];self.assertEqual(r['cas'],'75-12-7');self.assertAlmostEqual(r['surface_tension_n_m'],.05835);self.assertFalse(any('angle' in k for k in r))
+  self.assertEqual(s.invoke(instance_id=h.instance_id,capability_id='reference.list',arguments={'liquid_id':'water','substrate':None},request_id='lst')['error']['code'],'ACCESS_DENIED')
+  ids=h.session('evaluator').invoke(instance_id=h.instance_id,capability_id='reference.list',arguments={'liquid_id':'water','substrate':None},request_id='lst')['result']['reference_ids'];self.assertGreaterEqual(len(ids),12);self.assertTrue(all(rt.LIB['substances'][i]['liquid_id']=='water' for i in ids))
+  self.assertEqual(state,h.read());self.assertEqual(revision,h.revision)
  def test_replicate_units(self):
   a=rt.LIB['substances']['al_ctab_a_row7'];self.assertAlmostEqual(math.degrees(a['values']['contact_angle_rad']),40.18);self.assertEqual(a['conditions']['concentration_mol_m3'],11.2);self.assertEqual(a['values']['advancing_rad'],None)
  def test_young_laplace_zero_gravity(self):

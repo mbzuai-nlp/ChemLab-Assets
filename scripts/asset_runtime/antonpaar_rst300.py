@@ -53,7 +53,28 @@ def force_ramp(force0,target0,slope,tau,dt):
  e=math.exp(-q);m0=-tau*math.expm1(-q);m1=tau*tau*(-math.expm1(-q)-q*e);a=target0-slope*tau;b=force0-a
  return a+slope*dt+b*e,a*dt+slope*dt*dt/2+b*m0,a*dt*dt/2+slope*dt**3/3+b*m1
 
-def curve(reference,accept_negative=False):
+EVENT_BASIS='scalar_critical_load_events'
+EVENT_CLASSES=('cohesive','adhesive','delamination')
+def event_scalars(reference):
+ try:rs=reference['runtime_scalars'];events=rs['critical_load_events']
+ except (KeyError,TypeError):raise ActionRejected('INVALID_REFERENCE')
+ if not reference.get('runtime_usable') or reference.get('runtime_basis')!=EVENT_BASIS or not isinstance(events,list) or not events:raise ActionRejected('INVALID_REFERENCE')
+ for e in events:
+  f=e.get('normal_force_n')
+  if e.get('failure_class') not in EVENT_CLASSES or isinstance(f,bool) or not isinstance(f,(int,float)) or not math.isfinite(f) or not 0<f<=FORCE_MAX:raise ActionRejected('INVALID_REFERENCE')
+ mu=rs.get('friction_coefficient')
+ if mu is not None and (isinstance(mu,bool) or not isinstance(mu,(int,float)) or not 0<=mu<=1):raise ActionRejected('INVALID_REFERENCE')
+ return rs
+def spall_label(rs):
+ """First delamination-class event starts full-thickness removal; adhesive-class only when no delamination value exists."""
+ events=rs['critical_load_events'];pick=[e for e in events if e['failure_class']=='delamination'] or [e for e in events if e['failure_class']=='adhesive']
+ return min(pick,key=lambda e:e['normal_force_n'])['label'] if pick else None
+def curve(reference,accept_negative=False,scan_mu=None):
+ if isinstance(reference,dict) and reference.get('runtime_basis')==EVENT_BASIS:
+  rs=event_scalars(reference);mu=rs.get('friction_coefficient',None)
+  if mu is None:mu=scan_mu
+  if mu is None:raise ActionRejected('INVALID_REFERENCE')
+  return np.array([0.,.07]),np.array([float(mu),float(mu)]),0
  try:x=np.asarray(reference['values']['distance_m'],float);f=np.asarray(reference['values']['tangential_force_n'],float);n=np.asarray(reference['values']['normal_force_n'],float)
  except (TypeError,ValueError,KeyError):raise ActionRejected('INVALID_REFERENCE')
  if not reference.get('runtime_usable') or len(x)<2 or x.shape!=f.shape or x.shape!=n.shape or np.any(~np.isfinite(x)) or np.any(~np.isfinite(f)) or np.any(~np.isfinite(n)) or np.any(np.diff(x)<=0) or np.any(n<=0):raise ActionRejected('INVALID_REFERENCE')
@@ -115,6 +136,7 @@ cap('acquisition.result',obj({}),RESULT,['controller'],'纯读属于操作owner�
 cap('reference.query',obj({'reference_id':TEXT}),obj({'reference_json':TEXT,'template_source':TEXT}),['controller'],'原曲线/图像/工况参考，不将FnC/Rd空值冒实测','query',example={'reference_id':SAMPLE_EXAMPLE['reference_id']})
 cap('image.reference',obj({'reference_id':TEXT}),obj({'images_json':TEXT,'evidence':TEXT}),['microscope'],'仅返回实文献划痕图像索引，非本次动态显微成像','query',example={'reference_id':SAMPLE_EXAMPLE['reference_id']})
 cap('analysis.critical_load',obj({'rows':array(ROW,1,250000),'load_rows':array(ROW,0,250000),'channel':METHOD['properties']['criterion_channel'],'threshold_n':number('N',0,200),'threshold_m':number('m',0,.001),'threshold_fraction':number('1',0,200),'persistence':integer(1,100)}),CRITICAL,['controller'],'由外部观测的包围阈值交点得到Lc；非固有粘附强度','analysis')
+cap('evaluation.failure_events',obj({}),obj({'events_json':TEXT,'evidence':TEXT}),['controller'],'评估者读取源Lc事件在仿真实际载荷下的触发记录（非观测通道）','query','evaluator')
 cap('debris.collect',obj({}),obj({'collected':BOOL}),['sample_holder'],'抬头松夹具回收有限涂层/基底/压头碎屑','configuration','evaluator')
 LEDGER=obj({k:number(u) for k,u in [(n+'_'+f,'kg') for n in ['coating','substrate','stylus'] for f in ['loaded_kg','remaining_kg','debris_kg','recovered_kg','debris_recovered_kg','error_kg']]+[(k,'J') for k in ['tangential_work_j','wear_work_j','heat_input_j','ambient_loss_j','stored_thermal_j','thermal_error_j','normal_loading_work_j','normal_recovered_work_j','stored_elastic_j','normal_error_j']]+[(k,'m^3') for k in ['coating_removed_m3','substrate_removed_m3','stylus_removed_m3']]})
 cap('ledger.read',obj({}),LEDGER,['controller'],'有限涂层/基底/压头/碎屑和切向热、法向弹簧账本','query','evaluator')
@@ -129,14 +151,16 @@ for k,lo,hi,u,z,c in [('stage.target_x_m',0,.07,'m','X对位目标','stage_x'),(
 slot('tool.mode',enum(['stylus','microscope']),'1','软件工位；固定物镜通过台Y对位，非转塔','setpoint',component='microscope')
 for k,u,z in [('load.indicated_n','N','实际工程力经独立gain/offset/响应的观测'),('friction.indicated_n','N','源Ft/FnC派生代理经实际载荷与独立观测'),('friction.coefficient','1','观测Ft除观测Fn，非直接读取源真实系数'),('depth.raw_m','m','含基线/弹性/局部残余的工程深度观测'),('depth.penetration_m','m','主划痕观测减同坐标预扫描，非卸载后残余'),('depth.residual_m','m','只有后扫描可得的同坐标残余观测'),('thermal.indicated_k','K','理想集中节点温度，未实现校准噪声')]:slot(k,nullable(number(u)),u,z)
 for k,u,z in [('truth.normal_force_n','N','一阶闭环实际载荷'),('truth.coating_volume_m3','m^3','有限涂层剩余体积'),('truth.substrate_volume_m3','m^3','有限基底剩余体积'),('truth.stylus_volume_m3','m^3','有限压头剩余体积'),('truth.debris_kg','kg','涂层基底压头碎屑总质量'),('truth.local_groove_m','m','当前被移除的局部平均槽深'),('truth.temperature_k','K','集中热节点真值'),('truth.tangential_work_j','J','源响应作用于实际位移的切向耗散')]:slot(k,number(u,0),u,z,'process_truth','evaluator')
+slot('truth.coating_spalled',BOOL,'1','当前划痕道已越过源分层/附着失效Lc并开始全厚涂层剥落代理','process_truth','evaluator');slot('truth.failure_events',integer(0,100),'1','当前划痕道已触发的源Lc事件数（实际载荷越过）','process_truth','evaluator')
 slot('clock.time_s',number('s',0),'s','宿主唯一时钟');slot('acquisition.phase',PHASE,'1','操作生命周期');slot('acquisition.pass_phase',enum(['idle','loading','scanning','unloading']),'1','真实加载/扫描/卸载阶段');slot('acquisition.distance_m',number('m',0,.07),'m','本次实际划程');slot('acquisition.elapsed_s',number('s',0),'s','实际经过时间');slot('acquisition.points',integer(0,250000),'1','实际记录点数');slot('observation.unavailable_reason',nullable(TEXT),'1','未接触/量程/基线不可用原因')
 
+EVENT_EVIDENCE='Published scalar critical loads (Lc labels, failure criteria and uncertainty kept as reported) drive evaluator-only failure events when the simulated actual normal force first reaches each Lc during a progressive scratch. The first delamination-class event (else the first adhesive-class one) starts full-thickness coating removal along the new path (spallation proxy, not energy-funded), which raises the observed penetration and postscan residual depth; cohesive-class events have no simulated observable (acoustic emission unsupported). No measured force/depth/AE curve exists for these records; loads, depth and friction are engineering responses. Critical loads reported by analysis.critical_load come only from observed channels.'
 def _threshold(a,prefix='criterion_'):
  channel=a[prefix+'channel'] if prefix else a['channel'];key='threshold_n' if channel=='friction_force_n' else 'threshold_fraction' if channel=='friction_coefficient' else 'threshold_m';return a[prefix+key],('N' if key.endswith('_n') else '1' if key.endswith('_fraction') else 'm')
 
 class AntonpaarRst300Runtime:
  def __init__(self,instance_id='rst300_01'):
-  self.instance_id=instance_id;self.plant=None;self.specimen=None;self.stylus=None;self.reference=None;self.ref_x=np.array([]);self.ref_mu=np.array([]);self.projection_count=0;self.volumes={k:0. for k in ['coating','substrate','stylus']};self.mass_loaded={k:0. for k in self.volumes};self.mass_recovered=self.mass_loaded.copy();self.debris=self.mass_loaded.copy();self.debris_recovered=self.mass_loaded.copy();self.removed_volumes=self.mass_loaded.copy();self.power=False;self.clamped=False;self.contact=False;self.emergency=False;self.stage_x=0.;self.stage_y=0.;self.target_x=0.;self.target_y=0.;self.stage_speed=.01;self.head_lift=.04;self.head_target=.04;self.tool='stylus';self.force=0.;self.force_target=0.;self.local_groove=0.;self.temperature=296.15;self.initial_temperature=296.15;self.tangential_work=0.;self.wear_work=0.;self.heat_input=0.;self.ambient_loss=0.;self.normal_loading=0.;self.normal_recovered=0.;self.observed_force=0.;self.observed_friction=0.;self.observed_depth=0.;self.observed_work=0.;self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.method=copy.deepcopy(METHOD_EXAMPLE);self.prescan_records={};self.tracks=[];self.active_track=None;self.baseline=None;self.phase='idle';self.pass_phase='idle';self.distance=0.;self.elapsed=0.;self.rows=[];self.operation_start=0.;self.operation_id=None;self.operation_method=None;self.operation_reference=None;self.operation_source=None;self.operation_projection=0;self.operation_evidence=None;self.operation_kind=None;self.error=None;self._counter=0;self.records={};self.time_s=0.;self._ticks=0;self._remainder=0.;self.revision=0;self._requests={};self._owners={};self._cancel_operations={};self._principals={'agent':'agent','evaluator':'evaluator'}
+  self.instance_id=instance_id;self.plant=None;self.specimen=None;self.stylus=None;self.reference=None;self.ref_x=np.array([]);self.ref_mu=np.array([]);self.projection_count=0;self.volumes={k:0. for k in ['coating','substrate','stylus']};self.mass_loaded={k:0. for k in self.volumes};self.mass_recovered=self.mass_loaded.copy();self.debris=self.mass_loaded.copy();self.debris_recovered=self.mass_loaded.copy();self.removed_volumes=self.mass_loaded.copy();self.power=False;self.clamped=False;self.contact=False;self.emergency=False;self.stage_x=0.;self.stage_y=0.;self.target_x=0.;self.target_y=0.;self.stage_speed=.01;self.head_lift=.04;self.head_target=.04;self.tool='stylus';self.force=0.;self.force_target=0.;self.local_groove=0.;self.temperature=296.15;self.initial_temperature=296.15;self.tangential_work=0.;self.wear_work=0.;self.heat_input=0.;self.ambient_loss=0.;self.normal_loading=0.;self.normal_recovered=0.;self.observed_force=0.;self.observed_friction=0.;self.observed_depth=0.;self.observed_work=0.;self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.method=copy.deepcopy(METHOD_EXAMPLE);self.prescan_records={};self.tracks=[];self.active_track=None;self.baseline=None;self.phase='idle';self.pass_phase='idle';self.distance=0.;self.elapsed=0.;self.rows=[];self.operation_start=0.;self.operation_id=None;self.operation_method=None;self.operation_reference=None;self.operation_source=None;self.operation_projection=0;self.operation_evidence=None;self.operation_kind=None;self.error=None;self._counter=0;self.records={};self.time_s=0.;self._ticks=0;self._remainder=0.;self.revision=0;self._requests={};self._owners={};self._cancel_operations={};self._principals={'agent':'agent','evaluator':'evaluator'};self.event_log=[];self.spalled=False
  def register_principal(self,principal_id,visibility='agent'):
   if not isinstance(principal_id,str) or not principal_id or principal_id in self._principals or visibility not in ('agent','debug','evaluator'):raise ActionRejected('REQUEST_CONFLICT')
   self._principals[principal_id]=visibility
@@ -162,7 +186,7 @@ class AntonpaarRst300Runtime:
     else:res=value
   return dict(normal=n,friction=f,mu=mu,raw=raw,penetration=pen,residual=res,reason=reason)
  def read(self,role='evaluator'):
-  v=self._indicated();d={'plant.configured':self.plant is not None,'power.enabled':self.power,'clamp.locked':self.clamped,'contact.engaged':self.contact,'specimen.present':self.specimen is not None,'stylus.present':self.stylus is not None,'emergency.latched':self.emergency,'stage.moving':self._moving(),'head.moving':self._head_moving(),'stage.x_m':self.stage_x,'stage.y_m':self.stage_y,'head.lift_m':self.head_lift,'head.penetration_m':self._depth(),'clamp.release_m':0. if self.clamped else .003,'power.angle_rad':.28 if self.power else 0.,'stage.target_x_m':self.target_x,'stage.target_y_m':self.target_y,'head.target_lift_m':self.head_target,'load.target_n':self.force_target,'tool.mode':self.tool,'load.indicated_n':v['normal'],'friction.indicated_n':v['friction'],'friction.coefficient':v['mu'],'depth.raw_m':v['raw'],'depth.penetration_m':v['penetration'],'depth.residual_m':v['residual'],'thermal.indicated_k':self.temperature if self.power else None,'truth.normal_force_n':self.force,'truth.coating_volume_m3':self.volumes['coating'],'truth.substrate_volume_m3':self.volumes['substrate'],'truth.stylus_volume_m3':self.volumes['stylus'],'truth.debris_kg':sum(self.debris.values()),'truth.local_groove_m':self.local_groove,'truth.temperature_k':self.temperature,'truth.tangential_work_j':self.tangential_work,'clock.time_s':self.time_s,'acquisition.phase':self.phase,'acquisition.pass_phase':self.pass_phase,'acquisition.distance_m':self.distance,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'observation.unavailable_reason':v['reason']}
+  v=self._indicated();d={'plant.configured':self.plant is not None,'power.enabled':self.power,'clamp.locked':self.clamped,'contact.engaged':self.contact,'specimen.present':self.specimen is not None,'stylus.present':self.stylus is not None,'emergency.latched':self.emergency,'stage.moving':self._moving(),'head.moving':self._head_moving(),'stage.x_m':self.stage_x,'stage.y_m':self.stage_y,'head.lift_m':self.head_lift,'head.penetration_m':self._depth(),'clamp.release_m':0. if self.clamped else .003,'power.angle_rad':.28 if self.power else 0.,'stage.target_x_m':self.target_x,'stage.target_y_m':self.target_y,'head.target_lift_m':self.head_target,'load.target_n':self.force_target,'tool.mode':self.tool,'load.indicated_n':v['normal'],'friction.indicated_n':v['friction'],'friction.coefficient':v['mu'],'depth.raw_m':v['raw'],'depth.penetration_m':v['penetration'],'depth.residual_m':v['residual'],'thermal.indicated_k':self.temperature if self.power else None,'truth.normal_force_n':self.force,'truth.coating_volume_m3':self.volumes['coating'],'truth.substrate_volume_m3':self.volumes['substrate'],'truth.stylus_volume_m3':self.volumes['stylus'],'truth.debris_kg':sum(self.debris.values()),'truth.local_groove_m':self.local_groove,'truth.temperature_k':self.temperature,'truth.tangential_work_j':self.tangential_work,'truth.coating_spalled':self.spalled,'truth.failure_events':sum(e['triggered'] for e in self.event_log),'clock.time_s':self.time_s,'acquisition.phase':self.phase,'acquisition.pass_phase':self.pass_phase,'acquisition.distance_m':self.distance,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'observation.unavailable_reason':v['reason']}
   return copy.deepcopy({k:x for k,x in d.items() if role in ('evaluator','debug') or SLOTS[k]['visibility']=='agent'})
  def _density(self,n):return self.stylus['density_kg_m3'] if n=='stylus' and self.stylus else self.specimen[n+'_density_kg_m3'] if self.specimen and n!='stylus' else 0.
  def _ledger(self):
@@ -206,13 +230,21 @@ class AntonpaarRst300Runtime:
    if c.get(k) is None:
     if not s['accept_unknown_conditions']:raise ActionRejected('UNKNOWN_REFERENCE_CONDITIONS')
    elif not s['accept_condition_transfer'] and abs(c[k]-v)>max(1e-10,abs(v)*1e-6):raise ActionRejected('REFERENCE_CONDITIONS')
-  if not s['accept_condition_transfer']:
+  if self.reference.get('runtime_basis')==EVENT_BASIS:
+   rs=self.reference['runtime_scalars'];prog=rs.get('load_program',{})
+   for k,v in [('initial_force_n',a['initial_force_n']),('final_force_n',a['final_force_n']),('length_m',a['length_m']),('coating_thickness_m',s['coating_thickness_m'])]:
+    ref=rs.get('coating_thickness_m') if k=='coating_thickness_m' else prog.get(k)
+    if ref is None:
+     if not s['accept_unknown_conditions']:raise ActionRejected('UNKNOWN_REFERENCE_CONDITIONS')
+    elif not s['accept_condition_transfer'] and abs(ref-v)>max(1e-10,abs(v)*1e-6):raise ActionRejected('REFERENCE_CONDITIONS')
+  elif not s['accept_condition_transfer']:
    source_n=float(np.interp(a['source_start_distance_m'],self.ref_x,np.asarray(self.reference['values']['normal_force_n'])))
    if max(abs(a['initial_force_n']-source_n),abs(a['final_force_n']-source_n))>1e-5 or s['coating_thickness_m']>0:raise ActionRejected('REFERENCE_CONDITIONS')
  def _invoke(self,k,a):
   if k in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
   if k=='ledger.read':return self._ledger()
   if k=='acquisition.result':return self._result()
+  if k=='evaluation.failure_events':return dict(events_json=json.dumps(self.event_log,ensure_ascii=False),evidence='Evaluator-only: published scalar Lc values (labels/criteria kept) compared with the simulated actual normal force of the current or last scratch track. Cohesive events have no simulated observable; the spallation event raises the observed penetration/residual depth via full-thickness coating removal. Empty list for curve references.')
   if k=='analysis.critical_load':return critical_load(a['rows'],a['channel'],_threshold(a,'')[0],a['persistence'],a['load_rows'])
   if k in ('reference.query','image.reference'):
    rec=library()['substances'].get(a['reference_id'])
@@ -265,7 +297,7 @@ class AntonpaarRst300Runtime:
    name=k.split('.')[0]
    if getattr(self,name) is not None:raise ActionRejected('ALREADY_LOADED')
    if name=='specimen':
-    rec=copy.deepcopy(library()['substances'].get(a['reference_id'],{}));x,mu,changes=curve(rec,a['accept_negative_force_projection']);self.reference=rec;self.ref_x=x;self.ref_mu=mu;self.projection_count=changes;self.prescan_records={};self.tracks=[];self.active_track=None;self.baseline=None;self.local_groove=0.;self.volumes['coating']=a['length_m']*a['width_m']*a['coating_thickness_m'];self.volumes['substrate']=a['length_m']*a['width_m']*a['substrate_thickness_m']
+    rec=copy.deepcopy(library()['substances'].get(a['reference_id'],{}));x,mu,changes=curve(rec,a['accept_negative_force_projection'],self.plant['scan_friction_coefficient']);self.event_log=[];self.spalled=False;self.reference=rec;self.ref_x=x;self.ref_mu=mu;self.projection_count=changes;self.prescan_records={};self.tracks=[];self.active_track=None;self.baseline=None;self.local_groove=0.;self.volumes['coating']=a['length_m']*a['width_m']*a['coating_thickness_m'];self.volumes['substrate']=a['length_m']*a['width_m']*a['substrate_thickness_m']
     for n in ['coating','substrate']:self.mass_loaded[n]+=self.volumes[n]*a[n+'_density_kg_m3']
    else:self.volumes['stylus']=a['volume_m3'];self.mass_loaded['stylus']+=a['volume_m3']*a['density_kg_m3']
    setattr(self,name,copy.deepcopy(a));return {'loaded':True}
@@ -274,7 +306,7 @@ class AntonpaarRst300Runtime:
    if getattr(self,name) is None:raise ActionRejected('NOT_LOADED')
    for n in (['coating','substrate'] if name=='specimen' else ['stylus']):self.mass_recovered[n]+=self.volumes[n]*self._density(n);self.volumes[n]=0.
    setattr(self,name,None)
-   if name=='specimen':self.reference=None;self.ref_x=np.array([]);self.ref_mu=np.array([]);self.local_groove=0.;self.prescan_records={};self.tracks=[]
+   if name=='specimen':self.reference=None;self.ref_x=np.array([]);self.ref_mu=np.array([]);self.event_log=[];self.spalled=False;self.local_groove=0.;self.prescan_records={};self.tracks=[]
    return {'removed':True}
   if k=='debris.collect':
    self._access()
@@ -309,7 +341,12 @@ class AntonpaarRst300Runtime:
     self._conditions()
     if a['source_start_distance_m']<self.ref_x[0]-1e-14 or a['source_start_distance_m']+a['length_m']>self.ref_x[-1]+1e-14:raise ActionRejected('REFERENCE_DISTANCE_RANGE')
    self._counter+=1;self.operation_id=self.instance_id+':'+str(self._counter);self.operation_start=self.time_s;self.operation_method=json.dumps(a,sort_keys=True);self.operation_reference=self.specimen['reference_id'];self.operation_source=json.dumps(self.reference.get('source'),ensure_ascii=False);self.operation_projection=self.projection_count;self.operation_kind=a['pass_kind'];self.operation_evidence='Empirical Ft divided by source FnC command is a derived_nominal_load_ratio proxy, not measured source true COF. Negative Ft source nodes retained in library and explicitly projected to0 only in nonnegative dissipative proxy; modified nodes='+str(self.projection_count)+'. No normalized length axis: source distance=start+actual travel. Source Pd/zero Rd are reference only; this process depth is engineering elastic+finite-removal groove, postscan requires same-path measured baseline. Finite energy-partition wear and thermal parameters are assumed; full normal plastic/topographic work not solved. No empirical noise/accuracy, acoustic emission or native microscope image claim.';self.phase='running';self.pass_phase='loading';self.distance=0.;self.elapsed=0.;self.rows=[];self.observed_work=0.;self.error=None;self.local_groove=0.;self.baseline=baseline;self.active_track=track
-   if a['pass_kind']=='scratch':self.active_track=dict(key=key,start=a['start_x_m'],y=a['path_y_m'],distance=0.,segments=[],observed_rows=[]);self.tracks.append(self.active_track)
+   if a['pass_kind']=='scratch':
+    self.active_track=dict(key=key,start=a['start_x_m'],y=a['path_y_m'],distance=0.,segments=[],observed_rows=[]);self.tracks.append(self.active_track);self.spalled=False;self.event_log=[]
+    if self.reference.get('runtime_basis')==EVENT_BASIS:
+     rs=self.reference['runtime_scalars'];spall=spall_label(rs)
+     self.event_log=[dict(label=e['label'],failure_class=e['failure_class'],source_critical_load_n=float(e['normal_force_n']),source_uncertainty_n=e.get('reported_uncertainty_n'),failure_criterion=e.get('failure_criterion'),starts_coating_removal=e['label']==spall,triggered=False,actual_normal_force_n=None,distance_m=None,stage_x_m=None,time_s=None) for e in sorted(rs['critical_load_events'],key=lambda e:e['normal_force_n'])]
+     self.operation_evidence=EVENT_EVIDENCE+(' Friction is the source-reported coefficient.' if rs.get('friction_coefficient') is not None else ' Friction is plant.scan_friction_coefficient (engineering assumption; the source reports no friction coefficient).')
    self.force_target=a['initial_force_n'] if a['pass_kind']=='scratch' else a['scan_force_n'];self._record();return {'operation_id':self.operation_id}
   if k=='acquisition.stop':
    if self.phase!='running':raise ActionRejected('NOT_RUNNING')
@@ -339,7 +376,7 @@ class AntonpaarRst300Runtime:
   else:energy=0.;friction_end=0.
   removed={n:0. for n in self.volumes};wear=0.;groove=self._profile(self.distance+ds) if scanning and self.operation_kind=='postscan' else self.local_groove if not scanning else 0.
   if scratch and ds>0:
-   sample_energy=self.specimen['sample_wear_energy_fraction']*energy;uc=self.specimen['coating_removal_energy_j_m3'];ub=self.specimen['substrate_removal_energy_j_m3'];coating_local_cap=self.specimen['track_width_m']*self.specimen['coating_thickness_m']*ds;removed['coating']=min(coating_local_cap,sample_energy/uc);removed['substrate']=max(0.,sample_energy-removed['coating']*uc)/ub;removed['stylus']=self.stylus['wear_energy_fraction']*energy/self.stylus['removal_energy_j_m3'];wear=sample_energy+self.stylus['wear_energy_fraction']*energy;groove=(removed['coating']+removed['substrate'])/(self.specimen['track_width_m']*ds)
+   sample_energy=self.specimen['sample_wear_energy_fraction']*energy;uc=self.specimen['coating_removal_energy_j_m3'];ub=self.specimen['substrate_removal_energy_j_m3'];coating_local_cap=self.specimen['track_width_m']*self.specimen['coating_thickness_m']*ds;removed['coating']=coating_local_cap if self.spalled else min(coating_local_cap,sample_energy/uc);removed['substrate']=sample_energy/ub if self.spalled else max(0.,sample_energy-removed['coating']*uc)/ub;removed['stylus']=self.stylus['wear_energy_fraction']*energy/self.stylus['removal_energy_j_m3'];wear=sample_energy+self.stylus['wear_energy_fraction']*energy;groove=(removed['coating']+removed['substrate'])/(self.specimen['track_width_m']*ds)
   heat=energy-wear;t1=self._thermal_endpoint(dt,heat);depth=f1/p['contact_stiffness_n_m']+groove;reason=None
   for n,vrem in removed.items():
    if vrem>self.volumes[n]:reason=n.upper()+'_EXHAUSTED'
@@ -368,9 +405,17 @@ class AntonpaarRst300Runtime:
     start=self.distance;self.distance=min(self.method['length_m'],self.distance+d['ds']);self.stage_x=self.method['start_x_m']+self.distance;self.local_groove=d['groove']
     for n,volume in d['removed'].items():self.volumes[n]-=volume;self.removed_volumes[n]+=volume;self.debris[n]+=volume*self._density(n)
     if self.operation_kind=='scratch':self.active_track['segments'].append(dict(x0=start,x1=self.distance,depth_m=self.local_groove));self.active_track['distance']=self.distance
+   self._events()
    raw_depth=self._depth()-self.specimen['surface_slope_x']*self.stage_x if self.contact and self.specimen else 0.;friction=d['energy']/d['ds'] if d['ds']>0 else 0.;self._sensors(dt,d['force_integral']/dt,friction,raw_depth,d['ds']);self.time_s+=dt;self.elapsed=self.time_s-self.operation_start
   if not reason and self._indicated()['reason']=='SENSOR_OVER_RANGE':reason='SENSOR_OVER_RANGE'
   if reason:self._finish('failed',reason)
+ def _events(self):
+  """Evaluator-only failure events: simulated actual load crossing a published Lc. Spallation then removes the full coating thickness along the new path."""
+  if self.operation_kind!='scratch' or self.phase!='running':return
+  for e in self.event_log:
+   if not e['triggered'] and self.force>=e['source_critical_load_n']:
+    e.update(triggered=True,actual_normal_force_n=self.force,distance_m=self.distance,stage_x_m=self.stage_x,time_s=self.time_s)
+    if e['starts_coating_removal']:self.spalled=True
  def _record(self):
   if self.rows and abs(self.rows[-1]['time_s']-self.time_s)<1e-12 and self.rows[-1]['phase']==self.pass_phase:return
   v=self._indicated();self.rows.append(dict(time_s=self.time_s,elapsed_s=self.time_s-self.operation_start,phase=self.pass_phase,distance_m=self.distance,stage_x_m=self.stage_x,normal_target_n=self.force_target,normal_force_n=v['normal'],friction_force_n=v['friction'],friction_coefficient=v['mu'],raw_depth_m=v['raw'],penetration_depth_m=v['penetration'],residual_depth_m=v['residual'],temperature_k=self.temperature if self.power else None,observed_tangential_work_j=self.observed_work,unavailable_reason=v['reason']))
@@ -427,7 +472,7 @@ class AntonpaarRst300Session:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  meta=export_antonpaar_rst300_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  meta=export_antonpaar_rst300_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;values=h.read(self._role);ids=list(values) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -478,20 +523,20 @@ _example_row={k:(None if 'anyOf' in schema else '' if schema.get('type')=='strin
 CAPS['analysis.critical_load']['example_arguments']=dict(rows=[_example_row],load_rows=[],channel='friction_force_n',threshold_n=2.,threshold_m=5e-6,threshold_fraction=.2,persistence=1)
 EFFECTS={
 'plant.configure':['plant.configured','truth.temperature_k'],
-'specimen.load':['specimen.present','truth.coating_volume_m3','truth.substrate_volume_m3','truth.local_groove_m','head.penetration_m'],
-'specimen.remove':['specimen.present','truth.coating_volume_m3','truth.substrate_volume_m3','truth.local_groove_m','head.penetration_m'],
+'specimen.load':['specimen.present','truth.coating_volume_m3','truth.substrate_volume_m3','truth.local_groove_m','head.penetration_m','truth.coating_spalled','truth.failure_events'],
+'specimen.remove':['specimen.present','truth.coating_volume_m3','truth.substrate_volume_m3','truth.local_groove_m','head.penetration_m','truth.coating_spalled','truth.failure_events'],
 'stylus.load':['stylus.present','truth.stylus_volume_m3'],'stylus.remove':['stylus.present','truth.stylus_volume_m3'],
 'power.set':['power.enabled','power.angle_rad','load.indicated_n','friction.indicated_n','friction.coefficient','depth.raw_m','depth.penetration_m','depth.residual_m','thermal.indicated_k','observation.unavailable_reason'],
 'clamp.set':['clamp.locked','clamp.release_m'],'stage.move':['stage.target_x_m','stage.target_y_m','stage.moving'],'head.set_position':['head.target_lift_m','head.moving'],'tool.select':['tool.mode'],
 'contact.set':['contact.engaged','head.penetration_m','truth.local_groove_m','depth.raw_m','depth.penetration_m','depth.residual_m','friction.indicated_n','friction.coefficient','observation.unavailable_reason'],
 'sensor.calibrate':['load.indicated_n','friction.indicated_n','friction.coefficient','depth.raw_m','depth.penetration_m','depth.residual_m','observation.unavailable_reason'],
 'sensor.zero':['load.indicated_n','friction.indicated_n','friction.coefficient','depth.raw_m','observation.unavailable_reason'],
-'acquisition.start':['acquisition.phase','acquisition.pass_phase','acquisition.distance_m','acquisition.elapsed_s','acquisition.points','load.target_n','truth.local_groove_m','head.penetration_m','friction.indicated_n','friction.coefficient','depth.penetration_m','depth.residual_m','observation.unavailable_reason'],
+'acquisition.start':['truth.coating_spalled','truth.failure_events','acquisition.phase','acquisition.pass_phase','acquisition.distance_m','acquisition.elapsed_s','acquisition.points','load.target_n','truth.local_groove_m','head.penetration_m','friction.indicated_n','friction.coefficient','depth.penetration_m','depth.residual_m','observation.unavailable_reason'],
 'acquisition.stop':['acquisition.phase','acquisition.pass_phase','acquisition.elapsed_s','acquisition.points','stage.target_x_m','stage.target_y_m','stage.moving','load.target_n','friction.indicated_n','friction.coefficient','depth.penetration_m','depth.residual_m','observation.unavailable_reason'],
 'emergency.stop':['emergency.latched','acquisition.phase','acquisition.pass_phase','acquisition.elapsed_s','acquisition.points','stage.target_x_m','stage.target_y_m','stage.moving','head.target_lift_m','head.moving','load.target_n','friction.indicated_n','friction.coefficient','depth.penetration_m','depth.residual_m','observation.unavailable_reason'],
 'emergency.reset':['emergency.latched'],'debris.collect':['truth.debris_kg'],'sim.step':list(SLOTS)}
 for k,v in EFFECTS.items():CAPS[k]['effects']=v
-PHYSICS_EFFECTS=['stage.x_m','stage.y_m','stage.moving','head.lift_m','head.moving','head.penetration_m','load.target_n','load.indicated_n','friction.indicated_n','friction.coefficient','depth.raw_m','depth.penetration_m','depth.residual_m','thermal.indicated_k','truth.normal_force_n','truth.coating_volume_m3','truth.substrate_volume_m3','truth.stylus_volume_m3','truth.debris_kg','truth.local_groove_m','truth.temperature_k','truth.tangential_work_j','acquisition.phase','acquisition.pass_phase','acquisition.distance_m','acquisition.elapsed_s','acquisition.points','observation.unavailable_reason','stage.target_x_m','stage.target_y_m']
+PHYSICS_EFFECTS=['truth.coating_spalled','truth.failure_events','stage.x_m','stage.y_m','stage.moving','head.lift_m','head.moving','head.penetration_m','load.target_n','load.indicated_n','friction.indicated_n','friction.coefficient','depth.raw_m','depth.penetration_m','depth.residual_m','thermal.indicated_k','truth.normal_force_n','truth.coating_volume_m3','truth.substrate_volume_m3','truth.stylus_volume_m3','truth.debris_kg','truth.local_groove_m','truth.temperature_k','truth.tangential_work_j','acquisition.phase','acquisition.pass_phase','acquisition.distance_m','acquisition.elapsed_s','acquisition.points','observation.unavailable_reason','stage.target_x_m','stage.target_y_m']
 
 def export_antonpaar_rst300_contract_metadata():
  slots={};caps={}
@@ -508,8 +553,9 @@ def export_antonpaar_rst300_contract_metadata():
  'Ideal normal spring U=Fn^2/(2k). Positive deltaU tracked as loading work, negative deltaU as recovered actuator work; no normal energy disappears on unloading. Full normal plastic/topographic work is not solved and is not relabeled as tangential heat.',
  'Local average groove=(dVcoat+dVsubstrate)/(declared width*dx), stored along the exact finite damaged path. Raw depth=Fn/k+local_groove-surface_slope*stageX, through independent sensor response. Prescan and postscan use explicitly assumed nondestructive low force. Penetration and residual observations subtract the same-path prescan; never treat source zero Rd as measured zero residual.',
  'Critical threshold detection requires adjacent available observations and consecutive confirmation; missing points break a bracket. It reports an observed criterion, not intrinsic adhesion. Postscan residual crossings map to preserved original same-track scratch observedFn(position), never the low probing force; without load bracket Lc=null.',
+ 'Coating references with runtime_basis=scalar_critical_load_events carry only published Lc scalars: friction is the source coefficient or plant.scan_friction_coefficient (assumption); when the actual normal force first reaches each Lc an evaluator-only event is logged (evaluation.failure_events, truth.failure_events); the first delamination-class (else adhesive-class) Lc sets full-thickness coating removal dVcoat=width*thickness*dx for all later path increments (spallation proxy) while all sample energy goes to the substrate, so penetration/residual depth rise observably. Cohesive Lc has no simulated observable.',
  'Damaged overlapping tracks cannot be reused; arbitrary multipass does not reset finite coating. Cancellation stops feed and freezes history but actual normal load relaxes on later steps. Fixed optical microscope has no simulated carousel; published image lookup is reference-only, dynamic panorama and AE calibration are unsupported.'
- ],parameters={},source_ids=['manufacturer_specs','simulation_assumption','brittle_scratch_2018'],limitations=['All depth/removal/thermal/force-control parameters are explicit engineering inputs; original Pd/Rd are not silently promoted to model truth.','High-range nominal0.2mN/.5nm resolutions and ideal-laboratory1mN/2.5nm RMS floors are specifications only; no achieved metrology or stochastic noise claim.','Default empirical record is bare borofloat glass from another scratch experiment, not native RST300 coating force/depth calibration.','Image references do not generate a new scratch image. Manufacturer panorama inspection limit30mm and scratch travel70mm are different; automatic panorama acquisition not implemented.','No manufacturer heater is invented. Heat comes only from declared portion of tangential work; passive cooling, no heating-control capability.','Normal plastic deformation/topographic work, real fracture/delamination, pile-up shape, AE waveform and actual indentation contact dynamics are not solved.','Observed postscan residual profile uses ideal nondestructive probe and explicit constant track width; not full Hertz/spheroconical cross-section inversion.','ASTM C1624 scope or CRM critical loads do not calibrate synthetic wear coefficients or confer certification.'])
+ ],parameters={},source_ids=['manufacturer_specs','simulation_assumption','brittle_scratch_2018'],limitations=['All depth/removal/thermal/force-control parameters are explicit engineering inputs; original Pd/Rd are not silently promoted to model truth.','High-range nominal0.2mN/.5nm resolutions and ideal-laboratory1mN/2.5nm RMS floors are specifications only; no achieved metrology or stochastic noise claim.','Default empirical record is bare borofloat glass from another scratch experiment, not native RST300 coating force/depth calibration.','Scalar-Lc coating records reproduce only the published critical-load positions under a progressive load; spallation geometry, crack patterns, AE, friction changes at failure and thickness/substrate dependence of Lc are not modelled, and the transfer to other load rates/tip radii is an explicitly accepted condition transfer.','Image references do not generate a new scratch image. Manufacturer panorama inspection limit30mm and scratch travel70mm are different; automatic panorama acquisition not implemented.','No manufacturer heater is invented. Heat comes only from declared portion of tangential work; passive cooling, no heating-control capability.','Normal plastic deformation/topographic work, real fracture/delamination, pile-up shape, AE waveform and actual indentation contact dynamics are not solved.','Observed postscan residual profile uses ideal nondestructive probe and explicit constant track width; not full Hertz/spheroconical cross-section inversion.','ASTM C1624 scope or CRM critical loads do not calibrate synthetic wear coefficients or confer certification.'])
  caps['reference.query']['source_ids'].append('brittle_scratch_2018');caps['acquisition.start']['source_ids'].append('brittle_scratch_2018')
  spec=importlib.util.spec_from_file_location('_rst_local_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update({k:v['meaning'] for k,v in SLOTS.items()});ann.annotate_export(SLUG,caps,slots,{'scratch':mechanism},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'specimen.load':(SAMPLE,SAMPLE_EXAMPLE),'stylus.load':(STYLUS,STYLUS_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE)})
  return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'scratch':mechanism})

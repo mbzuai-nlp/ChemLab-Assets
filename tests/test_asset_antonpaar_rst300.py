@@ -194,6 +194,62 @@ class TestRST300(unittest.TestCase):
   for rid,ref in usable[:2]:
    h=prescanned(sample={'reference_id':rid},method={'source_start_distance_m':ref['values']['distance_m'][0]});r=run(h);self.assertEqual(r['phase'],'succeeded');self.assertEqual(r['reference_id'],rid);works.append(h.tangential_work)
   self.assertEqual(len(works),2);self.assertNotEqual(*works)
+ def lc_run(self,rid,thickness=2e-6,initial=5.,final=45.,length=.004,channel='penetration_depth_m',threshold_m=1e-4,sample=None):
+  s=dict({'reference_id':rid,'coating_thickness_m':thickness,'coating_density_kg_m3':2000.},**(sample or {}))
+  h=prescanned(sample=s,method={'length_m':length,'initial_force_n':initial,'final_force_n':final,'speed_m_s':.01/60,'criterion_channel':channel,'criterion_threshold_m':threshold_m,'criterion_persistence':2})
+  return h,run(h)
+ def test_41_published_lc_events_trigger_at_actual_load_and_spall_the_coating(self):
+  rid='bcr692_dlc_steel_cert2007';lib=rt.library()['substances'];rs=lib[rid]['runtime_scalars'];k=rt.PLANT_EXAMPLE['contact_stiffness_n_m']
+  self.assertEqual([e['failure_class'] for e in rs['critical_load_events']],['cohesive','adhesive','delamination'])
+  # penetration threshold placed 1 um above the elastic spring depth at Lc3: only the 2 um spallation step can cross it near Lc3
+  h,r=self.lc_run(rid,threshold_m=28./k+1e-6);self.assertEqual(r['phase'],'succeeded')
+  ev=json.loads(call(h,'evaluation.failure_events')['events_json']);self.assertEqual([e['label'] for e in ev],['Lc1','Lc2','Lc3']);self.assertTrue(all(e['triggered'] for e in ev))
+  for e in ev:self.assertGreaterEqual(e['actual_normal_force_n'],e['source_critical_load_n']);self.assertLess(e['actual_normal_force_n']-e['source_critical_load_n'],.2)
+  self.assertEqual([e['starts_coating_removal'] for e in ev],[False,False,True]);self.assertTrue(h.read()['truth.coating_spalled']);self.assertEqual(h.read()['truth.failure_events'],3)
+  self.assertIsNotNone(r['critical']['critical_load_n']);self.assertAlmostEqual(r['critical']['critical_load_n'],28.,delta=1.)
+  l=self.ledger(h);self.assertGreater(l['coating_debris_kg'],0.);cap=rt.SAMPLE_EXAMPLE['track_width_m']*2e-6;self.assertGreaterEqual(l['coating_removed_m3'],cap*(r['distance_m']-ev[2]['distance_m'])-1e-18);self.assertLessEqual(l['coating_removed_m3'],cap*r['distance_m']+1e-18)
+  self.assertIn('Published scalar critical loads',r['evidence']);self.assertIn('plant.scan_friction_coefficient',r['evidence'])
+  # same load program without spallation (bare curve reference) never crosses the threshold before 38 N
+  scan=[x for x in r['rows'] if x['phase']=='scanning' and x['penetration_depth_m'] is not None];before=[x for x in scan if x['normal_force_n'] is not None and x['normal_force_n']<27.5];after=[x for x in scan if x['normal_force_n'] is not None and x['normal_force_n']>29.]
+  self.assertLess(max(x['penetration_depth_m'] for x in before),28./k+1e-6);self.assertGreater(min(x['penetration_depth_m']-x['normal_force_n']/k for x in after),1.5e-6)
+ def test_42_delamination_not_adhesive_starts_removal_and_untriggered_events_stay_false(self):
+  lib=rt.library()['substances'];rid='dlc_k340_not_nitrided';rs=lib[rid]['runtime_scalars']
+  lc2,lc3=[e['normal_force_n'] for e in rs['critical_load_events']]
+  h,r=self.lc_run(rid,initial=10.,final=(lc2+lc3)/2,length=.003);ev=json.loads(call(h,'evaluation.failure_events')['events_json'])
+  self.assertEqual([(e['label'],e['triggered']) for e in ev],[('LC2',True),('LC3',False)]);self.assertFalse(h.read()['truth.coating_spalled']);self.assertEqual(self.ledger(h)['coating_removed_m3']>0,True)
+  self.assertLess(self.ledger(h)['coating_removed_m3'],rt.SAMPLE_EXAMPLE['track_width_m']*2e-6*.003*.5)
+  h,r=self.lc_run('ni_ti_5p4um_annealed',thickness=5.4e-6,initial=1.,final=60.,length=.003);ev=json.loads(call(h,'evaluation.failure_events')['events_json'])
+  self.assertEqual(len(ev),1);self.assertEqual(ev[0]['failure_class'],'adhesive');self.assertTrue(ev[0]['starts_coating_removal']);self.assertTrue(h.read()['truth.coating_spalled'])
+ def test_43_lc_reference_conditions_and_evaluator_only_events(self):
+  rid='bcr692_dlc_steel_cert2007'
+  h=prescanned(sample={'reference_id':rid,'coating_thickness_m':2e-6,'accept_condition_transfer':False},method={'length_m':.004,'initial_force_n':5.,'final_force_n':40.,'speed_m_s':.01/60})
+  self.rejected(h,'acquisition.start','REFERENCE_CONDITIONS')
+  h=prescanned(sample={'reference_id':'dlc_hws_nitrided','coating_thickness_m':2e-6,'accept_unknown_conditions':False},method={'length_m':.002,'initial_force_n':5.,'final_force_n':40.})
+  self.rejected(h,'acquisition.start','UNKNOWN_REFERENCE_CONDITIONS')
+  s=h.session();q=s.invoke(instance_id=h.instance_id,capability_id='evaluation.failure_events',arguments={},request_id='ev');self.assertEqual(q['error']['code'],'ACCESS_DENIED')
+  self.assertNotIn('evaluation.failure_events',s.describe(instance_id=h.instance_id)['capabilities']);self.assertTrue(all(not k.startswith('truth.') for k in s.read(instance_id=h.instance_id)['observations']))
+  self.assertEqual(json.loads(call(h,'evaluation.failure_events')['events_json']),[])
+  bad=copy.deepcopy(rt.library()['substances'][rid]);bad['runtime_scalars']['critical_load_events'][0]['normal_force_n']=250.
+  with self.assertRaisesRegex(rt.ActionRejected,'INVALID_REFERENCE'):rt.curve(bad,True,.03)
+ def test_44_coverage_counts_and_reference_only_records(self):
+  lib=rt.library();cov=lib['response_coverage'];subs=lib['substances']
+  self.assertEqual(cov['distinct_reference_materials'],len({r['material_identity'] for r in subs.values()}));self.assertEqual(cov['runtime_materials'],len({r['material_identity'] for r in subs.values() if r['runtime_usable']}))
+  self.assertEqual(cov['minimum_50_runtime_materials_met'],cov['runtime_materials']>=50);self.assertFalse(subs['ni_ti_10p8um_annealed_observation']['runtime_usable'])
+  for r in subs.values():
+   if r['kind']=='published_coating_critical_load':
+    self.assertTrue(r['source']['sha256']);self.assertTrue(r['source']['verbatim_snippet']);self.assertTrue(r['runtime_usable'] or r.get('runtime_block_reason'))
+   if r.get('runtime_basis')==rt.EVENT_BASIS:self.assertNotIn('distance_m',r['values'])
+ def test_45_open_access_coating_systems_across_classes_trigger_their_published_lc(self):
+  lib=rt.library()['substances'];oa=sorted(k for k,r in lib.items() if r['kind']=='published_coating_critical_load' and r['runtime_usable'])
+  self.assertGreaterEqual(len({lib[k]['material_identity'] for k in oa}),40)
+  picks=[k for k in ['oa_peo_we43b','oa_wcco45_tialsin','oa_knee_ti64_acchw','oa_s355_cu','oa_w360_crn_dlc','oa_sus304_dlc'] if k in oa]
+  self.assertGreaterEqual(len(picks),5)
+  for rid in picks:
+   rs=lib[rid]['runtime_scalars'];top=max(e['normal_force_n'] for e in rs['critical_load_events']);th=rs.get('coating_thickness_m') or 2e-6
+   h,r=self.lc_run(rid,thickness=th,initial=.5,final=min(200.,top*1.2+1.),length=.003);self.assertEqual(r['phase'],'succeeded',rid)
+   ev=json.loads(call(h,'evaluation.failure_events')['events_json']);self.assertTrue(all(e['triggered'] for e in ev),rid)
+   for e in ev:self.assertLess(abs(e['actual_normal_force_n']-e['source_critical_load_n']),.5,rid)
+   self.assertEqual(h.read()['truth.coating_spalled'],any(e['starts_coating_removal'] for e in ev));self.ledger(h)
  def test_zz_all_real_capability_returns_and_state_schemas(self):
   spec=importlib.util.spec_from_file_location('rst_asset_tool',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);meta=rt.export_antonpaar_rst300_contract_metadata();json.dumps(meta,allow_nan=False)
   for k,c in meta['capabilities'].items():

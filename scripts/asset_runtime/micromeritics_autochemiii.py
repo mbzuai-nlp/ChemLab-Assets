@@ -41,9 +41,24 @@ def validate(s,v):
  if 'enum' in s and v not in s['enum']:raise ActionRejected('INVALID_ARGUMENT')
 def empty_gas():return [0.]*len(SPECIES)
 def elements(gas):return [sum(n*a[i] for n,a in zip(gas,ATOMS)) for i in range(len(ELEMENTS))]
+_LIBRARY={'key':None,'data':None}
 def library():
  path=ASSET/'chem_template_library.json'
- return json.loads(path.read_text()) if path.exists() else {'substances':{}}
+ if not path.exists():return {'substances':{}}
+ st=path.stat();key=(st.st_mtime_ns,st.st_size)
+ if _LIBRARY['key']!=key:_LIBRARY['data']=json.loads(path.read_text());_LIBRARY['key']=key
+ return _LIBRARY['data']
+def redhead_activation(peak_k,ramp_k_s,preexponential_s):
+ # First-order desorption/reduction with linear heating (Redhead): E/(R*Tp^2)=(A/beta)*exp(-E/(R*Tp)).
+ # g(E)=ln(E/(R*Tp^2))+E/(R*Tp)-ln(A/beta) is strictly increasing in E, so bisection gives the unique root.
+ g=lambda e:math.log(e/(R*peak_k*peak_k))+e/(R*peak_k)-math.log(preexponential_s/ramp_k_s)
+ lo,hi=1e-3,500000.
+ if g(lo)>0 or g(hi)<0:raise ActionRejected('DERIVATION_RANGE')
+ for _ in range(200):
+  mid=(lo+hi)/2
+  if g(mid)<0:lo=mid
+  else:hi=mid
+ return (lo+hi)/2
 def temperature_valid(k,ambient):
  if not ambient-5-1e-9<=k<=1473.15+1e-9:raise ActionRejected('TEMPERATURE_RANGE')
  if abs((k-273.15)*10-round((k-273.15)*10))>1e-7:raise ActionRejected('TEMPERATURE_INCREMENT')
@@ -82,6 +97,12 @@ cap('acquisition.result',obj({}),RESULT,['tcd'],'只读当前或已冻结结果�
 cap('analysis.integrate',obj({'times_s':array(number('s'),2,100000),'signals_v':array(number('V'),2,100000),'baseline_v':number('V'),'mol_per_v_s':number('mol/(V*s)')}),obj({'area_v_s':number('V*s'),'amount_mol':number('mol')}),['tcd'],'只对外部观测做梯形积分和独立校准换算','analysis',example=dict(times_s=[0.,1.,2.],signals_v=[0.,.1,0.],baseline_v=0.,mol_per_v_s=1e-5))
 cap('analysis.dispersion',obj({'adsorbed_mol':number('mol',0,.1),'metal_mass_kg':number('kg',1e-12,1),'metal_molar_mass_kg_mol':number('kg/mol',.001,.3),'adsorbate_per_surface_atom':number('1',.01,10)}),obj({'fraction':number('1',0,1)}),['controller'],'外部校准吸附量与金属质量/化学计量推算分散度','analysis',example=dict(adsorbed_mol=1e-6,metal_mass_kg=1e-5,metal_molar_mass_kg_mol=.0586934,adsorbate_per_surface_atom=1.))
 cap('reference.query',obj({'reference_id':TEXT}),obj({'reference_json':TEXT,'template_source':TEXT,'evidence':TEXT}),['controller'],'读取独立公开实验参考；不将静态参考自动当作样品动力学','query',example={'reference_id':'parlett2023_nio_sio2'})
+DERIVE=obj({'reference_id':TEXT,'mode':enum(['tpr','tpd','pulse']),'sample_mass_kg':number('kg',1e-9,.01),'ramp_k_s':number('K/s',1/60,100/60),'preexponential_s':number('1/s',1e-3,1e15),'peak_index':integer(0,9),'particle_diameter_m':number('m',0,.009),'reaction_enthalpy_j_mol':number('J/mol',-1e6,1e6),'adsorbate_per_surface_atom':nullable(number('1',.01,10))})
+DERIVE_EXAMPLE=dict(reference_id='freitas2025_bulk_cuo',mode='tpr',sample_mass_kg=2e-5,ramp_k_s=10/60,preexponential_s=1e10,peak_index=0,particle_diameter_m=1e-4,reaction_enthalpy_j_mol=0.,adsorbate_per_surface_atom=None)
+DERIVED=obj({'sample':SAMPLE,'mode':enum(['tpr','tpd','pulse']),'reference_quantity':TEXT,'reference_amount_mol_kg':number('mol/kg'),'amount_mol':number('mol'),'peak_temperature_k':nullable(number('K')),'reference_ramp_k_s':nullable(number('K/s')),'ramp_basis':enum(['reference','requested_assumed','not_applicable']),'activation_j_mol':number('J/mol'),'stoichiometry_basis':enum(['published','evaluator_input','direct_uptake','not_applicable']),'formula':TEXT,'assumptions':array(TEXT,0,20),'evidence':TEXT,'template_source':TEXT})
+cap('reference.derive_sample',DERIVE,DERIVED,['controller'],'把有真实数值的公开参考（论文耗氢量/酸量/吸附量与峰温）换算成sample.load显式参数；Redhead一级动力学与指前因子为评估者假设','analysis',example=DERIVE_EXAMPLE)
+LISTED=obj({'reference_id':TEXT,'name':TEXT,'kind':TEXT,'material_group':TEXT,'runtime_modes':array(enum(['tpr','tpd','pulse']),0,3),'evidence':TEXT})
+cap('reference.list',obj({}),obj({'references':array(LISTED,0,100000)}),['controller'],'列出公开参考及其可由reference.derive_sample使用的模式','query')
 cap('ledger.read',obj({}),LEDGER,['controller'],'宿主元素/总质量/有效热量守恒账本','query','evaluator')
 cap('sim.step',obj({'dt_s':number('s',0,3600)}),obj({'time_s':number('s')}),['controller'],'唯一宿主时钟入口','simulation','evaluator',{'dt_s':.1})
 UNSUPPORTED=['cryocooler.enable','ms.connect','detector.empirical_noise','fault.empirical','calibration.oem_certificate','hardware.connect','robot.manipulate']
@@ -161,6 +182,9 @@ class MicromeriticsAutochemiiiRuntime:
    record=library()['substances'].get(a['reference_id'])
    if record is None:raise ActionRejected('INVALID_REFERENCE')
    return dict(reference_json=json.dumps(record,sort_keys=True),template_source=json.dumps(record['source'],sort_keys=True),evidence=record['evidence'])
+  if k=='reference.list':
+   return {'references':[dict(reference_id=rid,name=r['name'],kind=r['kind'],material_group=r['material_group'],runtime_modes=list(r.get('runtime_modes',[])),evidence=r['evidence']) for rid,r in library()['substances'].items()]}
+  if k=='reference.derive_sample':return self._derive(a)
   if k=='analysis.integrate':
    t=a['times_s'];y=a['signals_v']
    if len(t)!=len(y) or any(b<=c for c,b in zip(t,t[1:])):raise ActionRejected('INVALID_ARGUMENT')
@@ -265,6 +289,34 @@ class MicromeriticsAutochemiiiRuntime:
    for segment in self.method['segments']:self._temperature(segment['target_k'],segment['ramp_k_s'],previous);previous=segment['target_k']
    ref=self.sample['reference_id'];self.source=json.dumps(library()['substances'][ref]['source'],sort_keys=True) if ref else None;self._counter+=1;self.operation_id=self.instance_id+':'+str(self._counter);self.phase='running';self.stage='ramp';self.elapsed=0.;self.rows=[];self.pulses=0;self.segment=0;self.hold_elapsed=0.;self.integral=0.;self.previous_signal=None;self.error=None;self.target=self.method['segments'][0]['target_k'];self.ramp=self.method['segments'][0]['ramp_k_s'];return {'operation_id':self.operation_id}
   raise ActionRejected('UNKNOWN_CAPABILITY')
+ def _derive(self,a):
+  record=library()['substances'].get(a['reference_id'])
+  if record is None:raise ActionRejected('INVALID_REFERENCE')
+  data=record.get('runtime_inputs',{}).get(a['mode'])
+  if data is None:raise ActionRejected('REFERENCE_NOT_RUNTIME_USABLE')
+  m=a['sample_mass_kg'];assumptions=['Single-site first-order kinetics and explicit preexponential factor; peak shape, TCD response and multi-peak partition are engineering assumptions']
+  if a['mode'] in ('tpr','tpd'):
+   peaks=data['peak_temperatures_k']
+   if a['peak_index']>=len(peaks):raise ActionRejected('INVALID_ARGUMENT')
+   tp=peaks[a['peak_index']];beta=data.get('reference_ramp_k_s');basis='reference'
+   if beta is None:beta=a['ramp_k_s'];basis='requested_assumed';assumptions.append('Source ramp rate unknown: published peak temperature assumed to belong to the requested ramp')
+   energy=redhead_activation(tp,beta,a['preexponential_s']);reference=data['amount_mol_kg'];amount=reference*m;initial=amount;stoich='not_applicable'
+   assumptions.append('Whole published amount assigned to the selected peak')
+   formula='capacity_mol=%s[mol/kg]*sample_mass_kg; E solves E/(R*Tp^2)=(A/beta)*exp(-E/(R*Tp)) at Tp=%.2f K, beta=%.6g K/s'%(data['quantity'],tp,beta)
+  else:
+   tp=None;beta=None;basis='not_applicable';energy=0.;initial=0.;assumptions.append('Non-activated adsorption (E=0) during pulses is an assumption')
+   if data.get('uptake_mol_kg'):
+    reference=data['uptake_mol_kg'];stoich='direct_uptake';formula='capacity_mol=chemisorbed_uptake_mol_kg*sample_mass_kg'
+   else:
+    s=data.get('adsorbate_per_surface_atom');stoich='published'
+    if s is None:
+     s=a['adsorbate_per_surface_atom'];stoich='evaluator_input';assumptions.append('Chemisorption stoichiometry not published for this record; evaluator-supplied adsorbate_per_surface_atom used')
+     if s is None:raise ActionRejected('STOICHIOMETRY_REQUIRED')
+    reference=data['surface_metal_mol_kg']*s;formula='capacity_mol=surface_metal_mol_kg*adsorbate_per_surface_atom(%g)*sample_mass_kg'%s
+   amount=reference*m
+  if not 1e-12<=amount<=.1:raise ActionRejected('CAPACITY')
+  sample=dict(label=record['name']+' [derived from '+a['reference_id']+']',reference_id=a['reference_id'],accept_unknown_conditions=True,accept_engineering_kinetics=True,mode=a['mode'],inert_mass_kg=m,particle_diameter_m=a['particle_diameter_m'],capacity_mol=amount,initial_bound_mol=initial,adsorbate=data['adsorbate'],preexponential_s=a['preexponential_s'],activation_j_mol=energy,reaction_enthalpy_j_mol=a['reaction_enthalpy_j_mol'])
+  return dict(sample=sample,mode=a['mode'],reference_quantity=data['quantity'],reference_amount_mol_kg=reference,amount_mol=amount,peak_temperature_k=tp,reference_ramp_k_s=data.get('reference_ramp_k_s'),ramp_basis=basis,activation_j_mol=energy,stoichiometry_basis=stoich,formula=formula,assumptions=assumptions,evidence='derived',template_source=json.dumps(record['source'],sort_keys=True))
  def _finish(self,phase,error=None):
   self.phase=phase;self.error=error
   if self.operation_id:self.records[self.operation_id]=self._result()
@@ -375,10 +427,10 @@ class MicromeriticsAutochemiiiSession:
 def export_micromeritics_autochemiii_contract_metadata():
  slots={};caps={}
  for k,v in SLOTS.items():slots[k]=dict(meaning_zh=v['meaning'],component_ids=[v['component']],value_schema=copy.deepcopy(v['schema']),unit=v['unit'],reference_conditions='SI; gas reference273.15K/101325Pa; N2-calibrated flow and explicit gas correction; temperature kelvin',origin=v['origin'],visibility=v['visibility'],access='read_write' if v['write'] else 'read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'MicromeriticsAutochemiiiSession.read(state_ids=[{k!r}])'),write_via=dict(capability_id=v['write'][0],argument=v['write'][1],fixed_arguments={}) if v['write'] else None,sampling=dict(mode='instant',time_domain='simulation',window_description='Fixed0.1s host ticks; TCD and temperature are explicitly assumed filtered displays'),source_ids=['simulation_assumption'])
- errors=['UNKNOWN_CAPABILITY','UNKNOWN_INSTANCE','UNKNOWN_OPERATION','INVALID_ARGUMENT','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','BUSY','NOT_READY','NOT_RUNNING','INITIALIZATION_ONLY','MODEL_NOT_ACCEPTED','SAMPLE_ACCESS','SAMPLE_PRESENT','SAMPLE_CONNECTION','NO_SAMPLE','CAPACITY','INVALID_REFERENCE','UNKNOWN_CONDITIONS','GAS_ACCESS','STOCK_PRESENT','INVALID_COMPOSITION','GAS_NOT_READY','FLOW_RANGE','TEMPERATURE_RANGE','TEMPERATURE_INCREMENT','RAMP_LIMIT','POWER_INTERLOCK','HOT_OR_FLOWING','INVALID_CALIBRATION','INCONSISTENT_DISPERSION','ACQUISITION_NOT_READY','FINITE_INVENTORY','GAS_EXHAUSTED','THERMAL_LIMIT','TIMEOUT']
+ errors=['UNKNOWN_CAPABILITY','UNKNOWN_INSTANCE','UNKNOWN_OPERATION','INVALID_ARGUMENT','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','BUSY','NOT_READY','NOT_RUNNING','INITIALIZATION_ONLY','MODEL_NOT_ACCEPTED','SAMPLE_ACCESS','SAMPLE_PRESENT','SAMPLE_CONNECTION','NO_SAMPLE','CAPACITY','INVALID_REFERENCE','UNKNOWN_CONDITIONS','GAS_ACCESS','STOCK_PRESENT','INVALID_COMPOSITION','GAS_NOT_READY','FLOW_RANGE','TEMPERATURE_RANGE','TEMPERATURE_INCREMENT','RAMP_LIMIT','POWER_INTERLOCK','HOT_OR_FLOWING','INVALID_CALIBRATION','INCONSISTENT_DISPERSION','ACQUISITION_NOT_READY','FINITE_INVENTORY','GAS_EXHAUSTED','THERMAL_LIMIT','TIMEOUT','REFERENCE_NOT_RUNTIME_USABLE','STOICHIOMETRY_REQUIRED','DERIVATION_RANGE']
  for k,c in CAPS.items():
   un=k in UNSUPPORTED;async_=k=='acquisition.start';caps[k]={key:copy.deepcopy(c[key]) for key in ['input_schema','output_schema','component_ids','function_zh','kind','visibility','example_arguments']};caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ['scene','robot','hardware'] else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.micromeritics_autochemiii.MicromeriticsAutochemiiiSession.invoke',invocation=f'session.invoke(instance_id="autochemiii_01",capability_id={k!r},arguments={c["example_arguments"]!r},request_id="unique")'),preconditions=[] if c['kind'] in ['query','analysis'] or un else [dict(description_zh='实际参数、权限、库存、炉温、气路及访问检查；命令拒绝原子，非原厂安全认证',state_ids=['power.enabled','plant.configured','acquisition.phase'],enforced_by='runtime',check='atomic invoke and registered Session')],state_effects=[dict(state_id=x,timing='immediate',description_zh='实际命令变化') for x in c['effects']],observes=[],model_effects=dict(mode='none',description_zh='场景映射需独立验证',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='所有温程和有限脉冲完成或明确失败/取消' if async_ else '命令完成但不推进物理时钟',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','furnace','gas_inventory','sample','tcd'],partial_failure_zh='保留已消耗/排出气体、表面变化、热量与记录；终态结果冻结，后续真实热弛豫仍由宿主推进'),errors=[dict(code=x,meaning_zh=x,side_effects='partial' if async_ and x in ['GAS_EXHAUSTED','THERMAL_LIMIT','TIMEOUT'] else 'none') for x in errors],verification=[],limitations=['原厂噪声/故障/误差/压力控制数据未知','TCD系数和样品动力学是显式工程输入'],source_ids=['manufacturer_specs','simulation_assumption'])
   if async_ or k in ['gas.open','thermal.set_temperature','path.set_temperature','power.set']:caps[k]['state_effects'] += [dict(state_id=x,timing='on_step',description_zh='宿主步进热学、有限气流、反应与观测') for x in PHYSICS_EFFECTS if x!='clock.time_s']
- mech=dict(component_ids=['controller','furnace','sample_tube','gas_manifold','tcd','cold_trap'],state_ids=list(slots),meaning_zh='有限气体/反应基元与热节点的明确工程过程；独立实验参考不构成实测动力学',implementation='lumped',equations=['PV=nRT; finite9species inventory at18ports; open reactor vents positive excess above101325Pa; belowreferencepressure possible during cooldown','TPD:A_bound->A_gas; TPR:H2+O_bound->H2O; TPO:O2+C_bound->CO2; pulse:A_gas->A_bound; finite sites and reagent limit each update','k=A*exp(-Ea/RT); integrated fraction1-exp(-k*dt); explicit effective engineering coefficients','BackwardEuler thermalnode solves bounded proportionalheater implicitly: C*dT=heater_heat-convective_loss-feedgas_sensible_heat+reaction_heat; DeltaH evaluator supplied; endothermic extent limited to available thermalenergy above1K; stored=C*(T-Tambient)','TCD=sum(speciesmolefraction*explicit_sensitivity), firstorder response; displayedtemperature firstorder+0.1Kquantization; noOEM accuracyclaim','Independent trapezoidalTCDintegration and externalmoles/observedarea calibration; externalstoichiometry metaldispersion','RevC:ambient-5..1200C withoutCryo;0.1Csetpoint;1C/min minimum;100C/min to800C,50to1000C,25to1200C; gaspath<=150C','Only hoststep advances time; terminal snapshots retained; query ownership and evaluator process truth separated'],parameters={},source_ids=['manufacturer_specs','simulation_assumption'],limitations=['Reaction kinetics, thermal coefficients and TCD response are explicit assumptions; empirical mechanism/noise/fault validation not_run','Gas volume reference273.15K/101325Pa is simulation convention; N2calibrated1–100mL/min applies only with explicit mixturecorrection','Reference library entries preserve original instrument/conditions; not automatically converted into AutoChem kinetic curves','Cooling and gaspath firstorder responses are local engineering proxies, not manufacturer rate claims; heat ledger covers only furnace/sample effective node, not separate path heater','Cold sample-access323.15K, absolute-temperature floor1K and thermal trip1478.15K are simulation guards, not OEM certified limits','Gasphase-only model: coldtrap condensation, gasline adsorption, pressure regulator dynamics and full gas-path thermal energy are not modeled','No wallprocess/filesystem truth-isolation claim; noOEM robot/hardware or CryoCooler/MS option implementation'])
+ mech=dict(component_ids=['controller','furnace','sample_tube','gas_manifold','tcd','cold_trap'],state_ids=list(slots),meaning_zh='有限气体/反应基元与热节点的明确工程过程；独立实验参考不构成实测动力学',implementation='lumped',equations=['PV=nRT; finite9species inventory at18ports; open reactor vents positive excess above101325Pa; belowreferencepressure possible during cooldown','TPD:A_bound->A_gas; TPR:H2+O_bound->H2O; TPO:O2+C_bound->CO2; pulse:A_gas->A_bound; finite sites and reagent limit each update','k=A*exp(-Ea/RT); integrated fraction1-exp(-k*dt); explicit effective engineering coefficients','BackwardEuler thermalnode solves bounded proportionalheater implicitly: C*dT=heater_heat-convective_loss-feedgas_sensible_heat+reaction_heat; DeltaH evaluator supplied; endothermic extent limited to available thermalenergy above1K; stored=C*(T-Tambient)','TCD=sum(speciesmolefraction*explicit_sensitivity), firstorder response; displayedtemperature firstorder+0.1Kquantization; noOEM accuracyclaim','Independent trapezoidalTCDintegration and externalmoles/observedarea calibration; externalstoichiometry metaldispersion','reference.derive_sample: capacity=published H2/NH3/chemisorption amount[mol/kg]*mass; TPR/TPD Ea from first-order Redhead E/(R*Tp^2)=(A/beta)exp(-E/(R*Tp)) at published peak and source ramp; pulse Ea=0; A explicit','RevC:ambient-5..1200C withoutCryo;0.1Csetpoint;1C/min minimum;100C/min to800C,50to1000C,25to1200C; gaspath<=150C','Only hoststep advances time; terminal snapshots retained; query ownership and evaluator process truth separated'],parameters={},source_ids=['manufacturer_specs','simulation_assumption'],limitations=['Reaction kinetics, thermal coefficients and TCD response are explicit assumptions; empirical mechanism/noise/fault validation not_run','Gas volume reference273.15K/101325Pa is simulation convention; N2calibrated1–100mL/min applies only with explicit mixturecorrection','Reference library entries preserve original instrument/conditions; only reference.derive_sample converts usable published scalars into explicit single-site sample parameters (peak position and integrated amount), never into measured AutoChem curves','Cooling and gaspath firstorder responses are local engineering proxies, not manufacturer rate claims; heat ledger covers only furnace/sample effective node, not separate path heater','Cold sample-access323.15K, absolute-temperature floor1K and thermal trip1478.15K are simulation guards, not OEM certified limits','Gasphase-only model: coldtrap condensation, gasline adsorption, pressure regulator dynamics and full gas-path thermal energy are not modeled','No wallprocess/filesystem truth-isolation claim; noOEM robot/hardware or CryoCooler/MS option implementation'])
  spec=importlib.util.spec_from_file_location('_autochem_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update({k:v['meaning'] for k,v in SLOTS.items()});ann.annotate_export(SLUG,caps,slots,{'chemisorption':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.load':(SAMPLE,SAMPLE_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE)})
  return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'chemisorption':mech})

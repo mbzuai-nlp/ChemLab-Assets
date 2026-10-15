@@ -16,6 +16,20 @@ ALICAT_MC_FS_M3_S = 1e-3 / 60
 ALICAT_MC_MIN_M3_S = ALICAT_MC_FS_M3_S * 0.0001
 ALICAT_MC_PSI_PA = 6894.757293168
 ALICAT_MC_R = 8.31446261815324
+# 2026-10 template hook: NIST gas-property library (scripts/basic40_templates/alicat_mc.py); host-registered gases keep the legacy path.
+_AMC_TEMPLATE_CAPABILITIES = ("template.list", "template.read", "flow.read_template")
+
+
+def _amc_templates():
+    try:
+        from basic40_templates import alicat_mc as module
+    except ImportError:
+        from scripts.basic40_templates import alicat_mc as module
+    return module
+
+
+def _amc_template_backed(host, s, inst):
+    return inst is not None and ((s["gas.selected_id"] is not None and s["gas.selected_id"] not in host._gases) or inst.get("template_line_gas_id") is not None)
 
 
 def _amc_number(value):
@@ -224,13 +238,21 @@ class AlicatMCRuntime:
             self._gases[gas_id] = {"compatibility_evidence": compatibility_evidence,
                 "molar_mass_kg_mol": molar_mass_kg_mol, "property_evidence": property_evidence}
 
+    def host_enable_library_gas(self, gas_id, *, compatibility_evidence):
+        """Template hook: trusted approval of an S-Series-only/unlisted library gas (standard-MC Gas Select gases need none)."""
+        return _amc_templates().host_enable_library_gas(self, gas_id, compatibility_evidence=compatibility_evidence)
+
+    def host_set_line_gas(self, instance_id, *, gas_id):
+        """Template hook: trusted declaration of the library gas physically in the line (None = the selected gas)."""
+        return _amc_templates().host_set_line_gas(self, instance_id, gas_id=gas_id)
+
     def _require(self, instance_id):
         if not isinstance(instance_id, str) or instance_id not in self._instances:
             raise ValueError("Unknown instance")
         return self._instances[instance_id]
 
     def _commit(self, inst, values):
-        self._refresh(values)
+        self._refresh(values, inst)
         if inst["values"] != values:
             inst["values"] = values
             inst["revision"] += 1
@@ -249,7 +271,7 @@ class AlicatMCRuntime:
         return s["flow.setpoint_m3_s"] == 0 and ((unconnected and s["truth.standard_flow_m3_s"] is None)
             or (s["truth.no_flow"] and s["truth.standard_flow_m3_s"] in (None, 0)))
 
-    def _refresh(self, s):
+    def _refresh(self, s, inst=None):
         for sid in _AMC_MEASUREMENTS:
             s[sid] = False if sid == "measurement.accuracy_conditions_met" else None
         if not s["power.enabled"] or s["gas.selected_id"] is None or not self._boundaries_valid(s):
@@ -259,6 +281,8 @@ class AlicatMCRuntime:
         q = s["truth.standard_flow_m3_s"]
         if not s["flow.zeroed"] or q is None:
             return
+        if _amc_template_backed(self, s, inst):  # template hook: library gas (NIST real-gas density, LFE viscosity)
+            return _amc_templates().refresh_readings(self, s, inst)
         s["measurement.standard_flow_m3_s"] = q
         s["measurement.actual_flow_m3_s"] = _amc_finite_result(q * (s["truth.temperature_K"] / s["gas.reference_temperature_K"]) * (s["gas.reference_pressure_Pa"] / s["truth.upstream_pressure_Pa"]))
         molar_mass = self._gases[s["gas.selected_id"]]["molar_mass_kg_mol"]
@@ -325,20 +349,25 @@ class AlicatMCRuntime:
                 s = _amc_copy.deepcopy(inst["values"])
                 old, tau = s["truth.standard_flow_m3_s"], s["truth.response_time_constant_s"]
                 ready = s["power.enabled"] and s["gas.selected_id"] is not None and s["flow.zeroed"] and self._boundaries_valid(s)
+                templated = ready and _amc_template_backed(self, s, inst)  # template hook
+                factor = _amc_templates().indication_factor(self, s, inst) if templated else 1.0
+                ready = ready and factor is not None  # condensed / outside library data: flow undefined
                 if ready and s["truth.no_flow"]:
                     s["truth.standard_flow_m3_s"] = 0.0
                 elif ready and tau is not None and old is not None and s["truth.upstream_pressure_Pa"] > s["truth.downstream_pressure_Pa"]:
-                    target = s["flow.setpoint_m3_s"]
+                    target = s["flow.setpoint_m3_s"] / factor  # controller servos on the indicated (k * true) flow; k=1.0 legacy
                     response = -_amc_math.expm1(-dt_s / tau)
                     s["truth.standard_flow_m3_s"] = max(0.0, old + (target - old) * response)
                     integral = old * dt_s + (target - old) * (dt_s - tau * response)
                     integral = min(max(integral, min(old, target) * dt_s), max(old, target) * dt_s)
                     if s["truth.total_standard_volume_m3"] is not None:
+                        if templated:
+                            _amc_templates().totalize(inst, s["truth.total_standard_volume_m3"], integral, factor)
                         s["truth.total_standard_volume_m3"] += integral
                 else:
                     s["truth.standard_flow_m3_s"] = None
                     s["truth.total_standard_volume_m3"] = None
-                self._refresh(s)
+                self._refresh(s, inst)
                 pending.append((inst, s))
             self.time_s += dt_s
             for inst, s in pending:
@@ -395,6 +424,7 @@ class AlicatMCSession:
             if scope is not None and not scope:
                 return self._error(instance_id, "ACCESS_DENIED")
             spec = export_alicat_mc_contract_metadata()["asset_types"][ALICAT_MC_TYPE]
+            _amc_templates().augment_describe(spec)  # template hook: library queries + gas.select library IDs
             spec["state_slots"] = {sid: value for sid, value in spec["state_slots"].items() if self._visible(sid)}
             # Capability effects are metadata too: hide restricted slot identifiers.
             for cap in spec["capabilities"].values():
@@ -447,6 +477,8 @@ class AlicatMCSession:
         sid = inst["instance_id"]
         fail = lambda code, status="rejected": self._error(sid, code, request_id, status)
         metadata = export_alicat_mc_contract_metadata()["asset_types"][ALICAT_MC_TYPE]["capabilities"]
+        if cid in _AMC_TEMPLATE_CAPABILITIES:  # template hook: read-only public library queries
+            return _amc_templates().invoke(self, self.__host, inst, cid, args, request_id)
         if cid not in metadata:
             return fail("UNKNOWN_CAPABILITY")
         if cid == "control.set_pid":
@@ -472,7 +504,7 @@ class AlicatMCSession:
             if not args["enabled"]:
                 s.update({"flow.zeroed": False, "truth.standard_flow_m3_s": None, "truth.total_standard_volume_m3": None})
         elif cid == "gas.select":
-            if args["gas_id"] not in self.__host._gases:
+            if args["gas_id"] not in self.__host._gases and not _amc_templates().is_selectable(self.__host, args["gas_id"]):  # template hook
                 return fail("PRECONDITION_FAILED")
             s["gas.selected_id"] = args["gas_id"]
             s.update({"flow.zeroed": False, "truth.standard_flow_m3_s": None, "truth.total_standard_volume_m3": None})

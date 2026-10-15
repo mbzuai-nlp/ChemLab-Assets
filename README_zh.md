@@ -7,12 +7,22 @@
 **198 台可直接用于仿真的化学实验室仪器资产**<br>
 零件级几何 · 可动关节 · 可执行的行为模型 · 机器可读的资产合同
 
-Zirui Song · Jiadong Zhang · Jiahao Zhang · Xiaojun Chang · Xiaosong Ma · Xiuying Chen<br>
+Zirui Song · Jiadong Zhang · Jiahao Zhang · Xiaosong Ma · Xiaojun Chang · Xiuying Chen<br>
 Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 [English](README.md) · **中文**
 
 </div>
+
+## 更新动态
+
+* **2026-10-15 · 1.1 版**：输出模板与反应数据。
+  * 第二批基础仪器 36 台全部配上真实数据模板。其中 18 个模板库接入了各自的运行层，涉及气相色谱、液相色谱、顶空进样、红外、紫外可见、台式核磁、粉末 XRD、电化学工作站、卡尔费休、pH/电导、自动滴定、旋转蒸发、冻干、固相萃取、微波消解、离心机和质量流量计。另有 5 台反应类仪器由共享反应模板覆盖，13 台没有与物质相关的读数，标为不适用。
+  * 共享反应模板从 8 条扩到 38 条，反应物种从 21 种扩到 73 种，每条都能由 Matterix 反应过程执行，并已在 Isaac Lab 中检查。
+  * 公共化合物表从 95 种扩到 200 种（GC 保留、红外、EI 质谱、紫外、¹H/¹³C 核磁、HPLC），并修正了 JCAMP-DX 红外解码。新增"化合物 ↔ 仪器"对照表（`assets/reactions/shared_id_crosswalk.json`、`scripts/template_library.py`），可以查到某个化合物在哪些仪器上有真实模板。
+  * 补强了 32 个偏弱的模板库，大多补到运行层可用的真实记录不少于 50 条。例如 TGA 从 2 种增至 65 种材料，DMA 从 1 种增至 59 种，纳米压痕从 2 种增至 55 种，CPL 从 1 个增至 57 个发光体。6 台元素分析仪现在共用一个标准物质证书库，含 121 种标准物质、2836 条证书值。
+  * 所有改动过的仪器都重新跑了单元测试、合同校验和 Isaac Lab 场景验证。
+* **2026-10-14 · 1.0 版**：首次公开发布，包括 198 台仪器及其合同、运行层、测试，以及 3D 浏览器和项目网站。
 
 ## 简介
 
@@ -29,10 +39,10 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | **仪器** | 198 台商用型号，来自 115 家厂商，分属 16 个能力域 |
 | **几何** | GLB、带碰撞代理的 URDF、14,492 个分件 OBJ、Blender 源文件 |
 | **关节** | 1,328 个（平移 909、转动 388、连续 31）：门、移门、盖、按键、旋钮 |
-| **合同** | 14,272 个组件、6,280 个带类型的状态槽、4,639 个带 JSON-Schema 参数与错误声明的能力 |
+| **合同** | 14,272 个组件、6,282 个带类型的状态槽、4,701 个带 JSON-Schema 参数与错误声明的能力 |
 | **接口** | 648 个读数（显示屏、指示灯）和 2,348 个接口点（放置、抓取、端口） |
 | **行为** | 每台一个 Python 运行层：按时间步推进的过程模型，提供 `describe` / `read` / `invoke` / `poll`，区分智能体与评测者视角，噪声可设种子 |
-| **来源** | 共引用 3,001 条来源；第三方原始文档不随发布再分发 |
+| **来源** | 共引用 3,382 条来源；第三方原始文档不随发布再分发 |
 | **仿真** | 全部 198 台已转为 USD，并通过 Matterix 框架在 NVIDIA Isaac Lab 中运行检查 |
 
 ## 图库
@@ -75,17 +85,17 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | CHEM-002 | METTLER TOLEDO HX204 卤素水分测定仪 | METTLER TOLEDO | HX204 | 基础计量与样品处理 | 5 | 14 | 8 |
 | CHEM-003 | Anton Paar DMA 5002振动管液体密度计 | Anton Paar | DMA 5002 | 基础计量与样品处理 | 4 | 17 | 9 |
 | CHEM-004 | Anton Paar Abbemat Advanced 5201数字折射仪 | Anton Paar | Abbemat Advanced 5201 | 基础计量与样品处理 | 5 | 19 | 10 |
-| CHEM-005 | CHEM-005 多参数电化学水质测定仪 — Metrohm 914 pH/DO | Metrohm | 914 pH/DO/Conductometer | 基础计量与样品处理 | 3 | 44 | 11 |
+| CHEM-005 | CHEM-005 多参数电化学水质测定仪 — Metrohm 914 pH/DO | Metrohm | 914 pH/DO/Conductometer | 基础计量与样品处理 | 3 | 44 | 14 |
 | CHEM-006 | METTLER TOLEDO MP70自动熔点仪 | METTLER TOLEDO | MP70 | 基础计量与样品处理 | 4 | 26 | 10 |
 | CHEM-007 | AQUALAB 4TE水活度仪 | AQUALAB | 4TE | 基础计量与样品处理 | 10 | 27 | 13 |
 | CHEM-008 | 磁力加热搅拌器IKA Plate (RCT digital) | IKA | Plate RCT digital | 基础计量与样品处理 | 8 | 33 | 33 |
 | CHEM-009 | IKA KS 4000 i control恒温轨道摇床 | IKA | KS 4000 i control | 基础计量与样品处理 | 14 | 33 | 14 |
-| CHEM-010 | CHEM-010 冷冻多用途离心机 Eppendorf 5910 Ri | Eppendorf | 5910 Ri | 基础计量与样品处理 | 2 | 23 | 13 |
+| CHEM-010 | CHEM-010 冷冻多用途离心机 Eppendorf 5910 Ri | Eppendorf | 5910 Ri | 基础计量与样品处理 | 2 | 23 | 15 |
 | CHEM-011 | 强制对流干燥箱BINDER FD 56 | BINDER | FD 56 | 基础计量与样品处理 | 7 | 25 | 32 |
 | CHEM-012 | BINDER VD 56 真空干燥箱 | BINDER | VD 56 | 基础计量与样品处理 | 7 | 10 | 6 |
 | CHEM-013 | Elma Elmasonic S60H原版超声清洗槽 | Elma | Elmasonic S60H | 基础计量与样品处理 | 8 | 56 | 15 |
 | CHEM-014 | Hach TL2300 EPA钨灯台式浊度仪 | Hach | TL2300 EPA | 基础计量与样品处理 | 2 | 26 | 11 |
-| CHEM-015 | Anton Paar Monowave 400微波合成反应器 | Anton Paar | Monowave 400 | 反应与分子合成 | 3 | 32 | 12 |
+| CHEM-015 | Anton Paar Monowave 400微波合成反应器 | Anton Paar | Monowave 400 | 反应与分子合成 | 3 | 32 | 13 |
 | CHEM-016 | IKA ElectraSyn 2.0 Package电有机合成仪 | IKA | ElectraSyn 2.0 | 反应与分子合成 | 2 | 40 | 12 |
 | CHEM-017 | HepatoChem PhotoRedOx Box UV-Vis HCK1022 | HepatoChem | PhotoRedOx Box UV-Vis | 反应与分子合成 | 3 | 36 | 15 |
 | CHEM-018 | 微型高压搅拌反应釜 Parr Instrument 4591 | Parr Instrument | 4591 | 反应与分子合成 | 9 | 22 | 10 |
@@ -94,14 +104,14 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | CHEM-021 | 独立温区并行反应工作站 Radleys Mya 4 | Radleys | Mya 4 | 反应与分子合成 | 4 | 92 | 15 |
 | CHEM-022 | CEM Liberty Blue 2.0 自动固相多肽合成仪 | CEM | Liberty Blue 2.0 | 反应与分子合成 | 2 | 34 | 13 |
 | CHEM-023 | Cytiva ÄKTA oligosynt 寡核苷酸合成仪 | Cytiva | ÄKTA oligosynt | 反应与分子合成 | 3 | 31 | 12 |
-| CHEM-024 | IKA RV 10 digital V 旋转蒸发仪 | IKA | RV 10 digital V | 萃取纯化与干燥 | 5 | 26 | 10 |
-| CHEM-025 | 冷冻干燥机 BUCHI Lyovapor L-250 Pro | BUCHI | Lyovapor L-250 Pro | 萃取纯化与干燥 | 3 | 34 | 13 |
+| CHEM-024 | IKA RV 10 digital V 旋转蒸发仪 | IKA | RV 10 digital V | 萃取纯化与干燥 | 5 | 26 | 12 |
+| CHEM-025 | 冷冻干燥机 BUCHI Lyovapor L-250 Pro | BUCHI | Lyovapor L-250 Pro | 萃取纯化与干燥 | 3 | 34 | 15 |
 | CHEM-026 | BUCHI Mini Spray Dryer S-300 实验室喷雾干燥机 | BUCHI | Mini Spray Dryer S-300 | 萃取纯化与干燥 | 2 | 26 | 16 |
 | CHEM-027 | Tousimis Autosamdri-815 Series B 8779C 临 | Tousimis | Autosamdri-815 Series B | 萃取纯化与干燥 | 2 | 30 | 13 |
 | CHEM-028 | BUCHI SpeedExtractor E-916 六位四溶剂加压萃取仪 | BUCHI | SpeedExtractor E-916 | 萃取纯化与干燥 | 4 | 33 | 14 |
 | CHEM-029 | Gilson CPC250与PLC2050液液分配纯化系统 | Gilson | CPC 250 | 萃取纯化与干燥 | 3 | 28 | 10 |
 | CHEM-030 | Sartorius Vivaflow200单盒切向流超滤组件 | Sartorius | Vivaflow 200 | 萃取纯化与干燥 | 1 | 33 | 10 |
-| CHEM-031 | Biotage Extrahera Classic 自动固相萃取工作站 | Biotage | Extrahera Classic | 萃取纯化与干燥 | 0 | 30 | 10 |
+| CHEM-031 | Biotage Extrahera Classic 自动固相萃取工作站 | Biotage | Extrahera Classic | 萃取纯化与干燥 | 0 | 30 | 12 |
 | CHEM-032 | SFT110超临界流体萃取仪100mL配置 | Supercritical Fluid Technologies | SFT-110 | 萃取纯化与干燥 | 3 | 30 | 13 |
 | CHEM-033 | Asia FLLEX连续流液液萃取模块 | Syrris | Asia FLLEX | 萃取纯化与干燥 | 2 | 42 | 15 |
 | CHEM-034 | Biotage Selekt双通道单床UV快速制备色谱仪 | Biotage | Selekt (UV, single bed) | 萃取纯化与干燥 | 3 | 55 | 15 |
@@ -117,32 +127,32 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | CHEM-044 | Sonics VCX750探头式超声处理器 | Sonics | VCX 750 | 消解与固体前处理 | 25 | 34 | 19 |
 | CHEM-045 | THINKY ARE-310S-UL行星离心混合脱泡机 | THINKY | ARE-310 | 消解与固体前处理 | 10 | 33 | 14 |
 | CHEM-046 | Metrohm909UV紫外消解仪 | Metrohm | 909 UV Digester | 消解与固体前处理 | 10 | 31 | 17 |
-| CHEM-047 | 微波酸消解仪 Anton Paar Multiwave 7101 | Anton Paar | Multiwave 7101 | 消解与固体前处理 | 1 | 16 | 11 |
+| CHEM-047 | 微波酸消解仪 Anton Paar Multiwave 7101 | Anton Paar | Multiwave 7101 | 消解与固体前处理 | 1 | 16 | 14 |
 | CHEM-048 | VELP UDK159自动蒸汽蒸馏滴定仪 | VELP | UDK 159 | 消解与固体前处理 | 6 | 34 | 18 |
 | CHEM-049 | BUCHI HydrolEx H-506酸水解前处理仪 | BUCHI | HydrolEx H-506 | 消解与固体前处理 | 10 | 25 | 19 |
 | CHEM-050 | Malvern Panalytical Claisse LeNeo自动熔融制样仪 | Malvern Panalytical / Claisse | LeNeo | 消解与固体前处理 | 6 | 20 | 15 |
 | CHEM-051 | Specac Atlas Manual15T液压粉末压片机 | Specac | Atlas Manual 15T | 消解与固体前处理 | 9 | 27 | 16 |
 | CHEM-052 | BUCHI Encapsulator B-390振动喷嘴微胶囊制备仪 | BUCHI | Encapsulator B-390 | 薄膜与功能材料制备 | 8 | 30 | 23 |
-| CHEM-053 | Ossila Spin Coater Standard V3 L2001A3旋涂 | Ossila | Spin Coater V3 | 薄膜与功能材料制备 | 15 | 13 | 12 |
-| CHEM-054 | Ossila Dip Coater V2 L2006A2 | Ossila | Dip Coater V2 | 薄膜与功能材料制备 | 15 | 18 | 17 |
-| CHEM-055 | Ossila Doctor Blade Coater | Ossila | Doctor Blade Coater | 薄膜与功能材料制备 | 16 | 21 | 18 |
-| CHEM-056 | Ossila Slot-Die Coater V2 L2005A2 | Ossila | Slot-Die Coater V2 | 薄膜与功能材料制备 | 17 | 29 | 22 |
-| CHEM-057 | Thermo Scientific Process11 | Thermo Fisher Scientific | Process 11 | 薄膜与功能材料制备 | 5 | 32 | 22 |
-| CHEM-058 | FUJIFILM Dimatix DMP-2850 S | FUJIFILM Dimatix | DMP-2850 | 薄膜与功能材料制备 | 4 | 28 | 21 |
+| CHEM-053 | Ossila Spin Coater Standard V3 L2001A3旋涂 | Ossila | Spin Coater V3 | 薄膜与功能材料制备 | 15 | 13 | 14 |
+| CHEM-054 | Ossila Dip Coater V2 L2006A2 | Ossila | Dip Coater V2 | 薄膜与功能材料制备 | 15 | 18 | 19 |
+| CHEM-055 | Ossila Doctor Blade Coater | Ossila | Doctor Blade Coater | 薄膜与功能材料制备 | 16 | 21 | 20 |
+| CHEM-056 | Ossila Slot-Die Coater V2 L2005A2 | Ossila | Slot-Die Coater V2 | 薄膜与功能材料制备 | 17 | 29 | 24 |
+| CHEM-057 | Thermo Scientific Process11 | Thermo Fisher Scientific | Process 11 | 薄膜与功能材料制备 | 5 | 32 | 24 |
+| CHEM-058 | FUJIFILM Dimatix DMP-2850 S | FUJIFILM Dimatix | DMP-2850 | 薄膜与功能材料制备 | 4 | 28 | 23 |
 | CHEM-059 | Linari Nanotech RT Advanced静电纺丝系统 | Linari Nanotech | RT Advanced | 薄膜与功能材料制备 | 14 | 33 | 21 |
 | CHEM-060 | NanoAssemblr Ignite NIN0001微流控制备仪 | Cytiva / Precision NanoSystems | NanoAssemblr Ignite | 薄膜与功能材料制备 | 9 | 35 | 20 |
-| CHEM-061 | Glatt Mini-Glatt2012流化床制粒包衣仪 | Glatt | Mini-Glatt | 薄膜与功能材料制备 | 12 | 33 | 21 |
+| CHEM-061 | Glatt Mini-Glatt2012流化床制粒包衣仪 | Glatt | Mini-Glatt | 薄膜与功能材料制备 | 12 | 33 | 25 |
 | CHEM-062 | Quorum Q150T ES Plus显微样品镀膜机 | Quorum Technologies | Q150T ES Plus | 薄膜与功能材料制备 | 7 | 28 | 18 |
 | CHEM-063 | LABOAO CVD-LTF12P50单温区化学气相沉积系统 | LABOAO | CVD-LTF12P50 | 薄膜与功能材料制备 | 10 | 34 | 16 |
 | CHEM-064 | Arradiance GEMStar XT-SP单歧管PEALD/热ALD系统 | Arradiance | GEMStar XT-SP (PEALD / thermal ALD) | 薄膜与功能材料制备 | 8 | 31 | 21 |
 | CHEM-065 | JASCO J-1500 150W标准PMT电子圆二色光谱仪 | JASCO | J-1500 | 分子光谱与结构 | 2 | 25 | 18 |
 | CHEM-066 | Bruker minispec mq20时域核磁弛豫分析仪 | Bruker | minispec mq20 | 分子光谱与结构 | 1 | 21 | 17 |
 | CHEM-067 | JASCO FP-8350 荧光分光光度计 | JASCO | FP-8350 | 分子光谱与结构 | 2 | 25 | 19 |
-| CHEM-068 | 核磁共振结构光谱仪 — Magritek Spinsolve 80 Carbon | Magritek | Spinsolve 80 Carbon | 分子光谱与结构 | 1 | 24 | 15 |
+| CHEM-068 | 核磁共振结构光谱仪 — Magritek Spinsolve 80 Carbon | Magritek | Spinsolve 80 Carbon | 分子光谱与结构 | 1 | 24 | 17 |
 | CHEM-069 | Bruker Magnettech ESR5000 电子顺磁共振谱仪 | Bruker | Magnettech ESR5000 | 分子光谱与结构 | 1 | 21 | 19 |
 | CHEM-070 | JASCO P-4200 数字旋光仪 | JASCO | P-4200 | 分子光谱与结构 | 2 | 23 | 20 |
-| CHEM-071 | Hach DR6000 紫外可见分光光度计 | Hach | DR6000 | 分子光谱与结构 | 1 | 14 | 13 |
-| CHEM-072 | JASCO FT/IR-4700 傅里叶变换红外光谱仪 | JASCO | FT/IR-4700 | 分子光谱与结构 | 1 | 18 | 12 |
+| CHEM-071 | Hach DR6000 紫外可见分光光度计 | Hach | DR6000 | 分子光谱与结构 | 1 | 14 | 14 |
+| CHEM-072 | JASCO FT/IR-4700 傅里叶变换红外光谱仪 | JASCO | FT/IR-4700 | 分子光谱与结构 | 1 | 18 | 13 |
 | CHEM-073 | JASCO NRS-5500 显微拉曼光谱仪 | JASCO | NRS-5500 | 分子光谱与结构 | 4 | 26 | 23 |
 | CHEM-074 | Applied Photophysics SX20 停流反应动力学光谱仪 | Applied Photophysics | SX20 | 分子光谱与结构 | 6 | 30 | 19 |
 | CHEM-075 | Edinburgh Instruments FLS1000 TCSPC 时间分辨 | Edinburgh Instruments | FLS1000 | 分子光谱与结构 | 4 | 26 | 18 |
@@ -161,24 +171,24 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | CHEM-088 | Thermo Fisher Scientific Orbitrap Explor | Thermo Fisher Scientific | Orbitrap Exploris 120 | 元素与质谱分析 | 4 | 37 | 37 |
 | CHEM-089 | LECO ONH836 惰气熔融氧氮氢分析仪 | LECO | ONH836 | 元素与质谱分析 | 4 | 36 | 35 |
 | CHEM-090 | 稳定同位素比质谱仪Elementar isoprime precisION | Elementar | isoprime precisION | 元素与质谱分析 | 2 | 21 | 30 |
-| CHEM-096 | Agilent 8890B GC 气相色谱仪 | Agilent | 8890B GC | 色谱与电泳分离 | 50 | 22 | 55 |
-| CHEM-097 | 高效液相色谱仪 Agilent | 1260 Infinity III LC | Agilent | 1260 Infinity III LC | 色谱与电泳分离 | 1 | 24 | 14 |
+| CHEM-096 | Agilent 8890B GC 气相色谱仪 | Agilent | 8890B GC | 色谱与电泳分离 | 50 | 22 | 56 |
+| CHEM-097 | 高效液相色谱仪 Agilent | 1260 Infinity III LC | Agilent | 1260 Infinity III LC | 色谱与电泳分离 | 1 | 24 | 15 |
 | CHEM-098 | Thermo Scientific Dionex Integrion HPIC  | Thermo Fisher Scientific | Dionex Integrion HPIC | 色谱与电泳分离 | 2 | 21 | 16 |
 | CHEM-099 | Agilent 1290 Infinity II GPC/SEC 凝胶渗透体积排 | Agilent | 1290 Infinity II GPC/SEC | 色谱与电泳分离 | 3 | 25 | 18 |
 | CHEM-100 | G.A.S. FlavourSpec25 GC-IMS 离子迁移谱正交分离系统 | G.A.S. | FlavourSpec25 GC-IMS | 色谱与电泳分离 | 4 | 29 | 20 |
-| CHEM-101 | Metrohm OMNIS Professional Titrator 2.10 | Metrohm | OMNIS Professional Titrator | 电化学与定量分析 | 2 | 34 | 12 |
-| CHEM-102 | CHEM-102 卡尔费休水分滴定仪 · Metrohm 899 Coulome | Metrohm | 899 Coulometer | 电化学与定量分析 | 11 | 26 | 7 |
-| CHEM-103 | Gamry Reference 620 电化学工作站 | Gamry | Reference 620 | 电化学与定量分析 | 0 | 21 | 7 |
+| CHEM-101 | Metrohm OMNIS Professional Titrator 2.10 | Metrohm | OMNIS Professional Titrator | 电化学与定量分析 | 2 | 34 | 15 |
+| CHEM-102 | CHEM-102 卡尔费休水分滴定仪 · Metrohm 899 Coulome | Metrohm | 899 Coulometer | 电化学与定量分析 | 11 | 26 | 10 |
+| CHEM-103 | Gamry Reference 620 电化学工作站 | Gamry | Reference 620 | 电化学与定量分析 | 0 | 21 | 10 |
 | CHEM-104 | CH Instruments CHI920D 扫描电化学显微镜 | CH Instruments | CHI920D | 电化学与定量分析 | 3 | 29 | 16 |
 | CHEM-105 | CH Instruments CHI440C 电化学石英晶体微天平 | CH Instruments | CHI440C | 电化学与定量分析 | 1 | 19 | 17 |
 | CHEM-106 | KNAUER K-7400S 冰点渗透压仪 | KNAUER | K-7400S | 电化学与定量分析 | 2 | 24 | 17 |
 | CHEM-107 | Pine Research WaveVortex 10旋转环盘驱动 | Pine Research | WaveVortex 10 | 电化学与定量分析 | 4 | 30 | 22 |
-| CHEM-108 | CHEM-108 Agilent 8697 顶空自动进样器 | Agilent | 8697 | 分析进样与接口 | 1 | 24 | 13 |
+| CHEM-108 | CHEM-108 Agilent 8697 顶空自动进样器 | Agilent | 8697 | 分析进样与接口 | 1 | 24 | 14 |
 | CHEM-109 | Teledyne Tekmar Atomx XYZ 吹扫捕集自动进样系统 | Teledyne Tekmar | Atomx XYZ | 分析进样与接口 | 7 | 25 | 20 |
 | CHEM-110 | Teledyne CETAC Analyte Excite+ 激光剥蚀系统 | Teledyne CETAC | Analyte Excite+ | 分析进样与接口 | 6 | 22 | 23 |
 | CHEM-111 | Frontier EGA/PY-3030D 热裂解进样器 | Frontier Laboratories | EGA/PY-3030D | 分析进样与接口 | 4 | 22 | 22 |
 | CHEM-112 | Markes UNITY-xr 热脱附进样器 | Markes International | UNITY-xr | 分析进样与接口 | 6 | 27 | 26 |
-| CHEM-113 | Anton Paar SurPASS 3 固体表面流动电位分析仪 | Anton Paar | SurPASS 3 | 颗粒孔隙与界面 | 7 | 29 | 25 |
+| CHEM-113 | Anton Paar SurPASS 3 固体表面流动电位分析仪 | Anton Paar | SurPASS 3 | 颗粒孔隙与界面 | 7 | 29 | 26 |
 | CHEM-114 | Anton Paar Ultrapyc 5000 气体置换真密度仪 | Anton Paar | Ultrapyc 5000 | 颗粒孔隙与界面 | 6 | 33 | 25 |
 | CHEM-115 | Anton Paar Autosorb 6100 气体物理吸附比表面积与孔径分析 | Anton Paar | Autosorb 6100 | 颗粒孔隙与界面 | 8 | 49 | 33 |
 | CHEM-116 | Anton Paar PoreMaster 60 标准型压汞孔隙率分析仪 | Anton Paar | PoreMaster 60 | 颗粒孔隙与界面 | 7 | 27 | 28 |
@@ -186,15 +196,15 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | CHEM-118 | Anton Paar PSA1190 L/D 激光衍射粒度仪 | Anton Paar | PSA 1190 | 颗粒孔隙与界面 | 9 | 31 | 28 |
 | CHEM-119 | Anton Paar Litesizer DIA700 Liquid Flow  | Anton Paar | Litesizer DIA 700 | 颗粒孔隙与界面 | 7 | 31 | 29 |
 | CHEM-120 | Biolin Scientific Sigma700 力学式表面张力仪 | Biolin Scientific | Sigma 700 | 颗粒孔隙与界面 | 7 | 30 | 32 |
-| CHEM-121 | Biolin Scientific Theta Flex 光学接触角测量仪 | Biolin Scientific | Theta Flex | 颗粒孔隙与界面 | 8 | 33 | 35 |
-| CHEM-122 | Micromeritics AutoChem III 程序升温化学吸附仪 | Micromeritics | AutoChem III | 颗粒孔隙与界面 | 6 | 36 | 35 |
+| CHEM-121 | Biolin Scientific Theta Flex 光学接触角测量仪 | Biolin Scientific | Theta Flex | 颗粒孔隙与界面 | 8 | 33 | 38 |
+| CHEM-122 | Micromeritics AutoChem III 程序升温化学吸附仪 | Micromeritics | AutoChem III | 颗粒孔隙与界面 | 6 | 36 | 37 |
 | CHEM-123 | Surface Measurement Systems DVS Resoluti | Surface Measurement Systems | DVS Resolution | 颗粒孔隙与界面 | 6 | 40 | 37 |
 | CHEM-124 | Freeman Technology / Micromeritics FT4 P | Freeman Technology / Micromeritics | FT4 Powder Rheometer | 颗粒孔隙与界面 | 6 | 39 | 33 |
-| CHEM-125 | POROMETER POROLUX Revo 毛细流动孔径仪 | POROMETER | POROLUX Revo | 颗粒孔隙与界面 | 3 | 28 | 33 |
-| CHEM-126 | Microtrac TURBISCAN LAB 分散体系稳定性分析仪 | Microtrac | TURBISCAN LAB | 颗粒孔隙与界面 | 5 | 28 | 27 |
+| CHEM-125 | POROMETER POROLUX Revo 毛细流动孔径仪 | POROMETER | POROLUX Revo | 颗粒孔隙与界面 | 3 | 28 | 34 |
+| CHEM-126 | Microtrac TURBISCAN LAB 分散体系稳定性分析仪 | Microtrac | TURBISCAN LAB | 颗粒孔隙与界面 | 5 | 28 | 29 |
 | CHEM-127 | KSV NIMA Medium L&LB Langmuir 单分子膜槽 | Biolin Scientific KSV NIMA | Medium L&LB Trough | 颗粒孔隙与界面 | 7 | 36 | 34 |
 | CHEM-128 | Anton Paar TRB³ 销盘摩擦磨损试验机 | Anton Paar | TRB³ | 热学力学与输运 | 6 | 42 | 39 |
-| CHEM-129 | Anton Paar RST 300 涂层划痕附着力试验机 | Anton Paar | RST 300 | 热学力学与输运 | 6 | 42 | 38 |
+| CHEM-129 | Anton Paar RST 300 涂层划痕附着力试验机 | Anton Paar | RST 300 | 热学力学与输运 | 6 | 44 | 39 |
 | CHEM-130 | Anton Paar HIT 300 纳米压痕仪 | Anton Paar | HIT 300 | 热学力学与输运 | 6 | 38 | 33 |
 | CHEM-131 | TA Instruments DSC 2500 差示扫描量热仪 | TA Instruments | DSC 2500 | 热学力学与输运 | 5 | 43 | 36 |
 | CHEM-132 | TA Instruments TGA 5500 热重分析仪 | TA Instruments | TGA 5500 | 热学力学与输运 | 4 | 48 | 40 |
@@ -225,7 +235,7 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | CHEM-157 | J.A. Woollam alpha-SE光谱椭偏仪 | J.A. Woollam | alpha-SE | 显微成像与衍射 | 5 | 39 | 37 |
 | CHEM-158 | Park Systems NX10原子力显微镜 | Park Systems | NX10 | 显微成像与衍射 | 12 | 54 | 56 |
 | CHEM-159 | Nanosurf NaioSTM扫描隧道显微镜 | Nanosurf | NaioSTM | 显微成像与衍射 | 3 | 36 | 52 |
-| CHEM-160 | Rigaku MiniFlex600 粉末X射线衍射仪 | Rigaku | MiniFlex600 | 显微成像与衍射 | 3 | 25 | 12 |
+| CHEM-160 | Rigaku MiniFlex600 粉末X射线衍射仪 | Rigaku | MiniFlex600 | 显微成像与衍射 | 3 | 25 | 14 |
 | CHEM-161 | Rigaku XtaLAB Synergy-R单晶X射线衍射仪 | Rigaku Oxford Diffraction | XtaLAB Synergy-R | 显微成像与衍射 | 11 | 44 | 55 |
 | CHEM-162 | Evident / Olympus BX53-P偏光显微镜 | Evident / Olympus | BX53-P | 显微成像与衍射 | 14 | 47 | 34 |
 | CHEM-163 | Agilent BioTek 405 TS微孔板洗板机 | Agilent BioTek | 405 TS (96-tube manifold) | 生化与湿化学分析 | 3 | 36 | 26 |
@@ -245,7 +255,7 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | CHEM-177 | 自动开盖封盖机 | Azenta Life Sciences | IntelliXcap S1 46-0001 | 自动化与气液供给 | 8 | 13 | 6 |
 | CHEM-178 | 实验室样品转运机械臂 — Brooks Automation PreciseFl | Brooks Automation | PreciseFlex 400 | 自动化与气液供给 | 4 | 15 | 9 |
 | CHEM-179 | 样品管二维条码读架仪 | Azenta Ziath | DP5 Mirage | 自动化与气液供给 | 1 | 16 | 7 |
-| CHEM-180 | 气体质量流量控制器 | Alicat Scientific | MC, 1 SLPM full scale, Rev6 | 自动化与气液供给 | 7 | 25 | 8 |
+| CHEM-180 | 气体质量流量控制器 | Alicat Scientific | MC, 1 SLPM full scale, Rev6 | 自动化与气液供给 | 7 | 25 | 11 |
 | CHEM-181 | 电子背压控制器 | Bronkhorst | EL-PRESS P-702CV | 自动化与气液供给 | 1 | 18 | 9 |
 | CHEM-182 | 多路气体自动切换阀 — VICI Valco EUTA-2SD6MWE | VICI Valco | EUTA-2SD6MWE | 自动化与气液供给 | 1 | 8 | 3 |
 | CHEM-183 | 受控蒸发与混气进料器Bronkhorst CEM W-202A-NN0-K | Bronkhorst | CEM W-202A | 自动化与气液供给 | 1 | 20 | 21 |
@@ -354,6 +364,16 @@ tests/test_asset_esco_efa5uduvw.py        # its tests
 * **边界**：786 个能力已声明但标为不支持；没有任何能力声称经过机器人接触或真实硬件验证。请把这些资产当作有文档、可测试的行为模型用于具身智能研究，而不是经过认证的数字孪生。
 * **构建记录**：合同中列出的部分文件属于原始构建过程（验证日志、评审记录、来源缓存），不在本次发布范围内；`release_manifest.json` 说明了哪些文件随发布提供。
 
+## 待办清单
+
+- [x] 所有有物质相关读数的仪器都配上真实数据输出模板（1.1）
+- [x] 公共化合物表扩到 200 种，并建立化合物 ↔ 仪器对照表（1.1）
+- [ ] 补齐运行层真实记录仍不足 50 条的库：Langmuir 槽（36）、Turbiscan（23）、Process 11（37）、multi X 2500（41）、FVS-6000 VCD（37）、Mini-Glatt（47）
+- [ ] 把共享反应模板从 38 条扩到约 100 条，覆盖连续流、光氧化还原、电合成、多肽合成和量热类仪器
+- [ ] 标定反应动力学（目前多数速率常数仍是明确标注的假设）
+- [ ] 补充在对应型号上实测的原机数据（目前多数模板来自其他同类仪器）
+- [ ] 机器人接触与真实硬件验证
+
 ## 引用
 
 ```bibtex
@@ -361,9 +381,9 @@ tests/test_asset_esco_efa5uduvw.py        # its tests
   title        = {ChemLab-Assets: Simulation-Ready Chemistry Laboratory
                   Instruments with Executable Behaviour Contracts},
   author       = {Song, Zirui and Zhang, Jiadong and Zhang, Jiahao and
-                  Chang, Xiaojun and Ma, Xiaosong and Chen, Xiuying},
+                  Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.0}
+  note         = {Dataset, release 1.1}
 }
 ```

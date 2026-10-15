@@ -4,7 +4,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='glatt_miniglatt'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-061'; PROTOCOL_VERSION='1.0.0'
+SLUG='glatt_miniglatt'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-061'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.1.0'
 TEMPLATE_REL='assets/reactions/glatt_miniglatt_granulation_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -21,6 +21,9 @@ def obj(p):return dict(type='object',properties=p,required=list(p),additionalPro
 
 def validate(s,v):
     t=s.get('type')
+    if isinstance(t,list):
+        if v is None and 'null' in t:return
+        t=next(x for x in t if x!='null');s=dict(s,type=t)
     if t in ('number','integer'):
         if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v):raise ActionRejected('INVALID_ARGUMENT')
         if t=='integer' and type(v) is not int:raise ActionRejected('INVALID_ARGUMENT')
@@ -82,6 +85,55 @@ cap('filter.clean',obj({}),obj({'scheduled':BOOL}),['filter_cartridges','blowbac
 cap('granulation.measure',obj({}),MEASURE,['control_panel'],'理想过程显示，d30为合成等效粒径非内置实测粒度','query')
 cap('product.read',obj({}),PRODUCT,['process_cup','filter_cartridges'],'私有三物种/热量账本','query','evaluator')
 cap('reference.lookup',obj({'substance_id':TEXT}),obj({'substance_id':TEXT,'mass_fraction':arr(number('1',0,1),7),'finite_upper_edges_m':arr(number('m',0),6),'last_bin_open':BOOL,'median_interval_m':arr(number('m',0),2),'evidence':TEXT,'source':TEXT,'template_source':TEXT,'conditions':TEXT}),['control_panel'],'离线真实筛分分率，API再分散DLS不当颗粒PSD','query','agent',{'substance_id':'mutylo_g1'})
+REFERENCE_KINDS=['core_material','binder_solution','granulation_outcome']
+RUNTIME_USE=['fluidization_and_load','fluidization_only','binder_load','binder_load_host_density','outcome_lookup','reference_only']
+def nullnum(unit):return {'type':['number','null'],'x-unit':unit}
+NULLTEXT={'type':['string','null']}
+def record_density(r):
+    """Directly reported true/particle density only; back-calculated petroleum-ether values are never model inputs."""
+    p=r.get('properties',{});return p['true_density_kg_m3'] if p.get('true_density_kg_m3') is not None else p.get('particle_density_kg_m3')
+def reference_runtime_use(r):
+    """What the runtime can do with a library record, decided only from real (or labelled derived) fields."""
+    k=r.get('kind');p=r.get('properties',{})
+    if k=='core_material':
+        rho=record_density(r);d=p.get('representative_diameter_m')
+        if rho is None or d is None or any('reference-only' in f for f in r.get('data_quality_flags',[])):return 'reference_only'
+        return 'fluidization_and_load' if 200<=rho<=5000 and 5e-6<=d<=.003 else 'fluidization_only'
+    if k=='binder_solution':
+        rho=p.get('density_kg_m3');f=r.get('binder_mass_fraction')
+        if r.get('solvent')!='water' or f is None or not 0<=f<=.5 or (rho is not None and not 800<=rho<=1500):return 'reference_only'
+        return 'binder_load' if rho is not None else 'binder_load_host_density'
+    return 'outcome_lookup' if k=='granulation_outcome' else 'reference_only'
+def gas_properties(t_k,p_pa):return 1.293*273.15/t_k*p_pa/101325.,1.81e-5*(t_k/293.15)**.7
+def ergun_umf(rho_p,rho_g,mu,d_eff,eps):
+    """Same closure as GlattMiniglattRuntime._hydraulics (d_eff = sphericity*diameter)."""
+    a=150*(1-eps)*mu/(eps**3*d_eff*d_eff);b=1.75*rho_g/(eps**3*d_eff);rhs=(rho_p-rho_g)*9.80665;return 2*rhs/(a+math.sqrt(a*a+4*b*rhs))
+def wen_yu_umf(rho_p,rho_g,mu,d):
+    ar=d**3*rho_g*(rho_p-rho_g)*9.80665/mu**2;return (math.sqrt(33.7**2+.0408*ar)-33.7)*mu/(rho_g*d)
+def geldart_group(rho_p,rho_g,d):
+    """Approximate Geldart (1973) boundaries: D if drho*d^2>=1e6, B if drho*d>=225 (g/cm3, um), C if d<30 um, else A."""
+    dr=(rho_p-rho_g)/1000.;du=d*1e6
+    return 'D' if dr*du*du>=1e6 else 'B' if dr*du>=225 else 'C' if du<30 else 'A'
+def reference_voidage(r,host):
+    p=r.get('properties',{})
+    for key in ('voidage_mf','voidage_bulk'):
+        v=p.get(key)
+        if v is not None and .2<=v<=.9:return v,key+'_record'
+    return host,'host_assumption'+('_record_voidage_outside_0.2_0.9' if any(p.get(k) is not None for k in ('voidage_mf','voidage_bulk')) else '')
+def reference_sphericity(r,host):
+    v=r.get('properties',{}).get('sphericity');return (v,'sphericity_record') if v is not None and .2<=v<=1 else (host,'host_assumption')
+REFQ=obj({'reference_id':TEXT})
+REFOUT=obj({'reference_id':TEXT,'kind':dict(type='string',enum=REFERENCE_KINDS),'name':TEXT,'material_key':TEXT,'cas':NULLTEXT,'runtime_use':dict(type='string',enum=RUNTIME_USE),'evidence':TEXT,'properties':TEXT,'conditions':TEXT,'source':TEXT,'license':TEXT,'template_source':TEXT})
+cap('reference.material',REFQ,REFOUT,['control_panel'],'离线真实颗粒/粘结液/实验室流化床制粒结果记录；properties/conditions为JSON文本含SI值，不是仪器在线测量','query','agent',{'reference_id':'core_itcm_e15'})
+FLUIDQ=obj({'reference_id':TEXT,'temperature_k':number('K',273.15,400),'pressure_pa':number('Pa',90000,110000),'sphericity_if_unmeasured':number('1',.2,1),'voidage_if_unmeasured':number('1',.2,.9)})
+FLUIDOUT=obj({'reference_id':TEXT,'particle_density_kg_m3':number('kg/m^3',0),'diameter_m':number('m',0),'diameter_basis':TEXT,'sphericity':number('1',0,1),'sphericity_source':TEXT,'voidage':number('1',0,1),'voidage_source':TEXT,'umf_ergun_m_s':number('m/s',0),'umf_wen_yu_m_s':number('m/s',0),'umf_measured_m_s':nullnum('m/s'),'ergun_to_measured':nullnum('1'),'wen_yu_to_measured':nullnum('1'),'geldart_group_approx':dict(type='string',enum=['A','B','C','D']),'evidence':TEXT,'source':TEXT})
+cap('reference.fluidization',FLUIDQ,FLUIDOUT,['process_cup'],'用真实密度与代表粒径记录求Ergun/Wen-Yu最小流化速度，并与文献实测Umf对照；未测形状/空隙由宿主显式给定','query','agent',{'reference_id':'core_glass_beads_geldart_b','temperature_k':293.15,'pressure_pa':101325.,'sphericity_if_unmeasured':1.,'voidage_if_unmeasured':.45})
+LOADREF=obj({'reference_id':TEXT,'dry_mass_kg':number('kg',.0025,.375),'water_mass_kg':number('kg',0,.2),'sphericity_if_unmeasured':number('1',.2,1),'voidage_if_unmeasured':number('1',.2,.9),'aggregation_s_inv':number('1/s',0,1),'breakage_s_inv':number('1/s',0,1),'accept_host_material':BOOL})
+LOADREF_EXAMPLE=dict(reference_id='core_mg_mcc_vivapur102',dry_mass_kg=.08,water_mass_kg=.004,sphericity_if_unmeasured=.8,voidage_if_unmeasured=.5,aggregation_s_inv=.015,breakage_s_inv=.00005,accept_host_material=True)
+cap('powder.load_reference',LOADREF,obj({'loaded':BOOL,'particle_density_kg_m3':number('kg/m^3',200,5000),'seed_diameter_m':number('m',5e-6,.003),'voidage':number('1',.2,.9),'sphericity':number('1',.2,1),'provenance':TEXT}),['process_cup'],'按真实颗粒记录（密度/代表粒径/空隙或宿主假设）装填有限粉体；团聚/破碎系数仍由宿主给定','configuration','evaluator',LOADREF_EXAMPLE)
+LIQREF=obj({'reference_id':TEXT,'volume_m3':number('m^3',1e-9,1e-3),'density_kg_m3_if_unmeasured':number('kg/m^3',800,1500),'accept_water_only':BOOL})
+LIQREF_EXAMPLE=dict(reference_id='binder_urea_starch_b1',volume_m3=30e-6,density_kg_m3_if_unmeasured=1000.,accept_water_only=True)
+cap('liquid.load_reference',LIQREF,obj({'loaded':BOOL,'density_kg_m3':number('kg/m^3',800,1500),'binder_mass_fraction':number('1',0,.5),'density_source':TEXT,'viscosity_pa_s':nullnum('Pa*s'),'surface_tension_n_m':nullnum('N/m')}),['liquid_reservoir'],'按真实水基粘结液记录（浓度/密度）装液；粘度与表面张力随附返回，不进入零阶粒数模型','configuration','evaluator',LIQREF_EXAMPLE)
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,z,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=z
 for k in ['plant','method']:slot(k+'.configured',BOOL,'1',k+'已配置','setpoint')
@@ -126,7 +178,7 @@ def _reference_notes(schema):
 for item in CAPS.values():_reference_notes(item[0]);_reference_notes(item[1])
 class GlattMiniglattRuntime:
     def __init__(self,instance_id='miniglatt_01'):
-        self.instance_id=instance_id;self.templates={r['substance_id']:r for r in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']}
+        self.instance_id=instance_id;lib=json.loads((ROOT/TEMPLATE_REL).read_text());self.templates={r['substance_id']:r for r in lib['templates']};self.references={r['reference_id']:r for r in lib.get('reference_records',[])}
         self.time_s=0.;self.revision=0;self.plant=None;self.powder=None;self.liquid=None;self.method=None;self.micro=False;self.micro_max=.025
         self.mass={loc:[0.,0.,0.] for loc in LOCS};self.particles={loc:0. for loc in ['bed','filter','collected']};self.n_initial=0.
         self.sensible={'bed':0.,'filter':0.,'collected':0.};self.heater_input=0.;self.exhaust=0.;self.loss=0.;self.latent=0.;self.vapor_sensible=0.;self.air_used=0.
@@ -140,7 +192,7 @@ class GlattMiniglattRuntime:
         if principal_id not in self._principals:raise ActionRejected('ACCESS_DENIED')
         return GlattMiniglattSession(self,principal_id)
     def describe(self):return self.session().describe(instance_id=self.instance_id)
-    def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k!='templates'})
+    def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in ('templates','references')})
     def _capacity(self):
         if not self.plant:return 1.
         p=self.plant;m=self.mass['bed'];return p['base_heat_capacity_j_k']+(m[0]+m[1])*p['solid_cp_j_kg_k']+m[2]*p['water_cp_j_kg_k']
@@ -182,7 +234,7 @@ class GlattMiniglattRuntime:
             if CAPS[capability_id][4]!='query':self.revision+=1;self.log.append(dict(time_s=self.time_s,event=capability_id,phase=self.phase))
             return copy.deepcopy(result)
         except Exception:
-            templates=self.templates;self.__dict__.clear();self.__dict__.update(old);self.templates=templates;raise
+            templates,references=self.templates,self.references;self.__dict__.clear();self.__dict__.update(old);self.templates=templates;self.references=references;raise
     def _stop(self,phase='cancelled'):
         if self.phase=='running':self.phase=phase
         self.air=False;self.heating=False;self.actual_spray=0.;self.pulse=0.
@@ -200,6 +252,7 @@ class GlattMiniglattRuntime:
         if k=='granulation.measure':
             r=self.read();return dict(phase=self.phase,elapsed_s=self.elapsed_s,air_normal_m3_s=r['flow.actual_normal_m3_s'],inlet_k=r['thermal.inlet_k'],bed_k=r['thermal.bed_k'],spray_m3_s=self.actual_spray,bed_dp_pa=r['bed.pressure_drop_pa'],filter_dp_pa=r['filter.pressure_drop_pa'],fluidized=r['bed.fluidized'],mean_diameter_m=r['bed.mean_diameter_m'],evidence='synthetic_ideal_indicators_not_measured_PSD',size_calibrated=False)
         if k=='product.read':return self._product()
+        if k in ('reference.material','reference.fluidization','powder.load_reference','liquid.load_reference'):return self._reference(k,a)
         if k=='reference.lookup':
             if a['substance_id'] not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
             t=self.templates[a['substance_id']]
@@ -272,6 +325,32 @@ class GlattMiniglattRuntime:
             self.heating=True;self.phase='running';self.elapsed_s=0.;self.warning='';self._operation_count+=1;self.operation_id=self.instance_id+':op:'+str(self._operation_count)
             return dict(phase=self.phase,operation_id=self.operation_id)
         raise ActionRejected('UNKNOWN_CAPABILITY')
+    def _reference(self,k,a):
+        r=self.references.get(a['reference_id'])
+        if r is None:raise ActionRejected('UNKNOWN_REFERENCE')
+        use=reference_runtime_use(r);p=r['properties']
+        if k=='reference.material':
+            return dict(reference_id=r['reference_id'],kind=r['kind'],name=r['name'],material_key=r.get('material_key') or r.get('pair_key') or '',cas=r.get('cas'),runtime_use=use,evidence=r['evidence'],
+              properties=json.dumps(p,ensure_ascii=False,sort_keys=True),conditions=json.dumps(r.get('conditions',{}),ensure_ascii=False,sort_keys=True),source=r['source']['doi']+' | '+r['source']['locator'],license=r['source']['license'],template_source=TEMPLATE_REL)
+        if k=='reference.fluidization':
+            if use not in ('fluidization_and_load','fluidization_only'):raise ActionRejected('REFERENCE_NOT_USABLE')
+            rho=record_density(r);d=p['representative_diameter_m'];phi,ps=reference_sphericity(r,a['sphericity_if_unmeasured']);eps,es=reference_voidage(r,a['voidage_if_unmeasured'])
+            rho_g,mu=gas_properties(a['temperature_k'],a['pressure_pa']);ue=ergun_umf(rho,rho_g,mu,phi*d,eps);uw=wen_yu_umf(rho,rho_g,mu,d);um=p.get('umf_measured_m_s')
+            return dict(reference_id=r['reference_id'],particle_density_kg_m3=rho,diameter_m=d,diameter_basis=p.get('representative_diameter_basis',''),sphericity=phi,sphericity_source=ps,voidage=eps,voidage_source=es,
+              umf_ergun_m_s=ue,umf_wen_yu_m_s=uw,umf_measured_m_s=um,ergun_to_measured=ue/um if um else None,wen_yu_to_measured=uw/um if um else None,geldart_group_approx=geldart_group(rho,rho_g,d),
+              evidence='model_on_measured_literature_inputs; measured Umf literature at ambient air, model at requested T/p',source=r['source']['doi'])
+        if k=='powder.load_reference':
+            if use!='fluidization_and_load':raise ActionRejected('REFERENCE_NOT_USABLE')
+            phi,ps=reference_sphericity(r,a['sphericity_if_unmeasured']);eps,es=reference_voidage(r,a['voidage_if_unmeasured'])
+            powder=dict(source_tag=r['reference_id'],dry_mass_kg=a['dry_mass_kg'],water_mass_kg=a['water_mass_kg'],particle_density_kg_m3=record_density(r),seed_diameter_m=p['representative_diameter_m'],voidage=eps,sphericity=phi,aggregation_s_inv=a['aggregation_s_inv'],breakage_s_inv=a['breakage_s_inv'],accept_host_material=a['accept_host_material'])
+            validate(POWDER,powder);self._invoke('powder.load',powder)
+            return dict(loaded=True,particle_density_kg_m3=powder['particle_density_kg_m3'],seed_diameter_m=powder['seed_diameter_m'],voidage=eps,sphericity=phi,
+              provenance=json.dumps(dict(reference_id=r['reference_id'],doi=r['source']['doi'],density_field='true_density_kg_m3' if p.get('true_density_kg_m3') is not None else 'particle_density_kg_m3',diameter_basis=p.get('representative_diameter_basis'),voidage_source=es,sphericity_source=ps,kinetics='host_assumption'),ensure_ascii=False))
+        if use not in ('binder_load','binder_load_host_density'):raise ActionRejected('REFERENCE_NOT_USABLE')
+        rho=p.get('density_kg_m3');src='record' if rho is not None else 'host_assumption'
+        liquid=dict(source_tag=r['reference_id'],volume_m3=a['volume_m3'],density_kg_m3=rho if rho is not None else a['density_kg_m3_if_unmeasured'],binder_mass_fraction=r['binder_mass_fraction'],accept_water_only=a['accept_water_only'])
+        validate(LIQUID,liquid);self._invoke('liquid.load',liquid)
+        return dict(loaded=True,density_kg_m3=liquid['density_kg_m3'],binder_mass_fraction=liquid['binder_mass_fraction'],density_source=src,viscosity_pa_s=p.get('viscosity_pa_s'),surface_tension_n_m=p.get('surface_tension_n_m'))
     def _tick(self,dt):
         p=self.plant;ta=p['ambient_k'];self.actual_spray=0.
         # Blowback is finite duration, isolated from process/atomizing gas. Return dry captured solids and their sensible energy.
@@ -336,7 +415,7 @@ class GlattMiniglattSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_glatt_miniglatt_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_glatt_miniglatt_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -373,6 +452,7 @@ class GlattMiniglattSession:
 
 
 
+REFERENCE_CAPS=('reference.material','reference.fluidization','powder.load_reference','liquid.load_reference')
 def export_glatt_miniglatt_contract_metadata():
     caps={};slots={}
     for k,(s,u,o,v,c,w) in SLOTS.items():
@@ -391,8 +471,8 @@ def export_glatt_miniglatt_contract_metadata():
           execution=dict(mode='asynchronous' if asynchronous else 'synchronous',time_domain='simulation',completion_criterion='指定时间已走完并停气/热/喷雾；不等于合格粒径/含湿量' if asynchronous else '事务返回；物理量由宿主step演化',
             completion_state_ids=['cycle.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',retry='same_request_id',resources=['host_clock','powder','liquid','filter','request_cache'],
             partial_failure_zh='取消保留床/滤芯/水汽/溶液，不能回滚物质；仅进程内请求去重。'),
-          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','BATCH_RANGE','MICRO_BOTTOM_ONLY','TOTAL_AIR_BUDGET','APPARENT_POWER_BUDGET','DRYING_NO_SPRAY','NOT_FLUIDIZED','FILTER_CLOGGED','LIQUID_EMPTY']],
-          example_arguments=copy.deepcopy(ex),verification=[],limitations=['有限三物种、热量、粒数矩模型；非厂家固件/标定/配方建议'],source_ids=['manufacturer_primary','simulation_assumption'])
+          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_NOT_USABLE','BATCH_RANGE','MICRO_BOTTOM_ONLY','TOTAL_AIR_BUDGET','APPARENT_POWER_BUDGET','DRYING_NO_SPRAY','NOT_FLUIDIZED','FILTER_CLOGGED','LIQUID_EMPTY']],
+          example_arguments=copy.deepcopy(ex),verification=[],limitations=['有限三物种、热量、粒数矩模型；非厂家固件/标定/配方建议']+(['文献参考记录：真实数据只决定密度/粒径/空隙/浓度等输入，Umf为模型值并与实测对照；团聚/破碎动力学未由记录标定'] if k in REFERENCE_CAPS else []),source_ids=(['reference_library','simulation_assumption'] if k in REFERENCE_CAPS else ['manufacturer_primary','simulation_assumption']))
 
     mech=dict(component_ids=['process_cup','filter_cartridges','heater','pump_rotor','wurster_insert'],state_ids=list(slots),meaning_zh='固定等效面积气固床、有限粉体/水基喷液、滤芯反吹、热量及零阶粒数矩',implementation='lumped',
       equations=['Normal gas reference273.15K/101325Pa explicitly assumed; Qactual=QN*Tin/TN*PN/P; total utility=fluidizing+atomizing OR isolated100Nm3/h blowback',
@@ -402,10 +482,12 @@ def export_glatt_miniglatt_contract_metadata():
       'bed_E=C(m)*(T-Ta); Qconv=mdot*cp*eta*(Tin-T); evaporation=min(water,water*(1-exp(-kdt)),host_capacity*QNdt,availableE/L)',
       'heater_input=exhaust_sensible+ambient_loss+vapor_latent+vapor_sensible+bed_sensible+filter_sensible+collected_sensible',
       'dN/dt=N*(kbreak*max(u/umf-1,0)-kagg*wet_fraction*N/N0) in granulation; coating/drying conserve N except physical transfer; mean_d30=(6Msolid/(pi*rho*N))^(1/3)',
+      'reference.fluidization: rho_p=record true/particle density, d=record representative diameter; Ergun umf as above with d_eff=phi*d; Wen-Yu (1966) Re_mf=sqrt(33.7^2+0.0408Ar)-33.7, Ar=d^3 rho_g(rho_p-rho_g)g/mu^2; voidage priority record eps_mf > record bulk voidage(0.2-0.9) > host; sphericity record > host',
+      'powder.load_reference/liquid.load_reference: real record density, representative diameter, voidage, binder mass fraction (+record or host density) fed into powder.load/liquid.load; kinetics remain host inputs',
       'dry_filter_capture=bed_dry*(1-exp(-entrainment_rate*dt)); particle_count and sensible heat transfer with dry mass; 0.5s blowback fraction=1-(1-efficiency)^(dt/0.5)',
       'read/invoke_queries never advance; host.step is sole clock; cap/cup/clamps/pump/dials process-authority proxies'],
-      parameters={},source_ids=['manufacturer_primary','granulation_dataset','ergun','simulation_assumption'],
-      limitations=['只有3个MiniGlatt真实复合配方筛分模板，未达到50；后处理筛分不是床内在线PSD。','Ergun等效均匀固定面积不解锥床/Wurster循环或湿黏结；团聚破碎/干燥/过滤系数未知。','d30为零阶粒数闭合合成输出，不是实测d50；不拟合3条数据为任意材料预测。','空气参考温压、泵每转排量、功率因数和热参数为宿主假设；3.3kVA非加热功率。','只水基示例，未建溶剂化学/危险性/完整湿空气/部件接触/实机驱动。'])
+      parameters={},source_ids=['manufacturer_primary','granulation_dataset','reference_library','ergun','simulation_assumption'],
+      limitations=['MiniGlatt本机真实结果仅3个Mutylo筛分配方+7个开放获取MiniGlatt制粒结果；其余为其他实验室流化床/粉体文献记录，不是本机标定；后处理筛分不是床内在线PSD。','Ergun等效均匀固定面积不解锥床/Wurster循环或湿黏结；团聚破碎/干燥/过滤系数未知。','d30为零阶粒数闭合合成输出，不是实测d50；不拟合3条数据为任意材料预测。','空气参考温压、泵每转排量、功率因数和热参数为宿主假设；3.3kVA非加热功率。','只水基示例，未建溶剂化学/危险性/完整湿空气/部件接触/实机驱动。'])
     spec=importlib.util.spec_from_file_location('_glatt_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH)
     ann.annotate_export(SLUG,caps,slots,{'fluidized_bed':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'powder.load':(POWDER,POWDER_EXAMPLE),'liquid.load':(LIQUID,LIQUID_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE)})

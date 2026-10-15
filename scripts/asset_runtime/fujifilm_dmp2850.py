@@ -82,6 +82,13 @@ cap('product.read',obj({}),PRODUCT,['substrate','cartridge','waste_receiver'],'�
 cap('product.collect',obj({'recipient_id':TEXT}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['substrate'],'静止且无在飞液滴后宿主释放基片','device_command','evaluator',{'recipient_id':'patterned_slide'},['substrate.configured','vacuum.enabled','truth.ledger'])
 cap('ink.drain',obj({}),obj({'emptied':BOOL}),['cartridge','waste_receiver'],'将墨盒余料转废料；不可无限补墨','configuration','evaluator',{},['truth.ledger'])
 cap('reference.lookup',obj({'substance_id':TEXT,'temperature_k':number('K',1)}),obj({'vapor_pressure_pa':number('Pa',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT}),['cartridge'],'真实NIST纯溶剂参考，不外推','query','agent',{'substance_id':'ethanol','temperature_k':298.15})
+REF_T=298.15;REF_TOL=.5
+FIT_EVIDENCE={'nist_srd69_saturation_fit':'derived_NIST_SRD69_saturation_Antoine_fit_no_extrapolation','thermoml_vapour_pressure_fit':'derived_ThermoML_article_Antoine_fit_no_extrapolation','clausius_clapeyron_local':'derived_local_Clausius_Clapeyron_PubChem_point_NIST_dHvap_no_extrapolation'}
+PROPS_OUT=obj({'temperature_k':number('K',0),'density_kg_m3':number('kg/m^3',0),'viscosity_pa_s':number('Pa*s',0),'surface_tension_n_m':number('N/m',0),'vapor_pressure_pa':number('Pa',0),'normal_boiling_point_k':number('K',0),'molar_mass_kg_mol':number('kg/mol',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT})
+cap('reference.properties',obj({'substance_id':TEXT}),PROPS_OUT,['cartridge'],'298.15K真实纯溶剂物性（密度/黏度/表面张力/蒸气压/沸点；NIST SRD69、ThermoML实测中位数、PubChem），记录不完整则拒绝','query','agent',{'substance_id':'toluene'})
+PRINT_IN=obj({'substance_id':TEXT,'characteristic_length_m':number('m',1e-6,1e-3),'drop_velocity_m_s':number('m/s',.1,20)})
+PRINT_OUT=obj({'reynolds':number('1',0),'weber':number('1',0),'ohnesorge':number('1',0),'z_number':number('1',0),'density_kg_m3':number('kg/m^3',0),'viscosity_pa_s':number('Pa*s',0),'surface_tension_n_m':number('N/m',0),'within_cartridge_viscosity_window':BOOL,'within_cartridge_surface_tension_window':BOOL,'within_z_1_to_10':BOOL,'evidence':TEXT,'source':TEXT,'template_source':TEXT})
+cap('ink.printability',PRINT_IN,PRINT_OUT,['cartridge'],'由库内298.15K真实物性计算Re/We/Oh/Z及SAMBA理想物性窗口；Z∈(1,10)为文献经验判据，非本机实测可喷性','query','agent',{'substance_id':'ethylene_glycol','characteristic_length_m':round((6*DROP_VOLUME/math.pi)**(1/3),9),'drop_velocity_m_s':5.})
 CAPS['plant.configure'][7].extend(['thermal.platen_k','thermal.cartridge_k','thermal.platen_target_k','thermal.cartridge_target_k'])
 CAPS['power.set'][7].extend(['cycle.stage','axis.x_target_m','axis.y_target_m','axis.z_target_m','cartridge.target_angle_rad'])
 CAPS['acquisition.stop'][7].append('cycle.stage')
@@ -131,7 +138,22 @@ class FujifilmDmp2850Runtime:
         if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
         r=self.templates[sid];fits=[f for f in r['fits'] if f['temperature_range_k'][0]<=t<=f['temperature_range_k'][1]]
         if not fits:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
-        f=fits[0];return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence='derived_NIST_Antoine_no_extrapolation',source=r['source'],template_source=TEMPLATE_REL)
+        f=fits[0];kind=f.get('kind','nist_antoine');return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence=FIT_EVIDENCE.get(kind,'derived_NIST_Antoine_no_extrapolation'),source=r['source'] if kind=='nist_antoine' else f.get('source',r['source']),template_source=TEMPLATE_REL)
+    def _properties(self,sid):
+        if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
+        r=self.templates[sid];p=r.get('properties_298_15K') or {};keys=('density_kg_m3','viscosity_pa_s','surface_tension_n_m')
+        if not r.get('usable_at_298_15K') or any(k not in p for k in keys) or not r.get('normal_boiling_point'):raise ActionRejected('REFERENCE_INCOMPLETE')
+        vp=self._reference(sid,REF_T)
+        return dict(temperature_k=REF_T,density_kg_m3=p['density_kg_m3']['value'],viscosity_pa_s=p['viscosity_pa_s']['value'],surface_tension_n_m=p['surface_tension_n_m']['value'],vapor_pressure_pa=vp['vapor_pressure_pa'],
+                    normal_boiling_point_k=r['normal_boiling_point']['value_k'],molar_mass_kg_mol=r['molar_mass_kg_mol'],
+                    evidence=';'.join(k+':'+p[k]['evidence'] for k in keys)+';vapor_pressure:'+vp['evidence'],
+                    source=';'.join(dict.fromkeys(str(p[k].get('source_name')) for k in keys)),template_source=TEMPLATE_REL)
+    def _printability(self,a):
+        p=self._properties(a['substance_id']);rho,mu,sig=p['density_kg_m3'],p['viscosity_pa_s'],p['surface_tension_n_m'];L=a['characteristic_length_m'];v=a['drop_velocity_m_s']
+        oh=mu/math.sqrt(rho*sig*L)
+        return dict(reynolds=rho*v*L/mu,weber=rho*v*v*L/sig,ohnesorge=oh,z_number=1/oh,density_kg_m3=rho,viscosity_pa_s=mu,surface_tension_n_m=sig,
+                    within_cartridge_viscosity_window=.004<=mu<=.008,within_cartridge_surface_tension_window=.028<=sig<=.032,within_z_1_to_10=1<1/oh<10,
+                    evidence='derived_dimensionless_groups_from_library_298.15K_properties;Z_window_is_literature_rule_of_thumb_not_SAMBA_measurement;'+p['evidence'],source=p['source'],template_source=TEMPLATE_REL)
     def _volume(self,m):
         c=self.ink_cfg
         return m[0]/c['solvent_density_kg_m3']+m[1]/c['solute_density_kg_m3'] if c else 0.
@@ -173,6 +195,8 @@ class FujifilmDmp2850Runtime:
         if capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
         validate(CAPS[capability_id][0],arguments);a=copy.deepcopy(arguments);k=capability_id
         if k=='reference.lookup':return self._reference(a['substance_id'],a['temperature_k'])
+        if k=='reference.properties':return self._properties(a['substance_id'])
+        if k=='ink.printability':return self._printability(a)
         if k=='product.read':return self._product()
         if k=='printing.measure':return dict(phase=self.phase,stage=self.stage,x_m=self.q[0],y_m=self.q[1],z_m=self.q[2],angle_rad=self.q[3],platen_k=self.temps[0],cartridge_k=self.temps[1],drops=self.drop_count,cleanings=self.cleanings,evidence='synthetic_ideal_kinematics_and_lumped_thermal',template_source=TEMPLATE_REL)
         if k=='dropwatch.observe':return self._camera(a['delay_s'])
@@ -345,7 +369,7 @@ class FujifilmDmp2850Session:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_fujifilm_dmp2850_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_fujifilm_dmp2850_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -399,7 +423,7 @@ def export_fujifilm_dmp2850_contract_metadata():
           execution=dict(mode='asynchronous' if asynchronous else 'synchronous',time_domain='simulation',completion_criterion='定位到目标或图案/单滴/清洗结束；不等于得到合格器件' if asynchronous else '事务返回；物理量由宿主step演化',
             completion_state_ids=['cycle.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',retry='same_request_id',resources=['host_clock','cartridge','substrate','request_cache'],
             partial_failure_zh='取消保留已喷和在飞液滴；在飞滴以后落下；停机不回滚热量/物料。仅进程内请求去重。'),
-          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','CARTRIDGE_CAPACITY','INVALID_PATTERN','PATTERN_OUT_OF_BOUNDS','UNCALIBRATED_WAVEFORM_RANGE','INK_EMPTY','NO_DROP_CAPTURE']],
+          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','REFERENCE_INCOMPLETE','CARTRIDGE_CAPACITY','INVALID_PATTERN','PATTERN_OUT_OF_BOUNDS','UNCALIBRATED_WAVEFORM_RANGE','INK_EMPTY','NO_DROP_CAPTURE']],
           example_arguments=copy.deepcopy(ex),verification=[],limitations=['串行停走喷射教学近似，非厂家固件、标定、安全或真实材料配方建议'],source_ids=['manufacturer_primary','simulation_assumption'])
     mech=dict(component_ids=['head_carriage','head_lift','cartridge','nozzle_plate','platen','substrate','clean_station','dropwatch_camera'],state_ids=list(slots),meaning_zh='有限墨盒双组分、逐点喷射与重力飞行、平衡球冠近似、蒸发参考和双温度节点',implementation='lumped',
       equations=['pitch=0.0254/75m; angle=asin(drop_spacing/pitch); nozzle i offsets=(i-5.5)*pitch*(cos(angle),sin(angle))',
@@ -409,11 +433,12 @@ def export_fujifilm_dmp2850_contract_metadata():
       'flight_time=2*gap/(v+sqrt(v^2+2*g*gap)); z=v*t+g*t^2/2; no air drag; strobe image is synthetic circle projection',
       'radius^3=3*V*sin(theta)^3/(pi*(2-3*cos(theta)+cos(theta)^3)); independent equilibrium caps, no overlap dynamics',
       'finite cartridge -> flying drop -> substrate/waste; cleaning at station transfers finite ink volume to waste; each species conserved including evaporated and collected',
-      'dm_evap/dt=k*pi*r^2*p_sat(T)*M/(R*T), limited by remaining solvent; NIST original fit range only; zero ambient vapor boundary',
+      'dm_evap/dt=k*pi*r^2*p_sat(T)*M/(R*T), limited by remaining solvent; p_sat from the first library fit whose own range contains T (NIST Antoine first; NIST SRD69 / ThermoML / local Clausius-Clapeyron fits otherwise), never extrapolated; zero ambient vapor boundary',
+      'ink.printability: Re=rho*v*L/mu, We=rho*v^2*L/sigma, Oh=mu/sqrt(rho*sigma*L), Z=1/Oh with library 298.15 K properties; host L (default 2.4 pL drop-equivalent diameter) and v; 1<Z<10 is the Reis & Derby / Derby (Annu. Rev. Mater. Res. 40 (2010) 395) rule of thumb, not a SAMBA measurement',
       'C_i*dT_i/dt=min(Pmax_i,max(0,Kp*(target_i-T_i)))-loss*(T_i-Ta); heater energy and node sensible/loss balance',
       'evaporation latent heat and carried sensible enthalpy omitted; externally prescribed thermal bath for mass transfer, not whole-system energy conservation'],
       parameters={},source_ids=['manufacturer_primary','manufacturer_samba','manufacturer_faq','nist_vapor_pressure','simulation_assumption'],
-      limitations=['两轴及高度/墨盒角度为照片运动学代理，非厂家CAD、真实轴动态或±25um精度标定。','12孔几何/选择已实现，但仅串行停走喷射，无并行喷头调度。','波形只用梯形面积线性代理；滴形、空气阻力、卫星滴、润湿铺展、咖啡环、合滴、喷嘴堵塞/清洗效果均未标定。','65种NIST参考不等于50种实测墨水/打印结果；任意墨水密度/表面张力/黏度和接触角必须由宿主提供。','有限单墨盒、单层二值图案、清洗有限耗料；完整GUI、队列、外部相机识别、真实真空/接触和硬件未实现。','诊断数字叠层非真实内置面板；robot/hardware/部署文件隔离/CFD/真实相机标定not_run。'])
+      limitations=['两轴及高度/墨盒角度为照片运动学代理，非厂家CAD、真实轴动态或±25um精度标定。','12孔几何/选择已实现，但仅串行停走喷射，无并行喷头调度。','波形只用梯形面积线性代理；滴形、空气阻力、卫星滴、润湿铺展、咖啡环、合滴、喷嘴堵塞/清洗效果均未标定。','库内溶剂298.15K真实物性只覆盖纯溶剂，不等于实测墨水/打印结果；库内纯溶剂没有一种同时落在SAMBA 4–8mPa·s/28–32mN/m理想窗口，故不提供从库装墨，功能墨水物性和接触角仍须宿主提供；ink.printability只做可喷性筛查；未找到可许可复用的SAMBA实测可喷性表格。','有限单墨盒、单层二值图案、清洗有限耗料；完整GUI、队列、外部相机识别、真实真空/接触和硬件未实现。','诊断数字叠层非真实内置面板；robot/hardware/部署文件隔离/CFD/真实相机标定not_run。'])
     spec=importlib.util.spec_from_file_location('_dmp_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH)
     ann.annotate_export(SLUG,caps,slots,{'inkjet':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'ink.configure':(INK,INK_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE)})

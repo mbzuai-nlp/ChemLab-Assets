@@ -60,6 +60,13 @@ cap('coating.measure',obj({}),RESULT,['display_digits'],'理想速度/时间面�
 cap('product.read',obj({}),PRODUCT,['substrate','bowl'],'评价器液膜和有限材料账本','query','evaluator')
 cap('product.collect',obj({'recipient_id':TEXT}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['substrate'],'停转开盖后宿主释放基片','device_command','evaluator',{'recipient_id':'sample_output'},['sample.configured','truth.ledger'])
 cap('reference.lookup',obj({'substance_id':TEXT,'temperature_k':number('K',1)}),obj({'vapor_pressure_pa':number('Pa',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT}),['substrate'],'原始温区内NIST蒸气压参考','query','agent',{'substance_id':'ethanol','temperature_k':298.15})
+REF_T=298.15;REF_TOL=.5
+FIT_EVIDENCE={'nist_srd69_saturation_fit':'derived_NIST_SRD69_saturation_Antoine_fit_no_extrapolation','thermoml_vapour_pressure_fit':'derived_ThermoML_article_Antoine_fit_no_extrapolation','clausius_clapeyron_local':'derived_local_Clausius_Clapeyron_PubChem_point_NIST_dHvap_no_extrapolation'}
+PROPS_OUT=obj({'temperature_k':number('K',0),'density_kg_m3':number('kg/m^3',0),'viscosity_pa_s':number('Pa*s',0),'surface_tension_n_m':number('N/m',0),'vapor_pressure_pa':number('Pa',0),'normal_boiling_point_k':number('K',0),'molar_mass_kg_mol':number('kg/mol',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT})
+cap('reference.properties',obj({'substance_id':TEXT}),PROPS_OUT,['substrate'],'298.15K真实纯溶剂物性（密度/黏度/表面张力/蒸气压/沸点；NIST SRD69、ThermoML实测中位数、PubChem），记录不完整则拒绝','query','agent',{'substance_id':'toluene'})
+SAMPLE_REF=obj({k:v for k,v in SAMPLE['properties'].items() if k not in ('solvent_density_kg_m3','viscosity_pa_s')})
+SAMPLE_REF_EXAMPLE=dict({k:v for k,v in SAMPLE_EXAMPLE.items() if k in SAMPLE_REF['properties']},solvent_id='toluene')
+cap('sample.configure_from_reference',SAMPLE_REF,obj({'configured':BOOL,'solvent_density_kg_m3':number('kg/m^3',0),'viscosity_pa_s':number('Pa*s',0),'evidence':TEXT}),['substrate'],'溶剂密度/黏度取自库内298.15K真实物性装样；宿主温度须为298.15±0.5K','configuration','evaluator',SAMPLE_REF_EXAMPLE,['sample.configured','truth.ledger'])
 SLOTS={}; SLOT_ZH={}
 def slot(k,s,u,z,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=z
 for k in ('plant','method','sample'):slot(k+'.configured',BOOL,'1',k+'配置/装样标记','setpoint')
@@ -95,7 +102,16 @@ class OssilaSpincoaterRuntime:
         if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
         r=self.templates[sid];fits=r.get('fits',r['values']['antoine_fits']);ok=[f for f in fits if f['temperature_range_k'][0]<=t<=f['temperature_range_k'][1]]
         if not ok:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
-        f=ok[0];return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence='derived_NIST_Antoine_no_extrapolation',source=r['source'],template_source=TEMPLATE_REL)
+        f=ok[0];kind=f.get('kind','nist_antoine');return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence=FIT_EVIDENCE.get(kind,'derived_NIST_Antoine_no_extrapolation'),source=r['source'] if kind=='nist_antoine' else f.get('source',r['source']),template_source=TEMPLATE_REL)
+    def _properties(self,sid):
+        if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
+        r=self.templates[sid];p=r.get('properties_298_15K') or {};keys=('density_kg_m3','viscosity_pa_s','surface_tension_n_m')
+        if not r.get('usable_at_298_15K') or any(k not in p for k in keys) or not r.get('normal_boiling_point'):raise ActionRejected('REFERENCE_INCOMPLETE')
+        vp=self._reference(sid,REF_T)
+        return dict(temperature_k=REF_T,density_kg_m3=p['density_kg_m3']['value'],viscosity_pa_s=p['viscosity_pa_s']['value'],surface_tension_n_m=p['surface_tension_n_m']['value'],vapor_pressure_pa=vp['vapor_pressure_pa'],
+                    normal_boiling_point_k=r['normal_boiling_point']['value_k'],molar_mass_kg_mol=r['molar_mass_kg_mol'],
+                    evidence=';'.join(k+':'+p[k]['evidence'] for k in keys)+';vapor_pressure:'+vp['evidence'],
+                    source=';'.join(dict.fromkeys(str(p[k].get('source_name')) for k in keys)),template_source=TEMPLATE_REL)
     def _product(self):
         p={loc+'_'+sp+'_kg':v[i] for loc,v in [('initial',self.initial),('film',self.film),('waste',self.waste),('evaporated',self.evaporated),('collected',self.collected)] for i,sp in enumerate(('solvent','solute'))}
         area=self.sample['substrate_width_m']*self.sample['substrate_depth_m'] if self.sample else 1.
@@ -111,7 +127,12 @@ class OssilaSpincoaterRuntime:
             self.target_speed=0.;self.stop_result=result;self.phase='stopping' if self.speed>1e-12 else result
     def invoke(self,capability,**a):
         if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][0],a)
+        validate(CAPS[capability][0],a);orig=capability;used=None
+        if capability=='sample.configure_from_reference':
+            if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
+            if abs(self.plant['temperature_k']-REF_T)>REF_TOL:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
+            props=self._properties(a['solvent_id']);used=dict(solvent_density_kg_m3=props['density_kg_m3'],viscosity_pa_s=props['viscosity_pa_s'],evidence='library_298.15K:'+props['evidence'])
+            a=dict(a,solvent_density_kg_m3=props['density_kg_m3'],viscosity_pa_s=props['viscosity_pa_s']);validate(SAMPLE,a);capability='sample.configure'
         if capability.endswith('.configure') and self.phase in ('running','stopping'):raise ActionRejected('BUSY')
         if capability=='plant.configure':
             if self.plant or not a['accept_uncalibrated_model']:raise ActionRejected('PRECONDITION_FAILED')
@@ -141,11 +162,14 @@ class OssilaSpincoaterRuntime:
         elif capability=='coating.measure':return dict(phase=self.phase,speed_rad_s=self.speed,elapsed_s=self.elapsed_s,step_index=self.step_index,evidence='ideal_panel_proxy_not_thickness_sensor',template_source=TEMPLATE_REL)
         elif capability=='product.read':return self._product()
         elif capability=='reference.lookup':return self._reference(a['substance_id'],a['temperature_k'])
+        elif capability=='reference.properties':return self._properties(a['substance_id'])
         elif capability=='product.collect':
             if not self.sample_present or self.speed>1e-12 or self.lid_angle<1. or self.phase in ('running','stopping'):raise ActionRejected('PRECONDITION_FAILED')
             self.collected=[x+y for x,y in zip(self.collected,self.film)];self.film=[0.,0.];self.sample_present=False;out=dict(recipient_id=a['recipient_id'],attachment_event='host_release_substrate')
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][1],out);self.revision+=1;return copy.deepcopy(out)
+        validate(CAPS[capability][1],out)
+        if used is not None:out=dict(out,**used);validate(CAPS[orig][1],out)
+        self.revision+=1;return copy.deepcopy(out)
     def _film_step(self,dt,omega):
         if not self.sample_present or self.film[0]<=1e-20:return
         s=self.sample;area=s['substrate_width_m']*s['substrate_depth_m'];rho=[s['solvent_density_kg_m3'],s['solute_density_kg_m3']];vol=sum(m/r for m,r in zip(self.film,rho));h=vol/area;density=sum(self.film)/vol;fraction=self.film[1]/rho[1]/vol
@@ -181,7 +205,7 @@ class OssilaSpincoaterSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_ossila_spincoater_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_ossila_spincoater_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -220,7 +244,8 @@ def export_ossila_spincoater_contract_metadata():
     evolving=['lid.angle_rad','motor.indicated_rad_s','chuck.angle_rad','cycle.phase','cycle.elapsed_s','cycle.step_index','motor.target_rad_s','truth.ledger']
     for k,(inp,out,c,z,kind,vis,ex,effects) in CAPS.items():
         async_=k=='acquisition.start';query=kind=='query'
-        caps[k]=dict(function_zh=z,kind=kind,visibility=vis,component_ids=c,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.ossila_spincoater.OssilaSpincoaterSession.invoke',invocation=f'session.invoke(instance_id="spincoater_01",capability_id={k!r},arguments={ex!r},request_id="unique")'),preconditions=[] if query else [dict(description_zh='停转/闭盖/上电/装样/温区及宿主身份检查',state_ids=['cycle.phase','lid.angle_rad','power.enabled'],enforced_by='runtime',check='OssilaSpincoaterRuntime.invoke guards; Session identity')],state_effects=[] if query else [dict(state_id=s,timing='immediate',description_zh='事务写入配置/目标或装取样账本') for s in effects]+[dict(state_id=s,timing='on_step',description_zh='程序、姿态和有限材料随宿主step演化') for s in evolving],observes=[],model_effects=dict(mode='none',description_zh='场景求值另行验证',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='所有步骤完成且减速到零；不表示膜干燥/合格' if async_ else '事务完成不推进时钟',completion_state_ids=['cycle.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','finite_sample','request_cache'],partial_failure_zh='取消不回滚膜/废液/蒸发，减速及自然挥发继续；幂等仅本进程生命周期'),errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','UNSUPPORTED_CHUCK']],example_arguments=copy.deepcopy(ex),verification=[],limitations=['Standard V3无可调加速度、真空泵或膜厚传感器'],source_ids=['manufacturer_primary','simulation_assumption'])
-    mech=dict(component_ids=['motor','chuck','substrate','bowl'],state_ids=list(slots),meaning_zh='均匀Newtonian液膜离心排液与溶剂挥发',implementation='lumped',equations=['domega/dt=host acceleration/deceleration; not Standard user setting','dh/dt=-2*rho*omega^2*h^3/(3*mu); exact positive substep h_new=h/sqrt(1+4*rho*omega^2*h^2*dt/(3*mu))','expelled fraction transfers solvent and solute to finite waste','P_sat/Pa=100000*10^(A-B/(T/K+C)); original NIST temperature interval only','evap_kg_s=k_mass*area*P_sat*M/(R*T)*solvent_mass_fraction; limited by inventory','mu=mu_host*exp(min(14,5*solute_volume_fraction/(1-solute_volume_fraction))) is assumption','initial_species=film+waste+evaporated+collected','wet_thickness=sum(mass_i/density_i)/area; dry_equivalent=solute_mass/(solute_density*area)'],parameters={},source_ids=['nist_vapor_pressure','simulation_assumption'],limitations=['无CFD、非牛顿流变、径向膜分布、结晶、边缘珠、挥发冷却和热能闭合。','65实源蒸气压参考不是50种本机实测膜厚曲线；厚度synthetic。','仅标准四尺寸基片语义，外观25×25mm；定制100mm卡盘、注射泵/脚踏附件未实现。','含加速的步骤时序和<2%稳定性未按实机标定。','角色过滤不代表进程/文件部署隔离；Runtime原始入口仅供受信任宿主。'])
+        caps[k]=dict(function_zh=z,kind=kind,visibility=vis,component_ids=c,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.ossila_spincoater.OssilaSpincoaterSession.invoke',invocation=f'session.invoke(instance_id="spincoater_01",capability_id={k!r},arguments={ex!r},request_id="unique")'),preconditions=[] if query else [dict(description_zh='停转/闭盖/上电/装样/温区及宿主身份检查',state_ids=['cycle.phase','lid.angle_rad','power.enabled'],enforced_by='runtime',check='OssilaSpincoaterRuntime.invoke guards; Session identity')],state_effects=[] if query else [dict(state_id=s,timing='immediate',description_zh='事务写入配置/目标或装取样账本') for s in effects]+[dict(state_id=s,timing='on_step',description_zh='程序、姿态和有限材料随宿主step演化') for s in evolving],observes=[],model_effects=dict(mode='none',description_zh='场景求值另行验证',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='所有步骤完成且减速到零；不表示膜干燥/合格' if async_ else '事务完成不推进时钟',completion_state_ids=['cycle.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','finite_sample','request_cache'],partial_failure_zh='取消不回滚膜/废液/蒸发，减速及自然挥发继续；幂等仅本进程生命周期'),errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','REFERENCE_INCOMPLETE','UNSUPPORTED_CHUCK']],example_arguments=copy.deepcopy(ex),verification=[],limitations=['Standard V3无可调加速度、真空泵或膜厚传感器'],source_ids=['manufacturer_primary','simulation_assumption'])
+    mech=dict(component_ids=['motor','chuck','substrate','bowl'],state_ids=list(slots),meaning_zh='均匀Newtonian液膜离心排液与溶剂挥发',implementation='lumped',equations=['domega/dt=host acceleration/deceleration; not Standard user setting','dh/dt=-2*rho*omega^2*h^3/(3*mu); exact positive substep h_new=h/sqrt(1+4*rho*omega^2*h^2*dt/(3*mu))','expelled fraction transfers solvent and solute to finite waste','P_sat/Pa=100000*10^(A-B/(T/K+C)); first library fit whose own temperature interval contains T (NIST Antoine rows first; NIST SRD69 saturation fit, ThermoML article fit or local Clausius-Clapeyron for solvents without a NIST row at that T); never extrapolated',
+        'sample.configure_from_reference: solvent density and viscosity = library values at 298.15 K (NIST SRD69 / median of ThermoML articles / PubChem HSDB), only when host temperature is 298.15+/-0.5 K','evap_kg_s=k_mass*area*P_sat*M/(R*T)*solvent_mass_fraction; limited by inventory','mu=mu_host*exp(min(14,5*solute_volume_fraction/(1-solute_volume_fraction))) is assumption','initial_species=film+waste+evaporated+collected','wet_thickness=sum(mass_i/density_i)/area; dry_equivalent=solute_mass/(solute_density*area)'],parameters={},source_ids=['nist_vapor_pressure','simulation_assumption'],limitations=['无CFD、非牛顿流变、径向膜分布、结晶、边缘珠、挥发冷却和热能闭合。','库内溶剂298.15K真实物性（密度/黏度/表面张力/蒸气压/沸点）不是本机实测膜厚曲线；厚度仍为synthetic，未找到可许可复用的旋涂膜厚表格数据。','仅标准四尺寸基片语义，外观25×25mm；定制100mm卡盘、注射泵/脚踏附件未实现。','含加速的步骤时序和<2%稳定性未按实机标定。','角色过滤不代表进程/文件部署隔离；Runtime原始入口仅供受信任宿主。'])
     spec=importlib.util.spec_from_file_location('_spin_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'spin_coating':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.configure':(SAMPLE,SAMPLE_EXAMPLE)});mech['parameters']={k.lower():v for k,v in mech['parameters'].items()}
     return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'spin_coating':mech})

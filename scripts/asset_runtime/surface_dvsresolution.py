@@ -48,6 +48,17 @@ def curve(record,branch,reversible=False):
  x=v.get(prefix+'relative_humidity');y=v.get(prefix+'uptake_kg_kg')
  if not isinstance(x,list) or not isinstance(y,list) or len(x)!=len(y) or len(x)<2 or any(not math.isfinite(a) or not 0<=a<=1 for a in x) or any(not math.isfinite(a) or a<0 for a in y) or any(b<=a for a,b in zip(x,x[1:])):raise ActionRejected('INVALID_REFERENCE')
  return x,y
+def reference_index():
+ """Pure host/evaluator helper (no capability, no state): every runtime-usable equilibrium record with the
+ temperature, RH range and branch availability that sample.load/method.configure will enforce."""
+ out=[]
+ for k,r in sorted(library()['substances'].items()):
+  if r.get('runtime_usable') is not True:continue
+  try:x,_=curve(r,'adsorption')
+  except ActionRejected:continue
+  e=r.get('evidence') if isinstance(r.get('evidence'),dict) else {}
+  out.append(dict(reference_id=k,name=r.get('name'),identity_group=r.get('identity_group',r.get('material_group')),material_class=r.get('material_class'),temperature_k=r['conditions']['temperature_k'],relative_humidity_range=[x[0],x[-1]],desorption_branch='desorption_relative_humidity' in r['values'],evidence_level=e.get('level'),digitized=e.get('digitized'),source_id=r['source'].get('source_id'),licence=r['source'].get('licence'),licence_flag=r['source'].get('licence_flag')))
+ return out
 def interpolate(record,rh,branch,reversible=False):
  x,y=curve(record,branch,reversible)
  if rh<x[0]-1e-12 or rh>x[-1]+1e-12:raise ActionRejected('REFERENCE_RH_RANGE')

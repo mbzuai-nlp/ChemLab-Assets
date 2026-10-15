@@ -74,6 +74,13 @@ cap('product.read',obj({}),PRODUCT,['substrate','syringe_barrel','waste_tray'],'
 cap('product.collect',obj({'recipient_id':TEXT}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['substrate'],'停止后宿主释放基板并转移膜账本','device_command','evaluator',{'recipient_id':'coated_slide'},['substrate.configured','truth.ledger'])
 cap('fluid.drain',obj({}),obj({'emptied':BOOL}),['syringe_barrel','waste_tray'],'停止后宿主将注射器/管路/液桥余料转至废料，非自驱清洗','configuration','evaluator',{},['ink.configured','truth.ledger'])
 cap('reference.lookup',obj({'substance_id':TEXT,'temperature_k':number('K',1)}),obj({'vapor_pressure_pa':number('Pa',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT}),['syringe_barrel'],'NIST有效原始温区蒸气压参考','query','agent',{'substance_id':'ethanol','temperature_k':298.15})
+REF_T=298.15;REF_TOL=.5
+FIT_EVIDENCE={'nist_srd69_saturation_fit':'derived_NIST_SRD69_saturation_Antoine_fit_no_extrapolation','thermoml_vapour_pressure_fit':'derived_ThermoML_article_Antoine_fit_no_extrapolation','clausius_clapeyron_local':'derived_local_Clausius_Clapeyron_PubChem_point_NIST_dHvap_no_extrapolation'}
+PROPS_OUT=obj({'temperature_k':number('K',0),'density_kg_m3':number('kg/m^3',0),'viscosity_pa_s':number('Pa*s',0),'surface_tension_n_m':number('N/m',0),'vapor_pressure_pa':number('Pa',0),'normal_boiling_point_k':number('K',0),'molar_mass_kg_mol':number('kg/mol',0),'evidence':TEXT,'source':TEXT,'template_source':TEXT})
+cap('reference.properties',obj({'substance_id':TEXT}),PROPS_OUT,['syringe_barrel'],'298.15K真实纯溶剂物性（密度/黏度/表面张力/蒸气压/沸点；NIST SRD69、ThermoML实测中位数、PubChem），记录不完整则拒绝','query','agent',{'substance_id':'toluene'})
+INK_REF=obj({k:v for k,v in INK['properties'].items() if k not in ('solvent_density_kg_m3', 'viscosity_pa_s', 'surface_tension_n_m', 'latent_heat_j_kg')})
+INK_REF_EXAMPLE=dict({k:v for k,v in INK_EXAMPLE.items() if k in INK_REF['properties']},solvent_id='toluene')
+cap('ink'+'.configure_from_reference',INK_REF,obj(dict({k:number(INK['properties'][k]['x-unit'],0) for k in ('solvent_density_kg_m3', 'viscosity_pa_s', 'surface_tension_n_m', 'latent_heat_j_kg')},configured=BOOL,evidence=TEXT)),['syringe_barrel'],'墨液溶剂密度/黏度/表面张力/汽化潜热取自库内298.15K真实物性；环境温度须为298.15±0.5K，加热时这些值保持298.15K值','configuration','evaluator',INK_REF_EXAMPLE,['ink.configured', 'truth.ledger'])
 
 cap('pump.dispense',obj({'volume_m3':number('m^3',1e-9,5e-6),'flow_m3_s':FLOW}),obj({'phase':PHASE,'operation_id':TEXT}),['plunger','syringe_barrel','feed_tube'],'有限注射器定量预充管路/液桥，余量去废料；无反抽',ex={'volume_m3':1e-7,'flow_m3_s':2e-8},effects=['cycle.phase','pump.flow_m3_s','pump.position_m'])
 cap('thermal.set_temperature',obj({'temperature_k':number('K',278.15,413.15)}),obj({'temperature_k':number('K',278.15,413.15)}),['hotplate'],'写入140℃以内温度目标，非瞬时升温',ex={'temperature_k':313.15},effects=['thermal.target_k'])
@@ -138,7 +145,20 @@ class OssilaSlotdieRuntime:
         if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
         r=self.templates[sid];fits=[f for f in r['fits'] if f['temperature_range_k'][0]<=t<=f['temperature_range_k'][1]]
         if not fits:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
-        f=fits[0];return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence='derived_NIST_Antoine_no_extrapolation',source=r['source'],template_source=TEMPLATE_REL)
+        f=fits[0];kind=f.get('kind','nist_antoine');return dict(vapor_pressure_pa=1e5*10**(f['A']-f['B_k']/(t+f['C_k'])),evidence=FIT_EVIDENCE.get(kind,'derived_NIST_Antoine_no_extrapolation'),source=r['source'] if kind=='nist_antoine' else f.get('source',r['source']),template_source=TEMPLATE_REL)
+    def _properties(self,sid):
+        if sid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
+        r=self.templates[sid];p=r.get('properties_298_15K') or {};keys=('density_kg_m3','viscosity_pa_s','surface_tension_n_m')
+        if not r.get('usable_at_298_15K') or any(k not in p for k in keys) or not r.get('normal_boiling_point'):raise ActionRejected('REFERENCE_INCOMPLETE')
+        vp=self._reference(sid,REF_T)
+        return dict(temperature_k=REF_T,density_kg_m3=p['density_kg_m3']['value'],viscosity_pa_s=p['viscosity_pa_s']['value'],surface_tension_n_m=p['surface_tension_n_m']['value'],vapor_pressure_pa=vp['vapor_pressure_pa'],
+                    normal_boiling_point_k=r['normal_boiling_point']['value_k'],molar_mass_kg_mol=r['molar_mass_kg_mol'],
+                    evidence=';'.join(k+':'+p[k]['evidence'] for k in keys)+';vapor_pressure:'+vp['evidence'],
+                    source=';'.join(dict.fromkeys(str(p[k].get('source_name')) for k in keys)),template_source=TEMPLATE_REL)
+    def _latent(self,sid):
+        h=(self.templates[sid].get('vaporization_enthalpy') or {}).get('value_j_mol')
+        if not h:raise ActionRejected('REFERENCE_INCOMPLETE')
+        return h/self.templates[sid]['molar_mass_kg_mol']
 
 
     def _volume(self,m):
@@ -182,7 +202,12 @@ class OssilaSlotdieRuntime:
         return copy.deepcopy(matches[0])
     def invoke(self,capability,**a):
         if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][0],a)
+        validate(CAPS[capability][0],a);orig=capability;used=None
+        if capability=='ink.configure_from_reference':
+            if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
+            if abs(self.plant['ambient_k']-REF_T)>REF_TOL:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
+            props=self._properties(a['solvent_id']);fill={'solvent_density_kg_m3':props['density_kg_m3'],'viscosity_pa_s':props['viscosity_pa_s'],'surface_tension_n_m':props['surface_tension_n_m'],'latent_heat_j_kg':self._latent(a['solvent_id'])}
+            used=dict(fill,evidence='library_298.15K:'+props['evidence']);a=dict(a,**fill);validate(INK,a);capability='ink.configure'
         if capability=='plant.configure':
             if self.plant or not a['accept_uncalibrated_model'] or a['min_gap_film_ratio']>=a['max_gap_film_ratio']:raise ActionRejected('PRECONDITION_FAILED')
             self.plant=a.copy();self.temp=a['ambient_k'];self.target_temp=self.temp;out={'configured':True}
@@ -243,6 +268,7 @@ class OssilaSlotdieRuntime:
             return dict(phase=self.phase,stage=self.stage,position_m=self.q,speed_m_s=self.speed,left_gap_m=self.gaps[0],right_gap_m=self.gaps[1],temperature_k=self.temp+self.offset,flow_m3_s=self.flow,elapsed_s=self.elapsed_s,evidence='ideal_panel_NOT_thickness_sensor',template_source=TEMPLATE_REL)
         elif capability=='product.read':return self._product()
         elif capability=='reference.lookup':return self._reference(a['substance_id'],a['temperature_k'])
+        elif capability=='reference.properties':return self._properties(a['substance_id'])
         elif capability=='product.collect':
             if self.phase=='running' or not self.sample_present or self.temp>323.15:raise ActionRejected('PRECONDITION_FAILED')
             for i in range(2):self.collected[i]+=sum(f[i] for f in self.film)
@@ -253,7 +279,9 @@ class OssilaSlotdieRuntime:
                 for i in range(2):self.waste[i]+=masses[i];masses[i]=0.
             self.fault='';out={'emptied':True}
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][1],out);self.revision+=1;return copy.deepcopy(out)
+        validate(CAPS[capability][1],out)
+        if used is not None:out=dict(out,**used);validate(CAPS[orig][1],out)
+        self.revision+=1;return copy.deepcopy(out)
     def _deposit(self,masses,lo,hi):
         if not self.sample_present:
             for i in range(2):self.waste[i]+=masses[i]
@@ -341,7 +369,7 @@ class OssilaSlotdieSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_ossila_slotdie_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_ossila_slotdie_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -394,7 +422,7 @@ def export_ossila_slotdie_contract_metadata():
             execution=dict(mode='asynchronous' if asynchronous else 'synchronous',time_domain='simulation',completion_criterion='轴达到目标；不保证干燥/膜质量' if asynchronous else '事务完成，物理时钟未推进',
                 completion_state_ids=['cycle.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',retry='same_request_id',
                 resources=['host_clock','finite_charge','substrate_attachment','request_cache'],partial_failure_zh='停止/故障保留已沉积材料和挥发，残余液体继续蒸发；不回滚，不提供跨进程幂等'),
-            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','INVALID_GEOMETRY','RESERVOIR_OVERFLOW','RESERVOIR_EXHAUSTED','MODEL_OUT_OF_RANGE']],
+            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','REFERENCE_INCOMPLETE','INVALID_GEOMETRY','RESERVOIR_OVERFLOW','RESERVOIR_EXHAUSTED','MODEL_OUT_OF_RANGE']],
             example_arguments=copy.deepcopy(ex),verification=[],limitations=['无膜厚传感器；急停是教学锁存，不是实机安全认证；调隙需宿主手动行为'],source_ids=['manufacturer_primary','simulation_assumption'])
 
 
@@ -407,10 +435,12 @@ def export_ossila_slotdie_contract_metadata():
         'P_sat=100000*10^(A-B/(T+C)), original fit interval only; film evaporation=k_mass*area*P_sat*M/(R*T)*solvent_mass_fraction',
         'C*dT/dt=P_control-K*(T-Ta)-L*dm_evap/dt; P_control=clamp(kp*(target-T),0,Pmax), disabled on poweroff/emergency',
         'evaporation bounded by inventory and energy down to the valid NIST lower-temperature boundary',
+          'P_sat from the first library fit whose own temperature interval covers ambient/current/target (NIST Antoine rows first; NIST SRD69 saturation fit, ThermoML article fit or local Clausius-Clapeyron otherwise); never extrapolated',
+          'ink.configure_from_reference: density/viscosity/surface tension = library values at 298.15 K, latent_heat_j_kg = NIST dHvap(298.15 K)/M; requires ambient 298.15+/-0.5 K; held constant when heated (assumption)',
         'initial_species=syringe+line+bead+film+waste+evaporated+collected; solute evaporation=0',
         'C*(T-Ta)=integral(heater_power)-integral(loss)-evaporation_latent_heat'],
         parameters={},source_ids=['manufacturer_primary','manufacturer_manual','nist_vapor_pressure','simulation_assumption'],
-        limitations=['单步供液/平台+预延迟，非20程序50步完整固件；只选100mm标准头/5mL注射器，未做高黏度变体。','稳定窗口是宿主显式假设，不解弯月面自由界面、接触角、空气卷入、压降、背压或非Newtonian流变。','注射器/管路/液桥/废料视为封闭存量，仅热台上膜挥发；停机管路渗漏/被动滴落未求解。','单温度整体热台/膜，不代表实测表面温度、热膨胀调平；热容/功率/散热/潜热需材料实测。','65种NIST参考不等于50种实测狭缝涂膜，35种覆盖25℃；80nm匿名染料示例不作为确定物质模板。','加载液体后目标温度必须处于一个覆盖当前/环境/目标的有效NIST温区；不外推，干台可设置140℃。','小示例100×120mm基板、固定几何；动态膜/湿润前缘/变尺寸网格未做。','理想位置/泵流量/温度/数字间隙示值，无真实传感器噪声、精度或力标定。','零件质量/惯量/摩擦未知；机器人、真实安全接触、硬件和部署文件隔离均未验证。'])
+        limitations=['单步供液/平台+预延迟，非20程序50步完整固件；只选100mm标准头/5mL注射器，未做高黏度变体。','稳定窗口是宿主显式假设，不解弯月面自由界面、接触角、空气卷入、压降、背压或非Newtonian流变。','注射器/管路/液桥/废料视为封闭存量，仅热台上膜挥发；停机管路渗漏/被动滴落未求解。','单温度整体热台/膜，不代表实测表面温度、热膨胀调平；热容/功率/散热/潜热需材料实测。','库内溶剂298.15K真实物性（密度/黏度/表面张力/蒸气压/沸点/汽化焓）不等于实测狭缝涂膜；从库装料后加热时密度与汽化潜热仍取298.15K值（假设）；80nm匿名染料示例不作为确定物质模板。','加载液体后目标温度必须处于一个覆盖当前/环境/目标的有效NIST温区；不外推，干台可设置140℃。','小示例100×120mm基板、固定几何；动态膜/湿润前缘/变尺寸网格未做。','理想位置/泵流量/温度/数字间隙示值，无真实传感器噪声、精度或力标定。','零件质量/惯量/摩擦未知；机器人、真实安全接触、硬件和部署文件隔离均未验证。'])
     spec=importlib.util.spec_from_file_location('_slot_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'slot_die':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'ink.configure':(INK,INK_EXAMPLE),'substrate.configure':(SAMPLE,SAMPLE_EXAMPLE)})
     mech['parameters']={k.lower():v for k,v in mech['parameters'].items()}

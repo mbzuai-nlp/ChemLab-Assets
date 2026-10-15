@@ -3,7 +3,9 @@
 Outputs (``assets/reactions/spectral_library/``):
   compounds.json     identity: names, CAS, PubChem CID, formula, MW, SMILES, XLogP, boiling point, ECN
   gc_retention.json  Kovats retention indices per column class (NIST), FID response (ECN), derived model fingerprint
-  ir_spectra.json    NIST IR spectra resampled to a 400-4000 cm-1 absorbance grid + peak lists
+  ir_spectra.json    NIST IR spectra resampled to a 400-4000 cm-1 absorbance grid + peak lists (2026-10-14 decoder fix:
+                     DELTAX sign/step from FIRSTX/LASTX/NPOINTS when inconsistent; optical-constant files -> k block x
+                     wavenumber; reflectance -> log10(1/R); real-index-only files listed in ``excluded_spectra``)
   ms_ei.json         NIST electron-ionisation mass spectra (m/z, relative intensity)
   uv_vis.json        NIST UV/Vis spectra + lambda-max records (NIST JCAMP, PubChem text)
   nmr.json           1H / 13C peak lists (HMDB via PubChem) with multiplet clustering
@@ -246,20 +248,59 @@ def choose_delta_vap(th: dict) -> tuple[float | None, str]:
 
 
 # --------------------------------------------------------------------------------------------------------
+IR_Y_TRANSFORMS = {
+    "absorption_index": "absorption index k (imaginary refractive index block) x wavenumber -> absorption coefficient shape, then normalised",
+    "reflectance": "reflectance R (first block) -> pseudo-absorbance log10(1/R), then normalised",
+}
+IR_EXCLUDED: dict[str, list[dict]] = {}   # sid -> [{nist_index, reason, ...}] filled by ir_spectra()
+
+
+def select_ir_block(d: dict) -> tuple[dict | None, str | None, str | None]:
+    """Choose the JCAMP block that carries absorption information.
+
+    Returns (block, transform_key, exclusion_reason).  PNNL/IARPA optical-constant files hold a real-index
+    ('dispersion index') and an imaginary-index ('absorption index') block: the k block is used (alpha ~ 4 pi k nu,
+    the constant cancels in the normalisation).  A file with only the real-index block has no absorption
+    information and is excluded.  Integrating-sphere reflectance files (total + diffuse blocks) use the first
+    (total hemispherical) block as pseudo-absorbance log10(1/R) -- not a Kubelka-Munk correction.
+    """
+    blocks = d.get("blocks") or [d]
+    units = lambda b: b["header"].get("YUNITS", "").strip().lower()  # noqa: E731
+    k_block = next((b for b in blocks if units(b) == "absorption index"), None)
+    if k_block is not None:
+        return k_block, "absorption_index", None
+    first = blocks[0]
+    if units(first) == "dispersion index":
+        return None, None, "optical-constant file with only the real refractive-index (dispersion index) block: no absorption information, not stored as absorbance"
+    if units(first) == "reflectance":
+        return first, "reflectance", None
+    return first, None, None
+
+
 def ir_spectra(sid: str) -> list[dict]:
     grid = np.arange(400.0, 4000.0 + 1e-9, 4.0)
     specs = []
+    IR_EXCLUDED.pop(sid, None)
     for f in sorted((RAW / sid).glob("ir_*.jdx")):
         if f.stat().st_size == 0:
             continue
-        d = jcamp.parse(f.read_text(encoding="latin-1"))
+        parsed = jcamp.parse(f.read_text(encoding="latin-1"))
+        d, transform, excluded = select_ir_block(parsed)
+        if d is None:
+            h0 = parsed["header"]
+            IR_EXCLUDED.setdefault(sid, []).append({
+                "nist_index": int(f.stem.split("_")[1]), "title": h0.get("TITLE"), "state": h0.get("STATE", ""),
+                "y_units_original": h0.get("YUNITS"), "y_label": h0.get("YLABEL"), "reason": excluded})
+            continue
         h = d["header"]
         if not d["x"] or "Spectrum not found" in h.get("TITLE", ""):
             continue
         x = np.asarray(d["x"]); y = np.asarray(d["y"])
         if h.get("XUNITS", "").upper().startswith("MICRO"):
             x = 1e4 / x
-        if h.get("YUNITS", "").upper().startswith("TRANS"):
+        if transform == "absorption_index":
+            y = y * x
+        if h.get("YUNITS", "").upper().startswith("TRANS") or transform == "reflectance":
             y = np.clip(y, 1e-4, None)
             y = -np.log10(y / max(1.0, float(np.nanmax(y)) if np.nanmax(y) > 1.5 else 1.0))  # % transmittance vs fraction
         order = np.argsort(x)
@@ -289,6 +330,9 @@ def ir_spectra(sid: str) -> list[dict]:
             "absorbance_normalized": [None if np.isnan(v) else round(float(v), 3) for v in a],
             "peaks_cm-1": [list(pk) for pk in peaks[:15]],
             "source": "NIST Chemistry WebBook IR spectrum (JCAMP-DX)", "evidence": "measured",
+            **({"y_transform": IR_Y_TRANSFORMS[transform]} if transform else {}),
+            **({"x_step_note": "abscissa step (LASTX-FIRSTX)/(NPOINTS-1): the file's declared DELTAX contradicts FIRSTX/LASTX/NPOINTS"}
+               if d.get("x_step_rule") == "computed_deltax_inconsistent" else {}),
         })
     # preferred: condensed phase first (FTIR liquid/ATR use), then gas
     def rank(s):
@@ -458,7 +502,7 @@ def main():
         }
         # --- GC
         ri = gc_indices(sid)
-        if smiles and re.fullmatch(r"C+", smiles) and len(smiles) >= 5:  # n-alkane: I = 100 n by definition on every column
+        if smiles and re.fullmatch(r"C+", smiles):  # n-alkane (C1+; C1-C4 added 2026-10-14): I = 100 n by definition on every column
             for cls_name in ("standard_nonpolar", "semi_standard_nonpolar", "standard_polar"):
                 ri.setdefault(cls_name, {"median": 100.0 * len(smiles), "mean": 100.0 * len(smiles), "std": 0.0, "min": 100.0 * len(smiles), "max": 100.0 * len(smiles),
                                          "n": 0, "n_raw": 0, "n_references": 0, "phases": [], "source": "Kovats retention index definition (n-alkane anchor)", "evidence": "definition"})
@@ -515,7 +559,11 @@ def main():
     dump = lambda name, obj: (OUT / name).write_text(json.dumps(obj, ensure_ascii=False, indent=1), encoding="utf-8")
     dump("compounds.json", {**meta, "compounds": compounds})
     dump("gc_retention.json", {**meta, "gc_model": GC_MODEL, "compounds": gc})
-    dump("ir_spectra.json", {**meta, "grid_note": "absorbance normalised to 1 on a 400-4000 cm-1 grid, step 4; null outside the measured range", "compounds": ir})
+    dump("ir_spectra.json", {**meta, "grid_note": "absorbance normalised to 1 on a 400-4000 cm-1 grid, step 4; null outside the measured range",
+                             "decoder_note": "jcamp.py 2026-10-14: abscissa step from FIRSTX/LASTX/NPOINTS when DELTAX contradicts them; multi-block files decoded block by block "
+                                             "(optical-constant files: imaginary-index block x wavenumber; reflectance: log10(1/R) of the total-reflectance block; "
+                                             "real-index-only files excluded, see excluded_spectra)",
+                             "excluded_spectra": {k: IR_EXCLUDED[k] for k in sorted(IR_EXCLUDED)}, "compounds": ir})
     dump("ms_ei.json", {**meta, "compounds": ms})
     dump("uv_vis.json", {**meta, "compounds": uv})
     dump("nmr.json", {**meta, "compounds": nmr})

@@ -124,4 +124,41 @@ class TestDVSResolution(unittest.TestCase):
    cases=[v for v in OBSERVED if v[0]==k];self.assertTrue(cases,k)
    for _,a,r in cases:self.assertEqual(tool.validate_value(a,meta['capabilities'][k]['input_schema']),[],k);self.assertEqual(tool.validate_value(r,meta['capabilities'][k]['output_schema']),[],k)
   for k,v in h.read().items():self.assertEqual(tool.validate_value(v,meta['state_slots'][k]['value_schema']),[],k)
+ def test_32_every_runtime_record_loads_at_source_temperature_and_range(self):
+  lib=rt.library()['substances'];index=rt.reference_index()
+  self.assertEqual({x['reference_id'] for x in index},{k for k,v in lib.items() if v.get('runtime_usable') is True})
+  self.assertGreaterEqual(len({x['identity_group'] for x in index}),50);self.assertGreaterEqual(len(index),60)
+  for row in index:
+   k=row['reference_id'];rec=lib[k];T=rec['conditions']['temperature_k'];lo,hi=row['relative_humidity_range'];hi=min(hi,.98)
+   self.assertIn(rec['evidence']['level'],('measured','measured_literature','derived'));self.assertTrue(rec['source'].get('doi') or rec['source'].get('url'),k)
+   if rec['evidence']['level']=='derived' and rec['source']['source_id']!='nist_bam_p109_reference':self.assertTrue(rec['evidence'].get('formula'),k)
+   h=setup('idx_'+k,plant={'ambient_k':min(T,313.15)},sample={'reference_id':k,'dry_mass_kg':1e-7,'accept_reversible_reference':False},method={'temperature_k':T,'relative_humidity_steps':[lo+(hi-lo)*.25,lo+(hi-lo)*.75]})
+   self.assertEqual(h.reference,rec);self.assertEqual(json.loads(h.invoke('reference.query',reference_id=k)['template_source']),rec['source'])
+   wrong=T+1. if T+1.<=333.15 else T-1.
+   self.rejected(h,'method.configure','REFERENCE_TEMPERATURE',**dict(rt.METHOD_EXAMPLE,temperature_k=wrong,relative_humidity_steps=[(lo+hi)/2]))
+   if hi<.97:self.rejected(h,'method.configure','REFERENCE_RH_RANGE',**dict(rt.METHOD_EXAMPLE,temperature_k=T,relative_humidity_steps=[min(.98,hi+.01)]))
+   if not row['desorption_branch']:self.rejected(h,'method.configure','DESORPTION_REFERENCE_REQUIRED',**dict(rt.METHOD_EXAMPLE,temperature_k=T,relative_humidity_steps=[lo+(hi-lo)*.75,lo+(hi-lo)*.25]))
+ def test_33_new_sources_drive_equilibrium_across_material_classes(self):
+  lib=rt.library()['substances']
+  for k in ['nist_tppa_1_water_298k','hycool_rdsilicagel_fujidavison_water_293p15k','tu4_nh2_mil_125_water_298k','r3pack_peanut_flips_water_296p15k','borrmann2022_pvp_k25_water_298p15k','borrmann2022_asd_pvp_k25_indomethacin_dl20_water_298p15k','nist_mof_74_ni_water_328k','nist_mg_mof_74_water_298k','tu4_sifsix_3_ni_water_293k']:
+   rec=lib[k];T=rec['conditions']['temperature_k'];x=rec['values']['relative_humidity'];lo=max(x[0],.001);hi=min(x[-1],.95);cyc='desorption_relative_humidity' in rec['values']
+   if cyc:xx=rec['values']['desorption_relative_humidity'];lo=max(lo,xx[0]);hi=min(hi,xx[-1])
+   steps=[lo+(hi-lo)*.2,lo+(hi-lo)*.6]+([lo+(hi-lo)*.2] if cyc else [])
+   h=setup('cls_'+k,plant={'ambient_k':min(T,313.15)},sample={'reference_id':k,'dry_mass_kg':1e-7,'sorption_tau_s':.2,'desorption_tau_s':.2},method={'temperature_k':T,'relative_humidity_steps':steps,'maximum_dwell_s':20.})
+   call(h,'acquisition.start');r=finish(h,200);self.assertEqual(r['phase'],'succeeded',k);self.assertEqual(r['reference_id'],k);self.assertEqual(len(r['points']),len(steps))
+   self.assertEqual(h.branch,'desorption' if cyc else 'adsorption',k)
+   xs,ys=rt.curve(h.reference,h.branch);self.assertAlmostEqual(h.eq_water/h.sample['dry_mass_kg'],float(rt.np.interp(h._rh(),xs,ys)),delta=1e-4*max(ys))
+   if r['points'][-1]['equilibrated']:self.assertLess(abs(h.water-h.eq_water),.02*max(ys)*h.sample['dry_mass_kg']+1e-12,k)
+   self.assert_ledger(h)
+ def test_34_reference_only_records_and_licence_flags(self):
+  lib=rt.library()['substances'];refs=json.loads((rt.ASSET/'dvs_isotherm_reference_library.json').read_text())['substances'];h=rt.SurfaceDvsresolutionRuntime('refonly');h.invoke('plant.configure',**rt.PLANT_EXAMPLE)
+  only=[k for k,v in refs.items() if not v['runtime_counterpart_id']];self.assertGreater(len(only),0)
+  for k,v in refs.items():
+   self.assertTrue(v['runtime_qualification']['reason']);self.assertNotIn(k,lib)
+   if v['runtime_counterpart_id']:self.assertIs(lib[v['runtime_counterpart_id']]['runtime_usable'],True)
+  self.rejected(h,'sample.load','INVALID_REFERENCE',**dict(rt.SAMPLE_EXAMPLE,reference_id=only[0]))
+  sa=[k for k,v in lib.items() if v['source'].get('licence')=='CC-BY-SA-4.0'];self.assertTrue(sa)
+  for k in sa:self.assertTrue(lib[k]['source']['licence_flag'])
+  for k,v in lib.items():
+   if v['source']['source_id']=='nist_isodb_water' and not k.startswith('uio'):self.assertIsInstance(v['evidence']['digitized'],bool);self.assertTrue(all(0<=x<=1 for x in v['values']['relative_humidity']))
 if __name__=='__main__':unittest.main()

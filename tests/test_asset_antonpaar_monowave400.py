@@ -93,9 +93,63 @@ class MonowaveTests(unittest.TestCase):
    else:
     with self.assertRaises(ActionRejected):h.invoke('sample.configure',**a)
     self.assertIsNone(h.sample)
-  self.assertEqual(accepted,34)
+  lib=json.loads((ROOT/TEMPLATE_REL).read_text());self.assertEqual(accepted,lib['n_runtime_eligible']);self.assertGreaterEqual(accepted,50)
  def test_15_all_action_output_schemas(self):
   h=AntonpaarMonowave400Runtime()
   for cap,a in [('power.set',{'enabled':True}),('gas.configure',CAPS['gas.configure'][6]),('lid.set_lift',{'lift_m':.15}),('sample.configure',EXAMPLE),('method.configure',CAPS['method.configure'][6]),('lid.set_lift',{'lift_m':0}),('lock.set_travel',{'travel_m':.01}),('acquisition.start',{}),('acquisition.stop',{}),('reaction.measure',{}),('history.read',{}),('product.read',{})]:self.assertEqual(validate_value(h.invoke(cap,**a),CAPS[cap][1]),[],cap)
   h.invoke('lock.set_travel',travel_m=0.);h.invoke('lid.set_lift',lift_m=.15);self.assertEqual(validate_value(h.invoke('sample.unload'),CAPS['sample.unload'][1]),[])
+ # ---- library v1.1: low-temperature fits, NIST liquid Cp, template.read ----
+ def _load(self,sid,cp=None,noncond=100000.):
+  h=AntonpaarMonowave400Runtime();h.invoke('lid.set_lift',lift_m=.15);r=h.templates[sid];dens=(r.get('liquid_density') or {}).get('value_kg_m3') or 800.
+  a=dict(EXAMPLE,substance_id=sid,fit_id=r['cold_start_fit_ids'][0],volume_m3=10e-6,mass_kg=round(dens*10e-6,6),heat_capacity_j_kg_k=cp,noncondensable_pressure_pa=noncond)
+  h.invoke('sample.configure',**a);h.invoke('lid.set_lift',lift_m=0.);h.invoke('lock.set_travel',travel_m=.01);h.invoke('gas.configure',**CAPS['gas.configure'][6]);h.invoke('power.set',enabled=True);return h,a
+ def test_16_library_coverage_and_provenance(self):
+  lib=json.loads((ROOT/TEMPLATE_REL).read_text());recs=lib['templates'];elig=[r for r in recs if r['runtime_eligible']]
+  self.assertGreaterEqual(len(elig),50);self.assertEqual(len({r['cas'] for r in elig}),len(elig))
+  kinds={f['kind'] for r in elig for f in r['fits'] if f['fit_id'] in r['cold_start_fit_ids']}
+  self.assertTrue({'nist_antoine','composite_low_t_anchor_plus_nist_fit','nist_srd69_eos_antoine_refit'}<=kinds)
+  for r in recs:
+   for f in r['fits']:
+    if f['kind']=='nist_antoine':continue
+    d=f['derivation'];self.assertEqual(f['evidence'],'derived')
+    if f['kind'].startswith('composite'):
+     a=d['anchor'];self.assertTrue(a['source_name'] and a['raw_path'] and not a['extrapolated']);self.assertEqual(hashlib.sha256((ROOT/a['raw_path']).read_bytes()).hexdigest(),a['raw_sha256'])
+     self.assertLessEqual(f['temperature_range_k'][0],298.15);self.assertEqual(d['status'],'accepted')
+    else:self.assertTrue(d['accepted']);self.assertLessEqual(d['max_abs_ln_deviation'],.01)
+   if r['dielectric_2450mhz'] or r['sealed_vessel_reference']:self.assertIn('cem_vendor_numbers_only_non_permissive',r['licence_flags'])
+   if not r['runtime_eligible']:self.assertTrue(r['blocked_reason'])
+  for sid in ['benzoic_acid','naphthalene','carbon_dioxide','ammonia','acetaldehyde']:self.assertFalse(lib and {x['substance_id']:x for x in recs}[sid]['runtime_eligible'],sid)
+ def test_17_new_records_heat_across_classes(self):
+  for sid in ['propan_2_ol','ethylene_glycol','dmf','chlorobenzene','pyridine','butyl_acetate','methyl_benzoate','triethylamine','nitromethane','heptane','dodecane','glycerol']:
+   h,a=self._load(sid);r=h.templates[sid];f=h.sample['fit'];self.assertNotEqual(f.get('kind','nist_antoine'),'nist_antoine',sid)
+   self.assertEqual(h.sample['heat_capacity_source'][:9],'template:',sid);self.assertAlmostEqual(h.sample['heat_capacity_j_kg_k'],r['heat_capacity']['value_j_kg_k'])
+   target=min(f['runtime_temperature_range_k'][1]-5.,353.15)
+   h.invoke('method.configure',**dict(CAPS['method.configure'][6],target_k=target,ramp_s=20.,hold_s=5.,cool_to_k=310.));h.invoke('acquisition.start');h.step(25.)
+   v=h.read('evaluator');self.assertGreater(v['truth.temperature_k'],320.,sid)
+   self.assertAlmostEqual(v['truth.liquid_kg']+v['truth.vapor_kg'],a['mass_kg'],12);self.assertAlmostEqual(v['truth.stored_energy_j'],v['truth.absorbed_energy_j']-v['truth.heat_out_j'],7)
+   t=v['truth.temperature_k'];ps=1e5*10**(f['A']-f['B_k']/(t+f['C_k']));self.assertAlmostEqual(v['truth.pressure_pa'],ps+a['noncondensable_pressure_pa']*t/298.15,3)
+ def test_18_template_read_all_records(self):
+  h=AntonpaarMonowave400Runtime();s=h.session();before=copy.deepcopy(h.__dict__)
+  for sid in h.templates:
+   r=h.invoke('template.read',substance_id=sid);self.assertEqual(validate_value(r,CAPS['template.read'][1]),[],sid);self.assertEqual(r['runtime_eligible'],h.templates[sid]['runtime_eligible'])
+   if r['dielectric_2450mhz']:
+    d=r['dielectric_2450mhz'];self.assertAlmostEqual(d['dielectric_loss']/d['dielectric_constant'],d['tan_delta'],delta=max(.002,d['tan_delta']*.051/d['dielectric_constant']+.0006))
+  self.assertEqual(before,h.__dict__)
+  r=s.invoke(instance_id=h.instance_id,capability_id='template.read',arguments={'substance_id':'pyridine'},request_id='t');self.assertEqual(r['status'],'succeeded');self.assertTrue(r['result']['sealed_vessel_reference'])
+  r=s.invoke(instance_id=h.instance_id,capability_id='template.read',arguments={'substance_id':'unobtainium'},request_id='u');self.assertEqual(r['status'],'rejected')
+  r=h.invoke('template.read',substance_id='dmf');self.assertEqual(r['dielectric_2450mhz']['coupling_class_vendor'],'medium');self.assertEqual(r['cold_start_fit_ids'],['c0'])
+ def test_19_heat_capacity_resolution(self):
+  h,a=self._load('ethanol',cp=2400.);self.assertEqual(h.sample['heat_capacity_source'],'host_input');self.assertEqual(h.sample['heat_capacity_j_kg_k'],2400.)
+  h,a=self._load('water');self.assertAlmostEqual(h.sample['heat_capacity_j_kg_k'],h.templates['water']['heat_capacity']['value_j_kg_k']);self.assertTrue(4100<h.sample['heat_capacity_j_kg_k']<4250)
+  missing=[sid for sid,r in loaded().templates.items() if r['runtime_eligible'] and not r.get('heat_capacity')];self.assertTrue(missing)
+  h=AntonpaarMonowave400Runtime();h.invoke('lid.set_lift',lift_m=.15);before=h.debug_snapshot();r=h.templates[missing[0]]
+  with self.assertRaises(ActionRejected):h.invoke('sample.configure',**dict(EXAMPLE,substance_id=missing[0],fit_id=r['cold_start_fit_ids'][0],heat_capacity_j_kg_k=None))
+  self.assertEqual(before,h.debug_snapshot())
+  h.invoke('sample.configure',**dict(EXAMPLE,substance_id=missing[0],fit_id=r['cold_start_fit_ids'][0],heat_capacity_j_kg_k=1900.));self.assertEqual(h.sample['heat_capacity_source'],'host_input')
+ def test_20_low_temperature_fit_never_extrapolates(self):
+  h,a=self._load('hexan_1_ol');f=h.sample['fit'];hi=f['runtime_temperature_range_k'][1]
+  with self.assertRaises(ActionRejected):h.invoke('method.configure',**dict(CAPS['method.configure'][6],target_k=hi+1.))
+  h=AntonpaarMonowave400Runtime();h.invoke('lid.set_lift',lift_m=.15);r=h.templates['hexanoic_acid'];self.assertFalse(r['runtime_eligible'])
+  for f in r['fits']:
+   with self.assertRaises(ActionRejected):h.invoke('sample.configure',**dict(EXAMPLE,substance_id='hexanoic_acid',fit_id=f['fit_id']))
 if __name__=='__main__':unittest.main()

@@ -28,6 +28,20 @@ def close(h):
   if h.coolant_present[tank]:h.invoke('coolant.unload',reservoir=tank)
  h.invoke('power.set',enabled=False);return h.invoke('ledger.read')
 
+def usable_references():
+ return {k:v for k,v in r.library()['substances'].items() if v.get('runtime_usable')}
+def reference_case(rec):
+ """Ambient/method temperature inside the record domain, thickness for ~30 ms half-rise, ~0.5 K adiabatic rise."""
+ d=rec['runtime_domain'];T=rec['values']['temperature_k'];ext=d.get('constant_alpha_extension_k',0.)
+ lo=max(T[0]-ext,d.get('minimum_temperature_k',-1e9),283.15);hi=min(T[-1]+ext,d.get('maximum_temperature_k',1e9),313.15)
+ assert lo<=hi,(lo,hi);amb=min(max(298.15,lo),hi);alpha=r.source_alpha(rec,amb);v=rec['values']
+ rho=v.get('density_kg_m3') or v.get('density_20C_kg_m3');rho=rho[0] if isinstance(rho,list) else rho
+ cp=v.get('specific_heat_j_kg_k') or v.get('heat_capacity_22C_j_kg_k');cp=cp[0] if isinstance(cp,list) else cp
+ if rho is None or cp is None:
+  vol=v.get('volumetric_heat_capacity_22C_j_m3_k');rho=8000. if vol else 2600.;cp=vol/rho if vol else 800.
+ L=min(math.sqrt(alpha*.03/r.PARKER_HALF),.004);area=math.pi*.0127**2/4;energy=min(.5*rho*cp*area*L/.8,1.)
+ return amb,alpha,dict(reference_id=None,thickness_m=L,density_kg_m3=float(rho),heat_capacity_j_kg_k=float(cp),front_loss_w_m2_k=0.,rear_loss_w_m2_k=0.),dict(temperature_k=amb,pulse_energy_j=energy,equilibrium_dwell_s=0.)
+
 class LfaTests(unittest.TestCase):
  def assertBudget(self,h,tol=2e-8):
   d=h.invoke('ledger.read')
@@ -129,4 +143,44 @@ class LfaTests(unittest.TestCase):
   h=make();h.invoke('gas.set_flow',channel='purge1',flow_m3_s=50e-6/60);self.assertRaises(r.ActionRejected,h.invoke,'method.configure',**dict(r.METHOD_EXAMPLE,accept_condition_transfer=False));self.assertEqual(h.gas_flow['purge1'],50e-6/60)
  def test_43_power_loss_partial(self):
   h=make(method={'equilibrium_dwell_s':0.,'pretrigger_s':0.,'pulse_width_s':10e-6});h.invoke('acquisition.start');h.step(5e-6);h.invoke('power.set',enabled=False);self.assertEqual(h.error,'POWER_LOSS');self.assertAlmostEqual(h.optical_emitted,.05,12);self.assertBudget(h)
+ def test_44_every_runtime_reference_flash_and_parker_recovery(self):
+  refs=usable_references();self.assertGreaterEqual(len({v['material_identity'] for v in refs.values()}),50)
+  for rid,rec in refs.items():
+   with self.subTest(reference=rid):
+    amb,alpha,sample,method=reference_case(rec);sample['reference_id']=rid
+    h=make(plant={'ambient_k':amb,'safe_access_temperature_k':max(amb,313.15)},sample=sample,method=method);out=run(h)
+    self.assertEqual(out['phase'],'succeeded',out['error_code']);self.assertEqual(out['reference_id'],rid)
+    self.assertEqual(json.loads(out['template_source']),rec['source']);self.assertIn('Reference alpha record evidence: '+rec['evidence']['level'],out['evidence'])
+    rows=[x for x in out['rows'] if x['temperature_k'] is not None];base=rows[0]['temperature_k'];top=max(x['temperature_k'] for x in rows);self.assertGreater(top-base,.3)
+    a=h.invoke('analysis.parker',time_s=[x['time_s'] for x in rows],temperature_k=[x['temperature_k'] for x in rows],thickness_m=sample['thickness_m'],pulse_time_s=out['pulse_time_s'],baseline_k=base,plateau_k=top,accept_adiabatic_instant_pulse=True)
+    self.assertTrue(a['bracketed']);self.assertLess(abs(a['diffusivity_m2_s']/alpha-1),.01,(rid,a['diffusivity_m2_s'],alpha))
+ def test_45_reference_only_records_rejected(self):
+  lib=r.library()['substances']
+  for rid in ['usgs_sodalite','usgs_spessartite','usgs_cerussite','pulse_tungsten_200','pulse_alumina_10171']:
+   self.assertFalse(lib[rid]['runtime_usable']);h=Host();h.invoke('plant.configure',**dict(r.PLANT_EXAMPLE,furnace_speed_m_s=.1,sampler_speed_m_s=.1));before=h.read()
+   self.assertRaisesRegex(r.ActionRejected,'INVALID_REFERENCE',h.invoke,'sample.load',**dict(r.SAMPLE_EXAMPLE,reference_id=rid));self.assertEqual(before,h.read())
+ def test_46_single_temperature_constant_band_is_explicit(self):
+  lib=r.library()['substances'];q=lib['usgs_quartz'];T=q['values']['temperature_k'][0];a=q['values']['thermal_diffusivity_m2_s'][0]
+  self.assertEqual(q['runtime_domain']['constant_alpha_extension_k'],15.);self.assertEqual(r.source_alpha(q,T-15.),a);self.assertEqual(r.source_alpha(q,T+15.),a)
+  self.assertRaisesRegex(r.ActionRejected,'REFERENCE_TEMPERATURE_RANGE',r.source_alpha,q,T+15.01)
+  bad=copy.deepcopy(lib['nist_sic']);bad['runtime_domain']['constant_alpha_extension_k']=5.;self.assertRaisesRegex(r.ActionRejected,'INVALID_REFERENCE',r.source_alpha,bad,300.)
+  self.assertRaisesRegex(r.ActionRejected,'REFERENCE_TEMPERATURE_RANGE',r.source_alpha,lib['nist_sic'],292.)
+  self.assertRaisesRegex(r.ActionRejected,'REFERENCE_TEMPERATURE_RANGE',r.source_alpha,lib['native_lfa467_an048'],298.15)
+ def test_47_derived_records_state_formula_and_inputs(self):
+  for rid,rec in usable_references().items():
+   with self.subTest(reference=rid):
+    v=rec['values'];self.assertIn(rec['evidence']['level'],['measured','measured_literature','derived','assumption']);self.assertTrue(rec['source'].get('file') and rec['source'].get('sha256') and rec['source'].get('locator'))
+    if rec['evidence']['level']=='derived':
+     self.assertEqual(rec['evidence']['alpha_formula'],'alpha=k/(rho*cp)');self.assertTrue(rec['source']['derivation_sources'])
+     np.testing.assert_allclose(v['thermal_diffusivity_m2_s'],np.asarray(v['thermal_conductivity_w_m_k'])/(np.asarray(v['density_kg_m3'])*np.asarray(v['specific_heat_j_kg_k'])),rtol=1e-12)
+ def test_48_class_sample_alpha_ordering_and_temperature_lookup(self):
+  lib=r.library()['substances']
+  # Metals (measured Parker, derived elements) diffuse faster than ceramics, minerals and the native Pyroceram curve.
+  self.assertGreater(r.source_alpha(lib['parker1961_copper_ofhc'],298.15),r.source_alpha(lib['element_w'],298.15))
+  self.assertGreater(r.source_alpha(lib['element_w'],298.15),r.source_alpha(lib['nist_sic'],298.15))
+  self.assertGreater(r.source_alpha(lib['nist_sic'],298.15),r.source_alpha(lib['usgs_pyrite'],298.15))
+  self.assertGreater(r.source_alpha(lib['usgs_pyrite'],298.15),r.source_alpha(lib['usgs_phlogopite'],298.15))
+  self.assertAlmostEqual(r.source_alpha(lib['element_mo'],650.),(lib['element_mo']['values']['thermal_diffusivity_m2_s'][4]+lib['element_mo']['values']['thermal_diffusivity_m2_s'][5])/2,places=15)
+  h=make(plant={'ambient_k':303.84053708439893},sample={'reference_id':'native_lfa467_an048','density_kg_m3':2600.,'heat_capacity_j_kg_k':800.,'thickness_m':.001},method={'temperature_k':303.84053708439893,'equilibrium_dwell_s':0.})
+  out=run(h);self.assertEqual(out['phase'],'succeeded');self.assertIn('(plot-digitized)',out['evidence'])
 if __name__=='__main__':unittest.main()

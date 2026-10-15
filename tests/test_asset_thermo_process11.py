@@ -1,4 +1,4 @@
-"""CHEM-057 protocol, finite species, energy, thermal, motion and fault regression tests."""
+"""CHEM-057 protocol, finite species, energy, thermal, motion, fault and template-library regression tests."""
 import copy,json,math,sys,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'scripts'))
@@ -158,4 +158,99 @@ class Process11Tests(unittest.TestCase):
     def test_no_negative_or_overcapacity_inventory(self):
         h=running(method=dict(r.METHOD_EXAMPLE,duration_s=80.,feed_kg_s=r.FEED_MAX,speed_rad_s=r.OMEGA_MIN));h.step(80)
         self.assertTrue(all(0<=sum(z)<=h.plant['zone_capacity_kg']+1e-12 for z in h.zones));self.assertGreaterEqual(min(h.hopper),0);self.assert_balanced(h)
+
+LIB=json.loads((ROOT/r.TEMPLATE_REL).read_text())
+def loaded(rid,hot_k=None,**extra):
+    h=r.ThermoProcess11Runtime();h.invoke('plant.configure',**dict(r.PLANT_EXAMPLE,heater_max_w=500.,controller_w_k=100.));h.invoke('method.configure',**dict(r.METHOD_EXAMPLE,feed_kg_s=.2/3600,die_radius_m=.0015))
+    h.invoke('material.load_reference',reference_id=rid,mass_kg=.006,accept_uncalibrated_newtonian=True,**extra)
+    h.invoke('coolant.set_connected',connected=True);h.invoke('power.set',enabled=True)
+    if hot_k:
+        for i in range(7):h.invoke('thermal.set_zone',zone=i,temperature_k=hot_k)
+        h.invoke('thermal.set_enabled',enabled=True);h.step(60)
+    return h
+HOST={'density_kg_m3':1100.,'heat_capacity_j_kg_k':1800.}
+def host_args(rid):
+    rec=LIB['templates'][rid];a={}
+    if not rec.get('density'):a['density_kg_m3']=HOST['density_kg_m3']
+    if not rec.get('heat_capacity'):a['heat_capacity_j_kg_k']=HOST['heat_capacity_j_kg_k']
+    return a
+class LibraryTests(Process11Tests.__mro__[1]):
+    assert_balanced=Process11Tests.assert_balanced;rejected=Process11Tests.rejected
+    def test_library_counts_provenance(self):
+        t=LIB['templates'];s=LIB['summary']
+        self.assertEqual(s['distinct_records'],len(t));self.assertGreaterEqual(len(t),55)
+        self.assertEqual(s['runtime_usable_records'],sum(x['runtime_usage']!='reference_only' for x in t.values()))
+        self.assertGreaterEqual(s['process_model_records'],13);self.assertFalse(s['target_50_met'])
+        for rid,x in t.items():
+            for k in ['evidence','source','accessed','locator','raw_source','sha256','licence_flag']:self.assertTrue(x.get(k),(rid,k))
+            self.assertIn(x['licence_flag'],['permissive','unknown_licence_facts_only','restricted_nc_nd'])
+            self.assertFalse(x.get('digitized',False))
+    def test_every_process_model_record_runs(self):
+        for rid,x in LIB['templates'].items():
+            if x['runtime_usage']!='process_model':continue
+            lo=x['minimum_processing']['temperature_k'];td=x.get('degradation_onset_k')
+            if td and td-lo<5:  # published window overlaps TGA onset (Eudragit RL PO): covered by test_degradation_onset_trip
+                self.assertTrue(loaded(rid,**host_args(rid)).material['degradation_onset_k']);continue
+            T=lo+3 if x.get('extrudable_window_k') else x['viscosity_law']['reference_temperature_k']+10
+            h=loaded(rid,T,**host_args(rid));h.invoke('drive.set_enabled',enabled=True);h.invoke('acquisition.start');h.step(10)
+            self.assertEqual(h.fault,'',rid);self.assertGreater(h.torque,0,rid);self.assertGreater(sum(h.product)+sum(map(sum,h.zones)),0,rid)
+            self.assertIn(rid,h.invoke('extrusion.measure')['evidence']);self.assert_balanced(h)
+    def test_window_laws_reproduce_published_bounds(self):
+        n=0
+        for rid,x in LIB['templates'].items():
+            if x['runtime_usage']!='process_model' or not x.get('extrudable_window_k'):continue
+            h=loaded(rid,**host_args(rid));lo,hi=x['extrudable_window_k'];n+=1
+            self.assertAlmostEqual(h._viscosity(lo),1e4,delta=1e-6);self.assertAlmostEqual(h._viscosity(hi),1e3,delta=1e-6)
+        self.assertGreaterEqual(n,11)
+    def test_wlf_and_measured_arrhenius_records(self):
+        h=loaded('fam20_eudragit_rl_po');self.assertAlmostEqual(h._viscosity(403.15),50250.);self.assertLess(h._viscosity(413.15),50250.)
+        self.assertAlmostEqual(h.material['heat_capacity_j_kg_k'],2095.35+1.55*130);self.assertAlmostEqual(h.material['density_kg_m3'],1000/(35221/44180+1.2637*130/2651.9))
+        p=loaded('pa1010_vestamid_ds16',heat_capacity_j_kg_k=2000.);self.assertAlmostEqual(p._viscosity(503.15),1857.);self.assertEqual(p.material['density_kg_m3'],1050.)
+        self.assertIn('heat_capacity:host_assumption',p.material['parameter_evidence']);self.assertIn('density:literature',p.material['parameter_evidence'])
+    def test_material_classes_change_model_output(self):
+        out={}
+        for rid in ['kollidon_va64','soluplus','klucel_lf','eudragit_rs_po']:
+            x=LIB['templates'][rid];T=x['extrudable_window_k'][0]+3
+            h=loaded(rid,T,**host_args(rid));h.invoke('drive.set_enabled',enabled=True);h.invoke('acquisition.start');h.step(15);out[rid]=h.torque;self.assert_balanced(h)
+        self.assertEqual(len(set(round(v,9) for v in out.values())),4)
+    def test_literature_minimum_processing_interlock(self):
+        x=LIB['templates']['soluplus'];h=loaded('soluplus',x['minimum_processing']['temperature_k']-5,**host_args('soluplus'));h.invoke('drive.set_enabled',enabled=True)
+        self.rejected(h,'acquisition.start',{})
+    def test_degradation_onset_trip(self):
+        x=LIB['templates']['eudragit_rl_po'];td=x['degradation_onset_k'];self.assertLess(td,x['extrudable_window_k'][1])
+        h=loaded('eudragit_rl_po',td+3,**host_args('eudragit_rl_po'));h.invoke('drive.set_enabled',enabled=True);h.invoke('acquisition.start');h.step(5)
+        self.assertEqual(h.fault,'DEGRADATION_ONSET');self.assertTrue(h.latched);self.assert_balanced(h)
+    def test_load_reference_guards(self):
+        h=r.ThermoProcess11Runtime();h.invoke('plant.configure',**r.PLANT_EXAMPLE)
+        base=dict(mass_kg=.006,accept_uncalibrated_newtonian=True)
+        self.rejected(h,'material.load_reference',dict(base,reference_id='kollidon_va64',density_kg_m3=1000.))
+        self.rejected(h,'material.load_reference',dict(base,reference_id='soluplus'))
+        self.rejected(h,'material.load_reference',dict(base,reference_id='kollidon_30'))
+        self.rejected(h,'material.load_reference',dict(base,reference_id='ind30_kollidon_va64'))
+        self.rejected(h,'material.load_reference',dict(base,reference_id='nope'))
+        self.rejected(h,'material.load_reference',dict(base,reference_id='kollidon_va64',accept_uncalibrated_newtonian=False))
+        h.invoke('material.load_reference',reference_id='kollidon_va64',**base);self.rejected(h,'material.load_reference',dict(base,reference_id='kollidon_va64'))
+        self.rejected(h,'material.configure',r.MATERIAL_EXAMPLE)
+    def test_reference_lookup_new_records_exact_only(self):
+        h=r.ThermoProcess11Runtime();L=lambda **a:h.invoke('reference.lookup',**a)
+        v=L(reference_id='ind30_kollidon_va64',temperature_k=433.15);self.assertEqual(v['torque_percent_range'],[40,40]);self.assertEqual(v['pressure_range_pa'],[0.,1e5]);self.assertIsNone(v['torque_total_range_nm'])
+        v=L(reference_id='soluplus',temperature_k=413.15);self.assertEqual(v['viscosity_pa_s'],1e4);self.assertAlmostEqual(v['torque_total_range_nm'][0],9.6)
+        self.rejected(h,'reference.lookup',dict(reference_id='pzb_kollidon_va64',temperature_k=453.15))
+        v=L(reference_id='pzb_kollidon_va64',temperature_k=453.15,screw_speed_rad_s=300*r.TAU/60);self.assertEqual(v['torque_reported_range_nm'],[5.5,5.5])
+        self.rejected(h,'reference.lookup',dict(reference_id='alginate_glycerol',temperature_k=383.15))
+        self.assertEqual(L(reference_id='alginate_glycerol',temperature_k=383.15,variant='SA-45G')['torque_percent_range'],[24,26])
+        v=L(reference_id='fam20_eudragit_rl_po',temperature_k=393.15,screw_speed_rad_s=100*r.TAU/60,variant='PN 1 0.1 kg/h');self.assertAlmostEqual(v['sme_j_kg'],.41*3.6e6);self.assertEqual(v['licence_flag'],'restricted_nc_nd')
+        self.assertAlmostEqual(L(reference_id='cop_naproxen',temperature_k=423.15,variant='30% naproxen')['viscosity_pa_s'],259.)
+        for rid,T in [('cop_praziquantel',423.15),('pzb_hpmc',443.15),('ind30_soluplus',433.0),('kollidon_30',433.15)]:self.rejected(h,'reference.lookup',dict(reference_id=rid,temperature_k=T))
+        self.assertEqual(L(reference_id='pcm30_aff70',temperature_k=438.15)['torque_total_range_nm'],[1.68,2.04])
+    def test_material_lookup_every_record(self):
+        h=r.ThermoProcess11Runtime();before=h.debug_snapshot();classes=set()
+        for rid,x in LIB['templates'].items():
+            v=h.invoke('material.lookup',reference_id=rid);self.assertEqual(set(v),set(r.MATERIAL_INFO['properties']));self.assertEqual(v['runtime_usage'],x['runtime_usage']);classes.add(v['material_class'])
+        self.assertGreaterEqual(len(classes),10);self.assertEqual(before,h.debug_snapshot())
+        self.assertFalse(h.invoke('material.lookup',reference_id='eudragit_l100')['neat_extrudable'])
+    def test_agent_visibility_of_library(self):
+        h=r.ThermoProcess11Runtime();d=h.session().describe(instance_id=h.instance_id)['capabilities']
+        self.assertIn('material.lookup',d);self.assertNotIn('material.load_reference',d)
+        self.assertEqual(d and h.session().invoke(instance_id=h.instance_id,capability_id='material.load_reference',arguments=r.LOAD_REF_EXAMPLE,request_id='x')['error']['code'],'ACCESS_DENIED')
 if __name__=='__main__':unittest.main()

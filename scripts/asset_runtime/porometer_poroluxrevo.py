@@ -74,6 +74,9 @@ cap('acquisition.start',obj({}),obj({'operation_id':TEXT}),['controller','sample
 cap('acquisition.stop',obj({}),obj({'phase':PHASE}),['controller'],'取消关进气，保留残压和实际排液；结果冻结',effects=['acquisition.phase','gas.enabled'])
 cap('acquisition.result',obj({}),RESULT,['controller'],'纯读湿干曲线及贯通孔分析，历史/来源冻结','query')
 cap('reference.query',obj({'reference_id':TEXT}),obj({'reference_json':TEXT,'template_source':TEXT,'evidence':TEXT}),['controller'],'查询未改动的公开膜片曲线/条件','query',example={'reference_id':SAMPLE_EXAMPLE['reference_id']})
+SCALAR=obj({'kind':enum(['bubble_point','mean_flow','mean_pore','smallest_pore']),'diameter_m':number('m',0),'pressure_pa':number('Pa',0),'within_instrument_range':BOOL,'published_pressure_pa':nullable(number('Pa',0)),'source_liquid_pressure_pa':nullable(number('Pa',0))})
+SCALARS_OUT=obj({'reference_id':TEXT,'name':TEXT,'material_group':TEXT,'membrane_class':TEXT,'evidence':TEXT,'template_source':TEXT,'licence':TEXT,'source_liquid':nullable(TEXT),'source_surface_tension_n_m':nullable(number('N/m',0)),'scalars':array(SCALAR,1,4),'instrument_max_pressure_pa':number('Pa'),'warnings':array(TEXT,0,20)})
+cap('reference.pore_scalars',obj({'reference_id':TEXT,'surface_tension_n_m':number('N/m',.001,.1),'contact_angle_rad':number('rad',0,1.55)}),SCALARS_OUT,['controller'],'已发表泡点/平均流量/平均/最小孔径按指定润湿液Laplace换算压力并判断Revo量程；只用已发表标量，不生成流量曲线或PSD','analysis',example={'reference_id':'glass_fibre_whatman_s14','surface_tension_n_m':.016,'contact_angle_rad':0.})
 EXTERNAL=obj({'wet_pressure_pa':array(number('Pa',0),3,10000),'wet_flow_m3_s':array(number('m^3/s',0),3,10000),'dry_pressure_pa':array(number('Pa',0),3,10000),'dry_flow_m3_s':array(number('m^3/s',0),3,10000),'surface_tension_n_m':number('N/m',.001,.1),'contact_angle_rad':number('rad',0,1.55),'bubble_fraction':number('1',1e-6,.49),'accept_monotone_projection':BOOL})
 cap('analysis.porometry',EXTERNAL,ANALYSIS,['controller'],'外部独立曲线公开pCF/half-dry分析；不外推MFP，不伪完整归一化PSD','analysis',example={'wet_pressure_pa':[0.,10000.,20000.,40000.],'wet_flow_m3_s':[0.,1e-7,1e-6,4e-6],'dry_pressure_pa':[0.,10000.,20000.,40000.],'dry_flow_m3_s':[0.,1e-6,2e-6,4e-6],'surface_tension_n_m':.016,'contact_angle_rad':0.,'bubble_fraction':.01,'accept_monotone_projection':False})
 cap('ledger.read',obj({}),LEDGER,['controller'],'宿主氮气/润湿液/膜片及等温气室能量账本','query','evaluator')
@@ -119,6 +122,22 @@ def analyze(a):
  if unobserved>1e-9:reasons.append('truncated_flow_coverage_not_renormalized')
  if changes:reasons.append('explicit_clipping_and_cumulative_max_projection')
  return dict(bubble_pressure_pa=bp,bubble_diameter_m=factor/bp if bp else None,mean_flow_pressure_pa=mp,mean_flow_diameter_m=factor/mp if mp else None,pressure_pa=list(map(float,grid)),diameter_m=[factor/x for x in grid],cumulative_flow_fraction=list(map(float,ratio)),differential_flow_fraction=list(map(float,np.diff(ratio))),covered_flow_fraction=covered,unobserved_flow_fraction=unobserved,projection_changes=changes,reasons=reasons)
+
+SCALAR_FIELDS=[('bubble_point','published_bubble_point_pore_diameter_m','published_bubble_point_pressure_pa'),('mean_flow','published_mean_flow_pore_diameter_m','published_mean_flow_pressure_pa'),('mean_pore','published_mean_pore_diameter_m',None),('smallest_pore','published_smallest_pore_diameter_m','published_smallest_pore_pressure_pa')]
+def pore_scalars(reference_id,record,a):
+ """Published scalars only: P=4*gamma*cos(theta)/d for the requested liquid; no curve, no PSD."""
+ v=record['values'];c=record.get('conditions',{});factor=4*a['surface_tension_n_m']*math.cos(a['contact_angle_rad']);gs=c.get('surface_tension_n_m');ts=c.get('contact_angle_rad') or 0.;rows=[];warnings=[]
+ for kind,dk,pk in SCALAR_FIELDS:
+  d=v.get(dk)
+  if d is None or not math.isfinite(d) or d<=0:continue
+  p=factor/d;pub=v.get(pk) if pk else None;src=4*gs*math.cos(ts)/d if gs is not None else None
+  rows.append(dict(kind=kind,diameter_m=float(d),pressure_pa=float(p),within_instrument_range=bool(p<=MAX_PRESSURE),published_pressure_pa=None if pub is None else float(pub),source_liquid_pressure_pa=None if src is None else float(src)))
+  if pub is not None and src is not None and abs(pub/src-1)>.1:warnings.append(f'{kind}: published pressure differs from Laplace(source liquid, published diameter) by {100*(pub/src-1):+.0f}% (source shape factor/reporting convention); both returned unchanged')
+ if not rows:raise ActionRejected('INVALID_REFERENCE')
+ if gs is None:warnings.append('source paper did not state the wetting-liquid surface tension; source_liquid_pressure_pa is null')
+ if any(not r['within_instrument_range'] for r in rows):warnings.append('some pore sizes need more than the Revo 3.45 MPa differential with the requested liquid')
+ warnings.append('cylindrical-throat Laplace equivalent; published scalars from '+str(c.get('instrument') or record.get('native_instrument') or 'unspecified porometer')+', not Revo raw data; no flow curve or PSD is generated')
+ return dict(reference_id=reference_id,name=record['name'],material_group=record['material_group'],membrane_class=record.get('membrane_class') or 'unspecified',evidence=record['evidence'],template_source=record['source'].get('url') or json.dumps(record['source'],sort_keys=True),licence=record.get('licence') or record['source'].get('license') or 'see source',source_liquid=c.get('wetting_liquid'),source_surface_tension_n_m=gs,scalars=rows,instrument_max_pressure_pa=MAX_PRESSURE,warnings=warnings)
 
 class PorometerPoroluxrevoRuntime:
  def __init__(self,instance_id='poroluxrevo_01'):
@@ -189,6 +208,10 @@ class PorometerPoroluxrevoRuntime:
   if k=='acquisition.result':return self._result()
   if k=='ledger.read':return self._ledger()
   if k=='analysis.porometry':return analyze(a)
+  if k=='reference.pore_scalars':
+   record=library()['substances'].get(a['reference_id'])
+   if record is None or record.get('scalar_usable') is not True:raise ActionRejected('INVALID_REFERENCE')
+   return pore_scalars(a['reference_id'],record,a)
   if k=='reference.query':
    record=library()['substances'].get(a['reference_id'])
    if record is None:raise ActionRejected('INVALID_REFERENCE')

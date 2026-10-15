@@ -151,6 +151,15 @@ def export_hach_dr6000_contract_metadata():
     }
 
 
+# 2026-10 template hook: NIST UV / PhotochemCAD / Hach method path (scripts/basic40_templates/hach_dr6000.py).
+_dr6000_export_metadata_base = export_hach_dr6000_contract_metadata
+
+
+def export_hach_dr6000_contract_metadata():
+    from scripts.basic40_templates import hach_dr6000 as _dr6000_templates
+    return _dr6000_templates.extend_metadata(_dr6000_export_metadata_base())
+
+
 class HachDR6000:
     """Trusted per-instance host with an agent-only direct API."""
     def __init__(self, instance_id, *, scene_adapter=None, clock=None):
@@ -206,6 +215,16 @@ class HachDR6000:
                 raise ValueError("Invalid synthetic baseline or truth dictionary")
             self._samples[sample_id] = {"kind": kind, "peaks": _dr6000_copy.deepcopy(peaks), "baseline": float(baseline), "truth": _dr6000_copy.deepcopy(truth or {})}
 
+    def register_template_sample(self, sample_id, *, template_id, concentration_mol_m3=None, concentration_kg_m3=None, path_length_m=0.01, truth=None):
+        """Trusted host: cuvette backed by a NIST UV / PhotochemCAD spectrum (mol/m^3) or a Hach program (kg/m^3 analyte)."""
+        from scripts.basic40_templates import hach_dr6000 as _dr6000_templates
+        with self._lock:
+            if not isinstance(sample_id, str) or not sample_id or sample_id in self._samples or (truth is not None and not isinstance(truth, dict)):
+                raise ValueError("A new sample ID and optional truth dictionary are required")
+            template = _dr6000_templates.validate_sample(template_id, concentration_mol_m3=concentration_mol_m3,
+                                                         concentration_kg_m3=concentration_kg_m3, path_length_m=path_length_m)
+            self._samples[sample_id] = {"kind": "sample", "peaks": [], "baseline": 0.0, "truth": _dr6000_copy.deepcopy(truth or {}), "template": template}
+
     def describe(self, *, asset_type_id=None, instance_id=None):
         return self._agent.describe(asset_type_id=asset_type_id, instance_id=instance_id)
 
@@ -240,6 +259,9 @@ class HachDR6000:
         return float(value)
 
     def _spectrum(self, state):
+        if "template" in self._samples[state["sample.id"]]:  # None => scan misses the template's defined wavelengths
+            from scripts.basic40_templates import hach_dr6000 as _dr6000_templates
+            return _dr6000_templates.spectrum(self._samples[state["sample.id"]]["template"], state, self._samples[state["sample.id"]]["kind"])
         start, stop, step = (state[k] for k in ("scan.start_m", "scan.stop_m", "scan.step_m"))
         count = int(_dr6000_math.floor((stop - start) / step + 1e-8)) + 1
         axis = [start + i * step for i in range(count)]
@@ -419,10 +441,18 @@ class HachDR6000Session:
             elif capability_id == "spectroscopy.set_mode":
                 state["measurement.mode"] = arguments["mode"]
                 result = {"mode": arguments["mode"]}
+            elif capability_id == "template.read":  # public reference lookup; no state or scene effect
+                from scripts.basic40_templates import hach_dr6000 as _dr6000_templates
+                record = _dr6000_templates.template_read(arguments["substance_id"])
+                if record is None:
+                    return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
+                return self._response(request_id=request_id, result=record)
             elif capability_id == "spectroscopy.measure":
                 if not state["lid.closed"] or not state["sample.loaded"]:
                     return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
                 spectrum = host._spectrum(state)
+                if spectrum is None:
+                    return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
                 state["measurement.spectrum"] = spectrum
                 state["measurement.count"] += 1
                 result = {"spectrum": spectrum}
@@ -675,6 +705,15 @@ def export_jasco_ftir4700_contract_metadata():
             "The synchronous scene callback preflights and restores its own targets on failure; arbitrary external callbacks may have unknown scene side effects."]}
 
 
+# 2026-10 template hook: spectral_library/ir_spectra.json path (scripts/basic40_templates/jasco_ftir4700.py).
+_ftir_export_metadata_base = export_jasco_ftir4700_contract_metadata
+
+
+def export_jasco_ftir4700_contract_metadata():
+    from scripts.basic40_templates import jasco_ftir4700 as _ftir_templates
+    return _ftir_templates.extend_metadata(_ftir_export_metadata_base())
+
+
 class JascoFTIR4700:
     """Independent, per-instance synthetic process; shared host clock is read only."""
     def __init__(self, instance_id, *, scene_adapter=None, clock=None):
@@ -730,6 +769,15 @@ class JascoFTIR4700:
                 raise ValueError("Invalid synthetic baseline or truth dictionary")
             self._samples[sample_id] = {"phase": phase, "peaks": _ftir_copy.deepcopy(peaks), "baseline": float(baseline), "truth": _ftir_copy.deepcopy(truth or {})}
 
+    def register_template_sample(self, sample_id, *, substance_id, phase, peak_absorbance=1.0, truth=None):
+        """Trusted host: one spectral_library compound; measure returns its NIST IR spectrum at the method resolution."""
+        from scripts.basic40_templates import jasco_ftir4700 as _ftir_templates
+        with self._lock:
+            if not isinstance(sample_id, str) or not sample_id or sample_id in self._samples or (truth is not None and not isinstance(truth, dict)):
+                raise ValueError("A new sample ID and optional truth dictionary are required")
+            template = _ftir_templates.validate_sample(substance_id, phase=phase, peak_absorbance=peak_absorbance)
+            self._samples[sample_id] = {"phase": phase, "peaks": [], "baseline": 0.0, "truth": _ftir_copy.deepcopy(truth or {}), "template": template}
+
     def describe(self, *, asset_type_id=None, instance_id=None):
         return self._agent.describe(asset_type_id=asset_type_id, instance_id=instance_id)
 
@@ -772,6 +820,9 @@ class JascoFTIR4700:
             "synthetic": True, "quality": "estimated", "axis_unit": "m^-1", "signal_unit": "1", "measurement_duration_s": None}
 
     def _spectrum(self, state):
+        if "template" in self._samples[state["sample.id"]]:  # None => configured range misses the reference coverage
+            from scripts.basic40_templates import jasco_ftir4700 as _ftir_templates
+            return _ftir_templates.spectrum(self._samples[state["sample.id"]]["template"], state)
         axis = self._axis(state)
         sample = self._samples[state["sample.id"]]
         absorbance = [sample["baseline"] + sum(amplitude * _ftir_math.exp(-0.5 * ((number - center) / width) ** 2)
@@ -906,6 +957,12 @@ class JascoFTIR4700Session:
                 return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
         if cap["scene_required"] and host._scene_adapter is None:
             return self._response("unsupported", request_id=request_id, code="UNSUPPORTED")
+        if capability_id == "template.read":  # public reference lookup; no state or scene effect
+            from scripts.basic40_templates import jasco_ftir4700 as _ftir_templates
+            record = _ftir_templates.template_read(arguments["substance_id"])
+            if record is None:
+                return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
+            return self._response(request_id=request_id, result=record)
         state = _ftir_copy.deepcopy(host._state)
         def reject():
             return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
@@ -959,6 +1016,8 @@ class JascoFTIR4700Session:
                 if not state["sample.loaded"] or not state["background.ready"]:
                     return reject()
                 state["measurement.spectrum"] = host._spectrum(state)
+                if state["measurement.spectrum"] is None:
+                    return reject()
                 state["measurement.count"] += 1
                 result = {"spectrum": state["measurement.spectrum"]}
         else:
@@ -1251,6 +1310,15 @@ def export_agilent_gc8890b_contract_metadata():
     }
 
 
+# 2026-10 template hook: spectral_library/gc_retention.json path (scripts/basic40_templates/agilent_gc8890b.py).
+_gc8890b_export_metadata_base = export_agilent_gc8890b_contract_metadata
+
+
+def export_agilent_gc8890b_contract_metadata():
+    from scripts.basic40_templates import agilent_gc8890b as _gc8890b_templates
+    return _gc8890b_templates.extend_metadata(_gc8890b_export_metadata_base())
+
+
 class AgilentGC8890B(HachDR6000):
     """Per-instance public adapter; trusted host owns private fixtures and process."""
     def __init__(self, instance_id, *, scene_adapter=None):
@@ -1284,6 +1352,16 @@ class AgilentGC8890B(HachDR6000):
                     raise ValueError("Synthetic peak outside workload bounds")
             _dr6000_json.dumps(truth or {}, allow_nan=False)
             self._samples[sample_id] = {"peaks": _dr6000_copy.deepcopy(peaks), "truth": _dr6000_copy.deepcopy(truth or {})}
+
+    def register_template_sample(self, sample_id, *, composition_kg, column="nonpolar", injection_fraction=0.01, truth=None):
+        """Trusted host: vial contents as spectral_library ids -> kg; measure runs gc_runtime with NIST-RI fingerprints."""
+        from scripts.basic40_templates import agilent_gc8890b as _gc8890b_templates
+        with self._lock:
+            if not isinstance(sample_id, str) or not sample_id or sample_id in self._samples or (truth is not None and not isinstance(truth, dict)):
+                raise ValueError("A new nonempty sample ID and optional truth dictionary are required")
+            _dr6000_json.dumps(truth or {}, allow_nan=False)
+            template = _gc8890b_templates.validate_sample(composition_kg, column=column, injection_fraction=injection_fraction)
+            self._samples[sample_id] = {"peaks": [], "truth": _dr6000_copy.deepcopy(truth or {}), "template": template}
 
     @staticmethod
     def _public_scene_state(state):
@@ -1322,6 +1400,9 @@ class AgilentGC8890B(HachDR6000):
             return self.read()
 
     def _chromatogram(self, state):
+        if "template" in self._samples[state["sample.id"]]:  # None => FID cannot be lit at the setpoint
+            from scripts.basic40_templates import agilent_gc8890b as _gc8890b_templates
+            return _gc8890b_templates.chromatogram(self._samples[state["sample.id"]]["template"], state)
         peaks = self._samples[state["sample.id"]]["peaks"]
         axis = [float(i) for i in range(301)]
         current = [sum(height * _dr6000_math.exp(-0.5 * ((time - center) / width) ** 2)
@@ -1408,10 +1489,18 @@ class AgilentGC8890BSession(HachDR6000Session):
             except ValueError:
                 return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
             result = {"zone": arguments["zone"], "temperature_K": float(arguments["temperature_K"])}
+        elif capability_id == "template.read":
+            from scripts.basic40_templates import agilent_gc8890b as _gc8890b_templates
+            record = _gc8890b_templates.template_read(arguments["substance_id"])
+            if record is None:
+                return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
+            return self._response(request_id=request_id, result=record)
         elif capability_id == "chromatography.measure":
             if not state["power.enabled"] or not state["lid.closed"] or not state["sample.loaded"]:
                 return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
             state["measurement.chromatogram"] = host._chromatogram(state)
+            if state["measurement.chromatogram"] is None:
+                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
             state["measurement.count"] += 1
             result = {"chromatogram": state["measurement.chromatogram"]}
         else:
@@ -1650,6 +1739,15 @@ def export_agilent_hs8697_contract_metadata():
             'Deduplication is in-memory per instance and principal; no cross-restart exactly-once claim.']}
 
 
+# 2026-10 template hook: Henry-law headspace library path (scripts/basic40_templates/agilent_hs8697.py).
+_hs8697_export_metadata_base = export_agilent_hs8697_contract_metadata
+
+
+def export_agilent_hs8697_contract_metadata():
+    from scripts.basic40_templates import agilent_hs8697 as _hs8697_templates
+    return _hs8697_templates.extend_metadata(_hs8697_export_metadata_base())
+
+
 class AgilentHS8697:
     """Trusted host for one 48-tray / 12-oven synthetic headspace sampler."""
     def __init__(self, instance_id, *, scene_adapter=None, clock=None, ambient_temperature_K=None):
@@ -1696,6 +1794,39 @@ class AgilentHS8697:
             if not _hs8697_number(volume_m3) or volume_m3 not in AGILENT_HS8697_VIAL_VOLUMES_M3 or not isinstance(sealed, bool) or (truth is not None and not isinstance(truth, dict)):
                 raise ValueError('Vial volume must be 10/20/22 mL in SI; sealed must be boolean; truth must be dictionary')
             self._samples[sample_id] = {'volume_m3': float(volume_m3), 'sealed': sealed, 'truth': _hs8697_copy.deepcopy(truth or {})}
+
+    def register_template_sample(self, sample_id, *, volume_m3, composition_mol_m3, liquid_volume_m3, sealed=True, truth=None):
+        """Trusted host: aqueous vial (library ids -> initial mol/m^3); measure uses Henry-law partition + template GC."""
+        from scripts.basic40_templates import agilent_hs8697 as _hs8697_templates
+        with self._lock:
+            if not isinstance(sample_id, str) or not sample_id or sample_id in self._samples or not isinstance(sealed, bool) or (truth is not None and not isinstance(truth, dict)):
+                raise ValueError('A new nonempty sample ID, boolean sealed flag and optional truth dictionary are required')
+            template = _hs8697_templates.validate_sample(composition_mol_m3, liquid_volume_m3=liquid_volume_m3, vial_volume_m3=volume_m3)
+            self._samples[sample_id] = {'volume_m3': float(volume_m3), 'sealed': sealed, 'truth': _hs8697_copy.deepcopy(truth or {}), 'template': template}
+
+    def configure_template_transfer(self, *, loop_volume_m3, gc_column='nonpolar', gc_oven_temperature_K=353.15,
+                                    gc_inlet_temperature_K=523.15, gc_fid_temperature_K=573.15, split_ratio=20.0, evidence):
+        """Trusted host assumption for template vials: loop volume and the GC method that receives the headspace."""
+        from scripts.basic40_templates import agilent_hs8697 as _hs8697_templates
+        if evidence != 'assumption':
+            raise ValueError("An explicit evidence='assumption' label is required")
+        transfer = _hs8697_templates.validate_transfer(loop_volume_m3=loop_volume_m3, gc_column=gc_column, gc_oven_temperature_K=gc_oven_temperature_K,
+            gc_inlet_temperature_K=gc_inlet_temperature_K, gc_fid_temperature_K=gc_fid_temperature_K, split_ratio=split_ratio)
+        with self._lock:
+            self._template_transfer = transfer
+
+    def headspace_transfer(self, sample_id, *, temperature_K=None):
+        """Trusted-host/evaluator detail: equilibrium headspace and loop contents, e.g. for AgilentGC8890B.register_template_sample."""
+        from scripts.basic40_templates import agilent_hs8697 as _hs8697_templates
+        with self._lock:
+            sample = self._samples.get(sample_id)
+            if sample is None or 'template' not in sample:
+                raise ValueError('Unknown or non-template sample')
+            temperature = self._state['thermal.oven.setpoint_k'] if temperature_K is None else temperature_K
+            transfer = getattr(self, '_template_transfer', None)
+            if not _hs8697_number(temperature):
+                raise ValueError('An oven setpoint or explicit temperature_K is required')
+            return _hs8697_templates.equilibrium(sample['template'], float(temperature), None if transfer is None else transfer['loop_volume_m3'])
 
     def register_gc(self, gc_instance_id, *, carrier_gas_available=True):
         """Trusted host connection assertion only, not a physical GC command."""
@@ -1861,6 +1992,10 @@ class AgilentHS8697Session:
                 return reject('INVALID_ARGUMENT')
         if cap['scene_required'] and host._scene_adapter is None:
             return reject('UNSUPPORTED', 'unsupported')
+        if cid == 'template.read':  # public Henry-law reference lookup; no state or scene effect
+            from scripts.basic40_templates import agilent_hs8697 as _hs8697_templates
+            record = _hs8697_templates.template_read(args['substance_id'])
+            return reject('INVALID_ARGUMENT') if record is None else self._response(request_id=request_id, result=record)
         state = _hs8697_copy.deepcopy(host._state)
         if cid in ('sample.transfer', 'thermal.set_temperature', 'method.set_equilibration_time', 'measure') and not state['power.enabled']:
             return reject()
@@ -1927,6 +2062,15 @@ class AgilentHS8697Session:
             state['injection.log'].append({'request_id': request_id, 'sample_id': sample_id, 'oven_slot': args['oven_slot'], 'gc_instance_id': state['gc.instance_id'], 'time_s': now, 'synthetic': True})
             host._status(state, sample_id, args['oven_slot'], 'measured_synthetic')
             result = {'chromatogram': spectrum, 'synthetic': True}
+            if 'template' in host._samples[sample_id]:  # template vial replaces the fixture (uncommitted state until success)
+                from scripts.basic40_templates import agilent_hs8697 as _hs8697_templates
+                result = _hs8697_templates.measure(host._samples[sample_id]['template'], getattr(host, '_template_transfer', None),
+                    state['thermal.oven.setpoint_k'], state['method.equilibration_time_s'])
+                if result is None:
+                    return reject()
+                state['measurement.chromatogram'] = result['chromatogram']
+                state['injection.log'][-1]['synthetic'] = False
+                host._status(state, sample_id, args['oven_slot'], 'measured_template')
         else:
             return reject('UNSUPPORTED', 'unsupported')
         if cid != 'measure':
@@ -2086,6 +2230,15 @@ def export_agilent_hplc1260_contract_metadata():
             "Synchronous callback failure leaves process uncommitted but may have unknown external scene side effects."]}
 
 
+# 2026-10 template hook: spectral_library hplc_uv.json + uv_vis.json path (scripts/basic40_templates/agilent_hplc1260.py).
+_hplc_export_metadata_base = export_agilent_hplc1260_contract_metadata
+
+
+def export_agilent_hplc1260_contract_metadata():
+    from scripts.basic40_templates import agilent_hplc1260 as _hplc_templates
+    return _hplc_templates.extend_metadata(_hplc_export_metadata_base())
+
+
 def _hplc_input_valid(value, spec):
     kind = spec.get("type")
     if kind == "number":
@@ -2151,6 +2304,15 @@ class AgilentHPLC1260Runtime(HachDR6000):
                     raise ValueError("Peak outside the arbitrary fixture workload envelope")
             self._samples[sample_id] = {"peaks": _hplc_copy.deepcopy(peaks), "truth": _hplc_copy.deepcopy(truth or {})}
 
+    def register_template_sample(self, sample_id, *, composition_mol_m3, truth=None):
+        """Trusted host: vial solutes as spectral_library ids -> mol/m^3 (XLogP retention + NIST UV absorbance)."""
+        from scripts.basic40_templates import agilent_hplc1260 as _hplc_templates
+        with self._lock:
+            if not isinstance(sample_id, str) or not sample_id or sample_id in self._samples or (truth is not None and not isinstance(truth, dict)):
+                raise ValueError("A fresh sample ID and optional truth dictionary are required")
+            template = _hplc_templates.validate_sample(composition_mol_m3)
+            self._samples[sample_id] = {"peaks": [], "truth": _hplc_copy.deepcopy(truth or {}), "template": template}
+
     def scene_bindings(self):
         with self._lock:
             return self._public_scene_state(self._state)
@@ -2174,6 +2336,9 @@ class AgilentHPLC1260Runtime(HachDR6000):
             axis.append(duration)
         elif complete:
             axis[-1] = duration
+        if "template" in self._samples[state["sample.id"]]:
+            from scripts.basic40_templates import agilent_hplc1260 as _hplc_templates
+            return _hplc_templates.chromatogram(self._samples[state["sample.id"]]["template"], state, axis, complete)
         peaks = self._samples[state["sample.id"]]["peaks"]
         signal = [sum(a * _hplc_math.exp(-0.5 * ((t - c) / w) ** 2) for c, w, a in peaks) for t in axis]
         area = sum((signal[i] + signal[i - 1]) * (axis[i] - axis[i - 1]) / 2 for i in range(1, len(axis)))
@@ -2256,6 +2421,12 @@ class AgilentHPLC1260Session(HachDR6000Session):
             return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
         if cap["scene_required"] and h._scene_adapter is None:
             return self._response("unsupported", request_id=request_id, code="UNSUPPORTED")
+        if capability_id == "template.read":  # public reference lookup; no state, run or scene effect
+            from scripts.basic40_templates import agilent_hplc1260 as _hplc_templates
+            record = _hplc_templates.template_read(arguments["substance_id"])
+            if record is None:
+                return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
+            return self._response(request_id=request_id, result=record)
         state = _hplc_copy.deepcopy(h._state)
         if state["run.status"] == "running" and capability_id not in ("chromatography.stop", "chromatography.get_chromatogram"):
             return self._response("rejected", request_id=request_id, code="BUSY")
@@ -2911,6 +3082,13 @@ class Eppendorf5910RiSession:
             return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
         if cap["availability"] == "unsupported" or (cap["scene_required"] and h._scene_adapter is None):
             return self._response("unsupported", request_id=request_id, code="UNSUPPORTED")
+        if capability_id in ("template.read", "sedimentation.estimate"):  # read-only reference/analysis; no state effect
+            from scripts.basic40_templates import eppendorf_5910ri as _epp_templates
+            result = (_epp_templates.template_read(arguments["substance_id"]) if capability_id == "template.read"
+                      else _epp_templates.estimate(arguments, h._state))
+            if result is None or isinstance(result, str):
+                return self._response("rejected", request_id=request_id, code=result or "INVALID_ARGUMENT")
+            return self._response(request_id=request_id, result=result)
         state, operations = _epp_copy.deepcopy(h._state), _epp_copy.deepcopy(h._operations)
         if h._busy(state) and capability_id not in ("power.set", "centrifuge.stop", "centrifuge.get_curve"):
             return self._response("rejected", request_id=request_id, code="BUSY")
@@ -3073,3 +3251,12 @@ def export_eppendorf_5910ri_contract_metadata():
         "At most 10000 regularly spaced post-start curve samples plus one exact final sample are retained. If an unusually slow host-configured power-off coast extends the duration beyond that grid, the explicit time axis has a gap before the final point; no interpolated samples are fabricated.",
         "Power-off during an existing braking segment preserves that segment's synthetic deceleration. It always keeps the lid locked until the terminal stop event."])
     return metadata
+
+
+# 2026-10 template hook: sedimentation reference library (scripts/basic40_templates/eppendorf_5910ri.py).
+_epp_export_metadata_before_templates = export_eppendorf_5910ri_contract_metadata
+
+
+def export_eppendorf_5910ri_contract_metadata():
+    from scripts.basic40_templates import eppendorf_5910ri as _epp_templates
+    return _epp_templates.extend_metadata(_epp_export_metadata_before_templates())

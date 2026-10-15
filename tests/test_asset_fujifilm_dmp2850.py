@@ -1,6 +1,7 @@
 """CHEM-058 runtime contract, finite ink and uncalibrated physical invariants."""
 import copy,math,unittest
 from scripts.asset_runtime import fujifilm_dmp2850 as m
+from scripts.asset_runtime.fujifilm_dmp2850 import *
 def ready(ink=None,method=None,sample=None,pattern=None):
     r=m.FujifilmDmp2850Runtime()
     for k,a in [('plant',m.PLANT_EXAMPLE),('ink',ink or m.INK_EXAMPLE),('method',method or m.METHOD_EXAMPLE),('substrate',sample or m.SAMPLE_EXAMPLE),('pattern',pattern or m.PATTERN_EXAMPLE)]:r.invoke(k+'.configure',**copy.deepcopy(a))
@@ -116,4 +117,74 @@ class TestDmp2850(unittest.TestCase):
         for _ in range(300):b.step(.01)
         self.assertEqual(a.q,b.q);self.assertEqual(a.drop_count,b.drop_count);self.assertEqual(a.phase,b.phase);self.assertLedger(a);self.assertLedger(b)
         self.assertAlmostEqual(a.evaporated[0],b.evaporated[0],delta=1e-16)
+
+# --- 298.15 K real solvent-property library (shared thin-film solvent set, asset_version 1.1.0) ---
+LIT_298K = {  # CRC-Handbook-level literature values at 25 C used as independent sanity anchors (rho kg/m3, mu Pa s, sigma N/m)
+    'water': (997.05, 0.890e-3, 71.99e-3), 'ethanol': (785.1, 1.074e-3, 21.97e-3), 'toluene': (862.3, 0.560e-3, 27.93e-3),
+    'ethylene_glycol': (1110.0, 16.1e-3, 47.99e-3), 'dmso': (1095.4, 1.987e-3, 42.92e-3), 'heptane': (679.5, 0.387e-3, 19.66e-3),
+    'butyl_acetate': (876.4, 0.685e-3, 24.88e-3), 'nmp': (1028.0, 1.666e-3, 40.79e-3), 'chloroform': (1479.0, 0.537e-3, 26.67e-3),
+    'cyclohexanone': (942.0, 2.017e-3, 34.57e-3)}
+
+
+class SolventLibraryTests(unittest.TestCase):
+    def runtime(self):
+        return FujifilmDmp2850Runtime()
+    def test_at_least_50_distinct_usable_real_records(self):
+        h=self.runtime();usable=[r for r in h.templates.values() if r.get('usable_at_298_15K')]
+        self.assertGreaterEqual(len(usable),50);self.assertEqual(len({r['cas'] for r in usable}),len(usable))
+        for r in usable:
+            p=r['properties_298_15K']
+            for k in ('density_kg_m3','viscosity_pa_s','surface_tension_n_m','vapor_pressure_pa'):
+                self.assertIn(p[k]['evidence'],('measured_literature','derived'),(r['substance_id'],k));self.assertGreater(p[k]['value'],0)
+            self.assertGreater(r['normal_boiling_point']['value_k'],298.15);self.assertLess(r['melting_point']['value_k'],298.15)
+            self.assertTrue(r['inchikey']);self.assertTrue(r['raw_files'])
+    def test_properties_across_classes_match_literature(self):
+        h=self.runtime()
+        for sid,(rho,mu,sig) in LIT_298K.items():
+            p=h.invoke('reference.properties',substance_id=sid)
+            self.assertAlmostEqual(p['density_kg_m3']/rho,1,delta=.006,msg=sid);self.assertAlmostEqual(p['viscosity_pa_s']/mu,1,delta=.10,msg=sid)
+            self.assertAlmostEqual(p['surface_tension_n_m']/sig,1,delta=.04,msg=sid);self.assertEqual(p['temperature_k'],298.15)
+            self.assertGreater(p['vapor_pressure_pa'],0);self.assertGreater(p['normal_boiling_point_k'],298.15)
+        self.assertAlmostEqual(h.invoke('reference.properties',substance_id='water')['vapor_pressure_pa'],3169.9,delta=5)
+        self.assertAlmostEqual(h.invoke('reference.lookup',substance_id='nonane',temperature_k=298.15)['vapor_pressure_pa'],580.6,delta=1)
+    def test_incomplete_and_unknown_records_rejected(self):
+        h=self.runtime();before=h.debug_snapshot()
+        for sid,code in [('menthol','REFERENCE_INCOMPLETE'),('tert_butanol','REFERENCE_INCOMPLETE'),('acetaldehyde','REFERENCE_INCOMPLETE'),('no_such_solvent','UNKNOWN_REFERENCE')]:
+            with self.assertRaisesRegex(ActionRejected,code):h.invoke('reference.properties',substance_id=sid)
+        self.assertEqual(before,h.debug_snapshot())
+    def test_derived_vapour_pressure_fits_never_extrapolate(self):
+        h=self.runtime()
+        r=h.invoke('reference.lookup',substance_id='cyclohexanone',temperature_k=298.15);self.assertIn('Clausius_Clapeyron',r['evidence']);self.assertGreater(r['vapor_pressure_pa'],100)
+        with self.assertRaisesRegex(ActionRejected,'REFERENCE_OUT_OF_RANGE'):h.invoke('reference.lookup',substance_id='cyclohexanone',temperature_k=310.)
+        self.assertIn('ThermoML',h.invoke('reference.lookup',substance_id='nmp',temperature_k=298.15)['evidence'])
+        self.assertIn('SRD69',h.invoke('reference.lookup',substance_id='heptane',temperature_k=298.15)['evidence'])
+        self.assertAlmostEqual(h.invoke('reference.lookup',substance_id='ethanol',temperature_k=298.15)['vapor_pressure_pa'],7869.085,places=2)
+    def test_reference_properties_agent_visible_and_schema(self):
+        import importlib.util
+        s=importlib.util.spec_from_file_location('tool_lib',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');t=importlib.util.module_from_spec(s);s.loader.exec_module(t)
+        h=self.runtime();sess=h.session()
+        out=sess.invoke(instance_id=h.instance_id,capability_id='reference.properties',arguments={'substance_id':'ethylene_glycol'},request_id='p1')
+        self.assertEqual(out['status'],'succeeded');self.assertFalse(t.validate_value(out['result'],CAPS['reference.properties'][1]))
+        self.assertIn('reference.properties',sess.describe(instance_id=h.instance_id)['capabilities'])
+
+    def test_printability_numbers_from_real_properties(self):
+        h=self.runtime();L=(6*DROP_VOLUME/math.pi)**(1/3);v=5.
+        for sid in ('water','ethanol','ethylene_glycol','dmso','butoxyethanol_2'):
+            p=h.invoke('reference.properties',substance_id=sid);o=h.invoke('ink.printability',substance_id=sid,characteristic_length_m=L,drop_velocity_m_s=v)
+            oh=p['viscosity_pa_s']/math.sqrt(p['density_kg_m3']*p['surface_tension_n_m']*L)
+            self.assertAlmostEqual(o['ohnesorge'],oh,places=12);self.assertAlmostEqual(o['z_number']*o['ohnesorge'],1,places=12)
+            self.assertAlmostEqual(o['reynolds'],p['density_kg_m3']*v*L/p['viscosity_pa_s'],places=9);self.assertAlmostEqual(math.sqrt(o['weber'])/o['reynolds'],oh,places=12)
+            self.assertEqual(o['within_z_1_to_10'],1<1/oh<10)
+        eg=h.invoke('ink.printability',substance_id='ethylene_glycol',characteristic_length_m=L,drop_velocity_m_s=v);w=h.invoke('ink.printability',substance_id='water',characteristic_length_m=L,drop_velocity_m_s=v)
+        self.assertTrue(eg['within_z_1_to_10']);self.assertFalse(w['within_z_1_to_10']);self.assertFalse(eg['within_cartridge_viscosity_window'])
+    def test_no_pure_solvent_inside_samba_ideal_window(self):
+        h=self.runtime()
+        inside=[s for s,r in h.templates.items() if r.get('usable_at_298_15K') and .004<=r['properties_298_15K']['viscosity_pa_s']['value']<=.008 and .028<=r['properties_298_15K']['surface_tension_n_m']['value']<=.032]
+        self.assertEqual(inside,[]);self.assertNotIn('ink.configure_from_reference',CAPS)
+    def test_printability_rejects_incomplete_record_and_bad_length(self):
+        h=self.runtime();before=h.debug_snapshot()
+        with self.assertRaisesRegex(ActionRejected,'REFERENCE_INCOMPLETE'):h.invoke('ink.printability',substance_id='menthol',characteristic_length_m=2e-5,drop_velocity_m_s=5.)
+        with self.assertRaises(ActionRejected):h.invoke('ink.printability',substance_id='water',characteristic_length_m=0.,drop_velocity_m_s=5.)
+        self.assertEqual(before,h.debug_snapshot())
+
 if __name__=='__main__':unittest.main()

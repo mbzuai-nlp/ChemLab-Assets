@@ -733,6 +733,16 @@ class RV10Host:
             self._refresh(inst)
             inst.revision += 1
 
+    def configure_template_charge(self, instance_id, *, solvent_id, volume_m3, condensation_efficiency, heat_transfer_w_k, evidence):
+        """2026-10 optional template path: library solvent + volume; rate from NIST Antoine data and an assumed UA."""
+        return _vacuum_templates("ika_rv10").configure_charge(self, instance_id, solvent_id=solvent_id, volume_m3=volume_m3,
+            condensation_efficiency=condensation_efficiency, heat_transfer_w_k=heat_transfer_w_k, evidence=evidence)
+
+    def template_charge_report(self, instance_id):
+        """Trusted evaluator view of the template charge (identity, boiling point, rate, provenance)."""
+        with self._lock:
+            return _vacuum_templates("ika_rv10").report(copy.deepcopy(self._instances[instance_id]))
+
     def connect_vacuum_source(self, instance_id, source_instance_id, *, pressure_pa=None, source_asset_type_id=ASSET_TYPE_ID, evidence):
         """Register an external source reference, never create a pump."""
         with self._lock:
@@ -790,6 +800,8 @@ class RV10Host:
         s["thermal.heating_power_w"] = power
         p = s["vacuum.pressure_pa"]
         s["vacuum.indicated_pressure_pa"] = None if p is None else float(round(p))
+        if inst.evaporation and "template" in inst.evaporation:  # 2026-10 template charge: rate from real Antoine data
+            inst.evaporation["evaporation_rate_kg_s"] = _vacuum_templates("ika_rv10").current_rate_kg_s(inst)
         s["evaporation.running"] = bool(inst.evaporation and s["evaporation.remaining_mass_kg"] > 0 and inst.evaporation["evaporation_rate_kg_s"] > 0 and s["power.enabled"] and s["rotation.running"] and s["thermal.enabled"] and inst.bath and s["vacuum.source_instance_id"] is not None and p is not None)
         mass = s["recovery.condensate_mass_kg"]
         s["recovery.indicated_condensate_mass_kg"] = None if mass is None else round(mass, 6)
@@ -835,6 +847,8 @@ class RV10Host:
                     difference = s["lift.target_position_m"] - s["lift.position_m"]
                     s["lift.position_m"] += math.copysign(min(abs(difference), self.lift_speed_m_s * dt), difference)
                 s["rotation.angle_rad"] += s["rotation.speed_rad_s"] * dt
+                if inst.evaporation and "template" in inst.evaporation:  # 2026-10: start-of-step Antoine-based rate (explicit Euler)
+                    inst.evaporation["evaporation_rate_kg_s"] = _vacuum_templates("ika_rv10").current_rate_kg_s(inst)
                 self._advance_bath(inst, dt)
                 if s["evaporation.running"]:
                     evaporated = min(s["evaporation.remaining_mass_kg"], inst.evaporation["evaporation_rate_kg_s"] * dt)
@@ -912,6 +926,7 @@ class RV10Session:
             for cap in caps.values():
                 cap["state_effects"] = [item for item in cap["state_effects"] if item["state_id"] in slots]
                 cap["observes"] = [sid for sid in cap["observes"] if sid in slots]
+            caps.update(_vacuum_templates("ika_rv10").capabilities(include_evaluator=self.__host._principals[self.__principal_id][0] in ("debug", "evaluator")))
             return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": RV10_ASSET_TYPE_ID, "asset_version": "1.0.0", "instance_id": instance_id, "catalog_id": "CHEM-024", "model": spec["model"], "adapter": "basic40_runtime_vacuum.RV10Session", "capabilities": caps, "state_slots": slots, "limitations": list(RV10_LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
@@ -966,6 +981,18 @@ class RV10Session:
     def _invoke_checked(self, inst, cap, args, request_id):
         host = self.__host
         fail = lambda code, status="rejected": self._error(inst.instance_id, code, request_id, status)
+        templates = _vacuum_templates("ika_rv10")
+        if cap in templates.CAPABILITY_IDS:  # 2026-10 template queries: read-only, no state change
+            if cap in templates.EVALUATOR_CAPABILITIES:
+                if self.__host._principals[self.__principal_id][0] not in ("debug", "evaluator"):
+                    return fail("ACCESS_DENIED")
+                if args != {}:
+                    return fail("INVALID_ARGUMENT")
+                return self._envelope(inst.instance_id, request_id, result=templates.report(copy.deepcopy(inst)))
+            result, code = templates.template_read(args)
+            if code == "UNKNOWN_REFERENCE":
+                return self._envelope(inst.instance_id, request_id, status="rejected", error={"code": code, "message": "substance_id is not in the RV10 evaporation library", "retryable": False, "side_effects": "none", "known_progress": None})
+            return fail(code) if code else self._envelope(inst.instance_id, request_id, result=result)
         if cap in ("vacuum.set_pressure", "timer.set_duration"):
             return fail("UNSUPPORTED", "unsupported")
         if cap not in RV10_CAPABILITY_ARGUMENTS:
@@ -1044,6 +1071,15 @@ def validate_rv10_runtime(output=None):
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return report
+
+
+def _vacuum_templates(slug):
+    """2026-10 lazy import of scripts/basic40_templates/<slug>.py (real-data template helpers)."""
+    import importlib
+    try:
+        return importlib.import_module("basic40_templates." + slug)
+    except ModuleNotFoundError:
+        return importlib.import_module("scripts.basic40_templates." + slug)
 
 
 # CHEM-025: namespaced, standalone externally driven Lyovapor model.
@@ -1202,6 +1238,7 @@ class _LyovaporInstance:
     sample_evidence: str | None = None
     boundary_evidence: str | None = None
     kinetics: dict | None = None
+    template: dict | None = None  # 2026-10 optional library product (Tg'/Tc/Te), see basic40_templates/buchi_lyovapor_l250.py
 
 
 class LyovaporSceneSynchronizationError(RuntimeError):
@@ -1295,7 +1332,18 @@ class LyovaporHost:
                 "cycle.phase": "idle", "cycle.endpoint_status": "pending", "cycle.phase_elapsed_s": 0.0, "cycle.elapsed_s": 0.0, "cycle.wait_reason": "none"})
             inst.sample_evidence = evidence
             inst.kinetics = None
+            inst.template = None
             self._commit_host(inst)
+
+    def initialize_template_sample(self, instance_id, *, formulation_id, dry_mass_kg, ice_mass_kg, bound_water_mass_kg, pre_frozen, evidence):
+        """2026-10 optional template path: product linked to a library formulation (critical temperature, real ice vapour pressure)."""
+        return _vacuum_templates("buchi_lyovapor_l250").initialize_sample(self, instance_id, formulation_id=formulation_id, dry_mass_kg=dry_mass_kg,
+            ice_mass_kg=ice_mass_kg, bound_water_mass_kg=bound_water_mass_kg, pre_frozen=pre_frozen, evidence=evidence)
+
+    def template_drying_report(self, instance_id):
+        """Trusted evaluator view: formulation, margin to its critical temperature and Murphy-Koop ice vapour pressures."""
+        with self._lock:
+            return _vacuum_templates("buchi_lyovapor_l250").report(copy.deepcopy(self._instances[instance_id]))
 
     def unload_sample(self, instance_id):
         """Trusted world material transfer: return remaining pools only to the host."""
@@ -1308,6 +1356,7 @@ class LyovaporHost:
                 inst.state[sid] = None
             inst.state["sample.loaded"] = False
             inst.kinetics, inst.sample_evidence = None, None
+            inst.template = None
             self._commit_host(inst)
             return remaining
 
@@ -1386,6 +1435,9 @@ class LyovaporHost:
         if s["cycle.phase"] != "pre_freeze":
             if s["vacuum.pressure_pa"] > s["vacuum.target_pressure_pa"]:
                 return "pressure"
+            template_wait = _vacuum_templates("buchi_lyovapor_l250").template_gate(inst) if inst.template else None
+            if template_wait:  # 2026-10 template product: critical temperature / real ice vapour pressure
+                return template_wait
             if s["condenser.temperature_k"] >= s["thermal.sample_temperature_k"]:
                 return "temperature"
             if s["condenser.ice_mass_kg"] >= LYOVAPOR_MAX_ICE_KG - 1e-12:
@@ -1498,6 +1550,7 @@ class LyovaporSession:
             for cap in spec["capabilities"].values():
                 cap["state_effects"] = [e for e in cap["state_effects"] if e["state_id"] in visible]
                 cap["observes"] = [sid for sid in cap["observes"] if sid in visible]
+            spec["capabilities"].update(_vacuum_templates("buchi_lyovapor_l250").capabilities(include_evaluator=self.__host._principals[self.__principal_id][0] in ("debug", "evaluator")))
             return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": LYOVAPOR_ASSET_TYPE_ID, "asset_version": "1.0.0", "instance_id": instance_id, "catalog_id": "CHEM-025", "model": spec["model"], "adapter": "basic40_runtime_vacuum.LyovaporSession", "state_slots": visible, "capabilities": spec["capabilities"], "limitations": list(LYOVAPOR_LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
@@ -1558,6 +1611,18 @@ class LyovaporSession:
     def _apply(self, inst, cap, args, request_id):
         host = self.__host
         fail = lambda code, status="rejected": self._error(inst.instance_id, code, request_id, status)
+        templates = _vacuum_templates("buchi_lyovapor_l250")
+        if cap in templates.CAPABILITY_IDS:  # 2026-10 template queries: read-only, no state change
+            if cap in templates.EVALUATOR_CAPABILITIES:
+                if host._principals[self.__principal_id][0] not in ("debug", "evaluator"):
+                    return fail("ACCESS_DENIED")
+                if args != {}:
+                    return fail("INVALID_ARGUMENT")
+                return self._envelope(inst.instance_id, request_id, result=templates.report(copy.deepcopy(inst)))
+            result, code = templates.template_read(args)
+            if code == "UNKNOWN_REFERENCE":
+                return self._envelope(inst.instance_id, request_id, status="rejected", error={"code": code, "message": "substance_id is not in the Lyovapor formulation library", "retryable": False, "side_effects": "none", "known_progress": None})
+            return fail(code) if code else self._envelope(inst.instance_id, request_id, result=result)
         if cap not in LYOVAPOR_ARGUMENTS:
             return fail("UNKNOWN_CAPABILITY")
         if not self._valid(args, _lyo_obj(LYOVAPOR_ARGUMENTS[cap])):
@@ -2899,6 +2964,7 @@ class _ExtraheraInstance:
     method: list | None = None
     operation_serial: int = 0
     operations: dict = field(default_factory=dict)
+    template_samples: dict = field(default_factory=dict)  # 2026-10 optional template analytes per source position
 
 
 class ExtraheraSceneSynchronizationError(RuntimeError):
@@ -2983,6 +3049,16 @@ class ExtraheraHost:
             candidate.state.update({f"fluid.{name}_m3": 0.0 for name in ("pipette", "extraction", "waste", "collection")})
             candidate.state["fluid.sources_m3"] = candidate.state["fluid.initial_total_m3"] = total
             self._commit(inst, candidate)
+
+    def assign_template_analyte(self, instance_id, *, source_position, analyte_id, concentration_kg_m3, sorbent_id, evidence):
+        """2026-10 optional template path: a source liquid carries a library analyte; recovery from published data."""
+        return _vacuum_templates("biotage_extrahera").assign_analyte(self, instance_id, source_position=source_position, analyte_id=analyte_id,
+            concentration_kg_m3=concentration_kg_m3, sorbent_id=sorbent_id, evidence=evidence)
+
+    def template_recovery_report(self, instance_id):
+        """Trusted evaluator view: analyte identity, withdrawn mass and published-recovery expectation."""
+        with self._lock:
+            return _vacuum_templates("biotage_extrahera").report(copy.deepcopy(self._instances[instance_id]))
 
     @staticmethod
     def _terminate(inst, op, status):
@@ -3122,6 +3198,7 @@ class ExtraheraSession:
             for cap in caps.values():
                 cap["state_effects"] = [e for e in cap["state_effects"] if e["state_id"] in slots]
                 cap["observes"] = [s for s in cap["observes"] if s in slots]
+            caps.update(_vacuum_templates("biotage_extrahera").capabilities(include_evaluator=self.__host._principals[self.__principal_id][0] in ("debug", "evaluator")))
             return {"protocol_version": "1.0.0", "asset_type_id": EXTRAHERA_ASSET_TYPE_ID, "asset_version": "1.0.0", "catalog_id": "CHEM-031", "model": "Biotage Extrahera Classic", "instance_id": instance_id, "adapter": "basic40_runtime_vacuum.ExtraheraSession", "capabilities": caps, "state_slots": slots, "limitations": list(EXTRAHERA_LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
@@ -3161,6 +3238,16 @@ class ExtraheraSession:
 
     def _invoke_checked(self, inst, cap, args, request_id):
         fail = lambda code, status="rejected": self._error(inst.instance_id, code, request_id, status)
+        templates = _vacuum_templates("biotage_extrahera")
+        if cap in templates.CAPABILITY_IDS:  # 2026-10 template queries: read-only, no state change
+            if cap in templates.EVALUATOR_CAPABILITIES:
+                if self.__host._principals[self.__principal_id][0] not in ("debug", "evaluator"): return fail("ACCESS_DENIED")
+                if args != {}: return fail("INVALID_ARGUMENT")
+                return self._envelope(inst.instance_id, request_id, result=templates.report(copy.deepcopy(inst)))
+            result, code = templates.template_read(args)
+            if code == "UNKNOWN_REFERENCE":
+                return self._envelope(inst.instance_id, request_id, status="rejected", error={"code": code, "message": "substance_id or sorbent_id is not in the Extrahera SPE library", "retryable": False, "side_effects": "none", "known_progress": None})
+            return fail(code) if code else self._envelope(inst.instance_id, request_id, result=result)
         if cap not in EXTRAHERA_CAPABILITY_ARGUMENTS: return fail("UNKNOWN_CAPABILITY")
         if not _extrahera_validate(args, _extrahera_object(EXTRAHERA_CAPABILITY_ARGUMENTS[cap])): return fail("INVALID_ARGUMENT")
         s, active = inst.state, inst.state["operation.active_id"]

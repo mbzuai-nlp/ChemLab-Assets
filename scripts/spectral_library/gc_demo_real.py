@@ -1,8 +1,9 @@
 """Run the Chemistry-Sim GC runtime with real-compound fingerprints from the spectral library.
 
-Two demonstrations are written to ``outputs/spectral_library/gc_real_demo/<name>/``:
+Three demonstrations are written to ``outputs/spectral_library/gc_real_demo/<name>/``:
   esterification   ethanol + acetic acid + ethyl acetate (+ water, FID-blind) at 80 C isothermal
   solvent_mix      six common solvents at 60 C isothermal
+  expansion_mix    six compounds added in the 2026-10-14 expansion at 80 C isothermal
 Outputs go to outputs/spectral_library/gc_real_demo/<column>/<demo>/; the run length is stretched automatically so the
 most retained species elutes (capped at 3600 s).
 Each produces chromatogram.csv, run.json (method, species with provenance, mass ledger, peak table) and
@@ -31,6 +32,9 @@ DEMOS = {
                         "vial_kg": {"ethanol": 4e-7, "acetic_acid": 4e-7, "ethyl_acetate": 2e-7, "water": 1e-7}, "run_s": 600},
     "solvent_mix": {"oven_C": 60.0, "species": ["acetone", "dichloromethane", "ethyl_acetate", "hexane", "benzene", "toluene"],
                      "vial_kg": None, "run_s": 900},
+    # 2026-10-14 expansion compounds (spectral_library 95 -> 200): amine, glycol ether, alkane, chloroalkene, aromatics
+    "expansion_mix": {"oven_C": 80.0, "species": ["diethylamine", "dimethoxyethane_1_2", "methylcyclohexane", "tetrachloroethylene", "cumene", "mesitylene"],
+                      "vial_kg": None, "run_s": 900},
 }
 
 

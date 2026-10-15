@@ -137,6 +137,65 @@ class TestTurbiscanLab(unittest.TestCase):
  def test_31c_source_cell_path_matches_library_schema(self):
   h=setup();unload(h);lib=copy.deepcopy(rt.library());lib['substances'][rt.SAMPLE_EXAMPLE['reference_id']]['conditions']['cell_path_m']=.01
   with mock.patch.object(rt,'library',return_value=lib):self.rejected(h,'sample.load','REFERENCE_CONDITIONS',**rt.SAMPLE_EXAMPLE)
+ def test_31d_catalog_lists_and_every_runtime_record_loads(self):
+  h=rt.MicrotracTurbiscanlabRuntime('catalog');refs=call(h,'reference.catalog')['references'];lib=rt.library()['substances']
+  self.assertEqual({r['reference_id'] for r in refs},set(lib));usable=[r for r in refs if r['runtime_usable']]
+  self.assertEqual({r['reference_id'] for r in usable},{k for k,v in lib.items() if v['runtime_usable']});self.assertEqual({r['runtime_mode'] for r in usable},{'optical_anchor','stokes_inputs'})
+  self.assertGreaterEqual(len({r['material_identity'] for r in usable}),17);self.assertFalse(any(r['runtime_mode'] for r in refs if not r['runtime_usable']))
+  stokes=[r['reference_id'] for r in usable if r['runtime_mode']=='stokes_inputs'];self.assertGreaterEqual(len(stokes),40)
+  for rid in stokes:
+   rec=lib[rid];T=rec['conditions']['temperature_k'] or 298.15;g=rt.MicrotracTurbiscanlabRuntime('load_'+rid)
+   for k,a in [('plant.configure',dict(rt.PLANT_EXAMPLE,ambient_k=T,safe_access_temperature_k=max(313.15,T))),('sample.set_position',{'distance_m':.105}),('lid.set',{'opened':True}),('sample.load',rt.reference_sample_arguments(rid))]:g.invoke(k,**a)
+   self.assertEqual({k:g.sample[k] for k in rt.INPUT_KEYS},rec['values']['physical_inputs'],rid);self.assertIsNone(g.baseline_b);self.assertIsNone(g.baseline_t);g.invoke('sample.remove');self.ledger(g)
+ def test_31e_reference_predict_across_material_classes(self):
+  h=rt.MicrotracTurbiscanlabRuntime('predict');lib=rt.library()['substances'];before=copy.deepcopy(h.__dict__)
+  for rid,sign in [('pone0210690_mct_osa_dissolved_starch',1),('ijms221910591_dolomite_rl0',-1),('foods12010078_cinnamaldehyde_spi',-1),('membranes13040400_tio2_water_0p25wt',-1),('hvi2486635_squalene_tpgs_nea',1),('foods13040513_flaxseed_quillaja_saponin_25wt_5to1',1),('polym15010113_corn_oil_bsa',1)]:
+   r=call(h,'reference.predict',reference_id=rid,column_height_m=.04,hindered_exponent=4.65);p=lib[rid]['values']['physical_inputs']
+   v0=(p['liquid_density_kg_m3']-p['particle_density_kg_m3'])*9.80665*p['particle_diameter_m']**2/(18*p['dynamic_viscosity_pa_s']);vh=v0*(1-p['volume_fraction'])**4.65
+   self.assertEqual(sign,1 if v0>0 else -1,rid);self.assertAlmostEqual(r['stokes_velocity_m_s'],v0,delta=abs(v0)*1e-12);self.assertAlmostEqual(r['hindered_velocity_m_s'],vh,delta=abs(vh)*1e-12);self.assertAlmostEqual(r['clarification_time_s'],.04/abs(vh),delta=1e-9*.04/abs(vh))
+   self.assertAlmostEqual(lib[rid]['derived']['stokes_velocity_m_s'],v0,delta=abs(v0)*1e-12);self.assertEqual(r['published_tsi'],lib[rid]['values']['published_tsi']);self.assertEqual(json.loads(r['inputs_json']),p);self.assertIn('not as validation',r['evidence'])
+  dol=call(h,'reference.predict',reference_id='ijms221910591_dolomite_rl0',column_height_m=.04,hindered_exponent=4.65);self.assertAlmostEqual(dol['measured_migration_velocity_m_s'][0],-6.66e-3/3600,places=15);self.assertEqual(dol['published_tsi'],[35.4,73.6]);self.assertEqual(dol['published_tsi_time_s'],[3600.,10800.])
+  self.assertEqual(before,h.__dict__)
+  for rid,err in [('foods11141998_amaranth_alpha_la_r1','REFERENCE_INPUTS_INCOMPLETE'),('lentil_soybean_hipe_untreated','REFERENCE_INPUTS_INCOMPLETE'),('milk_tsi_s1_c24','REFERENCE_INPUTS_INCOMPLETE'),('missing','INVALID_REFERENCE')]:self.rejected(h,'reference.predict',err,reference_id=rid,column_height_m=.04,hindered_exponent=4.65)
+  with self.assertRaisesRegex(rt.ActionRejected,'REFERENCE_INPUTS_INCOMPLETE'):rt.reference_sample_arguments('foods12010078_cinnamaldehyde_xgm')
+ def test_31f_published_inputs_drive_transport_and_timed_scans(self):
+  for rid,direction in [('ijms221910591_dolomite_rl0',-1),('pone0210690_mct_osa_dissolved_starch',1),('polym14112195_sunflower_zein_s1',1),('foods12010078_cinnamaldehyde_spi',0)]:
+   rec=rt.library()['substances'][rid];T=rec['conditions']['temperature_k'] or 298.15;a=rt.reference_sample_arguments(rid)
+   h=setup('pub',plant={'ambient_k':T,'safe_access_temperature_k':max(313.15,T)},sample=a);initial=float(np.dot(h.phi,h.centers));call(h,'acquisition.start');r=finish(h)
+   self.assertEqual(r['phase'],'succeeded');self.assertEqual(r['reference_id'],rid);self.assertIn('Published physical inputs of reference '+rid+' were used unchanged',r['evidence']);self.assertIn('T=unmeasured; engineering KM output, BS=unmeasured; engineering KM output',r['evidence'])
+   self.assertTrue(all(0<=x<=1 for p in r['profiles'] for x in p['backscatter_fraction']+p['transmission_fraction']))
+   if direction:self.assertGreater(direction*(float(np.dot(h.phi,h.centers))-initial),0,rid)
+   self.ledger(h)
+   if rid.startswith('polym14112195'):unload(h);self.rejected(h,'sample.load','CONCENTRATED_MODEL_NOT_ACCEPTED',**dict(a,accept_concentrated_stokes_proxy=False))
+  h=setup('mismatch');unload(h);a=rt.reference_sample_arguments('ijms221910591_dolomite_rl0',particle_diameter_m=2e-5)
+  self.rejected(h,'sample.load','REFERENCE_INPUTS',**a);self.rejected(h,'sample.load','INVALID_REFERENCE',**dict(a,reference_id='foods11141998_amaranth_alpha_la_r1',accept_template_condition_transfer=True))
+  call(h,'sample.load',**dict(a,accept_template_condition_transfer=True))
+  for k,x in [('lid.set',{'opened':False}),('sample.set_position',{'distance_m':0.}),('power.set',{'enabled':True})]:call(h,k,**x)
+  call(h,'acquisition.start');r=finish(h);self.assertEqual(r['phase'],'succeeded');self.assertIn('were overridden under accept_template_condition_transfer',r['evidence']);self.ledger(h)
+ def test_31g_library_provenance_licences_and_counts(self):
+  lib=rt.library();subs=lib['substances'];c=lib['response_coverage'];allowed={'measured','measured_literature','derived','assumption'}
+  new=[r for r in subs.values() if r['kind']=='published_dispersion_stability_summary'];self.assertEqual(len(new),c['stability_records'])
+  for r in new:
+   s=r['source'];self.assertTrue(s['doi'] and s['url'] and s['locator'] and s['accessed']);self.assertEqual(hashlib.sha256((rt.ROOT/s['file']).read_bytes()).hexdigest(),s['sha256'])
+   self.assertEqual(r['licence']!='CC BY 4.0',bool(r['licence_flag']),r['substance_id']);self.assertEqual(r['evidence'],'measured_literature');self.assertFalse(r.get('digitized',False))
+   if r['runtime_usable']:
+    self.assertEqual(r['runtime_mode'],'stokes_inputs');self.assertEqual(set(r['input_provenance'])>=set(rt.INPUT_KEYS),True)
+    for k in rt.INPUT_KEYS:self.assertIn(r['input_provenance'][k]['evidence'],allowed,(r['substance_id'],k))
+    self.assertEqual(r['derived']['evidence'],'derived');self.assertLessEqual(r['derived']['particle_reynolds_number'],.1);self.assertEqual(sorted(k for k in r['input_provenance'] if r['input_provenance'][k].get('evidence')=='assumption'),r['inputs_assumed'])
+   else:self.assertTrue(r['reference_only_reasons'])
+  ident=lambda rs:{r['material_identity'] for r in rs}
+  self.assertEqual(c['distinct_reference_materials'],len(ident(subs.values())));self.assertEqual(c['runtime_materials'],len(ident(r for r in subs.values() if r['runtime_usable'])))
+  self.assertEqual(c['stokes_runtime_materials'],len(ident(r for r in new if r['runtime_usable'])));self.assertFalse(c['minimum_50_runtime_materials_met']);self.assertEqual(c['digitized_points'],0)
+  self.assertEqual(c['stokes_runtime_materials_with_published_stability']+c['stokes_runtime_materials_inputs_only'],c['stokes_runtime_materials'])
+ def test_31h_measured_carrier_viscosity_and_hsdb_densities(self):
+  subs=rt.library()['substances'];r=subs['fochx2020_limonene_acacia_r2'];p=r['input_provenance']
+  self.assertTrue(r['runtime_usable']);self.assertEqual(p['dynamic_viscosity_pa_s']['evidence'],'measured_literature');self.assertAlmostEqual(r['values']['physical_inputs']['dynamic_viscosity_pa_s'],4.1e-3,places=12);self.assertNotIn('dynamic_viscosity_pa_s',r['inputs_assumed']);self.assertIn('liquid_density_kg_m3',r['inputs_assumed'])
+  self.assertEqual(r['values']['published_other_stability_metrics'][0]['name'],'creaming_index_24h_percent');self.assertAlmostEqual(r['values']['published_other_stability_metrics'][0]['value'],5.42)
+  soy=subs['molecules29215209_soybean_tween80_span80_r1'];self.assertTrue(soy['runtime_usable']);self.assertEqual(soy['input_provenance']['particle_density_kg_m3']['evidence'],'derived');self.assertIn('HSDB',soy['input_provenance']['particle_density_kg_m3']['source']['locator'])
+  self.assertFalse(subs['molecules29215209_soybean_chitosan_r5']['runtime_usable']);self.assertTrue(subs['foods14111974_fish_oil_tween20']['runtime_usable']);self.assertAlmostEqual(subs['foods14111974_fish_oil_tween20']['values']['physical_inputs']['particle_density_kg_m3'],920.)
+  h=rt.MicrotracTurbiscanlabRuntime('visc');x=call(h,'reference.predict',reference_id='fochx2020_limonene_acacia_r2',column_height_m=.04,hindered_exponent=4.65);q=r['values']['physical_inputs']
+  self.assertAlmostEqual(x['stokes_velocity_m_s'],(q['liquid_density_kg_m3']-q['particle_density_kg_m3'])*9.80665*q['particle_diameter_m']**2/(18*4.1e-3),delta=1e-20)
+  ref=subs['pone0160140_mct_osa_quinoa_starch_dissolved_r1'];self.assertFalse(ref['runtime_usable']);self.assertIsNone(ref['values']['published_particle_diameter_m']);self.assertAlmostEqual(ref['values']['measured_migration_velocity_m_s'][0],13e-6)
  def test_32_actual_api_state_schemas(self):
   spec=importlib.util.spec_from_file_location('turbiscan_asset_tool',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);meta=rt.export_microtrac_turbiscanlab_contract_metadata();h=setup();call(h,'acquisition.start');call(h,'sim.step',dt_s=.7);call(h,'acquisition.result');self.ledger(h)
   for k,c in rt.CAPS.items():

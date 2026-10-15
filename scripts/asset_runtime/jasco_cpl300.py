@@ -1,4 +1,4 @@
-"""CPL-300: real PL shapes, explicit CPL detector-event proxy, and faithful reference queries."""
+"""CPL-300: real PL shapes, explicit CPL detector-event proxy, literature-measured g_lum emitters and faithful reference queries."""
 from __future__ import annotations
 import copy, importlib.util, json, math
 from pathlib import Path
@@ -45,7 +45,7 @@ def validate(s,v):
 PHASE=enum(['idle','running','succeeded','cancelled','failed'])
 MAX_SCAN_SPEED=10000e-9/60
 PLANT=obj({'extended_pmt_installed':BOOL,'lamp_warmup_s':number('s',.001,3600),'mono_reposition_speed_m_s':number('m/s',1e-9,MAX_SCAN_SPEED),'counts_per_relative_unit_s':number('1/s',1,1e9),'dark_counts_s':number('1/s',0,1e6),'blank_pl_relative':number('1',0,1),'blank_glum':number('1',-2,2),'minimum_net_counts':integer(1,100000000),'poisson_noise':BOOL,'seed':integer(0,2147483647),'accept_uncalibrated_model':BOOL,'accept_kasha_model':BOOL})
-SAMPLE=obj({'sample_id':TEXT,'kind':enum(['blank','synthetic_cpl']),'template_id':TEXT,'solvent':TEXT,'volume_m3':number('m^3',1e-9,3.5e-6),'concentration_mol_m3':number('mol/m^3',0,1000),'peak_pl_relative':number('1',0,1000),'synthetic_glum':number('1',-2,2),'accept_unknown_conditions':BOOL,'accept_synthetic_cpl':BOOL})
+SAMPLE=obj({'sample_id':TEXT,'kind':enum(['blank','synthetic_cpl','measured_cpl']),'template_id':TEXT,'solvent':TEXT,'volume_m3':number('m^3',1e-9,3.5e-6),'concentration_mol_m3':number('mol/m^3',0,1000),'peak_pl_relative':number('1',0,1000),'synthetic_glum':number('1',-2,2),'accept_unknown_conditions':BOOL,'accept_synthetic_cpl':BOOL})
 METHOD=obj({'scan_axis':enum(['emission','excitation']),'scan_mode':enum(['step','continuous']),'excitation_m':number('m',250e-9,850e-9),'emission_m':number('m',250e-9,1100e-9),'start_m':number('m',250e-9,1100e-9),'stop_m':number('m',250e-9,1100e-9),'interval_m':number('m',.025e-9,100e-9),'response_s':number('s',.0001,30),'scan_speed_m_s':number('m/s',.001e-9,MAX_SCAN_SPEED),'ex_bandwidth_m':number('m',.025e-9,30e-9),'em_bandwidth_m':number('m',.025e-9,30e-9),'detector_band':enum(['standard','extended'])})
 PLANT_EXAMPLE=dict(extended_pmt_installed=False,lamp_warmup_s=.1,mono_reposition_speed_m_s=MAX_SCAN_SPEED,counts_per_relative_unit_s=1e7,dark_counts_s=10.,blank_pl_relative=.005,blank_glum=0.,minimum_net_counts=25,poisson_noise=True,seed=78,accept_uncalibrated_model=True,accept_kasha_model=True)
 SAMPLE_EXAMPLE=dict(sample_id='external_cpl_cell',kind='synthetic_cpl',template_id='pcad_032',solvent='basic ethanol',volume_m3=2e-6,concentration_mol_m3=.0002,peak_pl_relative=1.,synthetic_glum=.04,accept_unknown_conditions=True,accept_synthetic_cpl=True)
@@ -65,7 +65,7 @@ GLUM_OUTPUT=obj({'pl':number('1'),'cpl':number('1'),'glum':nullable(number('1',-
 CAPS={}
 def cap(k,i,o,c,z,kind='device_command',vis='agent',ex=None):CAPS[k]=[i,o,c,z,kind,vis,{} if ex is None else ex,[]]
 cap('plant.configure',PLANT,obj({'configured':BOOL}),['body','pmt_detector'],'宿主一次设置选件、暖机、等效计数/噪声，显式接受未校准代理','configuration','evaluator',PLANT_EXAMPLE)
-cap('sample.load',SAMPLE,obj({'loaded':BOOL}),['sample_cell'],'可信宿主装入完整液池；真实PL形状与显式synthetic glum，不从吸收CD猜CPL','configuration','evaluator',SAMPLE_EXAMPLE)
+cap('sample.load',SAMPLE,obj({'loaded':BOOL}),['sample_cell'],'可信宿主装入完整液池；synthetic_cpl=真实PL形状+显式合成glum；measured_cpl=文献实测g_lum发光体（template_id=记录:对映体，溶剂/激发须与源一致），不从吸收CD猜CPL','configuration','evaluator',SAMPLE_EXAMPLE)
 cap('sample.unload',obj({'recipient_id':TEXT}),obj({'unloaded':BOOL,'volume_m3':number('m^3',0)}),['sample_cell'],'完整池外部卸下，保留体积与溶质账本','device_command','evaluator',{'recipient_id':'external_rack'})
 cap('cover.set',obj({'opened':BOOL}),obj({'opened':BOOL}),['sample_cover'],'外部盖开闭；开盖取消采集并共同关闭两快门','device_command','evaluator',{'opened':False})
 cap('power.set',obj({'enabled':BOOL}),obj({'enabled':BOOL}),['power_inlet','xe_lamp'],'逻辑供电；关机关闭灯与两快门并使空白失效',ex={'enabled':True})
@@ -81,7 +81,7 @@ cap('raw.read',obj({}),RAW,['pmt_detector'],'最近完整门左右等效检测�
 cap('result.export',obj({'format':enum(['json','csv'])}),obj({'format':TEXT,'content':TEXT}),['host_screen'],'纯返回带证据JSON/CSV内容，不写文件','query','agent',{'format':'json'})
 cap('blank.read',obj({}),obj({'valid':BOOL,'result':nullable(RESULT)}),['host_screen'],'读取完整空白及当前方法/溶剂匹配状态','query')
 cap('template.read',obj({'substance_id':TEXT}),TEMPLATE,['host_screen'],'调用者指定的公开PL/吸收源谱；保留未知条件与原始signed基线','query','agent',{'substance_id':'pcad_032'})
-cap('reference.read',obj({'reference_id':TEXT}),REFERENCE,['host_screen'],'独立公开真实CPL/glum曲线原样参考查询；未知CPL强度标度不与其他PL拼合','query','agent',{'reference_id':'sfeg_blue_l'})
+cap('reference.read',obj({'reference_id':TEXT}),REFERENCE,['host_screen'],'独立公开真实CPL/glum参考原样查询（SFEG配置与57种文献g_lum发光体记录）；未知CPL强度标度不与其他PL拼合','query','agent',{'reference_id':'sfeg_blue_l'})
 cap('glum.compute',GLUM_INPUT,GLUM_OUTPUT,['host_screen'],'仅用调用者IL/IR计算总PL、差CPL、2ΔI/总PL；不按厂家半和DC误差一倍','analysis','agent',{'left_relative':.51,'right_relative':.49,'net_counts':1000.,'minimum_net_counts':25.})
 cap('product.read',obj({}),LEDGER,['sample_cell','pmt_detector'],'私有完整池物料及完成积分门内等效检测事件分割账本，不声称全光能守恒','query','evaluator')
 cap('auto_dit.start',obj({}),obj({}),['pmt_detector'],'厂家Auto DIT自适应准则/置信度未知，明确未实现')
@@ -158,9 +158,29 @@ def _glum(left,right,net_counts,minimum):
   scale=max(left,right);a=left/scale;b=right/scale;g=max(-2.,min(2.,2*(a-b)/(a+b)))
  return dict(pl=pl,cpl=cpl,glum=g,quality=quality)
 
+def _kernel(x,y,bandwidth):
+ # Gaussian of the full requested FWHM (literature curve bandwidth unknown); no normalisation or clipping.
+ d=min(float(np.min(np.diff(x))),bandwidth/8);n=int(math.ceil((x[-1]-x[0])/d))+1
+ if n>200000:raise ActionRejected('EVENT_RESOURCE_LIMIT')
+ gx=np.linspace(x[0],x[-1],n);return gx,gaussian_filter1d(np.interp(gx,x,y),bandwidth/(math.sqrt(8*math.log(2))*(gx[1]-gx[0])),mode='nearest')
+
+def _measured_selection(measured,a):
+ rid,sep,lab=a['template_id'].partition(':');r=measured.get(rid)
+ if not sep or r is None or lab not in r.get('runtime_enantiomers',[]):raise ActionRejected('UNKNOWN_REFERENCE')
+ if r.get('curves'):conds=[(0,r['conditions'][0])]
+ else:conds=[(i,c) for i,c in enumerate(r['conditions']) if lab in c.get('runtime_enantiomers',[])]
+ match=[(i,c) for i,c in conds if c['solvent'] is not None and c['solvent']==a['solvent']]
+ if not match:
+  match=[(i,c) for i,c in conds if c['solvent'] is None]
+  if not match:raise ActionRejected('SOURCE_CONDITIONS_MISMATCH')
+  if not a['accept_unknown_conditions']:raise ActionRejected('UNKNOWN_CONDITIONS_ACK_REQUIRED')
+ i,c=match[0]
+ if any(c.get(q) is None for q in ['excitation_m','temperature_k','concentration_mol_m3']) and not a['accept_unknown_conditions']:raise ActionRejected('UNKNOWN_CONDITIONS_ACK_REQUIRED')
+ return dict(record_id=rid,enantiomer=lab,condition_index=i,solvent_from_source=c['solvent'] is not None)
+
 class JascoCpl300Runtime:
  def __init__(self,instance_id='cpl300_01',library=None):
-  self.instance_id=instance_id;self.library=_library() if library is None else copy.deepcopy(library);self.templates=self.library['compounds'];self.references=self.library.get('cpl_references',{})
+  self.instance_id=instance_id;self.library=_library() if library is None else copy.deepcopy(library);self.templates=self.library['compounds'];self.references=self.library.get('cpl_references',{});self.measured=self.library.get('cpl_measured',{});self._msel=None
   self.time_s=0.;self.revision=0;self.plant=None;self.method=None;self.sample=None;self.powered=False;self.lamp=False;self.lamp_age=0.;self.opened=True;self.shutter=False
   self.excitation=250e-9;self.emission=250e-9;self.phase='idle';self.stage='idle';self.kind='';self.elapsed_s=0.;self.warning='';self.operation_id='';self._op_count=0;self._run_method=None;self._run_provenance=_provenance();self._points=[];self._grid=np.array([]);self._segments=[];self._segment=None;self._segment_elapsed=0.;self._due=None;self._blank=None
   self._registered_v=0.;self._removed_v=0.;self._registered_n=0.;self._removed_n=0.;self._events=np.zeros(6);self._detected=0.;self._gate_s=0.;self._last_sample_time=None
@@ -173,7 +193,7 @@ class JascoCpl300Runtime:
   if principal_id not in self._principals:raise ActionRejected('ACCESS_DENIED')
   return JascoCpl300Session(self,principal_id)
  def describe(self):return self.session().describe(instance_id=self.instance_id)
- def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in ['library','templates','references','_rng']})|{'_rng_state':copy.deepcopy(self._rng.bit_generator.state)}
+ def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in ['library','templates','references','measured','_rng']})|{'_rng_state':copy.deepcopy(self._rng.bit_generator.state)}
  def _ready(self):return bool(self.plant and self.powered and self.lamp and self.lamp_age+1e-12>=self.plant['lamp_warmup_s'])
  def _fingerprint(self):return dict(method=self.method,solvent=self.sample['solvent']) if self.method and self.sample else None
  def _blank_valid(self):return bool(self.powered and self.lamp and self._blank and self._blank['fingerprint']==self._fingerprint())
@@ -205,7 +225,7 @@ class JascoCpl300Runtime:
    if CAPS[k][4] not in ['query','analysis']:self.revision+=1;self._archive_operation()
    return copy.deepcopy(result)
   except Exception:
-   library=self.library;rs=snap.pop('_rng_state');self.__dict__.clear();self.__dict__.update(snap);self.library=library;self.templates=library['compounds'];self.references=library.get('cpl_references',{});self._rng=np.random.default_rng();self._rng.bit_generator.state=rs;raise
+   library=self.library;rs=snap.pop('_rng_state');self.__dict__.clear();self.__dict__.update(snap);self.library=library;self.templates=library['compounds'];self.references=library.get('cpl_references',{});self.measured=library.get('cpl_measured',{});self._rng=np.random.default_rng();self._rng.bit_generator.state=rs;raise
  def _idle(self):
   if self.phase=='running':raise ActionRejected('BUSY')
  def _manual(self):
@@ -236,8 +256,12 @@ class JascoCpl300Runtime:
    if self.plant is None:raise ActionRejected('PLANT_REQUIRED')
    if self.sample:raise ActionRejected('UNLOAD_REQUIRED')
    if not a['sample_id'] or not a['solvent']:raise ActionRejected('INVALID_ARGUMENT')
+   self._msel=None
    if a['kind']=='blank':
     if a['template_id'] or a['concentration_mol_m3'] or a['peak_pl_relative'] or a['synthetic_glum']:raise ActionRejected('SAMPLE_COMPOSITION')
+   elif a['kind']=='measured_cpl':
+    if a['synthetic_glum'] or a['accept_synthetic_cpl']:raise ActionRejected('SAMPLE_COMPOSITION')
+    self._msel=_measured_selection(self.measured,a)
    else:
     r=self.templates.get(a['template_id'])
     if r is None or not r.get('pl') or not r.get('absorption'):raise ActionRejected('UNKNOWN_REFERENCE')
@@ -250,7 +274,7 @@ class JascoCpl300Runtime:
    self._manual()
    if not a['recipient_id']:raise ActionRejected('INVALID_ARGUMENT')
    if not self.sample:raise ActionRejected('SAMPLE_REQUIRED')
-   v=self.sample['volume_m3'];self._removed_v+=v;self._removed_n+=v*self.sample['concentration_mol_m3'];self.sample=None;return {'unloaded':True,'volume_m3':v}
+   v=self.sample['volume_m3'];self._removed_v+=v;self._removed_n+=v*self.sample['concentration_mol_m3'];self.sample=None;self._msel=None;return {'unloaded':True,'volume_m3':v}
   if k=='cover.set':
    self.opened=a['opened']
    if self.opened:self._stop('cover_open');self.shutter=False
@@ -284,7 +308,7 @@ class JascoCpl300Runtime:
    if r is None:raise ActionRejected('UNKNOWN_REFERENCE')
    return dict(substance_id=a['substance_id'],name=r['name'],template_json=json.dumps(r,ensure_ascii=False,allow_nan=False))
   if k=='reference.read':
-   r=self.references.get(a['reference_id'])
+   r=self.references.get(a['reference_id']) or self.measured.get(a['reference_id'])
    if r is None:raise ActionRejected('UNKNOWN_REFERENCE')
    return dict(reference_id=a['reference_id'],reference_json=json.dumps(r,ensure_ascii=False,allow_nan=False))
   if k=='glum.compute':return _glum(a['left_relative'],a['right_relative'],a['net_counts'],a['minimum_net_counts'])
@@ -299,6 +323,7 @@ class JascoCpl300Runtime:
  def _prepare_response(self):
   provenance=_provenance()
   if self.kind=='blank':provenance.update(pl_evidence='synthetic_background_and_dark',cpl_evidence='synthetic',glum_evidence='synthetic',limitations=['Host equivalent blank/dark event rates, not a measured solvent CPL response.']);return provenance
+  if self.sample['kind']=='measured_cpl':return self._prepare_measured(provenance)
   r=self.templates[self.sample['template_id']];m=self.method
   if not self.plant['accept_kasha_model']:raise ActionRejected('KASHA_ACK_REQUIRED')
   self._ex_curve=_smoothed(r,'absorption','epsilon_m2_mol',m['ex_bandwidth_m']);self._em_curve=_smoothed(r,'pl','emission_relative',m['em_bandwidth_m'])
@@ -307,6 +332,42 @@ class JascoCpl300Runtime:
   _average_curve(*self._ex_curve,*ex_range);_average_curve(*self._em_curve,*em_range)
   provenance.update(pl_evidence='measured_PL_shape_with_synthetic_amplitude_and_excitation_factor',cpl_evidence='synthetic',glum_evidence='synthetic_host_glum',source_temperature_k=r.get('conditions',{}).get('temperature_k'),unknown_conditions_accepted=self.sample['accept_unknown_conditions'],limitations=['Real PL and absorption shapes retain source broadening; negative source baselines remain in queries and are clipped only in this nonnegative forward-rate surrogate.','Host peak amplitude and normalized-absorption Kasha excitation factor are uncalibrated; no inferred molar PL response, sample watts, true excitation action spectrum or quantum-yield calibration.','CPL and glum are explicit host assumptions; independent real CPL references have display-angle units and cannot recover joint calibrated IL/IR or total PL.','Source temperature/concentration unknowns remain unknown. Method changes do not modify this acquisition snapshot.'])
   return provenance
+ def _gate_windows(self,grid):
+  m=self.method;span=m['response_s']*m['scan_speed_m_s'] if m['scan_mode']=='continuous' else 0.
+  return [(float(w),float(w)) if i==0 or not span else (float(w)-span,float(w)) if w>=grid[i-1] else (float(w),float(w)+span) for i,w in enumerate(grid)]
+ def _prepare_measured(self,provenance):
+  m=self.method;sel=self._msel;r=self.measured[sel['record_id']];c=r['conditions'][sel['condition_index']]
+  if m['scan_axis']!='emission':raise ActionRejected('REFERENCE_AXIS_UNSUPPORTED')
+  ex=c.get('excitation_m')
+  if ex is not None and abs(m['excitation_m']-ex)>max(m['ex_bandwidth_m'],1e-9)+1e-15:raise ActionRejected('SOURCE_CONDITIONS_MISMATCH')
+  windows=self._gate_windows(_grid(m));self._mcurve=None;self._mpoints=None;evid=set()
+  if r.get('curves'):
+   cv=r['curves'][sel['enantiomer']];x=np.asarray(cv['wavelength_m'],float);pl=np.asarray(cv['pl_relative'],float);g=np.asarray(cv['glum'],float)
+   lo,hi=cv['usable_window_m']
+   if any(a<lo-1e-15 or b>hi+1e-15 for a,b in windows):raise ActionRejected('REFERENCE_WAVELENGTH_RANGE')
+   gx,pls=_kernel(x,pl,m['em_bandwidth_m']);_,cps=_kernel(x,pl*g,m['em_bandwidth_m']);self._mcurve=(gx,pls/float(np.max(pls)),cps/float(np.max(pls)));evid.add(cv['evidence'])
+   pl_e='measured_literature_PL_shape_(source_data_curve)_with_host_amplitude'
+  else:
+   pts=[(q['validity_window_m'][0],q['validity_window_m'][1],q['glum'],q['evidence']) for q in c['enantiomers'][sel['enantiomer']]]
+   for a,b in windows:
+    hit=[q for q in pts if q[0]-1e-15<=a and b<=q[1]+1e-15]
+    if not hit:raise ActionRejected('REFERENCE_WAVELENGTH_RANGE')
+    if m['em_bandwidth_m']>min(q[1]-q[0] for q in hit)+1e-15:raise ActionRejected('SOURCE_BANDWIDTH_LIMIT')
+    evid|={q[3] for q in hit}
+   self._mpoints=pts;pl_e='host_amplitude_flat_inside_literature_glum_validity_window'
+  provenance.update(pl_evidence=pl_e,cpl_evidence='literature_glum_times_host_PL',glum_evidence='measured_literature' if evid=={'measured_literature'} else 'measured_literature_with_derived_sign' if 'derived' in evid else 'measured_literature',source_temperature_k=c.get('temperature_k'),unknown_conditions_accepted=self.sample['accept_unknown_conditions'],limitations=[
+   f"Literature g_lum target: {r['record_id']} {r['name']} ({sel['enantiomer']}), doi:{r['source']['doi']}, licence {r['source']['licence'] or r['source']['licence_flag']}.",
+   'g_lum is the cited measurement (not a CPL-300 measurement of this sample); IL/IR are host Poisson events built so that 2(IL-IR)/(IL+IR) equals the literature value inside its validity window.',
+   'Scalar records carry no PL band shape: PL amplitude is the host value and is held flat only inside the reported validity window; scans outside it are rejected.' if self._mpoints else 'Camphorquinone PL and g_lum shapes are the original source-data curves (Fluo/glum), convolved with the requested emission bandwidth; source bandwidth unknown.',
+   'Excitation factor is 1 (no absorption spectrum for these emitters); no molar brightness, quantum yield, concentration or temperature response is inferred.'])
+  return provenance
+ def _measured_signal(self,lo,hi):
+  lo,hi=min(lo,hi),max(lo,hi);peak=self.sample['peak_pl_relative']
+  if self._mcurve is not None:
+   x,pl,cp=self._mcurve;s=_average_curve(x,pl,lo,hi)
+   return peak*max(s,0.),(max(-2.,min(2.,_average_curve(x,cp,lo,hi)/s)) if s>0 else 0.)
+  hit=[q for q in self._mpoints if q[0]-1e-15<=lo and hi<=q[1]+1e-15]
+  return peak,hit[0][2]
  def _start(self,kind):
   self._idle()
   if self.plant is None:raise ActionRejected('PLANT_REQUIRED')
@@ -349,9 +410,10 @@ class JascoCpl300Runtime:
   s=self._segment;m=self._run_method;p=self.plant;dt=m['response_s'];end=np.array(s['end']);begin=end.copy()
   if s['stage']=='continuous':begin=end+(np.array(s['start'])-end)*(dt/s['duration'])
   mid=(begin+end)/2;axis=1 if m['scan_axis']=='emission' else 0;window=[float(begin[axis]),float(end[axis])]
-  signal=0.
-  if self.kind=='sample':signal=self.sample['peak_pl_relative']*_average_curve(*self._ex_curve,float(begin[0]),float(end[0]))*_average_curve(*self._em_curve,float(begin[1]),float(end[1]))
-  g=self.sample['synthetic_glum'] if self.kind=='sample' else 0.;r=p['counts_per_relative_unit_s']
+  signal=0.;g=0.
+  if self.kind=='sample' and self.sample['kind']=='measured_cpl':signal,g=self._measured_signal(float(begin[1]),float(end[1]))
+  elif self.kind=='sample':signal=self.sample['peak_pl_relative']*_average_curve(*self._ex_curve,float(begin[0]),float(end[0]))*_average_curve(*self._em_curve,float(begin[1]),float(end[1]));g=self.sample['synthetic_glum']
+  r=p['counts_per_relative_unit_s']
   expected=np.array([signal*r*dt*(.5+.25*g),signal*r*dt*(.5-.25*g),p['blank_pl_relative']*r*dt*(.5+.25*p['blank_glum']),p['blank_pl_relative']*r*dt*(.5-.25*p['blank_glum']),p['dark_counts_s']*dt,p['dark_counts_s']*dt])
   if not np.all(np.isfinite(expected)) or np.max(expected)>1e15:raise ActionRejected('EVENT_RATE_LIMIT')
   counts=self._rng.poisson(expected).astype(float) if p['poisson_noise'] else expected
@@ -442,8 +504,9 @@ LIMITATIONS=[
 'Step scans move finite distance, then integrate at fixed wavelength. Continuous scans keep finite velocity and report a trailing DIT window ending at each grid target; non-overlapping gates require DIT<=the shortest spatial interval/scan speed. First continuous point is stationary for one DIT; effective wavelength is the gate midpoint, not an OEM timestamp convention.',
 'Real normalized PL and absorption shapes come from PhotochemCAD; PL is not calibrated watts. Peak amplitude and normalized-absorption excitation factor are explicit assumptions. Negative source baseline points are preserved in queries but clipped only to form nonnegative simulated event rates.',
 'Excitation dependence uses an explicitly accepted Kasha-like absorption-shape proxy, not a measured excitation action spectrum. No absorption/quantum-yield based absolute flux, inner-filter effect, saturation, anti-Stokes emission, reabsorption or radiative-energy closure.',
-'Every compound PL template lacks measured CPL/glum. Synthetic host glum defines IL=PL*(1/2+g/4), IR=PL*(1/2-g/4), with|g|<=2. It is not inferred from absorption, ECD, VCD, molecular identity or configuration.',
-'Six real CPL/glum reference configurations belong to one WQD/liquid-crystal material system, not six new substances or50 real CPL compounds. Raw CPL display mdeg and its radians conversion are not DeltaI; unknown DC/normalization prevents reconstruction of joint PL/IL/IR. References remain query-only and retain source conditions.',
+'Every PhotochemCAD PL template lacks measured CPL/glum. For kind=synthetic_cpl the host glum defines IL=PL*(1/2+g/4), IR=PL*(1/2-g/4), with|g|<=2. It is not inferred from absorption, ECD, VCD, molecular identity or configuration.',
+'kind=measured_cpl loads one of 57 literature g_lum emitters (signed per enantiomer, solvent/excitation-matched). Camphorquinone replays real source-data PL and g_lum curves; the other 56 are scalar g_lum values valid only inside their reported wavelength/transition windows with host-flat PL amplitude. Values were measured on the cited (mostly non-JASCO) instruments; 39 sign points are derived from explicit mirror/ECD-sign statements and transition-window wavelengths for some Eu/Sm records are typical manifold regions.',
+'Six real CPL/glum reference configurations belong to one WQD/liquid-crystal material system, not six new substances. Raw CPL display mdeg and its radians conversion are not DeltaI; unknown DC/normalization prevents reconstruction of joint PL/IL/IR. References remain query-only and retain source conditions.',
 'Public total PL=IL+IR, CPL=IL−IR, glum=2*CPL/PL. Manufacturer IA denotes approximately half the sum; treating IA as total PL would introduce a factor-of-two error. Source formula layout conflicts are recorded separately.',
 'Independent signal/background/dark equivalent Poisson detector events are a host assumption, not actual analog PMT/lock-in/ADC physics or factory noise calibration. poisson_noise=false returns deterministic expected events. Stray-light<=0.001% is a conditional specification, not used as a universal background or detection floor.',
 'Observed blank is acquired with identical method and solvent. After subtraction a channel or total can be negative; values are preserved and glum is null for low net counts, nonpositive total or negative corrected channels. Ratios are not silently clipped to fabricate physical evidence.',
@@ -468,7 +531,7 @@ def export_jasco_cpl300_contract_metadata():
  observes={'plant.configure':['plant.configured'],'sample.load':['sample.loaded'],'sample.unload':['sample.loaded'],'cover.set':['cover.opened'],'power.set':['power.enabled'],'lamp.set':['lamp.enabled'],'shutter.set':['shutter.opened'],'blank.start':['scan.phase'],'acquisition.start':['scan.phase'],'acquisition.stop':['scan.phase'],'process.measure':['scan.phase','scan.stage','scan.elapsed_s',*observed_points,'safety.warning'],'result.read':['scan.phase','scan.stage',*observed_points],'result.export':['scan.phase','scan.stage',*observed_points],'raw.read':['scan.last_sample_time_s'],'blank.read':['blank.valid'],'product.read':['truth.ledger']}
  for k,(s,u,o,v,c,w) in SLOTS.items():
   mean=k in ['scan.pl','scan.cpl','scan.glum'];slots[k]=dict(meaning_zh=SLOT_ZH[k],component_ids=c,value_schema=copy.deepcopy(s),unit=u,reference_conditions=None,origin=o,visibility=v,access='read_write' if w else 'read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'JascoCpl300Session.read(state_ids=[{k!r}])'),write_via=dict(capability_id=w[0],argument=w[1],fixed_arguments={}) if w else None,sampling=dict(mode='interval_mean' if mean else 'instant',time_domain='simulation',window_description='最近完整DIT积分门；连续扫描给出门内平均波长；glum为同门扣空白左右积分量之比，非逐瞬时比值平均' if mean else None),source_ids=['simulation_assumption'])
- errors=['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','INVALID_REFERENCE','ZERO_REFERENCE','INITIALIZATION_ONLY','EVIDENCE_ACK_REQUIRED','SYNTHETIC_CPL_ACK_REQUIRED','UNKNOWN_CONDITIONS_ACK_REQUIRED','KASHA_ACK_REQUIRED','SOURCE_CONDITIONS_MISMATCH','SOURCE_BANDWIDTH_LIMIT','SOURCE_WAVELENGTH_RANGE','BUSY','PLANT_REQUIRED','SAMPLE_REQUIRED','SAMPLE_METHOD_REQUIRED','COVER_MUST_BE_OPEN','UNLOAD_REQUIRED','SAMPLE_COMPOSITION','POWER_PLANT_REQUIRED','OPTICS_NOT_READY','OPTION_NOT_INSTALLED','DETECTOR_WINDOW','EXCITATION_WINDOW','STOKES_MODEL_REQUIRED','SPECTRAL_GRID','RESPONSE_OVERLAPS_INTERVAL','EVENT_RESOURCE_LIMIT','EVENT_RATE_LIMIT','WRONG_SAMPLE_KIND','MATCHED_BLANK_REQUIRED','ANALYSIS_RANGE']
+ errors=['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','INVALID_REFERENCE','ZERO_REFERENCE','INITIALIZATION_ONLY','EVIDENCE_ACK_REQUIRED','SYNTHETIC_CPL_ACK_REQUIRED','UNKNOWN_CONDITIONS_ACK_REQUIRED','KASHA_ACK_REQUIRED','SOURCE_CONDITIONS_MISMATCH','SOURCE_BANDWIDTH_LIMIT','SOURCE_WAVELENGTH_RANGE','BUSY','PLANT_REQUIRED','SAMPLE_REQUIRED','SAMPLE_METHOD_REQUIRED','COVER_MUST_BE_OPEN','UNLOAD_REQUIRED','SAMPLE_COMPOSITION','POWER_PLANT_REQUIRED','OPTICS_NOT_READY','OPTION_NOT_INSTALLED','DETECTOR_WINDOW','EXCITATION_WINDOW','STOKES_MODEL_REQUIRED','SPECTRAL_GRID','RESPONSE_OVERLAPS_INTERVAL','EVENT_RESOURCE_LIMIT','EVENT_RATE_LIMIT','WRONG_SAMPLE_KIND','MATCHED_BLANK_REQUIRED','ANALYSIS_RANGE','REFERENCE_WAVELENGTH_RANGE','REFERENCE_AXIS_UNSUPPORTED']
  for k,(inp,out,c,z,kind,vis,ex,_) in CAPS.items():
   async_=k in ['blank.start','acquisition.start'];query=kind in ['query','analysis'];unsupported=k in UNSUPPORTED
   effects=[dict(state_id=state,timing=timing,description_zh={'immediate':'经检查的设定、外部事件、扫描初始化或安全取消；不推进时间、不补造计数','on_step':'宿主step完成暖机、有限单色器运动或DIT门检测事件；只完成门贡献账本和观测','on_completion':'指定所有扫描点完成后停机并共同关闭快门；完整空白此时才可用'}[timing]) for timing,mapping in [('immediate',immediate),('on_step',onstep),('on_completion',completion)] for state in mapping.get(k,[])]
@@ -477,13 +540,14 @@ def export_jasco_cpl300_contract_metadata():
  'PL=I_L+I_R; CPL=I_L-I_R; g_lum=2*CPL/PL. Manufacturer I_A≈(I_L+I_R)/2 is not total PL.',
  'Assumed signal PL(lambda_ex,lambda_em)=host_peak*normalized_positive_absorption(lambda_ex)*normalized_positive_emission(lambda_em); no absolute molar fluorescence efficiency inferred.',
  'Signal means mu_L/R=PL*host_counts_per_relative_unit_s*DIT*(1/2±host_glum/4), with |host_glum|<=2; independent background/dark equivalent events add before observation.',
+ 'measured_cpl: PL=host_peak*[1 inside scalar validity window | gate-average of bandwidth-convolved source PL curve]; g=literature scalar in window | gate-average(conv(PL*g))/gate-average(conv(PL)); no excitation factor.',
  'Observed I_L/R=(sample_gate_events-blank_event_rate*DIT)/(host_counts_per_relative_unit_s*DIT). PL/CPL preserve signed background-corrected estimates.',
  'g_lum is null if total<=0, net_counts<host_minimum, or either corrected channel<0; otherwise the stable normalized ratio lies in[-2,2].',
  'Step-mode prisms move at explicit finite speed then hold for DIT. Continuous mode integrates the trailing DIT wavelength interval by piecewise-linear source-knot quadrature, reports its midpoint, and requires non-overlapping gates.',
  'Additional Gaussian bandwidth=sqrt(max(0,target_bandwidth^2-source_bandwidth^2)); source baseline/conditions preserved in queries.',
  'Registered_volume=current_volume+removed_volume; registered_solute=current_volume*concentration+removed_solute; no consumption.',
  'Completed-gate detected_events=sum(left/right signal+background+dark equivalent events); no optical-energy or continuous-exposure interpretation.'
- ],parameters={},source_ids=['manufacturer_primary','manufacturer_formula','pl_dataset','cpl_dataset','simulation_assumption'],limitations=LIMITATIONS)
+ ],parameters={},source_ids=['manufacturer_primary','manufacturer_formula','pl_dataset','cpl_dataset','cpl_literature','simulation_assumption'],limitations=LIMITATIONS)
  spec=importlib.util.spec_from_file_location('_cpl300_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH)
  ann.annotate_export(SLUG,caps,slots,{'circularly_polarized_luminescence':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.load':(SAMPLE,SAMPLE_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE)})
  for k,v in slots.items():v['meaning_zh']=SLOT_ZH[k]+'；来源='+v['origin']+'；非原厂校准。'

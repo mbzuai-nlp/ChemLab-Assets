@@ -67,4 +67,45 @@ class TestExcite(unittest.TestCase):
   h=ready();call(h,'acquisition.start');h.step(1.4);call(h,'power.set',{'enabled':False});self.assertEqual(h.phase,'cancelled');self.assertLedger(h)
   for k in m.UNSUPPORTED:
    with self.assertRaises(m.ActionRejected):h.invoke(k)
+class TestCrmMaterials(unittest.TestCase):
+ """2026-10-14: solids from assets/reactions/crm_element_library (NIST/USGS public values; GeoReM flagged)."""
+ SHARED=R/'assets/reactions/crm_element_library/templates.json'
+ @classmethod
+ def setUpClass(cls):
+  import hashlib
+  cls.shared=json.loads(cls.SHARED.read_text());cls.byid={r['substance_id']:r for r in cls.shared['templates']};cls.sha=hashlib.sha256(cls.SHARED.read_bytes()).hexdigest()
+ def test_20_material_counts_and_classes(self):
+  h=m.TeledyneAnalyteexciteRuntime();mats=h.library['matrices']
+  self.assertGreaterEqual(len(mats),50);self.assertEqual(sum(v['matrix_class']=='reference_glass' for v in mats.values()),26);self.assertEqual(sum(v['matrix_class']=='pressed_powder_pellet' for v in mats.values()),27)
+  self.assertEqual(m.REFERENCE_IDS[:2],['NISTSRM610','NISTSRM612']);self.assertEqual(set(m.REFERENCE_IDS),set(mats));self.assertEqual(h.library['shared_library']['shared_library_sha256'],self.sha)
+ def test_21_reference_query_provenance_and_licence(self):
+  h=ready()
+  r=call(h,'template.reference',{'reference_id':'nist_srm_614','substance_id':'Sr'});self.assertAlmostEqual(r['mass_fraction'],45.8e-6,places=15);self.assertIsNone(r['licence_flag']);self.assertEqual(r['value_category'],'certified');self.assertIn('nist_srm_614__sr',r['template_source'])
+  r=call(h,'template.reference',{'reference_id':'usgs_bcr_2g','substance_id':'Ba'});self.assertAlmostEqual(r['mass_fraction'],683e-6,places=15);self.assertIsNone(r['licence_flag']);self.assertEqual(r['value_category'],'literature_estimate')
+  r=call(h,'template.reference',{'reference_id':'mpi_ding_kl2_g','substance_id':'Sr'});self.assertEqual(r['licence_flag'],'unknown_licence');self.assertEqual(r['value_category'],'georem_preferred')
+  r=call(h,'template.reference',{'reference_id':'NISTSRM610','substance_id':'Sr'});self.assertEqual(r['mass_fraction'],515.5e-6);self.assertEqual(r['licence_flag'],'unknown_licence');self.assertEqual(r['matrix_class'],'reference_glass')
+  r=call(h,'template.reference',{'reference_id':'nist_srm_2709a','substance_id':'Pb'});self.assertEqual(r['matrix_class'],'pressed_powder_pellet');self.assertIsNone(r['licence_flag'])
+  with self.assertRaises(m.ActionRejected):call(h,'template.reference',{'reference_id':'nist_srm_2709a','substance_id':'Ir'})
+ def test_22_every_copied_value_matches_shared_record(self):
+  h=m.TeledyneAnalyteexciteRuntime()
+  for mid,mat in h.library['matrices'].items():
+   if mid in ('NISTSRM610','NISTSRM612'):continue
+   for el,row in mat['elements'].items():
+    x=self.byid[row['source']['shared_substance_id']];self.assertEqual((x['element'],x['material_id'],x['value'],x['licence_flag']),(el,mid,row['mass_fraction'],row['licence_flag']))
+   self.assertAlmostEqual(mat['matrix_remainder_fraction'],1-sum(r['mass_fraction'] for r in mat['elements'].values()),places=14)
+ def test_23_ablated_aerosol_follows_material_composition(self):
+  for mid,a,b in [('nist_srm_614','Sr','Pb'),('usgs_bcr_2g','Ba','Sr'),('mpi_ding_kl2_g','Sr','Zr'),('nist_srm_2709a','Fe','Mn'),('usgs_bhvo_2','Ti','Sr')]:
+   h=ready(sample={'reference_id':mid,'density_kg_m3':2500. if 'srm_27' not in mid else 1800.});call(h,'acquisition.start');finish(h);self.assertEqual(h.phase,'succeeded')
+   p={x['substance_id']:x['mass_kg'] for x in call(h,'aerosol.collect')['species']};w=h.library['matrices'][mid]['elements']
+   self.assertGreater(p[a],0);self.assertAlmostEqual(p[a]/p[b],w[a]['mass_fraction']/w[b]['mass_fraction'],places=9)
+   self.assertAlmostEqual(sum(p.values()),h.removed*h.sample['density_kg_m3']*h.plant['entrainment_fraction']*h.plant['delivery_fraction'],delta=1e-4*sum(p.values()))  # <1e-4: aerosol still in the cell after the 1 s washout
+   self.assertIn('matrix_remainder',p);self.assertLedger(h)
+ def assertLedger(self,h):
+  d=call(h,'ledger.read')
+  for r in d['species']:self.assertLess(abs(r['residual_kg']),max(1e-19,r['loaded_kg']*1e-12))
+ def test_24_unknown_material_rejected_atomically(self):
+  h=m.TeledyneAnalyteexciteRuntime();call(h,'plant.configure',m.PLANT_EXAMPLE);call(h,'power.set',{'enabled':True});call(h,'guard.set',{'angle_rad':1.});call(h,'drawer.set',{'open_m':.23});before=copy.deepcopy(h.__dict__)
+  with self.assertRaises(m.ActionRejected):call(h,'sample.load',dict(m.SAMPLE_EXAMPLE,reference_id='NISTSRM999'))
+  self.assertEqual(before,h.__dict__)
+
 if __name__=='__main__':unittest.main()

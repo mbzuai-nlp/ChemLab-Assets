@@ -147,4 +147,38 @@ class TestTGA5500(unittest.TestCase):
   self.assertEqual(errors,[]);SCHEMA_REPORT['actual_calls']=len(OBSERVED)
  def test_42_agent_protocol_result_serialization_and_cross_instance_rejection(self):
   h=setup();a=h.session();r=a.invoke(instance_id='wrong',capability_id='acquisition.start',arguments={},request_id='a');self.assertEqual(r['error']['code'],'UNKNOWN_INSTANCE');r=a.invoke(instance_id=h.instance_id,capability_id='acquisition.start',arguments={},request_id='b');step(h,.2);q=a.poll(r['operation_id']);json.dumps(q,allow_nan=False);self.assertFalse(any('truth' in key for row in q['result']['rows'] for key in row));self.assertAlmostEqual(q['result']['rows'][-1]['elapsed_s'],.2);a.cancel(r['operation_id'],'c');self.assertEqual(a.poll(r['operation_id'])['status'],'cancelled')
+CLASS_SAMPLE={'flavonoid':'zenodo23013247_quercetin_n2','volatile_terpene':'zenodo23013247_limonene_n2','vitamin_oxidative':'zenodo23013247_ascorbic_acid_o2','phenolic_additive':'zenodo23013247_irganox_1010_n2','alkaloid':'zenodo23013247_caffeine_n2','chlorinated_polymer':'fsri_pvc_n2_10k_r1','wood':'fsri_oak_flooring_n2_10k_r1','mineral_board':'fsri_gypsum_wallboard_gypsum_core_n2_10k_r1','protein_fibre':'fsri_wool_rug_n2_10k_r1'}
+class TestTGA5500ExtendedLibrary(unittest.TestCase):
+ def test_43_every_runtime_record_is_real_curve_with_provenance_and_50_materials(self):
+  lib=rt.library()['substances'];ids=rt.runtime_reference_ids();self.assertGreaterEqual(len(ids),150);self.assertEqual(ids,sorted(k for k,r in lib.items() if r['runtime_usable']))
+  groups=set();cas=set();permissive=set()
+  for rid in ids:
+   r=lib[rid];self.assertEqual(r['kind'],'measured_tga_curve');self.assertEqual(r['evidence'],'measured');self.assertFalse(r['native_instrument']);self.assertEqual(len(r['source']['sha256']),64);self.assertIn('accessed',r['source']);self.assertIn('license',r['source'])
+   m=rt.prepare_reference(r,True);self.assertGreaterEqual(len(m['temperature']),3);self.assertEqual(m['mass_fraction'],sorted(m['mass_fraction'],reverse=True));self.assertLess(m['mass_fraction'][-1],.99)
+   if r['material_identity']['counted_chemical_identity']:groups.add(r['material_identity']['identity_group'])
+   if r.get('cas'):cas.add(r['cas'])
+   if r['source']['license']=='CC-BY-4.0':permissive.add(r['material_identity']['identity_group'])
+  self.assertGreaterEqual(len(groups),50);self.assertGreaterEqual(len(cas),50);self.assertGreaterEqual(len(permissive),50)
+  for rid,r in lib.items():
+   if r['kind']!='measured_tga_curve':self.assertFalse(r['runtime_usable'],rid)
+ def test_44_material_classes_drive_actual_runs_with_template_source(self):
+  finals={}
+  for cls,rid in CLASS_SAMPLE.items():
+   h=setup(name='tga_'+cls,sample={'reference_id':rid},method=copy.deepcopy(rt.METHOD_EXAMPLE));r=run(h);self.assertEqual(r['phase'],'succeeded',cls);self.assertEqual(r['reference_id'],rid)
+   src=json.loads(r['template_source']);ref=rt.library()['substances'][rid];self.assertEqual(src,ref['source']);self.assertIn(src['license'],['CC-BY-4.0','not stated']);self.assertIn('Measured source T/mass curve',r['evidence'])
+   proj=json.loads(r['projection_json']);self.assertEqual(proj['original_points'],len(ref['values']['temperature_k']))
+   self.assertLess(r['rows'][-1]['mass_kg'],r['rows'][0]['mass_kg']);self.assertLess(h._mass(),rt.SAMPLE_EXAMPLE['mass_kg']);finals[cls]=h._mass();TestTGA5500.ledger(self,h);cleanup(h)
+  self.assertGreater(len({round(x,12) for x in finals.values()}),len(finals)-1)
+  self.assertLess(finals['volatile_terpene'],.05*rt.SAMPLE_EXAMPLE['mass_kg']);self.assertGreater(finals['mineral_board'],.5*rt.SAMPLE_EXAMPLE['mass_kg'])
+ def test_45_unmatched_new_sources_require_explicit_condition_transfer(self):
+  for rid in ['zenodo23013247_kaempferol_n2','zenodo23013247_quercetin_o2','fsri_oak_flooring_n2_10k_r1']:
+   h=rt.TaTga5500Runtime();call(h,'plant.configure',**rt.PLANT_EXAMPLE);ref=rt.library()['substances'][rid];mass=ref['conditions']['initial_mass_kg'] or 1e-5
+   call(h,'sample.load',**dict(rt.SAMPLE_EXAMPLE,reference_id=rid,mass_kg=mass,accept_condition_transfer=False));self.assertEqual(h.sample['reference_id'],rid)
+   with self.assertRaisesRegex(rt.ActionRejected,'CONDITION_TRANSFER'):h.invoke('method.configure',**dict(rt.METHOD_EXAMPLE,segments=[dict(target_k=323.15,rate_k_s=1/6,hold_s=0.,gas='N2')]))
+ def test_46_scalar_records_query_only_and_cache_follows_file(self):
+  h=rt.TaTga5500Runtime();call(h,'plant.configure',**rt.PLANT_EXAMPLE)
+  for rid in ['smetana_2025_1a_td','native_spu_ha_td5','calcium_oxalate_manufacturer_8reps']:
+   q=call(h,'reference.query',reference_id=rid);self.assertEqual(json.loads(q['template_source'])['source_id'],rt.library()['substances'][rid]['source']['source_id'])
+   with self.assertRaisesRegex(rt.ActionRejected,'INVALID_REFERENCE'):h.invoke('sample.load',**dict(rt.SAMPLE_EXAMPLE,reference_id=rid))
+  self.assertIs(rt.library(),rt.library())
 if __name__=='__main__':unittest.main()

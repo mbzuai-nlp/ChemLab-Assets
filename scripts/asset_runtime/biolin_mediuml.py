@@ -42,7 +42,28 @@ def validate(s,v):
 def library():
  p=ASSET/'langmuir_library.json';return json.loads(p.read_text()) if p.exists() else {'substances':{}}
 
+EOS_FORM='softplus_condensation_eos_v1'
+def is_scalar_model(reference):
+ """Scalar-only literature record whose runtime EOS is a derived engineering model, not a measured array."""
+ return isinstance(reference,dict) and reference.get('runtime_model') is not None and not reference.get('values',{}).get('molecular_area_m2')
+
+def model_parameters(reference):
+ """Validated (A0,s,w,A_min,A_max) in SI for a softplus_condensation_eos_v1 record."""
+ m=reference.get('runtime_model') or {}
+ try:
+  p=m['parameters_si'];d=reference['runtime_domain'];v=[float(p['limiting_area_m2']),float(p['slope_n_m_per_m2']),float(p['transition_width_m2']),float(d['minimum_molecular_area_m2']),float(d['maximum_molecular_area_m2'])]
+ except (KeyError,TypeError,ValueError):raise ActionRejected('INVALID_REFERENCE')
+ if not reference.get('runtime_usable') or m.get('form')!=EOS_FORM or not all(math.isfinite(x) and x>0 for x in v) or not v[3]<v[0]<v[4]:raise ActionRejected('INVALID_REFERENCE')
+ return tuple(v)
+
+def model_eos(a0,s,w,x):
+ """pi=s*w*ln(1+exp((A0-A)/w)); Cs^-1=-A dpi/dA=A*s*logistic((A0-A)/w). SI units."""
+ z=(a0-x)/w;soft=max(z,0.)+math.log1p(math.exp(-abs(z)));logi=1/(1+math.exp(-z)) if z>=0 else math.exp(z)/(1+math.exp(z))
+ return s*w*soft,x*s*logi
+
 def curve(reference):
+ if is_scalar_model(reference):
+  a0,s,w,lo,hi=model_parameters(reference);a=np.linspace(lo,hi,400);return a,np.array([model_eos(a0,s,w,x)[0] for x in a])
  try:
   a=np.array(reference['values']['molecular_area_m2'],float);p=np.array(reference['values']['surface_pressure_n_m'],float)
  except (KeyError,ValueError,TypeError):raise ActionRejected('INVALID_REFERENCE')
@@ -52,7 +73,15 @@ def curve(reference):
  return a,p
 
 def eos(reference,molecular_area_m2,allow_dilute=False):
- """Unsmoothed piecewise-linear source compression branch; derivative may be negative/noisy."""
+ """Measured arrays: unsmoothed piecewise-linear source compression branch (derivative may be negative/noisy).
+ Scalar-only records: derived softplus EOS within the published lift-off/collapse window."""
+ if is_scalar_model(reference):
+  a0,s,w,lo,hi=model_parameters(reference);x=molecular_area_m2
+  if not math.isfinite(x) or x<lo*(1-1e-12):raise ActionRejected('EOS_AREA_RANGE')
+  if x>hi*(1+1e-12):
+   if allow_dilute:return 0.,0.
+   raise ActionRejected('EOS_AREA_RANGE')
+  return model_eos(a0,s,w,x)
  a,p=curve(reference);x=molecular_area_m2
  if not math.isfinite(x) or x<max(a[0],reference.get('runtime_domain',{}).get('minimum_molecular_area_m2',a[0]))*(1-1e-12):raise ActionRejected('EOS_AREA_RANGE')
  if x>a[-1]*(1+1e-12):
@@ -179,7 +208,7 @@ class BiolinMediumlRuntime:
  def _check_conditions(self,rec,a):
   conditions=rec.get('conditions',{});t=conditions.get('temperature_k');sub=conditions.get('subphase') or conditions.get('subphase_identity');unknown=t is None or sub is None
   if unknown and not a['accept_unknown_conditions']:raise ActionRejected('UNKNOWN_REFERENCE_CONDITIONS')
-  if t is not None and abs(t-self.plant['temperature_k'])>conditions.get('temperature_uncertainty_k',0.)+1e-9 and not a['accept_condition_transfer']:raise ActionRejected('REFERENCE_CONDITIONS')
+  if t is not None and abs(t-self.plant['temperature_k'])>(conditions.get('temperature_uncertainty_k') or 0.)+1e-9 and not a['accept_condition_transfer']:raise ActionRejected('REFERENCE_CONDITIONS')
   if sub is not None and str(sub).casefold()!=self.subphase['identity'].casefold() and not a['accept_condition_transfer']:raise ActionRejected('REFERENCE_CONDITIONS')
   for source_key,local_key in [('subphase_ph','ph'),('buffer_concentration_mol_m3','buffer_concentration_mol_m3')]:
    value=conditions.get(source_key)
@@ -293,7 +322,8 @@ class BiolinMediumlRuntime:
    for x in m['dipper_positions_m']:self._check_dipper(x)
    if self._observed() is not None and abs(self._observed()-m['target_pressure_n_m'])>m['pressure_tolerance_n_m']:raise ActionRejected('PRESSURE_NOT_READY')
  def _evidence(self):
-  return ('Measured source compression arrays, unsmoothed/no clipping; conservative published-collapse domain. Concentration, quasi-static branch reuse, dilute extension, Wilhelmy wetting, leakage, evaporation and transfer kinetics are explicit engineering inputs. Fast solvent evaporation is not experimental validation. Observed pressure uses clean tare minus force divided by perimeter and assumed contact cosine; includes weight, buoyancy and wetting. Ideal isothermal bath supplies solvent latent heat; no OEM thermal PID/subphase evaporation claim. Surface work reported separately, not resolved molecular heat. Transfer ratio uses actual barrier decrease/actual swept area; optional correction uses independent supplied blank rate, never hidden leakage. Partial strokes are not complete films. Default geometry52x56x3mm; different numerical dimensions require separate geometry. Free liquid rises over full273cm2 waterplane; meniscus freeboard0.5mm is engineering, no overflow hardware claim. Source='+json.dumps(self.surface_reference.get('evidence'))+'; Instance-specific inventory, leakage, true wetting, transfer efficiency and sensor error parameters are evaluator-only, not exposed here.')
+  head=('Derived engineering EOS softplus_condensation_eos_v1 parameterised by measured-literature characteristic scalars (lift-off area, collapse pressure and two published slope constraints); not a measured array: no LE/LC plateau, kink, hysteresis or post-collapse behaviour. ' if is_scalar_model(self.surface_reference) else 'Measured source compression arrays, unsmoothed/no clipping; conservative published or measured-branch collapse domain. ')
+  return (head+'Concentration, quasi-static branch reuse, dilute extension, Wilhelmy wetting, leakage, evaporation and transfer kinetics are explicit engineering inputs. Fast solvent evaporation is not experimental validation. Observed pressure uses clean tare minus force divided by perimeter and assumed contact cosine; includes weight, buoyancy and wetting. Ideal isothermal bath supplies solvent latent heat; no OEM thermal PID/subphase evaporation claim. Surface work reported separately, not resolved molecular heat. Transfer ratio uses actual barrier decrease/actual swept area; optional correction uses independent supplied blank rate, never hidden leakage. Partial strokes are not complete films. Default geometry52x56x3mm; different numerical dimensions require separate geometry. Free liquid rises over full273cm2 waterplane; meniscus freeboard0.5mm is engineering, no overflow hardware claim. Source='+json.dumps(self.surface_reference.get('evidence'))+'; Instance-specific inventory, leakage, true wetting, transfer efficiency and sensor error parameters are evaluator-only, not exposed here.')
  def _liquid_rise(self,position=None):
   if not self.substrate or not self.subphase:return 0.
   z=self.dipper if position is None else position;cross=self.substrate['width_m']*self.substrate['thickness_m'];d=max(0.,z-SURFACE_POSITION);rise=cross*d/(AREA_MAX-cross);return min(rise,cross*self.substrate['height_m']/AREA_MAX)
@@ -452,13 +482,13 @@ def export_biolin_mediuml_contract_metadata():
   if k in ['acquisition.start','film.spread','barrier.move','dipper.move','pressure.control','power.set']:caps[k]['state_effects'] += [dict(state_id=x,timing='on_step',description_zh='宿主时间推进有限膜/溶剂、Wilhelmy观测、运动和采集') for x in PHYSICS_EFFECTS if x!='clock.time_s']
  mechanism=dict(component_ids=['trough','barrier_left','barrier_right','balance','wilhelmy_plate','dipper','substrate'],state_ids=list(slots),meaning_zh='真实等温线驱动有限单分子膜与Wilhelmy观测和LB面积转移',implementation='lumped',equations=[
  'A=W*(L-2*q), L=.364m,W=.075m,Amax=.0273m2,Amin=Amax/10.8; speed is explicitly per barrier, not manufacturer-confirmed total-gap convention.',
- 'a=A/(n_surface*NA), Pi=piecewise-linear published compression isotherm(a). Source pressure noise and negative readings preserved. Cs^-1=-a*dPi/da at fixed n,T,branch; observed -A*dPi_indicated/dA is apparent modulus if n changes.',
+ 'a=A/(n_surface*NA), Pi=piecewise-linear published compression isotherm(a) for measured-array records (source noise and negative readings preserved); for scalar-only literature records Pi=s*w*ln(1+exp((A0-a)/w)) with A0,s,w fixed at build time from published lift-off area, collapse pressure and two slope constraints (derived engineering EOS). Cs^-1=-a*dPi/da at fixed n,T,branch; observed -A*dPi_indicated/dA is apparent modulus if n changes.',
  'F=mg+P*(gamma0-Pi)*cos(theta_true)-rho*g*w*t*immersion; force readout has explicit gain/offset/drift and exponential sensor response. Pi_read=(F_clean_tare-F_corrected)/(P*cos(theta_assumed)). No direct truth-pressure output to agent.',
  'Finite solution spread transfers c*V mol to surface and V solvent to surface reservoir. Solvent evaporation dV/dt=-k_evap*V; latent=evaporatedV*rho_solvent*L, ideal bath supplies exactly same heat. No subphase evaporation or original10min preparation validation.',
  'Surface leakage dn/dt=-k_leak*n transfers finite molecules into subphase. Actual substrate swept area=facing_count*width*abs(delta immersed_length). Eligible wetting direction removes n*(1-exp(-eta*dAs/A)) mol; exactly same molecules accumulate on substrate. eta is explicit unmeasured engineering input, never returned as measured transfer ratio.',
  'Observed TR=(A_before-A_after)/As_actual; independently blank-corrected TR=(deltaA-blank_area_rate*elapsed)/As_actual. Hidden leakage never enters observed correction. Completed stroke count differs from equivalent_layers=sum(TR*actual_swept_area)/(full substrate face area) and true molecular coverage. Partial strokes are weighted by the actually swept fraction.',
  'Constant water inventory: delta_height=B*max(z-.063,0)/(.0273-B), capped at B*H/.0273 where B=substrate width*thickness. Full waterplane, not barrier area. Explicit0.5mm meniscus/freeboard allows maximum.32mm rise; no undocumented overflow or replenishment.',
  'Feedback uses only indicated pressure: dq/dt=clamp(G*(target-Pi_read)/(2W), permitted single-barrier speed), with declared deadband. Source/gamma domain checked before area changes; failures preserve prior physical effects. Fixed0.1s host partition.'
- ],parameters={},source_ids=['manufacturer_specs','manufacturer_langmuir_theory','manufacturer_wilhelmy_theory','statins2020_paper','simulation_assumption'],limitations=['Main library only runtime_usable empirical compression references. Crossinstrument/unknown condition reuse requires explicit engineering acceptance; no automatic thermal extrapolation.','Postcollapse molecular areas excluded by conservative published-collapse threshold, not simulated collapse dynamics.','Compression curve reused for expansion/constant-pressure transfer only with explicit reversible/quasistatic assumption; no invented hysteresis.','Finite subphase and dissolved leaked molecules are tracked; no solvent dissolution, monolayer domains or multilayer morphology dynamics.','Wilhelmy default platinum perimeter39.24mm; chosen width19.52mm andthickness.10mm are geometric engineering partition of that perimeter.','Isothermal external bath and supplied gamma/density are engineering inputs; buffer does not inherit purewater IAPWS gamma as verified truth.','Free-surface footprint loss by thin vertical substrate is neglected in the molecular-area approximation; displaced liquid level and buoyancy are represented.','Sensor noise spectrum, OEM0.1uN/m resolution and absolute accuracy not experimentally validated.','3D movement/contact/robot/hardware execution not established by runtime unit tests.'])
+ ],parameters={},source_ids=['manufacturer_specs','manufacturer_langmuir_theory','manufacturer_wilhelmy_theory','statins2020_paper','expansion2026_raw','expansion2026_literature_scalars','simulation_assumption'],limitations=['Main library only runtime_usable references: measured compression arrays, or published characteristic scalars driving the derived softplus_condensation_eos_v1 (engineering curve, no LE/LC plateau or hysteresis). Crossinstrument/unknown condition reuse requires explicit engineering acceptance; no automatic thermal extrapolation.','Postcollapse molecular areas excluded by published collapse area/pressure or a measured-branch modulus-drop window, not simulated collapse dynamics.','Compression curve reused for expansion/constant-pressure transfer only with explicit reversible/quasistatic assumption; no invented hysteresis.','Finite subphase and dissolved leaked molecules are tracked; no solvent dissolution, monolayer domains or multilayer morphology dynamics.','Wilhelmy default platinum perimeter39.24mm; chosen width19.52mm andthickness.10mm are geometric engineering partition of that perimeter.','Isothermal external bath and supplied gamma/density are engineering inputs; buffer does not inherit purewater IAPWS gamma as verified truth.','Free-surface footprint loss by thin vertical substrate is neglected in the molecular-area approximation; displaced liquid level and buoyancy are represented.','Sensor noise spectrum, OEM0.1uN/m resolution and absolute accuracy not experimentally validated.','3D movement/contact/robot/hardware execution not established by runtime unit tests.'])
  spec=importlib.util.spec_from_file_location('_mediuml_local_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update({k:v['meaning'] for k,v in SLOTS.items()});ann.annotate_export(SLUG,caps,slots,{'langmuir_film':mechanism},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'subphase.load':(SUBPHASE,SUBPHASE_EXAMPLE),'solution.load':(SAMPLE,SAMPLE_EXAMPLE),'substrate.load':(SUBSTRATE,SUBSTRATE_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE)})
  return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'langmuir_film':mechanism})

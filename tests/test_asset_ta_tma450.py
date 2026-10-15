@@ -30,6 +30,20 @@ def cleanup(h):
  if h.coolant_present:call(h,'coolant.unload')
  call(h,'power.set',enabled=False)
 def copper(**kw):return dict(rt.SAMPLE_EXAMPLE,reference_id='copper_nist_srm736',length_m=.01,diameter_m=.005,**kw)
+LIB=rt.library()['substances'];EVIDENCE={'measured','measured_literature','derived','assumption'}
+def source_arrays(r):
+ v=r.get('runtime_values') or r['values'];return np.asarray(v['temperature_k'],float),np.asarray(v['expansion_ratio'],float)
+def expected_length(r,L,T,Tref):
+ x,y=source_arrays(r);e=float(np.interp(T,x,y));e0=float(np.interp(Tref,x,y))
+ return L*(1+e)/(1+e0) if r['conditions'].get('reference_temperature_k') is not None else L*(1+e-e0)
+def record_plan(key,heat=True):
+ """Ambient/loading temperature inside the record domain and the plant range; heat 10 K or cool 10 K with LN2."""
+ r=LIB[key];d=r.get('runtime_domain',{});x,_=source_arrays(r);lo=max(x[0],d.get('minimum_temperature_k',-math.inf));hi=min(x[-1],d.get('maximum_temperature_k',math.inf))
+ amb=min(max(303.15,lo),hi,313.15);assert 283.15<=amb,(key,lo,hi)
+ heat=heat and hi-amb>=10;target=amb+10 if heat else max(amb-10,lo)
+ plant=dict(ambient_k=amb,safe_access_temperature_k=max(amb,313.15),**({} if heat else {'cooler':'LN2'}))
+ method=copy.deepcopy(rt.METHOD_EXAMPLE);method['start_temperature_k']=amb;method['segments'][0].update(target_temperature_k=target,temperature_rate_k_s=1.,hold_s=5.)
+ return dict(sample=dict(rt.SAMPLE_EXAMPLE,reference_id=key,reference_temperature_k=amb,length_m=.005),plant=plant,method=method,ambient=amb,target=target)
 class TestTMA450(unittest.TestCase):
  def rejected(self,h,k,error='.',**a):
   before=state(h)
@@ -147,4 +161,42 @@ class TestTMA450(unittest.TestCase):
   for _ in range(7):step(b,.05)
   self.assertEqual(a.read(),b.read());self.assertAlmostEqual(a.time_s,.3);self.assertIsNone(a.plant);self.assertFalse(a.power);self.assertFalse(a.gases);self.assertEqual(a.gas_used,{1:0.,2:0.});self.assertEqual({k:v for k,v in a.read().items() if k!='clock.time_s'},{k:v for k,v in initial.items() if k!='clock.time_s'});self.rejected(a,'power.set','NOT_CONFIGURED',enabled=True)
   call(a,'plant.configure',**rt.PLANT_EXAMPLE);self.assertAlmostEqual(a.time_s,.3);step(a,.05);self.assertAlmostEqual(a.time_s,.4);self.assertAlmostEqual(a.sample_temperature,303.15);self.assertIsNone(b.plant);self.assertAlmostEqual(b.time_s,.3);self.ledger(a)
+ def test_44_library_runtime_coverage_and_provenance(self):
+  usable={k:r for k,r in LIB.items() if r['runtime_usable']};ids={r['material_identity'] for r in usable.values()}
+  self.assertGreaterEqual(len(ids),50);self.assertGreaterEqual(len({r['material_identity'] for r in LIB.values()}),len(ids))
+  for k,r in LIB.items():
+   self.assertIn(r['evidence'].get('category'),EVIDENCE,k);self.assertTrue(r['source'].get('url') and r['source'].get('locator') and r['source'].get('accessed'),k);self.assertIn('cas',r,k)
+   if r['runtime_usable']:
+    m=rt.prepare_reference(r,True);self.assertLess(m['minimum_k'],m['maximum_k']);self.assertGreaterEqual(m['maximum_k'],283.15,k);self.assertTrue(m['processing']['response_basis'],k)
+   else:self.assertTrue(r.get('runtime_exclusion_reason'),k);self.assertRaisesRegex(rt.ActionRejected,'INVALID_REFERENCE',rt.prepare_reference,r,True)
+  bases={r['runtime_processing']['response_basis'] for r in usable.values()}
+  self.assertTrue({'manufacturer_measured_curve','certified_reference_table','published_fit_curve','published_fit_table','trapezoid_integrated_published_cte','xrd_lattice_axis_oriented_single_crystal','xrd_derived_polycrystal_average','reported_mean_cte_secant','author_linear_lattice_fit'}<=bases)
+  self.assertEqual(LIB['nbs1950_cu']['cas'],'7440-50-8');self.assertEqual(LIB['nist_boride_m01_a']['cas'],'12045-63-5')
+ def test_45_every_usable_record_loads_with_source_normalization(self):
+  for k,r in LIB.items():
+   if not r['runtime_usable']:continue
+   plan=record_plan(k);h=rt.TaTma450Runtime('load_'+k);call(h,'plant.configure',**dict(rt.PLANT_EXAMPLE,**plan['plant']));call(h,'power.set',enabled=True)
+   if r.get('runtime_values') is not None:self.rejected(h,'sample.load','REFERENCE_PROCESSING',**dict(plan['sample'],accept_reference_processing=False))
+   call(h,'sample.load',**plan['sample']);self.assertAlmostEqual(h.natural,expected_length(r,.005,plan['ambient'],plan['ambient']),places=15)
+   self.assertAlmostEqual(h._length(plan['target']),expected_length(r,.005,plan['target'],plan['ambient']),places=15,msg=k)
+   q=json.loads(call(h,'reference.query',reference_id=k)['reference_json']);self.assertEqual(q['source'],r['source']);self.assertEqual(q['values'],r.get('runtime_values',r['values']))
+ def test_46_class_sample_full_acquisitions_follow_real_reference(self):
+  for k in ['nbs1950_al','pba_mn_coiii','nist_boride_m01_a','nist_boride_m06_poly','nist_cryo_teflon','nist_cryo_invar36','nist_cryo_beryllium_polycrystalline','nist_cryo_sapphire','silicon_nist_cryogenic_cte','nist2013_stycast_2850ft','nist2013_phosphor_bronze_cte','tungsten_nist_srm737','fused_silica_nist_srm739','borosilicate_glass_nist_srm731','stainless_steel_aisi446_nist_srm738']:
+   r=LIB[k];plan=record_plan(k,heat=k not in ('nist_cryo_teflon','pba_mn_coiii','silicon_nist_cryogenic_cte'));h=setup(sample=plan['sample'],plant=plan['plant'],method=plan['method'],instance='class_'+k);res=run(h)
+   self.assertEqual(res['phase'],'succeeded',k);self.assertEqual(res['reference_id'],k);self.assertEqual(json.loads(res['template_source']),r['source'])
+   proc=json.loads(res['processing_json']);self.assertEqual(proc['response_basis'],r['runtime_processing']['response_basis']);self.assertEqual(proc['reference_evidence'],r['evidence']);self.assertIn('response basis',res['evidence'])
+   self.assertAlmostEqual(h.natural,expected_length(r,.005,h.sample_temperature,plan['ambient']),places=15,msg=k)
+   expected=expected_length(r,.005,h.sample_temperature,plan['ambient'])-.005;observed=res['rows'][-1]['displacement_m']-res['rows'][0]['displacement_m']
+   if abs(expected)>5e-9:self.assertEqual(np.sign(observed),np.sign(expected),k)
+   cleanup(h);self.ledger(h)
+ def test_47_reference_only_records_rejected_atomically(self):
+  h=rt.TaTma450Runtime();call(h,'plant.configure',**dict(rt.PLANT_EXAMPLE,ambient_k=293.15));call(h,'power.set',enabled=True)
+  for k in ['nbs1950_se','nist_cryo_pvc','nist_cryo_nickel_steels']:
+   self.assertFalse(LIB[k]['runtime_usable']);self.rejected(h,'sample.load','INVALID_REFERENCE',**dict(rt.SAMPLE_EXAMPLE,reference_id=k,reference_temperature_k=293.15))
+  self.assertIn('Footnote c',LIB['nbs1950_se']['runtime_exclusion_reason']);self.assertIn('below the minimum plant ambient',LIB['nist_cryo_pvc']['runtime_exclusion_reason'])
+ def test_48_mean_cte_secant_and_cryogenic_ratio_forms_exact(self):
+  r=LIB['nbs1950_al'];a=r['values']['linear_cte_k_inv'];plan=record_plan('nbs1950_al');h=rt.TaTma450Runtime();call(h,'plant.configure',**dict(rt.PLANT_EXAMPLE,**plan['plant']));call(h,'power.set',enabled=True);call(h,'sample.load',**plan['sample'])
+  self.assertAlmostEqual(h._length(343.15),.005*(1+a*(343.15-plan['ambient'])),places=16);self.rejected(h,'method.configure','REFERENCE_TEMPERATURE_RANGE',**dict(plan['method'],segments=[dict(plan['method']['segments'][0],target_temperature_k=380.)]))
+  r=LIB['nist_cryo_teflon'];x,y=source_arrays(r);i=list(x).index(293.)
+  coeffs=[float(r['raw_values']['pieces'][0]['published_cells'][q].replace(' ','')) for q in 'abcde'];self.assertAlmostEqual(y[i],1e-5*sum(c*293.**n for n,c in enumerate(coeffs)),places=15)
 if __name__=='__main__':unittest.main()

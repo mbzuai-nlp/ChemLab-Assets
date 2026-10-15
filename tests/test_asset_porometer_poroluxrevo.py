@@ -141,6 +141,41 @@ class TestPoroluxRevo(unittest.TestCase):
   h=setup(plant={'vent_tau_s':100.,'gas_volume_m3':.001});h.invoke('acquisition.start');r=finish(h);self.assertEqual(r['phase'],'failed');self.assertEqual(r['error_code'],'VENT_TIMEOUT');self.assertGreater(h._pressure(),h.plant['pressure_safe_open_pa']);self.assertFalse(h.inlet);self.rejected(h,'holder.set','PRESSURIZED',opened=True);self.ledger(h)
  def test_31d_dry_analysis_preserves_wetting_liquid_snapshot(self):
   h=setup('wet');h.invoke('acquisition.start');wet=finish(h);vent(h);h.invoke('holder.set',opened=True);h.invoke('liquid.unload');h.invoke('liquid.load',**dict(rt.LIQUID_EXAMPLE,name='other engineering stock',surface_tension_n_m=.03));h.invoke('holder.set',opened=False);h.invoke('method.configure',**dict(rt.METHOD_EXAMPLE,mode='dry'));h.invoke('gas.open',enabled=True);h.invoke('acquisition.start');r=finish(h);self.assertEqual(r['phase'],'succeeded');self.assertEqual(r['wet_points'],wet['wet_points']);self.assertEqual(h.operation_liquid['surface_tension_n_m'],.016);self.assertAlmostEqual(r['analysis']['mean_flow_diameter_m']*r['analysis']['mean_flow_pressure_pa'],.064)
+ # ---- 2026-10 extension: published capillary-flow-porometry scalars of >=50 distinct membranes ----
+ def test_31e_published_scalar_coverage_and_provenance(self):
+  lib=rt.library();sub=lib['substances'];scal={k:v for k,v in sub.items() if v.get('scalar_usable')}
+  self.assertGreaterEqual(len(scal),50);self.assertGreaterEqual(len({v['material_group'] for v in scal.values()}),30);self.assertGreaterEqual(len({v['membrane_class'] for v in scal.values()}),10)
+  self.assertEqual([k for k,v in sub.items() if v['runtime_usable']],['pvdf_fc43_2016'])
+  for k,v in sub.items():
+   if v.get('extension')!='2026-10':continue
+   src=v['source'];self.assertEqual(hashlib.sha256((ROOT/src['file']).read_bytes()).hexdigest(),src['sha256'],k);self.assertIn(v['licence'],['CC-BY-4.0','CC0-1.0'],k);self.assertEqual(v['evidence'],'measured_literature')
+   self.assertFalse(any(x.endswith('flow_m3_s') for x in v['values']),k);self.assertTrue(any(v['values'].get(f) for f in ['published_bubble_point_pore_diameter_m','published_mean_flow_pore_diameter_m','published_mean_pore_diameter_m','published_smallest_pore_diameter_m']),k)
+   for f,x in v['values'].items():
+    if f.endswith('_m'):self.assertTrue(1e-9<x<1e-3,(k,f,x))
+    if f.endswith('_pa'):self.assertTrue(1e2<x<1e7,(k,f,x))
+  ot=json.loads((rt.ASSET/'output_templates.json').read_text());self.assertEqual(ot['scalar_usable_count'],len(scal));self.assertEqual(ot['coverage_status'],'meets_50_distinct_membranes_scalar_level')
+ def test_31f_pore_scalars_laplace_across_classes(self):
+  h=rt.PorometerPoroluxrevoRuntime('scalars')
+  for ref in ['glass_fibre_whatman_s14','alumina_ceramic_element','cnt_buckypaper_i','pa6_membrane_m0','ptfe_md_membrane_commercial','pvdf_fc43_2016','pu_washed_2025','pp_microporous_membrane_pristine','nonwoven_novatexx_2483','os_cse_fbp_membrane']:
+   rec=rt.library()['substances'][ref]
+   for gamma,theta in [(.016,0.),(.0217,.2)]:
+    out=call(h,'reference.pore_scalars',reference_id=ref,surface_tension_n_m=gamma,contact_angle_rad=theta);self.assertEqual(out['material_group'],rec['material_group']);self.assertTrue(out['scalars'],ref)
+    for row in out['scalars']:
+     self.assertAlmostEqual(row['pressure_pa'],4*gamma*math.cos(theta)/row['diameter_m'],delta=1e-9*row['pressure_pa']);self.assertEqual(row['within_instrument_range'],row['pressure_pa']<=rt.MAX_PRESSURE)
+     field={'bubble_point':'published_bubble_point_pore_diameter_m','mean_flow':'published_mean_flow_pore_diameter_m','mean_pore':'published_mean_pore_diameter_m','smallest_pore':'published_smallest_pore_diameter_m'}[row['kind']];self.assertEqual(row['diameter_m'],rec['values'][field])
+  out=call(h,'reference.pore_scalars',reference_id='alumina_ceramic_element',surface_tension_n_m=.016,contact_angle_rad=0.);bp=next(r for r in out['scalars'] if r['kind']=='bubble_point');self.assertAlmostEqual(bp['published_pressure_pa'],2.98e5)
+  w=call(h,'reference.pore_scalars',reference_id='cnt_buckypaper_i',surface_tension_n_m=.072,contact_angle_rad=0.);self.assertFalse(w['scalars'][0]['within_instrument_range']);self.assertTrue(any('3.45 MPa' in x for x in w['warnings']))
+  pp=call(h,'reference.pore_scalars',reference_id='pp_microporous_membrane_pristine',surface_tension_n_m=.0159,contact_angle_rad=0.);self.assertTrue(any('published pressure differs' in x for x in pp['warnings']))
+ def test_31g_scalar_records_never_drive_flow_acquisition(self):
+  h=rt.PorometerPoroluxrevoRuntime('scalar_guard');call(h,'plant.configure',**rt.PLANT_EXAMPLE);call(h,'holder.set',opened=True)
+  self.rejected(h,'sample.load','INVALID_REFERENCE',**dict(rt.SAMPLE_EXAMPLE,reference_id='glass_fibre_whatman_s14'))
+  for ref in ['pvdf_galpore_2016','pu_washed_ratio50_2025','unknown_membrane']:self.rejected(h,'reference.pore_scalars','INVALID_REFERENCE',reference_id=ref,surface_tension_n_m=.016,contact_angle_rad=0.)
+ def test_31h_scalar_values_recheck_cached_xml(self):
+  import xml.etree.ElementTree as ET
+  rec=rt.library()['substances']['glass_fibre_whatman_s14'];root=ET.parse(ROOT/rec['source']['file']).getroot()
+  tw=next(t for t in root.iter('table-wrap') if ''.join(t.find('label').itertext()).strip()=='Table 2');rows=[[' '.join(''.join(c.itertext()).split()) for c in tr] for tr in tw.iter('tr')]
+  row=next(r for r in rows if r[0].startswith('Largest pore diameter'));self.assertAlmostEqual(rec['values']['published_bubble_point_pore_diameter_m'],float(row[1])*1e-6)
+  rep=json.loads((ROOT/'outputs/expansion_batch03/t4_measure/porometer_poroluxrevo/extension_scalar_validation.json').read_text());self.assertEqual(rep['status'],'passed');self.assertGreaterEqual(rep['records'],50)
  def test_32_all_actual_api_and_state_schema(self):
   spec=importlib.util.spec_from_file_location('porolux_asset_tool',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);meta=rt.export_porometer_poroluxrevo_contract_metadata();h=setup();call(h,'acquisition.start');call(h,'sim.step',dt_s=35.);call(h,'acquisition.result');self.ledger(h)
   for k,c in rt.CAPS.items():

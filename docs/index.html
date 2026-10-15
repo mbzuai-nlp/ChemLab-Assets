@@ -299,11 +299,11 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
 <main id="top">
   <section class="wrap wide title-block">
     <div>
-      <div class="eyebrow">Open dataset · Release 1.0 · October 2026</div>
+      <div class="eyebrow">Open dataset · Release 1.1 · October 2026</div>
       <h1>ChemLab<span class="hy">-</span>Assets</h1>
       <p class="deck">198 simulation-ready chemistry laboratory instruments. Each one comes with part-level geometry, working joints, an executable behaviour model and a contract that records what every value means and where it came from.</p>
       <div class="authors">
-        <div class="names"><span>Zirui Song</span><span>Jiadong Zhang</span><span>Jiahao Zhang</span><span>Xiaojun Chang</span><span>Xiaosong Ma</span><span>Xiuying Chen</span></div>
+        <div class="names"><span>Zirui Song</span><span>Jiadong Zhang</span><span>Jiahao Zhang</span><span>Xiaosong Ma</span><span>Xiaojun Chang</span><span>Xiuying Chen</span></div>
         <div class="aff">Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)</div>
       </div>
       <div class="actions">
@@ -425,7 +425,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       </div>
       <div class="chart-card" id="sources-card">
         <h3>Where the numbers come from</h3>
-        <p class="sub">3,001 sources cited across the 195 contracts, by kind</p>
+        <p class="sub">3,382 sources cited across the 195 contracts, by kind</p>
         <div class="bars" id="bars" role="img" aria-label="Bar chart of cited sources by kind"></div>
         <p class="chart-note">Raw third-party documents are not redistributed; contracts keep the citation and the derived values.</p>
         <details class="tbl"><summary>Show as table</summary><table id="bars-table"></table></details>
@@ -505,7 +505,7 @@ after calibration    reading 0.31 m/s   alarm none</pre>
       <div class="aside">Every capability records its verification level for process, host, scene, robot and hardware.</div>
       <div class="main prov-grid">
       <div class="prose">
-        <p>Each state slot and capability lists the sources it rests on. Manufacturer documents give dimensions, ranges and operating limits; papers, standards and open databases give the measurements behind instrument outputs; where neither exists, the contract states the assumption explicitly. Values a real operator cannot see, such as true exhaust flow or sample composition, are evaluator-only slots: 1,035 of the 6,280 state slots.</p>
+        <p>Each state slot and capability lists the sources it rests on. Manufacturer documents give dimensions, ranges and operating limits; papers, standards and open databases give the measurements behind instrument outputs; where neither exists, the contract states the assumption explicitly. Values a real operator cannot see, such as true exhaust flow or sample composition, are evaluator-only slots: 1,035 of the 6,282 state slots.</p>
         <p>786 capabilities are declared but marked unsupported, so an agent can tell a missing feature from a failed call. No capability claims robot-contact or real-hardware validation. Treat the assets as documented, testable behaviour models for embodied-AI research, not as certified digital twins.</p>
       </div>
       <figure class="shot">
@@ -525,10 +525,10 @@ after calibration    reading 0.31 m/s   alarm none</pre>
   title        = {ChemLab-Assets: Simulation-Ready Chemistry Laboratory
                   Instruments with Executable Behaviour Contracts},
   author       = {Song, Zirui and Zhang, Jiadong and Zhang, Jiahao and
-                  Chang, Xiaojun and Ma, Xiaosong and Chen, Xiuying},
+                  Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.0}
+  note         = {Dataset, release 1.1}
 }</pre>
         <button class="btn small" id="copy-bib" type="button">Copy</button>
       </div>
@@ -564,7 +564,7 @@ after calibration    reading 0.31 m/s   alarm none</pre>
 <script>
 (() => {
   const LINKS = {
-    github: "https://github.com/mbzuai-nlp/ChemLab-Assets",
+    github: "__GITHUB_URL__",
     dataset: "https://huggingface.co/datasets/MBZUAI/ChemLab-Assets",
     explorer: "https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer",
   };
@@ -581,15 +581,15 @@ after calibration    reading 0.31 m/s   alarm none</pre>
 
   /* ---------- sources chart (single series, one hue, values labelled) ---------- */
   const SOURCES = [
-    ["Publications, standards and open databases", 1528],
-    ["Manufacturer brochures and manuals", 792],
-    ["Project code and geometry records", 479],
-    ["Stated modelling assumptions", 172],
+    ["Publications, standards and open databases", 1890],
+    ["Manufacturer brochures and manuals", 795],
+    ["Project code and geometry records", 493],
+    ["Stated modelling assumptions", 174],
     ["Product photos (reference only)", 30],
   ];
   const max = Math.max(...SOURCES.map((s) => s[1]));
   $("#bars").innerHTML = SOURCES.map(([k, v]) => {
-    const pct = (100 * v / 3001).toFixed(1);
+    const pct = (100 * v / SOURCES.reduce((a, s) => a + s[1], 0)).toFixed(1);
     return `<div class="bar-row" title="${esc(k)}: ${fmt(v)} sources (${pct}%)"><span class="bl">${esc(k)}</span>` +
       `<span class="bar-track"><span class="bar-fill" style="width:${(78 * v / max).toFixed(2)}%"></span><span class="bar-val">${fmt(v)}</span></span></div>`;
   }).join("");

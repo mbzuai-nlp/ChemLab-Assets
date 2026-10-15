@@ -36,8 +36,17 @@ def validate(s,v):
   if not isinstance(v,list) or not s.get('minItems',0)<=len(v)<=s.get('maxItems',math.inf):raise ActionRejected('INVALID_ARGUMENT')
   for value in v:validate(s['items'],value)
  if 'enum' in s and v not in s['enum']:raise ActionRejected('INVALID_ARGUMENT')
+_LIBRARY_CACHE={}
 def library():
- p=ASSET/'tga_library.json';return json.loads(p.read_text()) if p.exists() else {'substances':{}}
+ """Parsed measured-reference library, cached per file (mtime, size); callers deep-copy what they keep."""
+ p=ASSET/'tga_library.json'
+ if not p.exists():return {'substances':{}}
+ st=p.stat();key=(str(p),st.st_mtime_ns,st.st_size)
+ if _LIBRARY_CACHE.get('key')!=key:_LIBRARY_CACHE.clear();_LIBRARY_CACHE.update(key=key,value=json.loads(p.read_text()))
+ return _LIBRARY_CACHE['value']
+def runtime_reference_ids():
+ """Every library record whose real measured curve the sample model can load (runtime_usable)."""
+ return sorted(k for k,r in library()['substances'].items() if r.get('runtime_usable'))
 
 M_O2=.031998;PAN_LIMITS={'ceramic':1473.15,'platinum':1273.15,'aluminum':873.15}
 PLANT_EXAMPLE=dict(accept_engineering=True,ambient_k=298.15,furnace_capacity_j_k=2.,pan_capacity_j_k=.018,pan_mass_kg=5e-5,sample_conductance_w_k=.05,ambient_conductance_w_k=.02,forced_cooling_conductance_w_k=.15,controller_gain_w_k=25.,heater_max_w=100.,safe_access_temperature_k=313.15,sensor_tau_s=.1,mass_gain=1.,mass_offset_kg=0.,temperature_gain=1.,temperature_offset_k=0.,chamber_volume_m3=2e-6,chamber_reference_temperature_k=298.15,chamber_reference_pressure_pa=101325.,furnace_speed_m_s=.055,carousel_speed_rad_s=1.,punch_speed_m_s=.008)
@@ -498,6 +507,6 @@ def export_ta_tga5500_contract_metadata():
  'analysis.mass_stages consumes external observed time/T/mass/blank and independently supplied initial weighed mass. Explicit index windows yield signed mass changes, residual fraction and finite-difference DTG peak midpoint temperatures. This does not identify chemistry, source true residue or kinetic activation energy.',
  'Pan domain: ceramic1473.15K, platinum1273.15K, aluminum873.15K, each ambient lower bound. The full furnace1200°C envelope is not valid for every pan. Linear ramp.01..500K/min; no unsupported ballistic algorithm.',
  'Four engineering mechanisms: cold IR furnace vertical opening.11m;25-position shortest-path carousel;index1-only .016m punch demo;power. No pan reparenting/automatic transfer or physical lid rupture. Cold/load guards protect finite specimen and balance.'
- ],parameters={},source_ids=['manufacturer_specs','simulation_assumption','fsri_sta_2023'],limitations=['No OEM HiRes/MTGA/MS/FTIR proprietary algorithm or calibrated sensor noise.','Reaction enthalpy, Cp, conductance, relaxation and optional O2 kinetics explicitly assumed.','Finite balance N2 stream is accounted but thermal entrainment/buoyancy of purge is not modeled.','Loss species mass reservoir has no asserted molecular composition, chamber pressure feedback or ideal-gas conversion.','After a model-domain fault reactions halt until sample removal/reload; no unsupported extrapolation or free restoration.','Joint/mesh and Matterix multi-env validation are separate; no autonomous physical pan pickup.'])
+ ],parameters={},source_ids=['manufacturer_specs','simulation_assumption','fsri_sta_2023','zenodo_23013247_phytochemical_tga'],limitations=['No OEM HiRes/MTGA/MS/FTIR proprietary algorithm or calibrated sensor noise.','Reaction enthalpy, Cp, conductance, relaxation and optional O2 kinetics explicitly assumed.','Finite balance N2 stream is accounted but thermal entrainment/buoyancy of purge is not modeled.','Loss species mass reservoir has no asserted molecular composition, chamber pressure feedback or ideal-gas conversion.','After a model-domain fault reactions halt until sample removal/reload; no unsupported extrapolation or free restoration.','Joint/mesh and Matterix multi-env validation are separate; no autonomous physical pan pickup.'])
  spec=importlib.util.spec_from_file_location('_tga_local_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update({k:v['meaning'] for k,v in SLOTS.items()});ann.annotate_export(SLUG,caps,slots,{'tga_conservation':mechanism},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.load':(SAMPLE,SAMPLE_EXAMPLE),'gas.load':(GAS,GAS_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE),'sensor.calibrate':(CALIBRATION,CALIBRATION_EXAMPLE)})
  return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'tga_conservation':mechanism})

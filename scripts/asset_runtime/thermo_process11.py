@@ -1,10 +1,14 @@
-"""CHEM-057: finite seven-cell twin-screw surrogate with species and heat balances."""
+"""CHEM-057: finite seven-cell twin-screw surrogate with species and heat balances.
+
+v1.1: 55-record real-data template library; material.load_reference drives the model with
+literature viscosity-temperature laws, reference.lookup returns exact measured conditions,
+material.lookup returns any record.  Process outputs remain model predictions (synthetic)."""
 from __future__ import annotations
 import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='thermo_process11'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-057'; PROTOCOL_VERSION='1.0.0'
+SLUG='thermo_process11'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-057'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.1.0'
 TEMPLATE_REL='assets/reactions/thermo_process11_extrusion_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -55,7 +59,7 @@ METHOD=obj({'duration_s':number('s',.01,3600),'speed_rad_s':OMEGA,'feed_kg_s':RA
 METHOD_EXAMPLE=dict(duration_s=20.,speed_rad_s=200*TAU/60,feed_kg_s=.5/3600,die_radius_m=.001,die_length_m=.005,mixing_factor=1.)
 MATERIAL=obj({'reference_id':TEXT,'base_kg':number('kg',0,.05),'additive_kg':number('kg',0,.05),'density_kg_m3':number('kg/m^3',100,5000),
 'heat_capacity_j_kg_k':number('J/(kg*K)',100,10000),'viscosity_ref_pa_s':number('Pa*s',.01,1e6),'reference_temperature_k':TEMP,
-'activation_j_mol':number('J/mol',0,100000),'minimum_processing_k':TEMP,'accept_uncalibrated_newtonian':BOOL})
+'activation_j_mol':number('J/mol',0,1000000),'minimum_processing_k':TEMP,'accept_uncalibrated_newtonian':BOOL})
 MATERIAL_EXAMPLE=dict(reference_id='pcm30_aff70',base_kg=.014,additive_kg=.006,density_kg_m3=1200.,heat_capacity_j_kg_k=1800.,
 viscosity_ref_pa_s=1000.,reference_temperature_k=438.15,activation_j_mol=15000.,minimum_processing_k=413.15,accept_uncalibrated_newtonian=True)
 PRODUCT_FIELDS={loc+'_'+sp+'_kg':number('kg',0) for loc in ['initial','hopper','barrel','product','collected','waste'] for sp in ['base','additive']}
@@ -66,9 +70,26 @@ PRODUCT=obj(PRODUCT_FIELDS)
 RESULT=obj({'phase':PHASE,'elapsed_s':number('s',0),'speed_rad_s':number('rad/s',0,OMEGA_MAX),
 'torque_per_shaft_nm':number('N*m',0),'die_pressure_gauge_pa':number('Pa',0),'flow_kg_s':number('kg/s',0),
 'zone_temperature_k':array(number('K',1),7),'fault':TEXT,'evidence':TEXT,'template_source':TEXT})
-REFERENCE=obj({'reference_id':TEXT,'temperature_k':TEMP,'torque_total_range_nm':array(number('N*m',0),2),
-'pressure_range_pa':array(number('Pa',0),2),'outlier_pressure_pa':dict(type='array',items=number('Pa',0)),
-'evidence':TEXT,'source':TEXT,'template_source':TEXT,'scope':TEXT})
+def nullable(s):s=copy.deepcopy(s);s['type']=[s['type'],'null'];return s
+NTEXT={'type':['string','null']}
+REFERENCE=obj({'reference_id':TEXT,'temperature_k':TEMP,'torque_total_range_nm':nullable(array(number('N*m',0),2)),
+'pressure_range_pa':nullable(array(number('Pa',0),2)),'outlier_pressure_pa':dict(type='array',items=number('Pa',0)),
+'evidence':TEXT,'source':TEXT,'template_source':TEXT,'scope':TEXT,
+'variant':NTEXT,'torque_percent_range':nullable(array(number('%',0),2)),'torque_reported_range_nm':nullable(array(number('N*m',0),2)),'torque_basis':NTEXT,
+'screw_speed_rad_s':nullable(number('rad/s',0)),'feed_kg_s':nullable(number('kg/s',0)),'melt_temperature_k':nullable(number('K',0)),
+'viscosity_pa_s':nullable(number('Pa*s',0)),'sme_j_kg':nullable(number('J/kg',0)),'extruder':TEXT,'licence_flag':TEXT})
+REFERENCE_IN=dict(type='object',properties={'reference_id':TEXT,'temperature_k':TEMP,'screw_speed_rad_s':number('rad/s',0,OMEGA_MAX),'variant':TEXT},required=['reference_id','temperature_k'],additionalProperties=False)
+LAW=nullable(obj({'form':dict(type='string',enum=['arrhenius','wlf_exp']),'viscosity_ref_pa_s':number('Pa*s',0),'reference_temperature_k':number('K',0),
+'activation_j_mol':nullable(number('J/mol',0)),'c1':nullable(number('1')),'c2_k':nullable(number('K')),'evidence':TEXT,'valid_range_k':nullable(array(number('K',0),2))}))
+MATERIAL_INFO=obj({'reference_id':TEXT,'record_type':dict(type='string',enum=['material_reference','process_outcome']),'name_en':TEXT,'material_class':TEXT,'cas':NTEXT,
+'runtime_usage':dict(type='string',enum=['process_model','exact_condition_lookup','reference_only']),'tg_k':nullable(number('K',0)),'tm_k':nullable(number('K',0)),
+'degradation_onset_k':nullable(number('K',0)),'extrudable_window_k':nullable(array(number('K',0),2)),'minimum_processing_k':nullable(number('K',0)),
+'viscosity_law':LAW,'density_kg_m3':nullable(number('kg/m^3',0)),'heat_capacity_j_kg_k':nullable(number('J/(kg*K)',0)),'neat_extrudable':{'type':['boolean','null']},
+'lookup_temperatures_k':dict(type='array',items=number('K',0)),'condition_count':dict(type='integer',minimum=0,**{'x-unit':'1'}),
+'evidence':TEXT,'source':TEXT,'licence_flag':TEXT,'template_source':TEXT})
+LOAD_REF=dict(type='object',properties={'reference_id':TEXT,'mass_kg':number('kg',1e-6,.05),'density_kg_m3':number('kg/m^3',100,5000),
+'heat_capacity_j_kg_k':number('J/(kg*K)',100,10000),'accept_uncalibrated_newtonian':BOOL},required=['reference_id','mass_kg','accept_uncalibrated_newtonian'],additionalProperties=False)
+LOAD_REF_EXAMPLE={'reference_id':'kollidon_va64','mass_kg':.02,'accept_uncalibrated_newtonian':True}
 CAPS={}
 def cap(k,i,o,c,z,kind='device_command',vis='agent',ex=None,effects=()):CAPS[k]=(i,o,c,z,kind,vis,ex or {},list(effects))
 for key,s,ex,vis,c in [('plant',PLANT,PLANT_EXAMPLE,'evaluator','body'),('method',METHOD,METHOD_EXAMPLE,'agent','display_digits'),('material',MATERIAL,MATERIAL_EXAMPLE,'evaluator','feed_port')]:
@@ -91,7 +112,9 @@ cap('extrusion.measure',obj({}),RESULT,['display_digits'],'理想扭矩/压力/�
 cap('product.read',obj({}),PRODUCT,['die','receiver'],'双组分与热能/平均年龄账本','query','evaluator')
 cap('product.collect',obj({'recipient_id':TEXT,'accept_hot_output':BOOL}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['receiver'],'宿主接收已排出的材料，显式处理热料','configuration','evaluator',{'recipient_id':'extrudate','accept_hot_output':True},['truth.ledger'])
 cap('material.clear',obj({'accept_hot_residue':BOOL}),obj({'emptied':BOOL}),['feed_port','barrel_lower','waste_port'],'宿主停止后移除料斗/筒内残料；非自动清洗','configuration','evaluator',{'accept_hot_residue':True},['truth.ledger'])
-cap('reference.lookup',obj({'reference_id':TEXT,'temperature_k':TEMP}),REFERENCE,['display_digits'],'原论文特定温度摘要；不外推、不当作标准口模校准','query','agent',{'reference_id':'pcm30_aff70','temperature_k':438.15})
+cap('reference.lookup',REFERENCE_IN,REFERENCE,['display_digits'],'原论文特定工况实测摘要（扭矩/压力/黏度/熔温）；仅精确温度（及可选转速/变体）匹配，不外推、不当作标准口模校准','query','agent',{'reference_id':'pcm30_aff70','temperature_k':438.15})
+cap('material.lookup',obj({'reference_id':TEXT}),MATERIAL_INFO,['display_digits'],'查询库中任一真实材料/工况记录的转变温度、黏度律、密度热容、许可标记与运行时用途','query','agent',{'reference_id':'soluplus'})
+cap('material.load_reference',LOAD_REF,obj({'configured':BOOL,'parameter_evidence':TEXT}),['feed_port'],'宿主单次装入一种库内 process_model 材料：黏度-温度律/最低加工温度/降解温度取自文献；缺真实密度或热容时必须显式给出并记为假设','configuration','evaluator',LOAD_REF_EXAMPLE,['material.configured','truth.ledger'])
 CAPS['plant.configure'][7].extend(['thermal.targets_k']+['thermal.zone_'+str(i)+'_k' for i in range(7)])
 CAPS['material.configure'][7].append('truth.ledger')
 CAPS['method.configure'][7].extend(['drive.target_rad_s','feed.target_kg_s'])
@@ -117,7 +140,7 @@ slot('extrusion.output_kg_s',number('kg/s',0),'kg/s','出口实际有限质量�
 slot('cycle.phase',PHASE,'1','定时程序状态，成功不等于所有料已排净',c='display_digits')
 slot('cycle.elapsed_s',number('s',0),'s','当前定时进料操作宿主累计时间',c='display_digits')
 for k,z in [('pressed','宿主急停按下'),('latched','教学故障锁存')]:slot('safety.'+k,BOOL,'1',z,c='button_emergency')
-slot('safety.fault',TEXT,'1','压力/扭矩/过热或冷料故障代码',c='display_digits')
+slot('safety.fault',TEXT,'1','压力/扭矩/过热、冷料或文献降解起始温度故障代码',c='display_digits')
 slot('truth.ledger',PRODUCT,'1','有限双组分库存及整体能量和年龄账本','process_truth','evaluator','receiver')
 
 class ThermoProcess11Runtime:
@@ -152,12 +175,12 @@ class ThermoProcess11Runtime:
             loss_energy_j=self.loss_energy,exported_enthalpy_j=self.exported_enthalpy,stored_enthalpy_j=stored,
             energy_residual_j=self.heater_energy+self.mechanical_energy-self.loss_energy-self.exported_enthalpy-stored,
             mean_residence_s=self.output_age_mass/produced if produced else 0.,residence_available=produced>0,
-            evidence='synthetic_seven_CSTR_Newtonian_uncalibrated',template_source=TEMPLATE_REL)
+            evidence=self._evidence('synthetic_seven_CSTR_Newtonian_uncalibrated'),template_source=TEMPLATE_REL)
         return d
     def _measure(self):
         return dict(phase=self.phase,elapsed_s=self.elapsed_s,speed_rad_s=self.speed,torque_per_shaft_nm=self.torque,
             die_pressure_gauge_pa=self.pressure,flow_kg_s=self.output_rate,zone_temperature_k=self.temps.copy(),fault=self.fault,
-            evidence='synthetic_not_measured_trace',template_source=TEMPLATE_REL)
+            evidence=self._evidence('synthetic_not_measured_trace'),template_source=TEMPLATE_REL)
     def read(self,visibility='agent'):
         if visibility not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
         d={'plant.configured':self.plant is not None,'method.configured':self.method is not None,'material.configured':self.material is not None,
@@ -179,20 +202,66 @@ class ThermoProcess11Runtime:
         if self.phase=='running':self.phase=status
     def _trip(self,code):
         self.fault=code;self.latched=True;self.heating=False;self._halt('failed')
-    def _reference(self,rid,t):
+    def _evidence(self,base):
+        m=self.material or {}
+        return base+'_with_literature_material_law:'+m['reference_id'] if m.get('law') else base
+    def _viscosity(self,t):
+        m=self.material
+        if m.get('law')=='wlf_exp':
+            d=t-m['reference_temperature_k'];x=-m['c1']*d/max(1e-6,m['c2_k']+d)
+        else:x=m['activation_j_mol']/8.314462618*(1/t-1/m['reference_temperature_k'])
+        return m['viscosity_ref_pa_s']*math.exp(max(-50,min(50,x)))
+    OUTCOME_KEYS=('torque_percent_range','torque_reported_range_nm','torque_total_range_nm','pressure_range_pa','viscosity_pa_s','melt_temperature_k')
+    def _reference(self,rid,t,speed=None,variant=None):
         if rid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
-        row=next((r for r in self.templates[rid]['conditions'] if abs(r['temperature_k']-t)<1e-8),None)
-        if row is None:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
-        return dict(reference_id=rid,temperature_k=t,torque_total_range_nm=row['torque_total_range_nm'].copy(),
-            pressure_range_pa=row['pressure_range_pa'].copy(),outlier_pressure_pa=row['outlier_pressure_pa'].copy(),
-            evidence='measured_literature_summary_NOT_time_series',source=self.templates[rid]['source'],template_source=TEMPLATE_REL,
-            scope='30wt% PCM/70wt% Affinisol HPMC15LV; custom printer die; not this standard round die calibration')
+        rec=self.templates[rid];rows=[r for r in rec['conditions'] if r.get('temperature_k') is not None and abs(r['temperature_k']-t)<1e-8 and any(r.get(k) is not None for k in self.OUTCOME_KEYS)]
+        if speed is not None:rows=[r for r in rows if r.get('screw_speed_rad_s') is not None and abs(r['screw_speed_rad_s']-speed)<1e-8]
+        if variant is not None:rows=[r for r in rows if r.get('variant')==variant]
+        if not rows:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
+        if len(rows)>1:raise ActionRejected('AMBIGUOUS_REFERENCE')
+        row=rows[0];cp=lambda k:copy.deepcopy(row.get(k))
+        legacy=rid=='pcm30_aff70'
+        return dict(reference_id=rid,temperature_k=t,torque_total_range_nm=cp('torque_total_range_nm'),
+            pressure_range_pa=cp('pressure_range_pa'),outlier_pressure_pa=list(row.get('outlier_pressure_pa') or []),
+            evidence='measured_literature_summary_NOT_time_series',source=rec['source'],template_source=TEMPLATE_REL,
+            scope='30wt% PCM/70wt% Affinisol HPMC15LV; custom printer die; not this standard round die calibration' if legacy else rec['name_en']+'; '+row.get('extruder','')+'; '+row.get('temperature_basis','')+'; exact published condition only, not this round-die calibration',
+            variant=row.get('variant'),torque_percent_range=cp('torque_percent_range'),torque_reported_range_nm=cp('torque_reported_range_nm'),torque_basis=row.get('torque_basis'),
+            screw_speed_rad_s=row.get('screw_speed_rad_s'),feed_kg_s=row.get('feed_kg_s'),melt_temperature_k=row.get('melt_temperature_k'),viscosity_pa_s=row.get('viscosity_pa_s'),
+            sme_j_kg=row.get('sme_j_kg'),extruder=row.get('extruder',''),licence_flag=rec.get('licence_flag','permissive'))
+    def _material_info(self,rid):
+        if rid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
+        r=self.templates[rid];p=r.get('properties') or {};law=r.get('viscosity_law')
+        return copy.deepcopy(dict(reference_id=rid,record_type=r['record_type'],name_en=r['name_en'],material_class=r.get('material_class',''),cas=r.get('cas'),runtime_usage=r['runtime_usage'],
+            tg_k=p.get('tg_k'),tm_k=p.get('tm_k'),degradation_onset_k=r.get('degradation_onset_k'),extrudable_window_k=r.get('extrudable_window_k'),
+            minimum_processing_k=(r.get('minimum_processing') or {}).get('temperature_k'),
+            viscosity_law=None if not law else dict(form=law['form'],viscosity_ref_pa_s=law['viscosity_ref_pa_s'],reference_temperature_k=law['reference_temperature_k'],
+                activation_j_mol=law.get('activation_j_mol'),c1=law.get('c1'),c2_k=law.get('c2_k'),evidence=law['evidence'],valid_range_k=law.get('valid_range_k')),
+            density_kg_m3=(r.get('density') or {}).get('value_kg_m3'),heat_capacity_j_kg_k=(r.get('heat_capacity') or {}).get('value_j_kg_k'),neat_extrudable=r.get('neat_extrudable'),
+            lookup_temperatures_k=r.get('lookup_temperatures_k',[]),condition_count=len(r.get('conditions',[])),evidence=r.get('evidence','measured_literature'),source=r['source'],
+            licence_flag=r.get('licence_flag','permissive'),template_source=TEMPLATE_REL))
+    def _load_reference(self,a):
+        rid=a['reference_id']
+        if rid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
+        r=self.templates[rid]
+        if r['runtime_usage']!='process_model':raise ActionRejected('REFERENCE_NOT_RUNTIME_USABLE')
+        if not self.plant or self.material is not None or not a['accept_uncalibrated_newtonian']:raise ActionRejected('PRECONDITION_FAILED')
+        law=r['viscosity_law'];tmin=r['minimum_processing']['temperature_k'];dens=(r.get('density') or {}).get('value_kg_m3');cp=(r.get('heat_capacity') or {}).get('value_j_kg_k')
+        # Real values are never overridden; missing ones must be supplied explicitly by the host (assumption).
+        if (dens is None)!=('density_kg_m3' in a) or (cp is None)!=('heat_capacity_j_kg_k' in a) or tmin<self.plant['ambient_k']:raise ActionRejected('INVALID_ARGUMENT')
+        ev=('density:'+('literature' if dens is not None else 'host_assumption')+';heat_capacity:'+('literature' if cp is not None else 'host_assumption')+';viscosity_law:'+law['form']+'('+law['evidence']+')')
+        self.material=dict(reference_id=rid,base_kg=a['mass_kg'],additive_kg=0.,density_kg_m3=dens if dens is not None else a['density_kg_m3'],
+            heat_capacity_j_kg_k=cp if cp is not None else a['heat_capacity_j_kg_k'],viscosity_ref_pa_s=law['viscosity_ref_pa_s'],reference_temperature_k=law['reference_temperature_k'],
+            activation_j_mol=law.get('activation_j_mol') or 0.,c1=law.get('c1'),c2_k=law.get('c2_k'),law=law['form'],minimum_processing_k=tmin,
+            degradation_onset_k=r.get('degradation_onset_k'),accept_uncalibrated_newtonian=True,parameter_evidence=ev)
+        self.initial=[a['mass_kg'],0.];self.hopper=self.initial.copy()
+        return {'configured':True,'parameter_evidence':ev}
     def invoke(self,capability,**a):
         if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
         validate(CAPS[capability][0],a);c=capability
         if c=='extrusion.measure':return self._measure()
         if c=='product.read':return self._ledger()
-        if c=='reference.lookup':return self._reference(a['reference_id'],a['temperature_k'])
+        if c=='reference.lookup':return self._reference(a['reference_id'],a['temperature_k'],a.get('screw_speed_rad_s'),a.get('variant'))
+        if c=='material.lookup':return self._material_info(a['reference_id'])
         if c=='plant.configure':
             if self.plant is not None or not a['accept_uncalibrated_model']:raise ActionRejected('PRECONDITION_FAILED')
             self.plant=copy.deepcopy(a);self.temps=[a['ambient_k']]*7;self.targets=self.temps.copy();r={'configured':True}
@@ -206,6 +275,8 @@ class ThermoProcess11Runtime:
             # The one supported formulation is 70/30 by mass; properties remain explicit assumptions.
             if abs(a['additive_kg']/(a['base_kg']+a['additive_kg'])-.3)>1e-9 or a['minimum_processing_k']<self.plant['ambient_k']:raise ActionRejected('INVALID_ARGUMENT')
             self.material=copy.deepcopy(a);self.initial=[a['base_kg'],a['additive_kg']];self.hopper=self.initial.copy();r={'configured':True}
+        elif c=='material.load_reference':
+            self._idle();r=self._load_reference(a)
         elif c in ['power.set','power.toggle']:
             value=a['enabled'] if c=='power.set' else not self.powered
             if value and (not self.plant or self.latched):raise ActionRejected('PRECONDITION_FAILED')
@@ -287,7 +358,7 @@ class ThermoProcess11Runtime:
         dm=[0.]*7;feed=0.
         if enabled and self.material and self.method:
             method=self.method;mat=self.material
-            mu=[mat['viscosity_ref_pa_s']*math.exp(max(-50,min(50,mat['activation_j_mol']/8.314462618*(1/t-1/mat['reference_temperature_k'])))) for t in self.temps]
+            mu=[self._viscosity(t) for t in self.temps]
             fraction=min(1.,p['transport_per_rev']*omega/TAU/method['mixing_factor']*dt)
             dm[-1]=masses[-1]*fraction
             for i in range(5,-1,-1):dm[i]=min(masses[i]*fraction,max(0.,p['zone_capacity_kg']-masses[i+1]+dm[i+1]))
@@ -317,6 +388,7 @@ class ThermoProcess11Runtime:
             self.heater_energy+=heat*dt;self.loss_energy+=loss*dt
             self.temps[i]=amb+energies[i]/(C+sum(self.zones[i])*cp)
         if max(self.temps)>623.15:self._trip('OVERTEMPERATURE')
+        elif self.material and self.material.get('degradation_onset_k') and any(sum(z)>0 and t>self.material['degradation_onset_k'] for z,t in zip(self.zones,self.temps)):self._trip('DEGRADATION_ONSET')
         if self.phase=='running':
             self.elapsed_s+=dt
             if self.elapsed_s>=self.method['duration_s']-1e-10:
@@ -341,7 +413,7 @@ class ThermoProcess11Session:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_thermo_process11_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_thermo_process11_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -403,13 +475,15 @@ def export_thermo_process11_contract_metadata():
                 completion_state_ids=['cycle.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',
                 retry='same_request_id',resources=['host_clock','finite_charge','barrel','request_cache'],
                 partial_failure_zh='取消/故障保留已排出与筒内物质，热量不回滚；断电后仍散热；没有跨重启幂等'),
-            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','COLD_MATERIAL']],
+            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','AMBIGUOUS_REFERENCE','REFERENCE_NOT_RUNTIME_USABLE','COLD_MATERIAL']],
             example_arguments=copy.deepcopy(ex),verification=[],limitations=['外置喂料和拆装由宿主；真实固件、安全认证、材料标定未完成'],source_ids=['manufacturer_primary','simulation_assumption'])
     mech=dict(component_ids=['motor','screw_a','screw_b','barrel_lower','barrel_upper','feed_port','die','receiver'],
         state_ids=list(slots),meaning_zh='双螺杆七有限完全混合区、圆口模牛顿压降和轴功/电热/带料焓平衡',implementation='lumped',
         equations=['dm_i/dt=in_i-out_i; out_i<=k*m_i, k=transport_per_rev*omega/(2*pi*mixing_factor), upstream limited by recipient free capacity',
         'finite hopper feeds fixed70/30 mixture; product/collected/waste retain both species',
-        'mu(T)=mu_ref*exp(Ea/R*(1/T-1/Tref)); explicit assumed Newtonian fluid, not measured complex-viscosity conversion',
+        'mu(T)=mu_ref*exp(Ea/R*(1/T-1/Tref)) (explicit parameters or library Arrhenius law) or mu_ref*exp(-C1*(T-Tr)/(C2+T-Tr)) (library WLF law); Newtonian, zero-shear/complex viscosity used as-is',
+        'material.load_reference: law, minimum processing T and TGA degradation onset from the library record; density/cp from the record or explicit host assumption',
+        'any filled zone above the record degradation onset temperature latches DEGRADATION_ONSET after the energy step',
         'pressure_gauge=8*mu_last*die_length*Q/(pi*die_radius^4); Q=out_mass_rate/rho',
         'torque_per_shaft=drag_coeff*omega*mean(mu_i*fill_i)*mixing_factor+pressure*Q/(2*omega)',
         'pressure>10MPa or per-shaft torque>6Nm causes latched stop before proposed transfer; thermal>623.15K trips after energy step',
@@ -419,7 +493,7 @@ def export_thermo_process11_contract_metadata():
         'co-rotating phases q_a=q mod2pi; q_b=(q+pi/2)mod2pi, same -X axis; positive speed target10–1000rpm',
         'top-half barrel detached manually by host along +Z150mm proxy, not a motor or real hinge'],
         parameters={},source_ids=['manufacturer_primary','manufacturer_process','measured_reference','simulation_assumption'],
-        limitations=['七区CSTR不是实际螺槽三维输送、返混/停留时间分布或螺杆元件CAD；mixing_factor不是厂家元件组合。','只支持有限70/30PCM-Affinisol教学配方；物性/黏度/热参数显式假设，不能代表实测药物工艺或用于剂型制备。','一配方两温度真实摘要，CSV403，未取得50种材料；实测专用打印口模不同，不用于标定当前圆口模。','无剪切变稀/黏弹性/熔融潜热/降解/挥发/返流/泄漏/溶解结晶；混合仅为两组分理想均匀账本。','七区瞬时等温且轴功均匀沉积，进料区水冷只为宿主边界；无冷却水温量或真实温控辨识。','控制界面菜单未复刻，完整安全联锁/机器人/硬件/接触力/部署隔离均not_run。'])
+        limitations=['七区CSTR不是实际螺槽三维输送、返混/停留时间分布或螺杆元件CAD；mixing_factor不是厂家元件组合。','material.configure 仅支持70/30 PCM-Affinisol 显式假设参数；material.load_reference 支持13种文献黏度律材料（2种密度/热容全真实，其余需宿主显式假设）；模型仍不能代表实测药物工艺或用于剂型制备。','库共55条真实数据记录，运行时可用37条（<50目标）；工况多来自Pharma 11/ZE12/ZSE12同级机及专用口模，只按原工况精确返回，不用于标定当前圆口模。','无剪切变稀/黏弹性/熔融潜热/降解/挥发/返流/泄漏/溶解结晶；混合仅为两组分理想均匀账本。','七区瞬时等温且轴功均匀沉积，进料区水冷只为宿主边界；无冷却水温量或真实温控辨识。','控制界面菜单未复刻，完整安全联锁/机器人/硬件/接触力/部署隔离均not_run。'])
     spec=importlib.util.spec_from_file_location('_process11_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH)
     ann.annotate_export(SLUG,caps,slots,{'extrusion':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE),'material.configure':(MATERIAL,MATERIAL_EXAMPLE)})
