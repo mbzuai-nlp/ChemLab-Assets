@@ -23,13 +23,11 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 ## News
 
-* **2026-10-15 · Release 1.1**: output templates and reaction data.
-  * All 36 instruments of the second basic batch now have real-data templates. 18 template libraries are wired into their runtimes (GC, HPLC, headspace, FTIR, UV-Vis, benchtop NMR, powder XRD, potentiostat, Karl Fischer, pH/conductivity, titrator, rotary evaporator, freeze dryer, SPE, microwave digestion, centrifuge, mass-flow controller). Five reaction-capable instruments are covered by the shared reaction templates, and 13 instruments with no substance-dependent readout are marked not applicable.
-  * The shared reaction templates grew from 8 to 38 and the reaction species from 21 to 73. Every template is executed by the Matterix reaction process and checked in Isaac Lab.
-  * The shared compound table grew from 95 to 200 compounds (GC retention, IR, EI-MS, UV, ¹H/¹³C NMR, HPLC) and the JCAMP-DX IR decoder was fixed. A new compound ↔ instrument crosswalk (`assets/reactions/shared_id_crosswalk.json`, `scripts/template_library.py`) answers "which instruments hold real templates for this compound".
-  * 32 thin template libraries were strengthened, most to at least 50 real records the runtime can use. Examples: TGA 2 → 65 materials, DMA 1 → 59, nanoindentation 2 → 55, CPL 1 → 57 emitters. Six elemental analysers now share a certified-reference-material library of 121 materials and 2,836 certified values.
-  * Every changed instrument was re-validated with its unit tests, contract checks and an Isaac Lab scene run.
-* **2026-10-14 · Release 1.0**: first public release with 198 instruments, contracts, runtimes, tests, the 3D explorer and the project website.
+- **[2026-10-15] v1.1 released.** More instruments now return results based on real published data instead of placeholder values:
+  - 18 new reference-data libraries (e.g. GC, IR, NMR, XRD, titration) and 32 expanded ones.
+  - A shared table of 200 common compounds, linked to the instruments that can measure each of them.
+  - 38 built-in chemical reactions (up from 8) for heating and reaction equipment.
+- **[2026-10-14] v1.0 released.** 198 simulation-ready laboratory instruments.
 
 ## Overview
 
@@ -400,13 +398,13 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
 
 ## To-Do List
 
-- [x] Real-data output templates for every instrument with a substance-dependent readout (1.1)
-- [x] Shared compound table (200 compounds) and compound ↔ instrument crosswalk (1.1)
-- [ ] Close the remaining libraries below 50 real runtime records: Langmuir trough (36), Turbiscan (23), Process 11 (37), multi X 2500 (41), FVS-6000 VCD (37), Mini-Glatt (47)
-- [ ] Grow the shared reaction templates (38 → about 100) to cover the flow-chemistry, photoredox, electrosynthesis, peptide-synthesis and calorimetry instruments
-- [ ] Calibrated reaction kinetics (most rate constants are still stated assumptions)
-- [ ] Native data recorded on the exact instrument models (most templates are cross-instrument references)
-- [ ] Robot-contact and real-hardware validation
+- [x] Real reference data for every instrument that measures samples (v1.1)
+- [x] Shared compound table linked to the instruments (v1.1)
+- [ ] At least 50 reference materials for the last 6 instruments
+- [ ] More chemical reactions (about 100) for synthesis and flow-chemistry equipment
+- [ ] Calibrated reaction rates
+- [ ] Data recorded on the exact instrument models
+- [ ] Validation with real robots and hardware
 
 ## Citation
 
