@@ -177,7 +177,7 @@ class TestTurbiscanLab(unittest.TestCase):
   new=[r for r in subs.values() if r['kind']=='published_dispersion_stability_summary'];self.assertEqual(len(new),c['stability_records'])
   for r in new:
    s=r['source'];self.assertTrue(s['doi'] and s['url'] and s['locator'] and s['accessed']);self.assertEqual(hashlib.sha256((rt.ROOT/s['file']).read_bytes()).hexdigest(),s['sha256'])
-   self.assertEqual(r['licence']!='CC BY 4.0',bool(r['licence_flag']),r['substance_id']);self.assertEqual(r['evidence'],'measured_literature');self.assertFalse(r.get('digitized',False))
+   self.assertEqual(r['licence'] not in ('CC BY 4.0','CC BY 3.0','CC BY 2.0','CC0 1.0','CC BY (ACS AuthorChoice CC-BY, version not stated)'),bool(r['licence_flag']),r['substance_id']);self.assertEqual(r['evidence'],'measured_literature');self.assertFalse(r.get('digitized',False))
    if r['runtime_usable']:
     self.assertEqual(r['runtime_mode'],'stokes_inputs');self.assertEqual(set(r['input_provenance'])>=set(rt.INPUT_KEYS),True)
     for k in rt.INPUT_KEYS:self.assertIn(r['input_provenance'][k]['evidence'],allowed,(r['substance_id'],k))
@@ -185,7 +185,7 @@ class TestTurbiscanLab(unittest.TestCase):
    else:self.assertTrue(r['reference_only_reasons'])
   ident=lambda rs:{r['material_identity'] for r in rs}
   self.assertEqual(c['distinct_reference_materials'],len(ident(subs.values())));self.assertEqual(c['runtime_materials'],len(ident(r for r in subs.values() if r['runtime_usable'])))
-  self.assertEqual(c['stokes_runtime_materials'],len(ident(r for r in new if r['runtime_usable'])));self.assertFalse(c['minimum_50_runtime_materials_met']);self.assertEqual(c['digitized_points'],0)
+  self.assertEqual(c['stokes_runtime_materials'],len(ident(r for r in new if r['runtime_usable'])));self.assertEqual(c['minimum_50_runtime_materials_met'],c['runtime_materials']>=50);self.assertEqual(c['digitized_points'],0)
   self.assertEqual(c['stokes_runtime_materials_with_published_stability']+c['stokes_runtime_materials_inputs_only'],c['stokes_runtime_materials'])
  def test_31h_measured_carrier_viscosity_and_hsdb_densities(self):
   subs=rt.library()['substances'];r=subs['fochx2020_limonene_acacia_r2'];p=r['input_provenance']
@@ -196,6 +196,45 @@ class TestTurbiscanLab(unittest.TestCase):
   h=rt.MicrotracTurbiscanlabRuntime('visc');x=call(h,'reference.predict',reference_id='fochx2020_limonene_acacia_r2',column_height_m=.04,hindered_exponent=4.65);q=r['values']['physical_inputs']
   self.assertAlmostEqual(x['stokes_velocity_m_s'],(q['liquid_density_kg_m3']-q['particle_density_kg_m3'])*9.80665*q['particle_diameter_m']**2/(18*4.1e-3),delta=1e-20)
   ref=subs['pone0160140_mct_osa_quinoa_starch_dissolved_r1'];self.assertFalse(ref['runtime_usable']);self.assertIsNone(ref['values']['published_particle_diameter_m']);self.assertAlmostEqual(ref['values']['measured_migration_velocity_m_s'][0],13e-6)
+ def test_31i_third_pass_records_across_classes(self):
+  """2026-10-15 third pass: new open-access dispersions load, predict and drive timed scans; provenance files verified."""
+  lib=rt.library();subs=lib['substances'];c=lib['response_coverage'];allowed={'measured','measured_literature','derived','assumption'}
+  third=[r for r in subs.values() if r.get('curation_pass')=='2026-10-15'];run=[r for r in third if r['runtime_usable']]
+  earlier={r['material_identity'] for r in subs.values() if r.get('curation_pass')!='2026-10-15'}
+  self.assertGreaterEqual(len({r['material_identity'] for r in run}-earlier),45);self.assertGreaterEqual(c['runtime_materials'],50);self.assertTrue(c['minimum_50_runtime_materials_met'])
+  h=rt.MicrotracTurbiscanlabRuntime('third');before=copy.deepcopy(h.__dict__);seen=set()
+  for r in sorted(run,key=lambda r:r['substance_id']):
+   rid=r['substance_id'];p=r['values']['physical_inputs']
+   for k in rt.INPUT_KEYS:
+    pv=r['input_provenance'][k];self.assertIn(pv['evidence'],allowed,(rid,k))
+    src=pv.get('source') if isinstance(pv.get('source'),dict) else pv
+    if src.get('file'):self.assertEqual(hashlib.sha256((rt.ROOT/src['file']).read_bytes()).hexdigest(),src['sha256'],(rid,k))
+   if r['system_class'] in seen:continue
+   seen.add(r['system_class']);x=call(h,'reference.predict',reference_id=rid,column_height_m=.04,hindered_exponent=4.65)
+   v0=(p['liquid_density_kg_m3']-p['particle_density_kg_m3'])*9.80665*p['particle_diameter_m']**2/(18*p['dynamic_viscosity_pa_s']);vh=v0*(1-p['volume_fraction'])**4.65
+   self.assertAlmostEqual(x['stokes_velocity_m_s'],v0,delta=abs(v0)*1e-12);self.assertAlmostEqual(x['hindered_velocity_m_s'],vh,delta=abs(vh)*1e-12);self.assertLessEqual(x['particle_reynolds_number'],.1)
+   self.assertEqual(x['published_tsi'],r['values']['published_tsi']);self.assertEqual(x['measured_migration_velocity_m_s'],r['values']['measured_migration_velocity_m_s']);self.assertEqual(json.loads(x['inputs_json']),p)
+  self.assertGreaterEqual(len(seen),3);self.assertEqual(before,h.__dict__)
+  for direction in (1,-1):
+   cand=[r for r in sorted(run,key=lambda r:r['substance_id']) if r['values']['physical_inputs']['volume_fraction']<=.1 and direction*r['derived']['stokes_velocity_m_s']>1e-7]
+   self.assertTrue(cand,direction);rec=cand[0];rid=rec['substance_id'];T=rec['conditions']['temperature_k'] or 298.15;a=rt.reference_sample_arguments(rid)
+   g=setup('third_scan',plant={'ambient_k':T,'safe_access_temperature_k':max(313.15,T)},sample=a);initial=float(np.dot(g.phi,g.centers));call(g,'acquisition.start');res=finish(g)
+   self.assertEqual(res['phase'],'succeeded');self.assertEqual(res['reference_id'],rid);self.assertIn('Published physical inputs of reference '+rid+' were used unchanged',res['evidence'])
+   self.assertGreater(direction*(float(np.dot(g.phi,g.centers))-initial),0,rid);self.ledger(g)
+ def test_31j_third_pass_special_inputs(self):
+  """Agglomerate effective-density fraction, W/O oil carrier, all-measured brine record and author-model metrics."""
+  subs=rt.library()['substances'];c=rt.library()['response_coverage']
+  al=subs['pft2014_al2o3_rpmi_fbs'];p=al['values']['physical_inputs'];q=al['input_provenance']['volume_fraction']['inputs']
+  phi_s=(1810.-p['liquid_density_kg_m3'])/(3970.-p['liquid_density_kg_m3']);self.assertAlmostEqual(q['phi_s'],phi_s,places=14);self.assertAlmostEqual(p['volume_fraction'],50e-6*1000./(3970.*phi_s),delta=1e-18)
+  self.assertEqual(p['particle_density_kg_m3'],1810.);self.assertTrue(all(m['author_model_output'] for m in al['values']['published_other_stability_metrics']))
+  self.assertNotIn('suspension|alumina|rpmi_10pct_serum',{r['material_identity'] for r in subs.values() if r['runtime_usable'] and (r['values'].get('published_tsi') or r['values'].get('measured_migration_velocity_m_s') or any(not m.get('author_model_output') for m in r['values'].get('published_other_stability_metrics') or []))})
+  self.assertGreater(c['published_author_model_values'],0)
+  wo=subs['langmuir2021_wo_water_nacl_0p05M_dodecane_psma_ptfema'];w=wo['values']['physical_inputs']
+  self.assertEqual(wo['material_identity'].split('|')[0],'wo');self.assertAlmostEqual(w['volume_fraction'],.1,places=15);self.assertLess(w['liquid_density_kg_m3'],800.);self.assertGreater(w['dynamic_viscosity_pa_s'],1.2e-3)
+  self.assertEqual(wo['inputs_assumed'],['dynamic_viscosity_pa_s','liquid_density_kg_m3']);self.assertIn('nist_C112403',wo['input_provenance']['liquid_density_kg_m3']['file'])
+  h=rt.MicrotracTurbiscanlabRuntime('wo');x=call(h,'reference.predict',reference_id=wo['substance_id'],column_height_m=.04,hindered_exponent=4.65);self.assertLess(x['stokes_velocity_m_s'],0)
+  zn=subs['pone2020_zno500_brine_sdbs_0p1wt'];self.assertEqual(zn['inputs_assumed'],[]);self.assertEqual(zn['input_provenance']['dynamic_viscosity_pa_s']['evidence'],'measured_literature');self.assertAlmostEqual(zn['values']['physical_inputs']['dynamic_viscosity_pa_s'],1.02e-3,places=12)
+  for k in [k for k in subs if k.startswith('langmuir2018_')]:self.assertGreater(call(h,'reference.predict',reference_id=k,column_height_m=.04,hindered_exponent=4.65)['stokes_velocity_m_s'],0,k)
  def test_32_actual_api_state_schemas(self):
   spec=importlib.util.spec_from_file_location('turbiscan_asset_tool',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);meta=rt.export_microtrac_turbiscanlab_contract_metadata();h=setup();call(h,'acquisition.start');call(h,'sim.step',dt_s=.7);call(h,'acquisition.result');self.ledger(h)
   for k,c in rt.CAPS.items():

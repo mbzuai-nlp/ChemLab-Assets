@@ -93,13 +93,17 @@ class ReactionTemplateLibraryTests(unittest.TestCase):
             for key in ("name_zh", "equation", "reactants", "products", "conditions", "rate", "enthalpy_J_per_mol", "observables",
                         "typical_instrument_asset_type_ids", "sources"):
                 self.assertIn(key, t, rid)
-            need = {1: ["duration_s"], 2: ["time_constant_s", "reference_temperature_K", "q10"], 3: ["A", "Ea_J_mol", "order"]}[t["rate"]["level"]]
+            # levels 4 (photochemical) and 5 (electrochemical, Faraday) were added in phase 2 (2026-10-16, reactions_r3.py)
+            need = {1: ["duration_s"], 2: ["time_constant_s", "reference_temperature_K", "q10"], 3: ["A", "Ea_J_mol", "order"],
+                    4: ["quantum_yield", "quantum_yield_species", "absorber", "molar_absorptivity_m2_mol", "wavelength_band_m"],
+                    5: ["n_electrons", "faradaic_efficiency", "electrode", "half_reactions"]}[t["rate"]["level"]]
             self.assertTrue(all(k in t["rate"] for k in need), rid)
             lo, hi = t["conditions"]["temperature_K"]
             self.assertLess(0, lo, rid)
             self.assertLess(lo, hi, rid)
             self.assertTrue(all(s["evidence"] in ("documented", "assumption") for s in t["sources"]), rid)
-            species = list(t["reactants"]) + list(t["products"]) + ([t["conditions"]["catalyst"]] if t["conditions"].get("catalyst") else [])
+            gates = [t["conditions"].get("catalyst"), t["conditions"].get("electrolyte"), t["rate"].get("absorber")]
+            species = list(t["reactants"]) + list(t["products"]) + [g for g in gates if g]
             for s in species:
                 self.assertIn(s, self.subs, f"{rid}: {s}")
                 self.assertIn(self.subs[s]["phase"], ("solid", "liquid", "gas", "aqueous"))
@@ -126,11 +130,15 @@ class ReactionTemplateLibraryTests(unittest.TestCase):
                 self.assertAlmostEqual(left[el], right[el], places=9, msg=f"{rid} {el}")
 
     def test_original_templates_unchanged_except_mya4_listing(self):
+        # round 2 (2026-10-16) may only append the instrument ids listed in the build log (typical_id_additions)
+        r2_added = self.log["round2"]["typical_id_additions"]
         for rid, old in self.original.items():
             new = copy.deepcopy(self.rx[rid])
-            if rid == "saponification_ethyl_acetate_naoh":
-                self.assertEqual(new["typical_instrument_asset_type_ids"], old["typical_instrument_asset_type_ids"] + ["instrument.radleys_mya4"])
-                new["typical_instrument_asset_type_ids"] = old["typical_instrument_asset_type_ids"]
+            prefix = old["typical_instrument_asset_type_ids"] + (["instrument.radleys_mya4"] if rid == "saponification_ethyl_acetate_naoh" else [])
+            ids = new["typical_instrument_asset_type_ids"]
+            self.assertEqual(ids[:len(prefix)], prefix, rid)
+            self.assertLessEqual(set(ids[len(prefix):]), set(r2_added.get(rid, [])), rid)
+            new["typical_instrument_asset_type_ids"] = old["typical_instrument_asset_type_ids"]
             self.assertEqual(new, old, rid)
         self.assertEqual(list(self.rx)[:8], list(self.original))
 
@@ -184,6 +192,8 @@ class ReactionTemplateLibraryTests(unittest.TestCase):
         for rid, t in self.rx.items():
             if t["rate"]["level"] == 3 and t["rate"].get("order", 1) == 2:
                 continue  # second-order saponification is covered by the Matterix test itself
+            if t["rate"]["level"] in (4, 5):
+                continue  # light- / current-driven (phase 2): replayed by validate_r3.py and Matterix test_chemsim_reactions_drives.py
             lo, hi = t["conditions"]["temperature_K"]
             mid, cold = replay(t, self.subs, (lo + hi) / 2), replay(t, self.subs, lo - 50.0)
             self.assertGreater(mid["progress"], 0.0, rid)

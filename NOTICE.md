@@ -1,6 +1,6 @@
 # NOTICE
 
-ChemLab-Assets, release 1.1 (October 2026). Copyright (c) 2026 Zirui Song, Jiadong Zhang, Jiahao Zhang, Xiaosong Ma, Xiaojun Chang, Xiuying Chen.
+ChemLab-Assets, release 1.2 (October 2026). Copyright (c) 2026 Zirui Song, Jiadong Zhang, Jiahao Zhang, Xiaosong Ma, Xiaojun Chang, Xiuying Chen.
 
 * Code: MIT (`LICENSE`). Assets and data: CC BY-NC 4.0 (`LICENSE-ASSETS.md`).
 * Third-party data keep their own terms. This file lists the sources behind every data file that needs attribution.
@@ -300,9 +300,9 @@ The files concerned are listed below with their sources.
 
 ## Data added or updated in release 1.1
 
-Release 1.1 (2026-10-15) added template libraries and extended existing ones. Every record in these files cites its
-source in its own source fields; where a source is not permissively licensed (CC BY-SA, CC BY-NC / NC-ND, publisher
-rights reserved or no stated licence), the record carries a licence flag. Each line below summarises one file.
+Release 1.1 (2026-10-15) added or extended template libraries. Every record in these files cites its source in its own
+source fields; where a source is not permissively licensed (CC BY-SA, CC BY-NC / NC-ND, publisher rights reserved or no
+stated licence), the record carries a licence flag. Each line below summarises one file.
 
 * `assets/expansion_batch03/t1_thermal/ta_tga5500/output_templates.json` (updated in 1.1): 194 records; every record cites its source (see its source fields). Main sources: zenodo.org; raw.githubusercontent.com; tainstruments.com; doi:10.5281/zenodo.23013247; doi:10.1021/acssuschemeng.4c06407; doi:10.1038/s41467-025-62449-8. Licence notes found in the records: UNKNOWN LICENCE, ALL RIGHTS RESERVED, CC BY NC ND, CC0.
 * `assets/expansion_batch03/t1_thermal/ta_tga5500/tga_library.json` (updated in 1.1): 194 records; every record cites its source (see its source fields). Main sources: zenodo.org; raw.githubusercontent.com; tainstruments.com; doi:10.5281/zenodo.23013247; doi:10.1021/acssuschemeng.4c06407; doi:10.1038/s41467-025-62449-8. Licence notes found in the records: UNKNOWN LICENCE, ALL RIGHTS RESERVED, CC BY NC ND, CC0.
@@ -384,3 +384,30 @@ rights reserved or no stated licence), the record carries a licence flag. Each l
 * `assets/reactions/spectral_library/uv_vis.json` (updated in 1.1): 200 records; every record cites its source (see its source fields). Main sources: see the file.
 * `assets/reactions/substances.json` (updated in 1.1): 73 records; every record cites its source (see its source fields). Main sources: see the file.
 * `assets/reactions/thermo_process11_extrusion_library/templates.json` (updated in 1.1): 55 records; every record cites its source (see its source fields). Main sources: ebi.ac.uk; jefc.scholasticahq.com; strathprints.strath.ac.uk; doi:10.3390/polym14030495; doi:10.3390/pharmaceutics10030132; doi:10.3390/pharmaceutics12111019; doi:10.3390/pharmaceutics16060764. Licence notes found in the records: COPYRIGHT, NO OPEN LICENCE, UNKNOWN LICENCE, CC BY NC ND.
+
+## Data added or updated in release 1.2
+
+Release 1.2 (2026-10-16) added or extended template libraries. Every record in these files cites its source in its own
+source fields; where a source is not permissively licensed (CC BY-SA, CC BY-NC / NC-ND, publisher rights reserved or no
+stated licence), the record carries a licence flag. Each line below summarises one file.
+
+* `assets/expansion_batch03/t4_measure/biolin_mediuml/langmuir_library.json` (updated in 1.2): 113 records; every record cites its source (see its source fields). Main sources: danebadawcze.uw.edu.pl; creativecommons.org; europepmc.org; ndownloader.figshare.com; rodare.hzdr.de; repod.icm.edu.pl; doi:10.58132/y7re4s; doi:10.1016/j.molliq.2020.113570.
+* `assets/expansion_batch03/t4_measure/biolin_mediuml/output_templates.json` (updated in 1.2): 3 records; every record cites its source (see its source fields). Main sources: see the file. Licence notes found in the records: CC0.
+* `assets/expansion_batch03/t4_measure/microtrac_turbiscanlab/output_templates.json` (updated in 1.2): 4 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/expansion_batch03/t4_measure/microtrac_turbiscanlab/turbiscan_library.json` (updated in 1.2): 345 records; every record cites its source (see its source fields). Main sources: ebi.ac.uk; creativecommons.org; webbook.nist.gov; pubchem.ncbi.nlm.nih.gov; ndownloader.figshare.com; redu.unicamp.br; doi:10.1186/1743-8977-11-20; doi:10.3390/foods9070900. Licence notes found in the records: CC BY NC ND, PUBLIC DOMAIN, NON COMMERCIAL, CC0, CC BY NC.
+* `assets/expansion_batch04/t3_analytical/jasco_fvs6000/output_templates.json` (updated in 1.2): 135 records; every record cites its source (see its source fields). Main sources: webbook.nist.gov; creativecommons.org; zenodo.org; hdl.handle.net; biblio.ugent.be; doi:10.5281/zenodo.7875469; doi:10.1039/d3cp00886j; doi:10.1021/acs.analchem.4c03498. Licence notes found in the records: COPYRIGHT, CC0, PUBLIC DOMAIN.
+* `assets/expansion_batch04/t3_analytical/jasco_fvs6000/output_templates/library.json` (updated in 1.2): 135 records; every record cites its source (see its source fields). Main sources: webbook.nist.gov; hdl.handle.net; biblio.ugent.be; creativecommons.org; zenodo.org; doi:10.1039/d3cp00886j; doi:10.5281/zenodo.7875469; doi:10.1021/acs.analchem.4c03498. Licence notes found in the records: COPYRIGHT, CC0, PUBLIC DOMAIN.
+* `assets/expansion_batch04/t3_analytical/jena_multix/output_templates/library.json` (updated in 1.2): 604 records; every record cites its source (see its source fields). Main sources: pubchem.ncbi.nlm.nih.gov; analytik-jena.com; epa.gov; ebi.ac.uk; customs.go.jp; analytik-jena.kr; doi:10.1021/acs.est.3c01212; doi:10.3724/sp.j.1123.2021.03018. Licence notes found in the records: NO OPEN LICENCE, COPYRIGHT, PUBLIC DOMAIN, CC0.
+* `assets/reactions/agilent_hs8697_headspace_library/templates.json` (updated in 1.2): 136 records; every record cites its source (see its source fields). Main sources: henrys-law.org; doi:10.5194/acp-23-10901-2023.
+* `assets/reactions/alicat_mc_gas_property_library/templates.json` (updated in 1.2): 136 records; every record cites its source (see its source fields). Main sources: alicat.com; webbook.nist.gov; doi.or; doi:10.18434/t4d303; doi:10.6028/nist.ir.8209; doi:10.1021/je050186n; doi:10.1021/ie0300880. Licence notes found in the records: COPYRIGHT.
+* `assets/reactions/buchi_lyovapor_l250_formulation_library/templates.json` (updated in 1.2): 101 records; every record cites its source (see its source fields). Main sources: doi:10.3390/pharmaceutics16101346; doi:10.3390/pharmaceutics16101280; doi:10.1016/j.ijpx.2026.100572; doi:10.1021/acs.molpharmaceut.3c00125. Licence notes found in the records: CC BY NC ND, CC0, COPYRIGHT.
+* `assets/reactions/glatt_miniglatt_granulation_library/structure_index.json` (updated in 1.2): 32 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/reactions/glatt_miniglatt_granulation_library/templates.json` (updated in 1.2): 278 records; every record cites its source (see its source fields). Main sources: nvlpubs.nist.gov; doi:10.3390/pharmaceutics11120662; doi:10.3390/pharmaceutics14122631; doi:10.1007/s11095-025-03855-x; doi:10.1016/j.ijpx.2023.100204. Licence notes found in the records: PUBLIC DOMAIN.
+* `assets/reactions/ika_rv10_evaporation_library/templates.json` (updated in 1.2): 81 records; every record cites its source (see its source fields). Main sources: pubchem.ncbi.nlm.nih.gov; webbook.nist.gov; nlm.nih.gov. Licence notes found in the records: CC0.
+* `assets/reactions/magritek_spinsolve80_nmr_library/templates.json` (updated in 1.2): 120 records; every record cites its source (see its source fields). Main sources: hmdb.ca; pubchem.ncbi.nlm.nih.gov.
+* `assets/reactions/metrohm_omnis_acidbase_library/templates.json` (updated in 1.2): 103 records; every record cites its source (see its source fields). Main sources: srd.nist.gov; raw.githubusercontent.com; tsapps.nist.gov; pubchem.ncbi.nlm.nih.gov. Licence notes found in the records: PUBLIC DOMAIN, CC0, CC BY NC.
+* `assets/reactions/multiwave_7101_digestion_library/templates.json` (updated in 1.2): 273 records; every record cites its source (see its source fields). Main sources: tsapps.nist.gov; epa.gov; pubchem.ncbi.nlm.nih.gov; webbook.nist.gov.
+* `assets/reactions/reaction_templates.json` (updated in 1.2): 103 records; every record cites its source (see its source fields). Main sources: digitalcommons.njit.edu; srd.nist.gov; magritek.com; tsapps.nist.gov; doi:10.1111/php.12860）; doi:10.1063/1.555934（nist; doi:10.1007/s11356-019-06703-9，pmc6937227（cc; doi:10.3303/cet2291025（easymax/optimax. Licence notes found in the records: CC BY SA, CC BY NC ND.
+* `assets/reactions/rigaku_miniflex600_xrd_library/templates.json` (updated in 1.2): 86 records; every record cites its source (see its source fields). Main sources: rruff.net; pubchem.ncbi.nlm.nih.gov; crystallography.net; doi:10.1007/s002690050246; doi:10.1107/s0108768103009017; doi:10.1103/physrevb.59.750; doi:10.1107/s0567740878005907. Licence notes found in the records: CC0.
+* `assets/reactions/substances.json` (updated in 1.2): 201 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/reactions/thermo_process11_extrusion_library/templates.json` (updated in 1.2): 107 records; every record cites its source (see its source fields). Main sources: ebi.ac.uk; jefc.scholasticahq.com; strathprints.strath.ac.uk; doi:10.3390/pharmaceutics16030301; doi:10.3390/polym14061108; doi:10.3390/polym14030495; doi:10.3390/pharmaceutics10030132. Licence notes found in the records: COPYRIGHT, NO OPEN LICENCE, UNKNOWN LICENCE, CC BY NC ND.

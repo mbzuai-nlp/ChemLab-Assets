@@ -127,7 +127,7 @@ def export_hach_dr6000_contract_metadata():
     add("measurement.spectrum", {"anyOf": [_dr6000_spectrum_schema(), {"type": "null"}]}, "1", "derived")
     add("measurement.count", {"type": "integer", "minimum": 0, "x-unit": "1"}, "1", "derived")
     return {
-        "asset_type_id": HACH_DR6000_TYPE, "asset_version": "1.0.0", "catalog_id": "CHEM-071", "model": "Hach DR6000",
+        "asset_type_id": HACH_DR6000_TYPE, "asset_version": "1.1.0", "catalog_id": "CHEM-071", "model": "Hach DR6000",
         "capabilities": capabilities, "state_slots": slots,
         "parameters": {
             "wavelength_min_m": {"value": 190e-9, "unit": "m", "evidence": "catalog"},
@@ -673,7 +673,7 @@ def export_jasco_ftir4700_contract_metadata():
     add("background.count", _ftir_numeric("1", 0, integer=True), "1", "derived")
     add("measurement.spectrum", {"anyOf": [_ftir_spectrum_schema(), {"type": "null"}]}, "1", "derived")
     add("measurement.count", _ftir_numeric("1", 0, integer=True), "1", "derived")
-    return {"asset_type_id": JASCO_FTIR4700_TYPE, "asset_version": "1.0.0", "catalog_id": "CHEM-072", "model": "JASCO FT/IR-4700",
+    return {"asset_type_id": JASCO_FTIR4700_TYPE, "asset_version": "1.1.0", "catalog_id": "CHEM-072", "model": "JASCO FT/IR-4700",
         "capabilities": capabilities, "state_slots": slots,
         "parameters": {
             "wavenumber_min_m_inv": {"value": 35000, "unit": "m^-1", "evidence": "catalog"},
@@ -1277,7 +1277,7 @@ def export_agilent_gc8890b_contract_metadata():
     add("process.thermal_truth", {"type": "object"}, "1", "process_truth", visibility="debug")
     add("measurement.chromatogram", {"anyOf": [_gc8890b_chromatogram_schema(), {"type": "null"}]}, "1", "derived")
     add("measurement.count", {"type": "integer", "minimum": 0, "x-unit": "1"}, "1", "derived")
-    return {"asset_type_id": AGILENT_GC8890B_TYPE, "asset_version": "1.0.0", "catalog_id": "CHEM-096",
+    return {"asset_type_id": AGILENT_GC8890B_TYPE, "asset_version": "1.1.0", "catalog_id": "CHEM-096",
         "model": "Agilent | 8890B GC", "capabilities": capabilities, "state_slots": slots,
         "parameters": {
             "oven_maximum_K": {"value": 723.15, "unit": "K", "evidence": "catalog"},
@@ -1717,7 +1717,7 @@ def export_agilent_hs8697_contract_metadata():
     add('measurement.chromatogram', _hs8697_nullable(_hs8697_chromatogram_schema()), '1', 'derived', ['display'])
     add('measurement.count', {'type': 'integer', 'minimum': 0, 'x-unit': '1'}, '1', 'derived', ['display'])
     add('sample.truth', {'type': 'object'}, '1', 'process_truth', ['vial_proxy'], visibility='debug')
-    return {'asset_type_id': AGILENT_HS8697_TYPE, 'asset_version': '1.0.0', 'catalog_id': 'CHEM-108', 'model': 'Agilent 8697, 48-position tray',
+    return {'asset_type_id': AGILENT_HS8697_TYPE, 'asset_version': '1.1.0', 'catalog_id': 'CHEM-108', 'model': 'Agilent 8697, 48-position tray',
         'capabilities': caps, 'state_slots': states,
         'parameters': {
             'tray_capacity': {'value': 48, 'unit': '1', 'evidence': 'catalog'}, 'oven_capacity': {'value': 12, 'unit': '1', 'evidence': 'catalog'},
@@ -2192,7 +2192,7 @@ def export_agilent_hplc1260_contract_metadata():
     add("run.elapsed_s", n("s", 0), "s", "derived")
     add("measurement.chromatogram", nullable(_hplc_chromatogram_schema()), "1", "derived")
     add("measurement.count", {"type": "integer", "minimum": 0, "x-unit": "1"}, "1", "derived")
-    return {"asset_type_id": AGILENT_HPLC1260_TYPE, "asset_version": "1.0.0", "catalog_id": "CHEM-097",
+    return {"asset_type_id": AGILENT_HPLC1260_TYPE, "asset_version": "1.1.0", "catalog_id": "CHEM-097",
         "model": "Agilent | 1260 Infinity III LC", "capabilities": caps, "state_slots": slots,
         "parameters": {
             "flow_minimum_m3_s": {"value": AGILENT_HPLC1260_FLOW_MIN_M3_S, "unit": "m3/s", "evidence": "catalog"},
@@ -2664,7 +2664,7 @@ def export_eppendorf_5910ri_contract_metadata():
     for key, unit in {"rotor_radius_m": "m", "rotor_mass_kg": "kg", "rotor_inertia_kg_m2": "kg*m^2", "loaded_sample_mass_kg": "kg",
         "imbalance_threshold_kg_m": "kg*m", "acceleration_rad_s2": "rad/s^2", "braking_rad_s2": "rad/s^2", "temperature_time_constant_s": "s", "sedimentation_rate": "1", "slot_count": "1"}.items():
         params[key] = {"value": None, "unit": unit, "evidence": "unknown", "conditions": "No manufacturer/component value inferred; synthetic host fixtures are separate."}
-    return {"asset_type_id": EPPENDORF_5910RI_TYPE, "asset_version": "1.0.0", "catalog_id": "CHEM-010", "model": "Eppendorf 5910 Ri",
+    return {"asset_type_id": EPPENDORF_5910RI_TYPE, "asset_version": "1.1.0", "catalog_id": "CHEM-010", "model": "Eppendorf 5910 Ri",
         "state_slots": slots, "capabilities": caps, "parameters": params,
         "rotor_configurations": {key: {"model": None, "radius_m": None, "mass_kg": None, "inertia_kg_m2": None, "slot_count": None,
             "operating_speed_limit_rad_s": None, "operating_rcf_limit": None, "installed": None} for key in ("large_capacity", "fixed_angle")},

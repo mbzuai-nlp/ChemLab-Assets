@@ -150,7 +150,7 @@ def export_nabertherm_contract_metadata():
         "completion_criterion": "所有注册实例推进同一时长，随后统一发布世界时钟。",
         "partial_failure": "SceneSynchronizationError表示过程和时钟已推进；场景回调可有部分效果。"}}
     return {"asset_types": {NABERTHERM_TYPE: {"catalog_id": "CHEM-185", "model": "Nabertherm L 9/11/SKM, catalogue configuration",
-        "asset_version": "1.0.0", "state_slots": slots, "capabilities": caps, "declared_capabilities": declared,
+        "asset_version": "1.1.0", "state_slots": slots, "capabilities": caps, "declared_capabilities": declared,
         "parameters": parameters}}, "host_capabilities": host_caps,
         "trusted_scene_callback": "scene_adapter(instance_id, updates): synchronous SI state updates; host owns door angle and display",
         "result_schema_scope": "capability.output_schema validates response.result only"}
@@ -660,7 +660,7 @@ def carbolite_tf1_metadata():
             'completion_criterion': 'Declared command value committed; synchronous scene callback returned where configured. Temperature settling is not command completion.',
             'retry_semantics': 'In-memory per-principal/instance/request ID deduplication; mismatched command returns REQUEST_CONFLICT. No restart persistence.',
         }
-    return {'protocol_version': '1.0.0', 'asset_type_id': CARBOLITE_TF1_ASSET_TYPE, 'asset_version': '1.0.0', 'catalog_id': 'CHEM-186', 'model': 'Carbolite Gero TF1 12/60/300',
+    return {'protocol_version': '1.0.0', 'asset_type_id': CARBOLITE_TF1_ASSET_TYPE, 'asset_version': '1.1.0', 'catalog_id': 'CHEM-186', 'model': 'Carbolite Gero TF1 12/60/300',
             'state_slots': _tf1_copy.deepcopy(CARBOLITE_TF1_STATE_SLOTS), 'capabilities': capabilities, 'parameters': _tf1_copy.deepcopy(CARBOLITE_TF1_PARAMETERS),
             'limitations': ['Synthetic empty hot-zone lumped model, derived from the manufacturer 35-minute heat-up point with assumed 20 deg C ambient and UA; C and UA are not separately identifiable from that one point.',
                 'Maximum rated temperature is 1473.15 K; continuous manufacturer rating is 1373.15 K. This model does not enforce dwell-time limits or model degradation above the continuous rating.',
@@ -1103,7 +1103,7 @@ def export_binder_vd56_metadata():
     declared = {"pressure.program": {"availability": "declared", "visibility": "agent", "kind": "configuration", "description_zh": "压力程序未实现；需外接泵与控制系统配置，调用unsupported且不改状态",
         "input_schema": {"type": "object", "properties": {"steps": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"pressure_Pa": {"type": "number", "exclusiveMinimum": 0, "x-unit": "Pa"}, "duration_s": {"type": "number", "exclusiveMinimum": 0, "x-unit": "s"}}, "required": ["pressure_Pa", "duration_s"], "additionalProperties": False}}}, "required": ["steps"], "additionalProperties": False},
         "output_schema": {"type": "object", "properties": {}, "additionalProperties": False}, "example_arguments": [{"steps": [{"pressure_Pa": 5000, "duration_s": 600}]}], "state_effects": [], "observes": [], "binding": None}}
-    return {"asset_types": {BINDER_VD56_ASSET_ID: {"catalog_id": "CHEM-012", "model": "BINDER VD 56", "asset_version": "1.0.0", "state_slots": slots, "capabilities": caps, "declared_capabilities": declared, "parameters": _vd56_copy.deepcopy(BINDER_VD56_PARAMETERS)}},
+    return {"asset_types": {BINDER_VD56_ASSET_ID: {"catalog_id": "CHEM-012", "model": "BINDER VD 56", "asset_version": "1.1.0", "state_slots": slots, "capabilities": caps, "declared_capabilities": declared, "parameters": _vd56_copy.deepcopy(BINDER_VD56_PARAMETERS)}},
         "host_capabilities": {"sim.step": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "BinderVD56Runtime.step(dt_s)", "scope": "Every registered VD56 instance shares one host clock", "input_schema": {"type": "object", "properties": {"dt_s": {"type": "number", "minimum": 0, "maximum": 3600, "x-unit": "s"}}, "required": ["dt_s"], "additionalProperties": False}},
             "host.configure_external_vacuum": {"kind": "configuration", "visibility": "trusted_host_only", "binding": "BinderVD56Runtime.configure_external_vacuum", "description_zh": "无默认泵；连接时须显式提供绝压边界、时间常数及证据"},
             "host.sync_scene": {"kind": "configuration", "visibility": "trusted_host_only", "binding": "BinderVD56Runtime.sync_scene"}}, "result_schema_scope": "capability.output_schema describes envelope result"}
@@ -1453,7 +1453,7 @@ def export_julabo_corio_cd200f_metadata():
         'sim.configure_bath_fluid': {'kind': 'configuration', 'visibility': 'trusted_host_only', 'binding': 'JulaboCorioCD200FRuntime.configure_bath_fluid(instance_id, *, mass_kg, specific_heat_J_kg_K, heat_loss_W_K, lid_open_loss_W_K, initial_temperature_K, minimum_temperature_K, maximum_temperature_K, evidence)', 'description_zh': 'C=m*cp，仅浴液单节点假设；未包含未知槽体/样品热容。'},
         'sim.configure_circulation_boundary': {'kind': 'configuration', 'visibility': 'trusted_host_only', 'binding': 'JulaboCorioCD200FRuntime.configure_circulation_boundary(instance_id, *, connected, flow_rate_m3_s=None, pressure_rise_Pa=None, evidence)', 'description_zh': '显式外部运行点；无默认泵曲线、回路阻力或物料转移解算；拒绝同时取两个厂家极值。'},
     }
-    return {'asset_types': {JULABO_CORIO_CD200F_TYPE: {'catalog_id': 'CHEM-187', 'model': 'JULABO CORIO CD-200F 9012701.N1.03', 'asset_version': '1.0.0', 'state_slots': slots, 'capabilities': caps, 'parameters': params, 'declared_capabilities': {}}},
+    return {'asset_types': {JULABO_CORIO_CD200F_TYPE: {'catalog_id': 'CHEM-187', 'model': 'JULABO CORIO CD-200F 9012701.N1.03', 'asset_version': '1.0.1', 'state_slots': slots, 'capabilities': caps, 'parameters': params, 'declared_capabilities': {}}},
         'host_capabilities': host, 'trusted_scene_callback': 'scene_adapter(instance_id, updates): synchronous SI; bath_lid.angle_rad maps to bath_lid_joint about -X; no callback means scene command unsupported',
         'result_schema_scope': 'capability.output_schema validates response.result only',
         'limitations': ['Single well-mixed node; no fluid phase changes, evaporation, sample chemistry, fluid mass transfer, or external thermal circuit.', 'Cooling power interpolates manufacturer ethanol reference points only at 20°C ambient; applying to another fluid is an explicit host reference-model assumption, not validated performance.', 'Above20°C refrigeration capacity is unknown and not extrapolated; passive heat loss and heating remain modeled.', 'UA and C are explicitly configured assumptions/estimates; no fitted manufacturer defaults.', 'API access filtering is not a Python-process or filesystem security sandbox. Host and debug files must be inaccessible to untrusted agents.', 'In-memory request deduplication only; no restart persistence, hardware control or robot execution.']}
@@ -1897,7 +1897,7 @@ def export_miele_plw6111_metadata():
         'Request deduplication is in-memory only. No operation/poll/cancel objects; start/stop are synchronous commands controlling subsequent host evolution.']
     host = {'sim.step': {'kind': 'simulation', 'visibility': 'trusted_host_only', 'input_schema': _miele_object({'dt_s': _miele_schema('s', 0, 86400)}), 'binding': 'MielePLW6111Runtime.step(dt_s)', 'partial_failure': 'Process and world clock commit before scene callbacks. SceneSynchronizationError reports possible partial backend effects.'},
         'sim.configure_water_model': {'kind': 'configuration', 'visibility': 'trusted_host_only', 'binding': 'MielePLW6111Runtime.configure_water_model(instance_id, *, effective_heat_capacity_J_K, heat_loss_W_K, initial_temperature_K, maximum_temperature_K, evidence)', 'description_zh': '断电且程序停止时显式初始化有效水热模型；所有参数均为有说明的宿主输入，不是注水或真实硬件重置。'}}
-    return {'asset_types': {MIELE_PLW6111_TYPE: {'catalog_id': 'CHEM-191', 'model': 'Miele PLW 6111 DP SC CL H14, 10958380', 'asset_version': '1.0.0', 'state_slots': slots, 'capabilities': caps, 'declared_capabilities': {}, 'parameters': params}}, 'host_capabilities': host,
+    return {'asset_types': {MIELE_PLW6111_TYPE: {'catalog_id': 'CHEM-191', 'model': 'Miele PLW 6111 DP SC CL H14, 10958380', 'asset_version': '1.0.1', 'state_slots': slots, 'capabilities': caps, 'declared_capabilities': {}, 'parameters': params}}, 'host_capabilities': host,
         'limitations': limitations, 'trusted_scene_callback': 'scene_adapter(instance_id, updates) receives SI door, three basket extensions, indicated water temperature and program phase; host is sole authority.', 'result_schema_scope': 'capability.output_schema validates response.result only'}
 
 
@@ -2751,7 +2751,7 @@ def export_parr_4591_metadata():
         'ambient_pressure_Pa':parameter(101325.0,'Pa','assumption','Standard atmosphere used to convert gauge pressure to absolute pressure.'),
         'manufacturer_heatup_time_s':parameter(None,'s','unknown','No loaded4591 heatup curve or factory time benchmark validated.'),
     }
-    return {'asset_types':{PARR_4591_TYPE:{'catalog_id':'CHEM-018','model':'Parr4591 moveable head,25mL,standard FKM','asset_version':'1.0.0','state_slots':slots,'capabilities':caps,'declared_capabilities':unsupported,'parameters':params}},
+    return {'asset_types':{PARR_4591_TYPE:{'catalog_id':'CHEM-018','model':'Parr4591 moveable head,25mL,standard FKM','asset_version':'1.1.0','state_slots':slots,'capabilities':caps,'declared_capabilities':unsupported,'parameters':params}},
         'host_capabilities':{'sim.step':{'kind':'simulation','visibility':'trusted_host_only','input_schema':obj({'dt_s':n('s',0,86400)}),'binding':'Parr4591Runtime.step(dt_s)','partial_failure':'Clock/process commit before scene callbacks; callback failure can leave partial scene effects.'},
             'sim.configure_gas_charge':{'kind':'configuration','visibility':'trusted_host_only','binding':'Parr4591Runtime.configure_gas_charge(instance_id, *, pressure_Pa, evidence)','description_zh':'关闭供电且闭釜闭阀时配置显式惰性理想气体绝压，不代表真实充气；整次校验当前及目标压力上限。'}},
         'trusted_scene_callback':'scene_adapter(instance_id, updates) receives public fields only: lid.lift_m, lid.closed, stirrer.angle_rad, stirrer.speed_rad_s, vent.open, thermal.indicated_temperature_k, pressure.indicated_pressure_pa, power.enabled, heater.enabled.',
@@ -3270,7 +3270,7 @@ def export_radleys_mya4_metadata():
         'Read never advances the world. Host RK4 maximum substep0.25s; programmed arrival/completion event timing resolution is bounded by one substep.',
         'Agent sessions filter API metadata, reads, responses, logs and scene payloads. This is not an OS/Python-process/filesystem isolation boundary.',
         'No hardware, robot, pressure seal, hazardous-reaction, chemical kinetics, automatic liquid-transfer or manufacturer PID calibration claims.']
-    return {'asset_types':{MYA4_TYPE:{'catalog_id':'CHEM-021','model':'Radleys Mya 4; standard magnetic stirring configuration','asset_version':'1.0.0','state_slots':slots,'capabilities':caps,'declared_capabilities':declared,'parameters':params}},
+    return {'asset_types':{MYA4_TYPE:{'catalog_id':'CHEM-021','model':'Radleys Mya 4; standard magnetic stirring configuration','asset_version':'1.1.0','state_slots':slots,'capabilities':caps,'declared_capabilities':declared,'parameters':params}},
         'host_capabilities':{'sim.step':{'kind':'simulation','visibility':'trusted_host_only','input_schema':_mya4_object({'dt_s':_mya4_num('s',0,86400)}),'binding':'basic40_runtime_thermal.RadleysMya4Runtime.step(dt_s)'},
             'sim.configure_cooling_source':{'kind':'configuration','visibility':'trusted_host_only','binding':'RadleysMya4Runtime.configure_cooling_source(available=True, temperature_K=278.15, flow_m3_s=0.003/60)'}},
         'limitations':limitations,'equations':['Cb*dTb_i/dt=Qcontrol_i-UA*(Tb_i-Ta)-G*(Tb_i-Tl_i)+sum_j(Kij*(Tb_j-Tb_i))','Cl_i*dTl_i/dt=G*(Tb_i-Tl_i); Cl_i=rho*cp*fill_volume_m3','Qcontrol_i=clip(Kp*(target_i-Tfeedback_i)+UA*(target_i-Ta),-Pcool,Pheat)','Cross-zone nearest-neighbor pairs(1,2),(2,3),(3,4), with symmetric Kij; dtheta_i/dt=angular_speed_i; RK4 integration.'],

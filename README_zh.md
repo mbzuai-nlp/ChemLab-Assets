@@ -16,11 +16,9 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 ## 更新动态
 
-- **[2026-10-15] 发布 v1.1。** 更多仪器的输出改为基于真实公开数据，不再是占位数值：
-  - 新增 18 个参考数据库（如气相色谱、红外、核磁、XRD、滴定），并扩充了 32 个已有的库。
-  - 新增 200 种常见化合物的公共数据表，并标明每种化合物可以用哪些仪器测量。
-  - 内置化学反应从 8 条增加到 38 条，供加热和反应类设备使用。
-- **[2026-10-14] 发布 v1.0。** 198 台可直接用于仿真的实验室仪器。
+- **[2026-10-16] v1.2：** 内置化学反应增至 103 条，新增光驱动和电驱动反应；参考数据更丰富；新增仪器申请入口。
+- **[2026-10-15] v1.1：** 又有 17 台仪器配上真实参考数据；200 种化合物公共表；38 条内置反应。
+- **[2026-10-14] v1.0：** 198 台可直接用于仿真的实验室仪器。
 
 ## 简介
 
@@ -40,7 +38,7 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | **合同** | 14,272 个组件、6,282 个带类型的状态槽、4,701 个带 JSON-Schema 参数与错误声明的能力 |
 | **接口** | 648 个读数（显示屏、指示灯）和 2,348 个接口点（放置、抓取、端口） |
 | **行为** | 每台一个 Python 运行层：按时间步推进的过程模型，提供 `describe` / `read` / `invoke` / `poll`，区分智能体与评测者视角，噪声可设种子 |
-| **来源** | 共引用 3,382 条来源；第三方原始文档不随发布再分发 |
+| **来源** | 共引用 3,445 条来源；第三方原始文档不随发布再分发 |
 | **仿真** | 全部 198 台已转为 USD，并通过 Matterix 框架在 NVIDIA Isaac Lab 中运行检查 |
 
 ## 图库
@@ -280,6 +278,12 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 </details>
 
+## 申请添加仪器
+
+你实验室的仪器还不在列表里？欢迎[提交仪器申请](https://github.com/mbzuai-nlp/ChemLab-Assets/issues/new?template=instrument_request.yml)，写明厂家和型号。
+附上说明书、样本、多角度照片，再简单说说平时怎么用，能帮我们把模型做得更准确。
+请只上传你有权分享的文件；厂家公开的资料给链接就行。
+
 ## 快速上手
 
 **1. 下载数据**（全部约 1.5 GB，或只下一台加代码）：
@@ -366,8 +370,8 @@ tests/test_asset_esco_efa5uduvw.py        # its tests
 
 - [x] 所有测量样品的仪器都有真实参考数据（v1.1）
 - [x] 公共化合物表，并与仪器关联（v1.1）
-- [ ] 最后 6 台仪器补足 50 种以上参考材料
-- [ ] 增加更多化学反应（约 100 条），覆盖合成与连续流设备
+- [x] 约 100 条内置化学反应，包括光驱动和电驱动反应（v1.2）
+- [ ] FVS-6000 振动圆二色光谱仪补足 50 种参考化合物（目前 40 种）
 - [ ] 标定反应速率
 - [ ] 补充在对应型号上实测的数据
 - [ ] 真实机器人与硬件验证
@@ -382,6 +386,6 @@ tests/test_asset_esco_efa5uduvw.py        # its tests
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.1}
+  note         = {Dataset, release 1.2}
 }
 ```

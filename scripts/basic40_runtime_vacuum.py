@@ -126,7 +126,7 @@ def export_contract_metadata():
     caps["cooling.set_flow_rate"] = {"availability": "declared", "visibility": "agent", "kind": "configuration", "description_zh": "冷却水流量控制未实现；输入仅仿真提案，不能执行或返回成功。示例1e-6m3/s为工程示例，无厂家范围依据。",
         "input_schema": {"type": "object", "properties": {"flow_m3_s": {"type": "number", "exclusiveMinimum": 0, "x-unit": "m^3/s"}}, "required": ["flow_m3_s"], "additionalProperties": False},
         "output_schema": {"type": "object", "properties": {}, "additionalProperties": False}, "state_effects": [], "observes": [], "example_arguments": [{"flow_m3_s": 1e-6}], "binding": None}
-    return {"asset_types": {ASSET_TYPE_ID: {"catalog_id": "CHEM-188", "model": "VACUUBRAND PC 3001 VARIO select", "asset_version": "1.0.0", "parameters": copy.deepcopy(PARAMETERS), "state_slots": slots, "capabilities": caps}},
+    return {"asset_types": {ASSET_TYPE_ID: {"catalog_id": "CHEM-188", "model": "VACUUBRAND PC 3001 VARIO select", "asset_version": "1.0.1", "parameters": copy.deepcopy(PARAMETERS), "state_slots": slots, "capabilities": caps}},
         "host_capabilities": VacuumHost.describe_host(), "limitations": list(LIMITATIONS)}
 
 
@@ -394,7 +394,7 @@ class VacuumSession:
             for cap in caps.values():
                 cap["state_effects"] = [e for e in cap["state_effects"] if e["state_id"] in visible]
                 cap["observes"] = [s for s in cap["observes"] if s in visible]
-            return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": ASSET_TYPE_ID, "asset_version": "1.0.0", "instance_id": instance_id,
+            return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": ASSET_TYPE_ID, "asset_version": "1.0.1", "instance_id": instance_id,
                 "catalog_id": "CHEM-188", "model": spec["model"], "adapter": "basic40_runtime_vacuum.VacuumSession", "capabilities": caps, "state_slots": visible, "limitations": list(LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
@@ -649,7 +649,7 @@ def export_rv10_contract_metadata():
         "fluid_latent_heat_j_kg": {"value": None, "unit": "J/kg", "evidence": "unknown"},
         "fluid_density_kg_m3": {"value": None, "unit": "kg/m^3", "evidence": "unknown"},
     }
-    return {"asset_types": {RV10_ASSET_TYPE_ID: {"catalog_id": "CHEM-024", "model": "IKA RV 10 digital V", "asset_version": "1.0.0", "parameters": params, "state_slots": slots, "capabilities": caps}}, "host_capabilities": RV10Host.describe_host(), "limitations": list(RV10_LIMITATIONS)}
+    return {"asset_types": {RV10_ASSET_TYPE_ID: {"catalog_id": "CHEM-024", "model": "IKA RV 10 digital V", "asset_version": "1.1.0", "parameters": params, "state_slots": slots, "capabilities": caps}}, "host_capabilities": RV10Host.describe_host(), "limitations": list(RV10_LIMITATIONS)}
 
 
 @dataclass
@@ -927,7 +927,7 @@ class RV10Session:
                 cap["state_effects"] = [item for item in cap["state_effects"] if item["state_id"] in slots]
                 cap["observes"] = [sid for sid in cap["observes"] if sid in slots]
             caps.update(_vacuum_templates("ika_rv10").capabilities(include_evaluator=self.__host._principals[self.__principal_id][0] in ("debug", "evaluator")))
-            return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": RV10_ASSET_TYPE_ID, "asset_version": "1.0.0", "instance_id": instance_id, "catalog_id": "CHEM-024", "model": spec["model"], "adapter": "basic40_runtime_vacuum.RV10Session", "capabilities": caps, "state_slots": slots, "limitations": list(RV10_LIMITATIONS)}
+            return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": RV10_ASSET_TYPE_ID, "asset_version": "1.1.0", "instance_id": instance_id, "catalog_id": "CHEM-024", "model": spec["model"], "adapter": "basic40_runtime_vacuum.RV10Session", "capabilities": caps, "state_slots": slots, "limitations": list(RV10_LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
         with self.__host._lock:
@@ -1225,7 +1225,7 @@ def export_lyovapor_contract_metadata():
         "lowest_system_pressure_pa": {"value": 3, "unit": "Pa", "evidence": "documented", "source": "BUCHI May2026 manual pp18-19; requires compatible external source"},
         **{key: {"value": None, "unit": unit, "evidence": "unknown", "source": "Requires specimen experiment or explicit trusted host engineering assumption"} for key, unit in (("sublimation_rate", "kg/s"), ("desorption_rate", "kg/s"), ("collapse_temperature", "K"), ("vapor_resistance", "1"), ("heat_transfer_coefficient", "W/(m^2*K)"))},
     }
-    return {"asset_types": {LYOVAPOR_ASSET_TYPE_ID: {"catalog_id": "CHEM-025", "model": "BUCHI Lyovapor L-250 Pro", "asset_version": "1.0.0", "parameters": parameters, "state_slots": slots, "capabilities": caps}},
+    return {"asset_types": {LYOVAPOR_ASSET_TYPE_ID: {"catalog_id": "CHEM-025", "model": "BUCHI Lyovapor L-250 Pro", "asset_version": "1.1.0", "parameters": parameters, "state_slots": slots, "capabilities": caps}},
         "host_capabilities": LyovaporHost.describe_host(), "limitations": list(LYOVAPOR_LIMITATIONS)}
 
 
@@ -1551,7 +1551,7 @@ class LyovaporSession:
                 cap["state_effects"] = [e for e in cap["state_effects"] if e["state_id"] in visible]
                 cap["observes"] = [sid for sid in cap["observes"] if sid in visible]
             spec["capabilities"].update(_vacuum_templates("buchi_lyovapor_l250").capabilities(include_evaluator=self.__host._principals[self.__principal_id][0] in ("debug", "evaluator")))
-            return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": LYOVAPOR_ASSET_TYPE_ID, "asset_version": "1.0.0", "instance_id": instance_id, "catalog_id": "CHEM-025", "model": spec["model"], "adapter": "basic40_runtime_vacuum.LyovaporSession", "state_slots": visible, "capabilities": spec["capabilities"], "limitations": list(LYOVAPOR_LIMITATIONS)}
+            return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": LYOVAPOR_ASSET_TYPE_ID, "asset_version": "1.1.0", "instance_id": instance_id, "catalog_id": "CHEM-025", "model": spec["model"], "adapter": "basic40_runtime_vacuum.LyovaporSession", "state_slots": visible, "capabilities": spec["capabilities"], "limitations": list(LYOVAPOR_LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
         with self.__host._lock:
@@ -1839,7 +1839,7 @@ def export_purelab_contract_metadata():
         if cap in ("water.start", "water.set_mode"):
             effects += [{"state_id": sid, "timing": "on_step", "description_zh": "宿主守恒记账推进；有限进水、缓冲体积和容器容量限制，工程假设"} for sid in step_ids]
         caps[cap] = {"availability": "implemented", "visibility": "agent", "kind": "configuration" if cap == "arm.set_height" else "device_command", "description_zh": descriptions[cap], "input_schema": _pure_obj(copy.deepcopy(props)), "output_schema": _pure_obj({"applied": {"type": "boolean", "const": True}}), "state_effects": effects, "observes": [sid for sid in direct[cap] if slots[sid]["visibility"] == "agent"], "example_arguments": [examples[cap]], "precondition_note": prerequisites[cap], "binding": f"basic40_runtime_vacuum.PurelabSession.invoke(instance_id=..., capability_id='{cap}', arguments=..., request_id=...)"}
-    return {"asset_types": {PURELAB_ASSET_TYPE_ID: {"catalog_id": "CHEM-190", "model": "ELGA LabWater | PURELAB flex 3", "asset_version": "1.0.0", "parameters": copy.deepcopy(PURELAB_PARAMETERS), "state_slots": slots, "capabilities": caps}}, "host_capabilities": PurelabHost.describe_host(), "limitations": list(PURELAB_LIMITATIONS)}
+    return {"asset_types": {PURELAB_ASSET_TYPE_ID: {"catalog_id": "CHEM-190", "model": "ELGA LabWater | PURELAB flex 3", "asset_version": "1.0.1", "parameters": copy.deepcopy(PURELAB_PARAMETERS), "state_slots": slots, "capabilities": caps}}, "host_capabilities": PurelabHost.describe_host(), "limitations": list(PURELAB_LIMITATIONS)}
 
 
 @dataclass
@@ -2136,7 +2136,7 @@ class PurelabSession:
             for cap in spec["capabilities"].values():
                 cap["state_effects"] = [effect for effect in cap["state_effects"] if effect["state_id"] in visible]
                 cap["observes"] = [sid for sid in cap["observes"] if sid in visible]
-            return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": PURELAB_ASSET_TYPE_ID, "asset_version": "1.0.0", "instance_id": instance_id, "catalog_id": "CHEM-190", "model": spec["model"], "adapter": "basic40_runtime_vacuum.PurelabSession", "state_slots": visible, "capabilities": spec["capabilities"], "limitations": list(PURELAB_LIMITATIONS)}
+            return {"protocol_version": PROTOCOL_VERSION, "asset_type_id": PURELAB_ASSET_TYPE_ID, "asset_version": "1.0.1", "instance_id": instance_id, "catalog_id": "CHEM-190", "model": spec["model"], "adapter": "basic40_runtime_vacuum.PurelabSession", "state_slots": visible, "capabilities": spec["capabilities"], "limitations": list(PURELAB_LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
         with self.__host._lock:
@@ -2465,7 +2465,7 @@ def export_inert_purelab_contract_metadata():
         "antechamber_volume_m3": {"value": None, "unit": "m^3", "evidence": "unknown"},
         "door_open_angle_rad": {"value": math.pi / 2, "unit": "rad", "evidence": "engineering_assumption"},
     }
-    return {"asset_types": {INERT_PURELAB_ASSET_TYPE_ID: {"catalog_id": "CHEM-189", "model": "Inert | PureLab HE 2GB", "asset_version": "1.0.0", "parameters": params, "state_slots": slots, "capabilities": caps}}, "host_capabilities": InertPureLabHost.describe_host(), "limitations": list(INERT_PURELAB_LIMITATIONS)}
+    return {"asset_types": {INERT_PURELAB_ASSET_TYPE_ID: {"catalog_id": "CHEM-189", "model": "Inert | PureLab HE 2GB", "asset_version": "1.0.2", "parameters": params, "state_slots": slots, "capabilities": caps}}, "host_capabilities": InertPureLabHost.describe_host(), "limitations": list(INERT_PURELAB_LIMITATIONS)}
 
 
 @dataclass
@@ -2708,7 +2708,7 @@ class InertPureLabSession:
             for cap in caps.values():
                 cap["state_effects"] = [e for e in cap["state_effects"] if e["state_id"] in visible]
                 cap["observes"] = [s for s in cap["observes"] if s in visible]
-            return {"protocol_version": "1.0.0", "asset_type_id": INERT_PURELAB_ASSET_TYPE_ID, "asset_version": "1.0.0", "instance_id": instance_id, "catalog_id": "CHEM-189", "model": spec["model"], "adapter": "basic40_runtime_vacuum.InertPureLabSession", "capabilities": caps, "state_slots": visible, "limitations": list(INERT_PURELAB_LIMITATIONS)}
+            return {"protocol_version": "1.0.0", "asset_type_id": INERT_PURELAB_ASSET_TYPE_ID, "asset_version": "1.0.2", "instance_id": instance_id, "catalog_id": "CHEM-189", "model": spec["model"], "adapter": "basic40_runtime_vacuum.InertPureLabSession", "capabilities": caps, "state_slots": visible, "limitations": list(INERT_PURELAB_LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
         with self.__host._lock:
@@ -3199,7 +3199,7 @@ class ExtraheraSession:
                 cap["state_effects"] = [e for e in cap["state_effects"] if e["state_id"] in slots]
                 cap["observes"] = [s for s in cap["observes"] if s in slots]
             caps.update(_vacuum_templates("biotage_extrahera").capabilities(include_evaluator=self.__host._principals[self.__principal_id][0] in ("debug", "evaluator")))
-            return {"protocol_version": "1.0.0", "asset_type_id": EXTRAHERA_ASSET_TYPE_ID, "asset_version": "1.0.0", "catalog_id": "CHEM-031", "model": "Biotage Extrahera Classic", "instance_id": instance_id, "adapter": "basic40_runtime_vacuum.ExtraheraSession", "capabilities": caps, "state_slots": slots, "limitations": list(EXTRAHERA_LIMITATIONS)}
+            return {"protocol_version": "1.0.0", "asset_type_id": EXTRAHERA_ASSET_TYPE_ID, "asset_version": "1.1.0", "catalog_id": "CHEM-031", "model": "Biotage Extrahera Classic", "instance_id": instance_id, "adapter": "basic40_runtime_vacuum.ExtraheraSession", "capabilities": caps, "state_slots": slots, "limitations": list(EXTRAHERA_LIMITATIONS)}
 
     def read(self, *, instance_id, state_ids=None):
         with self.__host._lock:

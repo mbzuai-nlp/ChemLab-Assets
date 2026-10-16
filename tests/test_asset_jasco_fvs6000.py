@@ -173,11 +173,14 @@ class Fvs6000PhysicsTests(unittest.TestCase):
 
 LIBRARY=json.loads((ROOT/TEMPLATE_REL).read_text())
 TERPENE_METHOD=dict(METHOD_EXAMPLE,wavenumber_start_m_inv=100000.,wavenumber_stop_m_inv=175000.,spacing_m_inv=400.,resolution_m_inv=800.,accumulation_s=1.)
-def real_run(sid,kind='measured_reference',method=TERPENE_METHOD,**sample):
+CAF2_25UM=dict(path_length_m=25e-6,window_material='CaF2')
+PROTEIN_METHOD=dict(METHOD_EXAMPLE,wavenumber_start_m_inv=140000.,wavenumber_stop_m_inv=175000.,spacing_m_inv=400.,resolution_m_inv=800.,accumulation_s=1.)
+def real_run(sid,kind='measured_reference',method=TERPENE_METHOD,path=None,**sample):
  r=LIBRARY['compounds'][sid];c=r['conditions']
  h=JascoFvs6000Runtime();h.invoke('plant.configure',**dict(PLANT_EXAMPLE,ir_noise_sd_1s=0.,vcd_noise_sd_1s=0.))
- blank(h,method,dict(BLANK_EXAMPLE,solvent=c['solvent'],is_aqueous=bool(c['is_aqueous'])))
- args=dict(SAMPLE_EXAMPLE,sample_id='fixture_'+sid,template_id=sid,kind=kind,solvent=c['solvent'],is_aqueous=bool(c['is_aqueous']),concentration_kg_m3=c['concentration_kg_m3'] if c['concentration_kg_m3'] is not None else 50.,accept_inferred_units=True,accept_unknown_conditions=True,accept_surrogate=kind!='measured_reference',synthetic_vcd_ratio=5e-5 if kind!='measured_reference' else 0.);args.update(sample)
+ if path:h.invoke('path.configure',**path)
+ blank(h,method,dict(BLANK_EXAMPLE,solvent=c['solvent'] or 'unstated_source_medium',is_aqueous=bool(c['is_aqueous'])))
+ args=dict(SAMPLE_EXAMPLE,sample_id='fixture_'+sid,template_id=sid,kind=kind,solvent=c['solvent'] or 'unstated_source_medium',is_aqueous=bool(c['is_aqueous']),concentration_kg_m3=c['concentration_kg_m3'] if c['concentration_kg_m3'] is not None else 50.,accept_inferred_units=True,accept_unknown_conditions=True,accept_surrogate=kind=='measured_ir_vcd_shape',synthetic_vcd_ratio=5e-5 if kind=='measured_ir_vcd_shape' else 0.);args.update(sample)
  return h,run(load_real(h,args))
 def gaussian_oracle(x,y,grid,fwhm):
  """Independent continuous convolution of the piecewise-linear source (fine trapezoid sum), not the runtime filter."""
@@ -185,8 +188,12 @@ def gaussian_oracle(x,y,grid,fwhm):
  for g in grid:
   u=np.linspace(g-6*sigma,g+6*sigma,4801);w=np.exp(-.5*((u-g)/sigma)**2);out.append(np.trapezoid(w*np.interp(u,x,y),u)/np.trapezoid(w,u))
  return np.asarray(out)
+# Terpene/oil source resolution is 4 cm^-1 (thesis SI): an 8 cm^-1 method adds only the missing Gaussian width.
+EXTRA_FWHM_8_OVER_4=math.sqrt(800.**2-400.**2)
 DELTA_IDS=[k for k,r in LIBRARY['compounds'].items() if r['vcd'] is not None and r['vcd'].get('ordinate_scale_known',True)]
 SHAPE_IDS=[k for k,r in LIBRARY['compounds'].items() if r['vcd'] is not None and not r['vcd'].get('ordinate_scale_known',True)]
+PROTEIN_IDS=[k for k in DELTA_IDS if k.startswith('protein_')]
+RESCALED_IDS=['terpene_r_camphor','terpene_r_carvone','terpene_r_limonene','terpene_r_pulegone','terpene_s_terpinen_4_ol','terpene_minus_alpha_terpineol','terpene_minus_beta_pinene','terpene_minus_borneol','terpene_minus_menthol','terpene_pinanediol','terpene_plus_alpha_pinene','terpene_plus_endo_fenchol','terpene_plus_isomenthol']
 
 class Fvs6000RealVcdLibraryTests(unittest.TestCase):
  def rejected_atomic(self,h,cap,code,**args):
@@ -194,54 +201,100 @@ class Fvs6000RealVcdLibraryTests(unittest.TestCase):
   with self.assertRaises(ActionRejected) as ctx:h.invoke(cap,**args)
   self.assertEqual(str(ctx.exception),code);self.assertTrue(equivalent(before,h.debug_snapshot()))
  def test_library_vcd_counts_identity_and_provenance(self):
-  c=LIBRARY['counts'];self.assertEqual((c['real_vcd_compounds'],c['real_vcd_delta_absorbance_replay_compounds'],c['real_vcd_unknown_scale_compounds']),(37,24,13));self.assertEqual((len(DELTA_IDS),len(SHAPE_IDS)),(24,13))
+  c=LIBRARY['counts'];self.assertEqual((c['real_vcd_compounds'],c['real_vcd_delta_absorbance_replay_compounds'],c['real_vcd_unknown_scale_compounds']),(40,40,0));self.assertEqual((len(DELTA_IDS),len(SHAPE_IDS)),(44,0))
+  self.assertEqual((c['real_vcd_materials'],c['essential_oil_vcd_materials'],c['protein_vcd_compounds'],c['terpene_files_rescaled_from_thesis_axis'],c['missing_delta_absorbance_replay_compounds']),(44,4,3,13,10))
   self.assertEqual(c['digitized_vcd_compounds'],0);self.assertEqual(c['unit_explicit_real_vcd_compounds'],0)
-  terp=[k for k in DELTA_IDS+SHAPE_IDS if k.startswith('terpene_')];self.assertEqual(len(terp),33);self.assertEqual(len({LIBRARY['compounds'][k]['inchikey'] for k in terp}),33)
+  terp=[k for k in DELTA_IDS if k.startswith('terpene_')];self.assertEqual(len(terp),33);self.assertEqual(len({LIBRARY['compounds'][k]['inchikey'] for k in terp}),33)
   for k in terp:
    r=LIBRARY['compounds'][k]
    self.assertEqual(r['evidence'],'measured_literature');self.assertEqual(r['source']['license']['id'],'CC-BY-4.0');self.assertIn('zenodo.7875469',r['source']['url']);self.assertRegex(r['cas'],r'^\d{2,7}-\d\d-\d$');self.assertEqual(len(r['inchikey']),27)
-   self.assertEqual(r['conditions']['solvent'],'CDCl3');self.assertIsNone(r['conditions']['path_length_m']);self.assertIsNone(r['conditions']['temperature_k'])
+   self.assertEqual(r['conditions']['solvent'],'CDCl3');self.assertAlmostEqual(r['conditions']['path_length_m'],100e-6);self.assertEqual(r['conditions']['window_material'],'BaF2');self.assertIsNone(r['conditions']['temperature_k']);self.assertIsNone(r['conditions']['concentration_kg_m3'])
+   self.assertEqual(r['vcd']['ordinate_multiplier'],1e-5 if k in RESCALED_IDS else 1.)
+  for k in PROTEIN_IDS+[k for k in DELTA_IDS if k.startswith('oil_')]:
+   r=LIBRARY['compounds'][k];self.assertRegex(r['cas'],r'^\d{2,7}-\d\d-\d$');self.assertIsNone(r['inchikey']);self.assertEqual(r['source']['license']['id'],'CC-BY-4.0')
+  self.assertEqual(sorted(PROTEIN_IDS),['protein_beta_lactoglobulin','protein_bsa','protein_hen_egg_white_lysozyme'])
   text=[x for x in LIMITATIONS if x.startswith('Real measured VCD for')];self.assertEqual(len(text),1)
-  for n in [c['real_vcd_compounds'],c['real_vcd_delta_absorbance_replay_compounds'],c['real_vcd_unknown_scale_compounds'],c['missing_delta_absorbance_replay_compounds']]:self.assertIn(str(n),text[0])
+  for n in [c['real_vcd_compounds'],c['real_vcd_materials'],c['essential_oil_vcd_materials'],c['missing_delta_absorbance_replay_compounds']]:self.assertIn(str(n),text[0])
  def test_terpene_delta_absorbance_replay_matches_independent_broadening_oracle(self):
   # Sample across classes: bicyclic ketone, menthane alcohol, acyclic alcohol, ester, bicyclic alkene, sesquiterpene epoxide.
   for sid in ['terpene_plus_fenchone','terpene_plus_neomenthol','terpene_minus_linalool','terpene_minus_bornyl_acetate','terpene_plus_carene','terpene_minus_caryophyllene_oxide']:
    h,r=real_run(sid);rec=LIBRARY['compounds'][sid];x=np.asarray(rec['vcd']['wavenumber_m_inv']);grid=np.asarray(r['wavenumber_m_inv'])
-   p=r['provenance'];self.assertEqual(p['response_kind'],'measured_reference_replay');self.assertEqual(p['vcd_evidence'],'measured_literature');self.assertEqual(p['unit_evidence'],'inferred_from_article_figure_axis');self.assertIsNone(p['source_resolution_m_inv'])
+   p=r['provenance'];self.assertEqual(p['response_kind'],'measured_reference_replay');self.assertEqual(p['vcd_evidence'],'measured_literature');self.assertEqual(p['unit_evidence'],'inferred_from_thesis_figure_axis');self.assertEqual(p['source_resolution_m_inv'],400.)
    for key,src,ref in [('vcd_delta_absorbance','vcd','delta_absorbance'),('ir_absorbance','ir','absorbance')]:
-    expected=gaussian_oracle(x,np.asarray(rec[src][ref]),grid,800.)  # blank is observed and subtracted
-    # Runtime resamples to min(source spacing, resolution/8), filters discretely and truncates at 4 sigma; the continuous
-    # convolution of the piecewise-linear source differs by <1 % of peak for these 1.93 cm^-1-spaced real spectra.
-    scale=np.max(np.abs(expected));np.testing.assert_allclose(np.asarray(r[key]),expected,atol=1e-2*scale,err_msg=sid+key)
- def test_unknown_scale_terpenes_reject_measured_replay(self):
-  for sid in ['terpene_r_camphor','terpene_plus_alpha_pinene','terpene_minus_menthol']:
-   h=JascoFvs6000Runtime();h.invoke('plant.configure',**PLANT_EXAMPLE)
-   self.rejected_atomic(h,'sample.load','VCD_SCALE_UNKNOWN',**dict(SAMPLE_EXAMPLE,template_id=sid,solvent='CDCl3',concentration_kg_m3=50.))
+    expected=gaussian_oracle(x,np.asarray(rec[src][ref]),grid,EXTRA_FWHM_8_OVER_4)  # blank is observed and subtracted
+    # Runtime resamples to min(source spacing, resolution/8), filters discretely and truncates at 4 sigma; with the added
+    # FWHM of only 6.9 cm^-1 the continuous convolution of the piecewise-linear source differs by <=1.1 % of peak (fenchone).
+    scale=np.max(np.abs(expected));np.testing.assert_allclose(np.asarray(r[key]),expected,atol=1.5e-2*scale,err_msg=sid+key)
+ def test_thesis_rescaled_terpenes_replay_on_delta_absorbance_scale(self):
+  # The 13 files stored as ΔA x 1e5 (thesis Figs 6.4-6.8 axis) replay as measured ΔA = 1e-5 x archive value.
+  for sid in ['terpene_r_camphor','terpene_plus_alpha_pinene','terpene_minus_menthol','terpene_minus_borneol','terpene_r_pulegone']:
+   h,r=real_run(sid);rec=LIBRARY['compounds'][sid];x=np.asarray(rec['vcd']['wavenumber_m_inv']);grid=np.asarray(r['wavenumber_m_inv'])
+   expected=gaussian_oracle(x,1e-5*np.asarray(rec['vcd']['raw_vcd_values']),grid,EXTRA_FWHM_8_OVER_4)
+   np.testing.assert_allclose(r['vcd_delta_absorbance'],expected,atol=1e-2*np.max(np.abs(expected)),err_msg=sid)
+   self.assertLess(np.max(np.abs(r['vcd_delta_absorbance'])),5e-4);self.assertGreater(np.max(np.abs(r['vcd_delta_absorbance'])),1e-5)
+   p=r['provenance'];self.assertEqual(p['response_kind'],'measured_reference_replay');self.assertEqual(p['unit_evidence'],'thesis_figure_axis_delta_absorbance_x1e5')
+ def test_unknown_scale_records_still_reject_measured_replay(self):
+  t=toy_templates();t['unknown']=copy.deepcopy(t['peptide_tk082_ss']);v=t['unknown']['vcd'];v['vcd_ordinate_unknown_scale']=v.pop('delta_absorbance');v['ordinate_scale_known']=False
+  for kind in ['measured_reference','measured_reference_scaled']:
+   h=host(templates=t);self.rejected_atomic(h,'sample.load','VCD_SCALE_UNKNOWN',**dict(SAMPLE_EXAMPLE,template_id='unknown',kind=kind))
  def test_shape_mode_keeps_measured_sign_and_explicit_amplitude(self):
   sid='terpene_r_camphor';h,r=real_run(sid,'measured_ir_vcd_shape',synthetic_vcd_ratio=5e-5);rec=LIBRARY['compounds'][sid]
-  x=np.asarray(rec['vcd']['wavenumber_m_inv']);src=np.asarray(rec['vcd']['vcd_ordinate_unknown_scale']);grid=np.asarray(r['wavenumber_m_inv'])
-  expected=5e-5*max(rec['ir']['absorbance'])*gaussian_oracle(x,src,grid,800.)/np.max(np.abs(src))
-  # Unknown-scale camphor data carry more high-frequency noise; 0.5 % of peak bounds runtime-filter discretisation.
+  x=np.asarray(rec['vcd']['wavenumber_m_inv']);src=np.asarray(rec['vcd']['delta_absorbance']);grid=np.asarray(r['wavenumber_m_inv'])
+  expected=5e-5*max(rec['ir']['absorbance'])*gaussian_oracle(x,src,grid,EXTRA_FWHM_8_OVER_4)/np.max(np.abs(src))
+  # Camphor data carry high-frequency noise; 0.5 % of peak bounds runtime-filter discretisation.
   np.testing.assert_allclose(r['vcd_delta_absorbance'],expected,atol=5e-3*np.max(np.abs(expected)))
-  np.testing.assert_allclose(r['ir_absorbance'],gaussian_oracle(x,np.asarray(rec['ir']['absorbance']),grid,800.),atol=2e-3*max(rec['ir']['absorbance']))
+  np.testing.assert_allclose(r['ir_absorbance'],gaussian_oracle(x,np.asarray(rec['ir']['absorbance']),grid,EXTRA_FWHM_8_OVER_4),atol=2e-3*max(rec['ir']['absorbance']))
   self.assertGreater(float(np.dot(r['vcd_delta_absorbance'],expected)),0.)
-  p=r['provenance'];self.assertEqual(p['response_kind'],'measured_ir_with_vcd_shape_host_amplitude');self.assertEqual(p['vcd_evidence'],'measured_shape_with_host_amplitude');self.assertEqual(p['unit_evidence'],'unknown_scale');self.assertIn('assumed amplitude',p['limitations'][0])
+  p=r['provenance'];self.assertEqual(p['response_kind'],'measured_ir_with_vcd_shape_host_amplitude');self.assertEqual(p['vcd_evidence'],'measured_shape_with_host_amplitude');self.assertEqual(p['unit_evidence'],'thesis_figure_axis_delta_absorbance_x1e5');self.assertIn('assumed amplitude',p['limitations'][0])
  def test_shape_mode_requires_ack_and_positive_amplitude(self):
   base=dict(SAMPLE_EXAMPLE,template_id='terpene_r_camphor',kind='measured_ir_vcd_shape',solvent='CDCl3',concentration_kg_m3=50.,synthetic_vcd_ratio=5e-5,accept_surrogate=True)
   for change,code in [(dict(accept_surrogate=False),'EVIDENCE_ACK_REQUIRED'),(dict(synthetic_vcd_ratio=-5e-5),'POSITIVE_SHAPE_AMPLITUDE_REQUIRED'),(dict(synthetic_vcd_ratio=0.),'POSITIVE_SHAPE_AMPLITUDE_REQUIRED'),(dict(accept_inferred_units=False),'INFERRED_UNITS_ACK_REQUIRED'),(dict(accept_unknown_conditions=False),'UNKNOWN_CONDITIONS_ACK_REQUIRED'),(dict(solvent='DMSO-d6'),'SOURCE_CONDITIONS_MISMATCH')]:
    h=JascoFvs6000Runtime();h.invoke('plant.configure',**PLANT_EXAMPLE);self.rejected_atomic(h,'sample.load',code,**dict(base,**change))
  def test_terpene_measured_replay_requires_unknown_condition_ack(self):
   h=JascoFvs6000Runtime();h.invoke('plant.configure',**PLANT_EXAMPLE)
-  for change,code in [(dict(accept_unknown_conditions=False),'UNKNOWN_CONDITIONS_ACK_REQUIRED'),(dict(accept_inferred_units=False),'INFERRED_UNITS_ACK_REQUIRED'),(dict(solvent='DMSO-d6'),'SOURCE_CONDITIONS_MISMATCH'),(dict(is_aqueous=True),'BAF2_WATER_INCOMPATIBLE')]:
+  for change,code in [(dict(accept_unknown_conditions=False),'UNKNOWN_CONDITIONS_ACK_REQUIRED'),(dict(accept_inferred_units=False),'INFERRED_UNITS_ACK_REQUIRED'),(dict(solvent='DMSO-d6'),'SOURCE_CONDITIONS_MISMATCH'),(dict(is_aqueous=True),'BAF2_WATER_INCOMPATIBLE'),(dict(kind='measured_reference_scaled'),'SCALING_BASIS_UNKNOWN')]:
    self.rejected_atomic(h,'sample.load',code,**{**SAMPLE_EXAMPLE,'template_id':'terpene_plus_fenchone','solvent':'CDCl3','concentration_kg_m3':50.,**change})
+  # the documented 100 um BaF2 source cell is now known: another path is a source-condition mismatch
+  h.invoke('path.configure',path_length_m=50e-6,window_material='BaF2');self.rejected_atomic(h,'sample.load','SOURCE_CONDITIONS_MISMATCH',**{**SAMPLE_EXAMPLE,'template_id':'terpene_plus_fenchone','solvent':'CDCl3','concentration_kg_m3':50.})
+ def test_essential_oil_replay_is_measured_material_reference(self):
+  for sid in ['oil_rosemary','oil_tea_tree']:
+   h,r=real_run(sid);rec=LIBRARY['compounds'][sid];x=np.asarray(rec['vcd']['wavenumber_m_inv']);grid=np.asarray(r['wavenumber_m_inv'])
+   expected=gaussian_oracle(x,np.asarray(rec['vcd']['delta_absorbance']),grid,EXTRA_FWHM_8_OVER_4)
+   np.testing.assert_allclose(r['vcd_delta_absorbance'],expected,atol=1e-2*np.max(np.abs(expected)),err_msg=sid)
+   self.assertEqual(rec['material_kind'],'essential_oil_natural_mixture');self.assertEqual(r['provenance']['response_kind'],'measured_reference_replay')
+ def test_protein_needs_scaled_mode_and_follows_beer_lambert(self):
+  sid='protein_bsa';rec=LIBRARY['compounds'][sid];c=rec['conditions']
+  base=dict(SAMPLE_EXAMPLE,template_id=sid,solvent='D2O',is_aqueous=True,concentration_kg_m3=60.)
+  h=JascoFvs6000Runtime();h.invoke('plant.configure',**PLANT_EXAMPLE);h.invoke('path.configure',**CAF2_25UM)
+  self.rejected_atomic(h,'sample.load','SOURCE_CONDITIONS_MISMATCH',**base)  # 23 um source cell cannot be configured
+  for change,code in [(dict(kind='measured_reference_scaled',concentration_kg_m3=0.),'SAMPLE_COMPOSITION'),(dict(kind='measured_reference_scaled',solvent='H2O'),'SOURCE_CONDITIONS_MISMATCH'),(dict(kind='measured_reference_scaled',accept_unknown_conditions=False),'UNKNOWN_CONDITIONS_ACK_REQUIRED')]:
+   self.rejected_atomic(h,'sample.load',code,**dict(base,**change))
+  g=JascoFvs6000Runtime();g.invoke('plant.configure',**PLANT_EXAMPLE)
+  self.rejected_atomic(g,'sample.load','BAF2_WATER_INCOMPATIBLE',**dict(base,kind='measured_reference_scaled'))
+  x=np.asarray(rec['vcd']['wavenumber_m_inv']);xi=np.asarray(rec['ir']['wavenumber_m_inv'])
+  for conc,path in [(60.,CAF2_25UM),(30.,dict(path_length_m=50e-6,window_material='CaF2'))]:
+   h,r=real_run(sid,'measured_reference_scaled',method=PROTEIN_METHOD,path=path,concentration_kg_m3=conc);grid=np.asarray(r['wavenumber_m_inv'])
+   factor=(conc/60.)*(path['path_length_m']/23e-6)
+   # source resolution 8 cm^-1 = method resolution -> plain interpolation, exact Beer-Lambert factor
+   np.testing.assert_allclose(r['vcd_delta_absorbance'],factor*np.interp(grid,x,rec['vcd']['delta_absorbance']),rtol=1e-12,atol=1e-20)
+   np.testing.assert_allclose(r['ir_absorbance'],factor*np.interp(grid,xi,rec['ir']['absorbance']),rtol=1e-12,atol=1e-15)
+   p=r['provenance'];self.assertEqual(p['response_kind'],'measured_reference_beer_lambert_scaled');self.assertEqual(p['vcd_evidence'],'derived');self.assertIn('Beer-Lambert',p['limitations'][0]);self.assertIn(format(factor,'.6g'),p['limitations'][0])
+ def test_peptide_scaled_mode_equals_exact_replay_times_factor(self):
+  method=dict(METHOD_EXAMPLE,accumulation_s=1.)
+  _,exact=real_run('peptide_tk082_ss',method=method,path=dict(path_length_m=100e-6,window_material='BaF2'))
+  _,scaled=real_run('peptide_tk082_ss','measured_reference_scaled',method=method,path=dict(path_length_m=50e-6,window_material='CaF2'),concentration_kg_m3=12.5)
+  np.testing.assert_allclose(scaled['vcd_delta_absorbance'],.25*np.asarray(exact['vcd_delta_absorbance']),rtol=1e-12,atol=1e-20)
+  np.testing.assert_allclose(scaled['ir_absorbance'],.25*np.asarray(exact['ir_absorbance']),rtol=1e-12,atol=1e-16)
  def test_every_real_vcd_record_produces_a_runtime_measurement(self):
   for sid in DELTA_IDS+SHAPE_IDS:
    rec=LIBRARY['compounds'][sid];lo=max(rec['ir']['wavenumber_m_inv'][0],rec['vcd']['wavenumber_m_inv'][0]);hi=min(rec['ir']['wavenumber_m_inv'][-1],rec['vcd']['wavenumber_m_inv'][-1],200000.)
+   lo=max(lo,110000.) if sid in PROTEIN_IDS else lo
    res=max(800.,rec['vcd']['source_resolution_m_inv'] or 0.);method=dict(METHOD_EXAMPLE,wavenumber_start_m_inv=math.ceil(lo/100)*100.,wavenumber_stop_m_inv=math.floor(hi/100)*100.,spacing_m_inv=400.,resolution_m_inv=res,accumulation_s=.5)
-   h,r=real_run(sid,'measured_reference' if sid in DELTA_IDS else 'measured_ir_vcd_shape',method=method)
+   kind='measured_reference_scaled' if sid in PROTEIN_IDS else 'measured_reference' if sid in DELTA_IDS else 'measured_ir_vcd_shape'
+   h,r=real_run(sid,kind,method=method,path=CAF2_25UM if sid in PROTEIN_IDS else None)
    self.assertTrue(r['complete'],sid);self.assertTrue(all(math.isfinite(v) for v in r['vcd_delta_absorbance']+r['ir_absorbance']),sid)
-   self.assertGreater(max(abs(v) for v in r['vcd_delta_absorbance']),0.,sid)
-   self.assertEqual(r['provenance']['vcd_evidence'],'measured_literature' if sid in DELTA_IDS else 'measured_shape_with_host_amplitude',sid)
+   self.assertGreater(max(abs(v) for v in r['vcd_delta_absorbance']),0.,sid);self.assertLess(max(abs(v) for v in r['vcd_delta_absorbance']),1e-3,sid)
+   self.assertEqual(r['provenance']['vcd_evidence'],rec['vcd']['evidence'] if sid in DELTA_IDS else 'measured_shape_with_host_amplitude',sid)
    validate(RESULT,r)
 
 class Fvs6000ProtocolTests(unittest.TestCase):

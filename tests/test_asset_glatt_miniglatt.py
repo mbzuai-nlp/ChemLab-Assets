@@ -122,7 +122,10 @@ class GlattReferenceLibraryTests(unittest.TestCase):
     """Real-data reference records (CC BY open-access sources) and the runtime paths that use them."""
     LIB=json.loads((ROOT/TEMPLATE_REL).read_text())
     REFS={r['reference_id']:r for r in LIB['reference_records']}
-    SAMPLE_CORES=['core_itcm_z1','core_itcm_e15','core_itcm_rc_e14','core_ml_ibuprofen_70','core_carbobead_cp','core_polypropylene_pellets','core_soy_protein_isolate','core_mg_mcc_vivapur102','core_chitin_raw','core_glass_beads_88_149']
+    SAMPLE_CORES=['core_itcm_z1','core_itcm_e15','core_itcm_rc_e14','core_ml_ibuprofen_70','core_carbobead_cp','core_polypropylene_pellets','core_soy_protein_isolate','core_mg_mcc_vivapur102','core_chitin_raw','core_glass_beads_88_149',
+      # round 2 (2026-10-15): one or more per new source / material class
+      'core_rc2019_11','core_rc2019_51','core_rc2019_57','core_carrier_neusilin_us2','core_carrier_bentonite','core_carrier_aerosil200','core_poly_copovidone_va64','core_cpe_avicel_hfe102',
+      'core_rice_starch_native','core_isomalt_721','core_food_semolina','core_food_chickpea_flour','core_silicon_carbide_64','core_gamma_alumina_support','core_fecr_oxide_catalyst','core_limestone','core_ironore_fehc','core_ironore_fetihm','core_pa12_powder','core_mwcnt_microbeads_casei']
     def atomic(self,h,k,**a):
         before=h.debug_snapshot()
         with self.assertRaises(ActionRejected):h.invoke(k,**a)
@@ -134,14 +137,16 @@ class GlattReferenceLibraryTests(unittest.TestCase):
         self.assertEqual(sum(r['kind']=='granulation_outcome' and r['miniglatt'] for r in self.REFS.values()),7)
         for r in self.REFS.values():
             self.assertIn(r['evidence'],('measured','measured_literature','derived','assumption'));self.assertTrue(r['source']['doi'] and r['source']['locator'] and r['accessed'])
-            self.assertEqual(r['source']['license'],'CC BY 4.0');self.assertEqual(r['runtime_use'],reference_runtime_use(r))
+            self.assertTrue(r['source']['license'].startswith('CC BY'),r['reference_id']);self.assertEqual(r['runtime_use'],reference_runtime_use(r))
+            for pv in r.get('property_provenance',{}).values():
+                if isinstance(pv,dict) and pv.get('source'):self.assertTrue(pv['source']['license'].startswith(('CC BY','Public domain')))
             for name,pv in r.get('property_provenance',{}).items():
                 if pv.get('evidence')=='derived':self.assertIn('formula',pv)
     def test_material_query_pure_across_kinds(self):
         h=prepared();before=h.debug_snapshot()
         for rid in self.SAMPLE_CORES+['binder_pva_4_88','binder_sucrose_10pct','outcome_mg_yeast_mcc','outcome_fb_cmc_sorbitol']:
             x=h.invoke('reference.material',reference_id=rid);r=self.REFS[rid]
-            self.assertEqual(x['kind'],r['kind']);self.assertEqual(json.loads(x['properties']),r['properties']);self.assertEqual(x['license'],'CC BY 4.0');self.assertIn(r['source']['doi'],x['source'])
+            self.assertEqual(x['kind'],r['kind']);self.assertEqual(json.loads(x['properties']),r['properties']);self.assertEqual(x['license'],r['source']['license']);self.assertTrue(x['license'].startswith('CC BY'));self.assertIn(r['source']['doi'],x['source'])
         self.assertEqual(before,h.debug_snapshot());self.atomic(h,'reference.material',reference_id='core_unknown')
     def test_fluidization_matches_bed_hydraulics(self):
         for rid in self.SAMPLE_CORES:
@@ -182,7 +187,7 @@ class GlattReferenceLibraryTests(unittest.TestCase):
         c=h.invoke('reference.fluidization',reference_id='core_chitin_raw',**q);self.assertEqual(c['voidage_source'],'voidage_bulk_record');self.assertAlmostEqual(c['voidage'],1-190/1350)
         t=h.invoke('reference.fluidization',reference_id='core_alginate_aerogel_beads',**q);self.assertEqual((t['voidage'],t['sphericity_source']),(.415,'host_assumption'))
     def test_liquid_load_reference(self):
-        for rid,src,frac in [('binder_urea_starch_b1','record',.5),('binder_pva_4_88','host_assumption',.08),('binder_sorbitol_10pct','host_assumption',.1)]:
+        for rid,src,frac in [('binder_urea_starch_b1','record',.5),('binder_pva_4_88','host_assumption',.08),('binder_sucrose_10pct','record',.1),('binder_ink_pvp_k25_19p82','record',.2082),('binder_methylcellulose_a4c_2pct','record',.02),('binder_sorbitol_10pct','record_derived',.1)]:
             h=GlattMiniglattRuntime();h.invoke('plant.configure',**PLANT_EXAMPLE);h.invoke('powder.load_reference',**LOADREF_EXAMPLE)
             x=h.invoke('liquid.load_reference',**dict(LIQREF_EXAMPLE,reference_id=rid));self.assertEqual((x['density_source'],x['binder_mass_fraction']),(src,frac))
             self.assertAlmostEqual(h.mass['tank'][1],LIQREF_EXAMPLE['volume_m3']*x['density_kg_m3']*frac)
@@ -196,4 +201,54 @@ class GlattReferenceLibraryTests(unittest.TestCase):
         d=self.REFS['outcome_mg_dapsone_f10'];self.assertEqual(d['conditions']['spray'],'bottom (Micro-kit)');self.assertAlmostEqual(d['properties']['product_d50_m'],449.7e-6)
         for r in self.REFS.values():
             if r['kind']=='granulation_outcome':self.assertGreater(r['properties']['product_d50_m'],r['properties']['core_d50_m'])
+    # ---------------------------------------------------------------- round 2 (2026-10-15)
+    def strict_keys(self):
+        from collections import defaultdict
+        uses=defaultdict(set);cls={}
+        for r in self.REFS.values():
+            if r['kind']=='core_material':uses[r['material_key']].add(reference_runtime_use(r));cls[r['material_key']]=r['material_class']
+        amb=set(self.LIB['coverage']['core_ambiguous_form_keys'])
+        return {k for k,v in uses.items() if 'fluidization_and_load' in v and k not in amb},cls,amb
+    def test_round2_strict_loadable_count(self):
+        keys,cls,amb=self.strict_keys();cov=self.LIB['coverage']
+        self.assertGreaterEqual(len(keys),60);self.assertEqual(cov['core_distinct_materials_loadable_strict'],len(keys))
+        non_herbal=[k for k in keys if not cls[k].startswith('herbal')];self.assertGreaterEqual(len(non_herbal),60);self.assertEqual(cov['core_distinct_materials_loadable_strict_non_herbal'],len(non_herbal))
+        self.assertEqual(sum(cov['core_loadable_strict_by_class'].values()),len(keys))
+        self.assertTrue({'glucose_form_unspecified','dicalcium_phosphate_unspecified','calcium_phosphate_unspecified','starch_cold_water_soluble'}<=amb)
+        for k in ['magnesium_aluminometasilicate','copovidone','isomalt','rice_starch','tricalcium_phosphate','methyl_cellulose','ethylcellulose','durum_wheat_semolina','silicon_carbide','gamma_alumina_porous_support','limestone','hematite_iron_ore','polyamide_12_powder','fumed_silica']:self.assertIn(k,keys)
+        self.assertTrue(self.LIB['coverage']['core_distinct_materials_loadable_strict']>=50)
+    def test_round2_new_measured_umf(self):
+        h=GlattMiniglattRuntime();q=dict(temperature_k=293.15,pressure_pa=101325.,sphericity_if_unmeasured=1.,voidage_if_unmeasured=.45)
+        for rid,umf in [('core_silicon_carbide_64',.0055),('core_cristobalite_58',.0034),('core_gamma_alumina_support',.036),('core_fecr_oxide_catalyst',.0108),('core_mwcnt_microbeads_casei',.36),('core_mwcnt_microbeads_caseii',.47)]:
+            x=h.invoke('reference.fluidization',reference_id=rid,**q);self.assertAlmostEqual(x['umf_measured_m_s'],umf,msg=rid)
+            self.assertTrue(.3<x['wen_yu_to_measured']<3,(rid,x['wen_yu_to_measured']))
+        self.assertGreaterEqual(len(self.LIB['coverage']['core_with_measured_umf_runtime']),8)
+        g=h.invoke('reference.fluidization',reference_id='core_gamma_alumina_support',**q)
+        self.assertEqual(g['particle_density_kg_m3'],1691.);self.assertNotEqual(g['particle_density_kg_m3'],self.REFS['core_gamma_alumina_support']['properties']['skeletal_density_kg_m3'])   # apparent, not skeletal
+        s=h.invoke('reference.fluidization',reference_id='core_silicon_carbide_64',**q);self.assertEqual((s['geldart_group_approx'],s['diameter_m']),('A',64e-6))
+    def test_round2_guards_and_flags(self):
+        h=GlattMiniglattRuntime();h.invoke('plant.configure',**PLANT_EXAMPLE);q=dict(temperature_k=293.15,pressure_pa=101325.,sphericity_if_unmeasured=.8,voidage_if_unmeasured=.5)
+        for rid in ['core_cpe_avicel_dg','core_rc2019_33']:   # source value implausible -> reference only
+            self.assertEqual(reference_runtime_use(self.REFS[rid]),'reference_only');self.atomic(h,'powder.load_reference',**dict(LOADREF_EXAMPLE,reference_id=rid));self.atomic(h,'reference.fluidization',reference_id=rid,**q)
+        for rid in ['core_carrier_syloid244fp','core_carrier_neusilin_ufl2']:   # d50 < 5 um: query only
+            self.assertEqual(reference_runtime_use(self.REFS[rid]),'fluidization_only');self.atomic(h,'powder.load_reference',**dict(LOADREF_EXAMPLE,reference_id=rid));self.assertGreater(h.invoke('reference.fluidization',reference_id=rid,**q)['umf_wen_yu_m_s'],0)
+        self.assertIn('cited nominal mean',self.REFS['core_poly_soluplus']['data_quality_flags'][0]);self.assertIn('overstates',self.REFS['core_fecr_oxide_catalyst']['data_quality_flags'][0])
+        self.assertEqual(self.REFS['core_rc2019_38']['material_key'],'glucose_form_unspecified')
+        dup={(d.get('source'),d.get('no')) for d in json.loads((ROOT/TEMPLATE_REL.replace('templates.json','structure_index.json')).read_text())['duplicates_skipped']}
+        self.assertIn(('PMC6956229',2),dup);self.assertNotIn('core_rc2019_02',self.REFS)   # same lot 2565 as PMC10407897 E3 -> not double counted
+    def test_round2_binder_densities(self):
+        b={r['reference_id']:r for r in self.REFS.values() if r['kind']=='binder_solution'};cov=self.LIB['coverage']
+        self.assertAlmostEqual(b['binder_sucrose_10pct']['properties']['density_kg_m3'],1038.143);self.assertAlmostEqual(b['binder_glucose_10pct']['properties']['density_kg_m3'],1037.69)
+        self.assertEqual(b['binder_sucrose_10pct']['property_provenance']['density_kg_m3']['source']['doi'],'10.6028/NBS.CIRC.440')
+        for rid in ['binder_sorbitol_10pct','binder_lactose_10pct','binder_pvp_k30','binder_hpmc_e15','binder_maltodextrin_6']:
+            pv=b[rid]['property_provenance']['density_kg_m3'];self.assertEqual(pv['evidence'],'derived');self.assertIn('formula',pv);self.assertTrue(1000<b[rid]['properties']['density_kg_m3']<1050,rid)
+            i=pv['inputs'];self.assertAlmostEqual(b[rid]['properties']['density_kg_m3'],1/((1-i['w'])/i['rho_w']+i['w']*i['phiV_m3_mol']/i['M_kg_mol']) if 'phiV_m3_mol' in i else 1/(i['w']/i['rho_b']+(1-i['w'])/i['rho_w']),places=4)
+        for rid in ['binder_pva_18_88','binder_starch_octenylsuccinate_co01','binder_hp_pea_starch']:self.assertIsNone(b[rid]['properties']['density_kg_m3'])   # no real value found -> stays null
+        ink=b['binder_ink_pva_4_88_8p27'];self.assertEqual((ink['properties']['density_kg_m3'],ink['temperature_k'],ink['conditions']['polysorbate20_mass_fraction']),(1016.,303.15,.01));self.assertAlmostEqual(ink['properties']['viscosity_pa_s'],.01193)
+        self.assertEqual(cov['binder_with_measured_density'],sum(reference_runtime_use(r)=='binder_load' for r in b.values()));self.assertGreaterEqual(cov['binder_with_measured_density'],20)
+        self.assertIn('methyl_cellulose',{r['material_key'] for r in b.values()})
+    def test_round2_rc2019_voidage_and_load(self):
+        r=self.REFS['core_rc2019_13'];p=r['properties'];self.assertAlmostEqual(p['voidage_bulk'],1-p['bulk_density_kg_m3']/p['true_density_kg_m3'],delta=.01)
+        h=GlattMiniglattRuntime();h.invoke('plant.configure',**PLANT_EXAMPLE);x=h.invoke('powder.load_reference',**dict(LOADREF_EXAMPLE,reference_id='core_rc2019_13'))
+        self.assertEqual((x['voidage'],h.powder['particle_density_kg_m3']),(p['voidage_bulk'],p['true_density_kg_m3']));self.assertIn('voidage_bulk_record',x['provenance'])
 if __name__=='__main__':unittest.main()

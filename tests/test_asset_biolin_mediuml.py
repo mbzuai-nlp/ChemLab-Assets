@@ -222,7 +222,8 @@ class TestMediumL(unittest.TestCase):
    for q in sc.values():self.assertEqual(q['evidence'],'measured_literature')
  def test_41_coverage_and_reference_only_guards(self):
   lib=rt.library();cov=lib['response_coverage'];subs=lib['substances']
-  self.assertGreaterEqual(cov['distinct_reference_materials'],50);self.assertGreaterEqual(cov['runtime_materials'],35);self.assertFalse(cov['minimum_50_runtime_materials_met'])
+  self.assertGreaterEqual(cov['distinct_reference_materials'],50);self.assertGreaterEqual(cov['runtime_materials'],50);self.assertTrue(cov['minimum_50_runtime_materials_met'])
+  self.assertEqual(cov['minimum_50_runtime_materials_met'],cov['runtime_materials']>=50)
   self.assertEqual(cov['runtime_materials'],len({r['material_identity'] for r in subs.values() if r['runtime_usable']}));self.assertEqual(cov['digitized_points'],0)
   for rid in ['rodare2023_sodium_oleate','epmc9654498_cholesterol','epmc10305212_amphotericin_b','epmc10249408_gmo']:self.assertFalse(subs[rid]['runtime_usable']);self.assertIn('Reference only',subs[rid]['runtime_reason'])
   for rid,r in subs.items():
@@ -236,5 +237,39 @@ class TestMediumL(unittest.TestCase):
   self.assertEqual(rt.eos(rec,hi*1.5,True),(0.,0.));bad=copy.deepcopy(rec);bad['runtime_model']['parameters_si']['limiting_area_m2']=hi*2
   with self.assertRaises(rt.ActionRejected):rt.model_parameters(bad)
   h=setup(sample={'reference_id':'epmc3682106_ocpc','concentration_mol_m3':rt.AREA_MAX/(.9*hi*rt.NA)/50e-9});x=h.area/(h.surface_mol*rt.NA);self.assertLess(x,hi);self.rejected(h,'barrier.move','EOS_AREA_RANGE',area_m2=lo*h.surface_mol*rt.NA*.99,speed_m_s=.0045)
+
+ def test_43_round2_records_run_across_new_classes(self):
+  """2026-10-15 additions: sterol/ketosterol, monoglyceride, PEO-PPO-PEO block copolymer, calix[4]resorcinarenes (nm2 source unit) and a scalar-only cardiolipin."""
+  lib=rt.library()['substances']
+  sample=['uw2024_cholesterol','uw2024_cholestenone','uw2023_gmo_water','uw2023_pluronic_f108_water','figshare2013_cal_4_b1','figshare2013_cal_4_r4b1_nmec18','figshare2013_cal_4_r8b2_br','figshare2013_cal_4_r6b1','epmc6271777_tmcl']
+  for rid in sample:
+   rec=lib[rid];self.assertTrue(rec['runtime_usable'],rid);self.assertEqual(rec['source']['accessed'],'2026-10-15',rid);self.assertIn('CC BY',rec['source']['licence'] or '',rid)
+   h,rec,r,n,target=self._run_reference(rid)
+   self.assertEqual(r['phase'],'succeeded',rid);self.assertAlmostEqual(h.area,target,delta=1e-9);x=h.area/(n*rt.NA);p,c=rt.eos(rec,x);self.assertAlmostEqual(h._eos()[0],p,places=12)
+   if rt.is_scalar_model(rec):self.assertIn('Derived engineering EOS',r['evidence'])
+   else:
+    self.assertIn('Measured source compression arrays',r['evidence']);a,pp=rt.curve(rec);self.assertAlmostEqual(p,float(np.interp(x,a,pp)),places=12)
+   self.assertGreater(r['rows'][-1]['surface_pressure_n_m'],r['rows'][0]['surface_pressure_n_m'],rid);self.ledger(h)
+  for rid,rec in lib.items():
+   if rec['raw'].get('molecular_area_source_unit')=='nm2':
+    src=rec['raw']['molecular_area_source_values'];self.assertEqual(len(src),len(rec['values']['molecular_area_m2']))
+    self.assertTrue(all(v==x*1e-18 and a==x*100. for x,v,a in zip(src,rec['values']['molecular_area_m2'],rec['raw']['molecular_area_angstrom2'])),rid)
+ def test_44_round2_identities_guards_and_disclosures(self):
+  lib=rt.library();subs=lib['substances'];cov=lib['response_coverage']
+  calix={r['material_identity'] for k,r in subs.items() if k.startswith('figshare2013_') and r['runtime_usable']};self.assertEqual(len(calix),10)
+  for ident in ['cholesterol','cholestenone','GMO','Pluronic F108','TMCL']:self.assertIn(ident,cov['runtime_material_identities'])
+  self.assertTrue(subs['uw2024_cholesterol']['runtime_usable']);self.assertFalse(subs['epmc9654498_cholesterol']['runtime_usable'])
+  t=subs['epmc13257538_tangeretin'];self.assertFalse(t['runtime_usable']);self.assertIn('non-monolayer',t['runtime_reason']);self.assertNotIn('tangeretin',cov['runtime_material_identities'])
+  h=setup();cleanup(h);call(h,'subphase.load',**rt.SUBPHASE_EXAMPLE);self.rejected(h,'solution.load','INVALID_REFERENCE',**dict(rt.SAMPLE_EXAMPLE,reference_id='epmc13257538_tangeretin'))
+  for rid in ['figshare2013_cal_4_r8b1_br','figshare2013_cal_4_r8b2_br','figshare2013_cal_4_r4b2_nmec12']:
+   mc=subs[rid]['raw']['molar_mass_check'];self.assertGreater(abs(mc['relative_difference']),.005,rid);self.assertTrue(any('Author RMM' in x for x in subs[rid]['limitations']),rid)
+   self.assertEqual(subs[rid]['conditions']['molar_mass_kg_mol']*1000,mc['author_rmm_g_mol'])
+  for rid in ['figshare2013_cal_4_r4b2_nmec12','figshare2013_cal_4_r6b1']:
+   self.assertLess(subs[rid]['raw']['surface_pressure_mn_m'][0],-.5);self.assertTrue(any('not baseline-corrected' in x for x in subs[rid]['limitations']),rid)
+  m=subs['epmc6271777_tmcl'];self.assertEqual(m['conditions']['temperature_k'],296.15);self.assertEqual(sorted(m['runtime_model']['constraints_used'][2:]),['collapse_area+collapse_pressure','max_compression_modulus'])
+  self.assertTrue(all(q['source_quote'] for q in m['scalars'].values()))
+  # EOS guard never applies to a runtime record: every scalar-model domain minimum >= 0.4 x A0
+  for r in subs.values():
+   if rt.is_scalar_model(r):a0,s,w,lo,hi=rt.model_parameters(r);self.assertGreaterEqual(lo,.4*a0,r['substance_id'])
 
 if __name__=='__main__':unittest.main()

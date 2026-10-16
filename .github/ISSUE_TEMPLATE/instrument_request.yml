@@ -1,0 +1,51 @@
+name: Instrument request
+description: Ask for an instrument from your lab to be added to ChemLab-Assets
+title: "[Instrument request] <maker> <model>"
+labels: ["instrument request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an instrument. The more we know about the exact model, the closer the asset can follow it.
+        Please only attach files you are allowed to share publicly; for the manufacturer's public documents a link is enough.
+  - type: input
+    id: maker
+    attributes:
+      label: Manufacturer
+      placeholder: e.g. Mettler Toledo
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and configuration
+      placeholder: e.g. XPR204S analytical balance with draft shield
+    validations:
+      required: true
+  - type: textarea
+    id: use
+    attributes:
+      label: What do you use it for?
+      description: Typical samples, methods and the steps a person or robot performs with it.
+  - type: textarea
+    id: documents
+    attributes:
+      label: Manuals, brochures and datasheets
+      description: Links to public documents, or attach PDFs you may share.
+  - type: textarea
+    id: photos
+    attributes:
+      label: Photos
+      description: Front, sides, back, control panel and any doors or lids opened. Drag images into this box.
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: What should the asset be able to do?
+      description: For example moving parts, buttons and displays, sample handling, readings or outputs you need.
+  - type: checkboxes
+    id: rights
+    attributes:
+      label: Sharing
+      options:
+        - label: I only attached files that I am allowed to share publicly.
+          required: true

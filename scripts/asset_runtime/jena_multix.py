@@ -111,7 +111,7 @@ def _source_amount(r,a):
    return float(r['concentration_kg_m3'])*a['volume_m3']*a['reference_fraction']
   if r.get('mass_fraction_kg_kg') is not None:return float(r['mass_fraction_kg_kg'])*a['mass_kg']*a['reference_fraction']
  raise ActionRejected('REFERENCE_QUERY_ONLY')
-RECOVERY_KIND='published_compound_recovery';RECOVERY_FIELDS=('chlorine_equivalent_mass_kg','concentration_kg_m3')
+RECOVERY_KIND='published_compound_recovery';RECOVERY_FIELDS=('chlorine_equivalent_mass_kg','concentration_kg_m3','mass_fraction_kg_kg')  # mass fraction: 2026-10-15 TX solid found-halogen templates
 def _recovery_check(r,mode):
  # Published compound recovery (2026-10-14 library expansion): delivered Cl-equivalent = basis value x source aliquot x
  # derived stoichiometric/halide Cl-equivalent factor x published recovery. Recomputed here so a record can only be
@@ -478,7 +478,7 @@ LIMITATIONS=[
 'Public calibration references must be actual saved complete standard observations in this instance, with exact acquisition signature and three distinct source-reference doses. Linear calibration is conditional and interpolation-only; negative and uncalibrated values remain null with diagnostics, not forced zero. Reference aliquot fractions require explicit preparation assumption.',
 'Process-local256 result/32curve/10000window capacity is engineering, not documented OEM persistence. Owner-bound asynchronous terminal snapshots remain queryable after new measurement and result deletion. Agent/evaluator return filtering is not OS/container/filesystem isolation.',
 'Body nominal.810W*.550D*.460H m/about30kg plus installedABD.520W*.500D*.210H m10kg are distinct documented items; horizontal system spaceabout1.4m wide. Real local CAD, masses, gas connections and chemistry/hardware/robot validation remain separate.',
-'Published compound-recovery templates (EPA SW-846 9020B/9021/9023, Ding et al. 2022 Se Pu, ES&T 2023 SI, Thermo AN-72333, multi X SP_0041) load as prepared inputs: delivered Cl-equivalent = source basis x source aliquot x derived stoichiometric/halide Cl-equivalent factor x published recovery, recomputed and mode-checked at load (RECOVERY_MODE_MISMATCH, RECOVERY_DERIVATION_MISMATCH). Most recoveries were measured on other TOX/AOX/CIC instruments; the host combustion_recovery still applies on top, so outputs are not replays of the published recoveries.'
+'Published compound-recovery templates (EPA SW-846 9020B/9021/9023, Ding et al. 2022 Se Pu, ES&T 2023 SI, Thermo AN-72333, multi X SP_0041, DIN 38409-59 validation document AOCl/AOBr/AOI by combustion IC) load as prepared inputs: delivered Cl-equivalent = source basis x source aliquot x derived stoichiometric/halide Cl-equivalent factor x published recovery, recomputed and mode-checked at load (RECOVERY_MODE_MISMATCH, RECOVERY_DERIVATION_MISMATCH). Most recoveries were measured on other TOX/AOX/CIC instruments; the host combustion_recovery still applies on top, so outputs are not replays of the published recoveries.'
 ]
 SAMPLE['properties']['volume_m3']['description']='实际液体原始体积，仅extract/liquid使用；其他输入必须0，不是POX气量或AOX原水体积。'
 def export_jena_multix_contract_metadata():

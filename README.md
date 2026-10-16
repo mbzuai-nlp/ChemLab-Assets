@@ -23,11 +23,9 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 ## News
 
-- **[2026-10-15] v1.1 released.** More instruments now return results based on real published data instead of placeholder values:
-  - 18 new reference-data libraries (e.g. GC, IR, NMR, XRD, titration) and 32 expanded ones.
-  - A shared table of 200 common compounds, linked to the instruments that can measure each of them.
-  - 38 built-in chemical reactions (up from 8) for heating and reaction equipment.
-- **[2026-10-14] v1.0 released.** 198 simulation-ready laboratory instruments.
+- **[2026-10-16] v1.2:** 103 built-in reactions, now including light- and current-driven ones; richer reference data; instrument request form.
+- **[2026-10-15] v1.1:** real reference data for 17 more instruments, a shared table of 200 compounds, 38 built-in reactions.
+- **[2026-10-14] v1.0:** 198 simulation-ready laboratory instruments.
 
 ## Overview
 
@@ -51,7 +49,7 @@ This repository holds the code (runtimes, tests, examples, contract validator), 
 | **Contracts** | 14,272 components, 6,282 typed state slots, 4,701 capabilities with JSON-Schema arguments and declared errors |
 | **Interfaces** | 648 readouts (displays, LEDs) and 2,348 interface points (place, grasp, ports) |
 | **Behaviour** | a Python runtime per instrument: time-stepped process models behind `describe` / `read` / `invoke` / `poll`, agent and evaluator views, seeded noise |
-| **Provenance** | 3,382 cited sources; raw third-party documents are not redistributed |
+| **Provenance** | 3,445 cited sources; raw third-party documents are not redistributed |
 | **Simulation** | all 198 converted to USD and stepped in NVIDIA Isaac Lab through the Matterix framework |
 
 ## Gallery
@@ -291,6 +289,12 @@ Browse all 198 in 3D, with joint sliders and part-by-part annotations, in the [3
 
 </details>
 
+## Request an instrument
+
+Missing an instrument from your lab? [Open an instrument request](https://github.com/mbzuai-nlp/ChemLab-Assets/issues/new?template=instrument_request.yml) and tell us the maker and model.
+Manuals, brochures, photos from several sides and a few lines on how you use it help us build an accurate model.
+Please only attach files you are allowed to share; for the manufacturer's public documents a link is enough.
+
 ## Quick start
 
 **1. Get the data.** Everything (about 1.5 GB), or one instrument plus the code:
@@ -400,8 +404,8 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
 
 - [x] Real reference data for every instrument that measures samples (v1.1)
 - [x] Shared compound table linked to the instruments (v1.1)
-- [ ] At least 50 reference materials for the last 6 instruments
-- [ ] More chemical reactions (about 100) for synthesis and flow-chemistry equipment
+- [x] About 100 built-in chemical reactions, including light- and current-driven ones (v1.2)
+- [ ] At least 50 reference compounds for the FVS-6000 VCD spectrometer (40 now)
 - [ ] Calibrated reaction rates
 - [ ] Data recorded on the exact instrument models
 - [ ] Validation with real robots and hardware
@@ -416,6 +420,6 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.1}
+  note         = {Dataset, release 1.2}
 }
 ```

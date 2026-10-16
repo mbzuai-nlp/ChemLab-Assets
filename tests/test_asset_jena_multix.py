@@ -216,7 +216,7 @@ class PublishedRecoveryTemplates(unittest.TestCase):
  def expected(self,rid,a):
   r=self.C[rid];d=r['derivation'];q=d['basis_value']*d['aliquot']*d['cl_equivalent_factor']*d['applied_recovery']
   self.assertAlmostEqual(q/r[d['target_field']],1.,places=12)
-  return q*a['reference_fraction']*(a['volume_m3'] if d['target_field']=='concentration_kg_m3' else 1.)
+  return q*a['reference_fraction']*(a['volume_m3'] if d['target_field']=='concentration_kg_m3' else a['mass_kg'] if d['target_field']=='mass_fraction_kg_kg' else 1.)
  def run_record(self,r,rid,fraction=1.,**extra):
   measure(r,'blank',**{k:v for k,v in extra.items() if k in ('input_form','volume_m3','mass_kg')})
   if r.direction=='horizontal':r.step(r.cooldown+1.)  # documented 200 s liquid-boat cooldown is consumed, not skipped
@@ -259,5 +259,48 @@ class PublishedRecoveryTemplates(unittest.TestCase):
     n={a:int(b or 1) for a,b in re.findall(r'([A-Z][a-z]?)([0-9]*)',r['molecular_formula'])};f=sum(n.get(x,0) for x in ('Cl','Br','I'))*35.45/sum(AW[a]*k for a,k in n.items())
     self.assertAlmostEqual(r['derivation']['cl_equivalent_factor'],f,places=12)
   self.assertEqual({r['substance_identity'] for r in pub if r['source']=='est2023_si'},{'tris(1-chloro-2-propyl) phosphate','tris(1,3-dichloro-2-propyl) phosphate','decabromodiphenyl ether',"2,2',3,4,4',5',6-heptabromodiphenyl ether"})
+class ThinLibraryRound20261015(unittest.TestCase):
+ """2026-10-15 thin-library round: DIN 38409-59 validation (AOCl/AOBr/AOI by CIC), Kinani 2017 DBP recoveries (HAL),
+ Japan Customs 1985 oxygen-flask TX solids and EPA 9021 Table 2 matrix spikes, sampled across classes and modes."""
+ @classmethod
+ def setUpClass(cls):cls.j=_load_actual_library();cls.C=cls.j['compounds']
+ actual=PublishedRecoveryTemplates.actual;expected=PublishedRecoveryTemplates.expected;run_record=PublishedRecoveryTemplates.run_record
+ def rid(self,source,identity,**raw):
+  return next(k for k,r in sorted(self.C.items()) if r['source']==source and r['substance_identity']==identity and r['physical_input_eligible'] and all(r['raw_value'].get(x)==v for x,v in raw.items()))
+ def test_82_din38409_59_halobenzoic_pharma_and_contrast_media(self):
+  ids=[self.rid('din38409_59','4-chlorobenzoic acid',activated_carbon_literal='a1-envirosciences'),self.rid('din38409_59','diclofenac'),self.rid('din38409_59','2-bromonaphthalene'),self.rid('din38409_59','iopromide',activated_carbon_literal='Abimed'),self.rid('din38409_59','3-iodophenol',inorganic_chloride_added_mg_per_L=0)]
+  for rid in ids:
+   with self.subTest(rid=rid):
+    rec=self.C[rid];self.assertEqual(rec['supported_modes'],['AOX']);self.assertEqual(rec['license_flag'],'public_download_no_licence_stated_numbers_only');self.assertTrue(rec['cas']);self.assertTrue(rec['inchi_key']);self.assertIn('assumption',rec['conditions']['sample_volume_basis'])
+    f=min(1.,2.5e-9/rec['chlorine_equivalent_mass_kg']);r=self.actual();q=self.run_record(r,rid,f,mass_kg=rec['source_sample_mass_kg']*f);self.assertAlmostEqual(q['faraday_equivalent_mass_kg']/(self.expected(rid,r.sample['configuration'])*PLANT_EXAMPLE['combustion_recovery']*PLANT_EXAMPLE['detector_gain']),1.,delta=.05)
+ def test_83_kinani_dbps_complete_and_direct_analysis(self):
+  ids=[self.rid('kinani2017','iodoform',column='aox_da'),self.rid('kinani2017','trichloroacetic acid',column='aox_complete'),self.rid('kinani2017','dibromoacetonitrile',column='cic_complete'),self.rid('kinani2017','2,4,6-tribromophenol',column='cic_da'),self.rid('kinani2017','2-chloroacetamide',column='aox_complete')]
+  for rid in ids:
+   with self.subTest(rid=rid):
+    rec=self.C[rid];self.assertEqual(rec['license_flag'],'hal_authorisation_v1_no_open_licence_numbers_only');self.assertEqual(rec['input_form'],'loaded_carbon');d=rec['derivation'];self.assertEqual((d['basis_value'],d['aliquot'],d['cl_equivalent_factor']),(50e-6,1e-4,1.));self.assertAlmostEqual(d['applied_recovery'],rec['raw_value']['recovery_percent']/100,places=12)
+    f=min(1.,2.5e-9/rec['chlorine_equivalent_mass_kg']);r=self.actual();self.run_record(r,rid,f,mass_kg=rec['source_sample_mass_kg']*f)
+  self.assertNotIn('aox_complete',[r['raw_value']['column'] for r in self.C.values() if r['source']=='kinani2017' and r['substance_identity']=='1,1,1-trichloroacetone'])
+ def test_84_customs_tx_solid_found_halogen(self):
+  for rid in [self.rid('customs1985','hexachloroethane'),self.rid('customs1985','bromophenol blue'),self.rid('customs1985','octabromodiphenyl ether (technical)')]:
+   with self.subTest(rid=rid):
+    rec=self.C[rid];self.assertEqual((rec['input_form'],rec['supported_modes']),('solid',['TX']));self.assertEqual(rec['license_flag'],'japan_customs_site_terms_reuse_with_attribution');self.assertIsNotNone(rec['mass_fraction_kg_kg'])
+    r=self.actual(horizontal=True);self.run_record(r,rid,input_form='solid',mass_kg=2e-8)
+  r=self.actual();rid=self.rid('customs1985','hexachloroethane')
+  with self.assertRaises(ActionRejected) as ex:r.invoke('sample.load',**(SAMPLE_EXAMPLE|dict(template_id=rid)))
+  self.assertEqual(str(ex.exception),'RECOVERY_MODE_MISMATCH');self.assertIsNone(r.sample)
+  bad=copy.deepcopy(self.C[rid]);bad['mass_fraction_kg_kg']*=1.1;r=self.actual(horizontal=True);r.templates=dict(self.C,tampered=bad);r.step(1.);r.invoke('sample_port.toggle');r.step(.5)
+  with self.assertRaises(ActionRejected) as ex:r.invoke('sample.load',**(SAMPLE_EXAMPLE|dict(template_id='tampered',input_form='solid',mass_kg=2e-8)))
+  self.assertEqual(str(ex.exception),'RECOVERY_DERIVATION_MISMATCH')
+ def test_85_matrix_spike_pox_ranges_and_coverage(self):
+  r=self.actual(mode='POX');self.run_record(r,'rec_epa9021_t2_01');self.assertAlmostEqual(self.C['rec_epa9021_t2_01']['chlorine_equivalent_mass_kg'],800e-3*5e-6/200*.41,places=20)
+  rng=[k for k,v in self.C.items() if v.get('reported_recovery_range_fraction')];self.assertTrue(rng)
+  for rid in rng[:3]:
+   with self.subTest(rid=rid):
+    r=self.actual()
+    with self.assertRaises(ActionRejected) as ex:r.invoke('sample.load',**(SAMPLE_EXAMPLE|dict(template_id=rid)))
+    self.assertIn(str(ex.exception),['REFERENCE_QUERY_ONLY','SOURCE_STAGE_MISMATCH']);self.assertIsNone(r.sample)
+  cov=self.j['coverage'];self.assertGreaterEqual(cov['distinct_measured_chemical_substances'],50);self.assertEqual(cov['gap_to_50_measured_chemical_substances'],0);self.assertGreaterEqual(cov['distinct_measured_chemical_substances_runtime_loadable'],50)
+  new=[r for r in self.C.values() if r['source'] in ('din38409_59','kinani2017','customs1985')];self.assertEqual(len({r['substance_identity'] for r in new if r['source']=='kinani2017'}),44)
+  for r in new:self.assertIn(r['license_flag'],['public_download_no_licence_stated_numbers_only','hal_authorisation_v1_no_open_licence_numbers_only','japan_customs_site_terms_reuse_with_attribution']);self.assertEqual(r['accessed'],'2026-10-15');self.assertEqual(r['evidence']['value_evidence'],'measured_literature')
 def _load_actual_library():return json.loads((ROOT/TEMPLATE_REL).read_text())
 if __name__=='__main__':unittest.main()

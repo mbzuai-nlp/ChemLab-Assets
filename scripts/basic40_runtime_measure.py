@@ -312,7 +312,7 @@ def export_xpr204e_contract_metadata():
         "calibration_error_kg": {"value": None, "unit": "kg", "evidence": "unknown", "source": "No measured calibration error or fault data supplied"},
     }
     return {"asset_types": {XPR204E_TYPE: {"catalog_id": "CHEM-001", "model": "METTLER TOLEDO XPR204E target / PX224E geometry family",
-        "asset_version": "1.0.0", "state_slots": slots, "capabilities": caps, "parameters": parameters}},
+        "asset_version": "1.0.1", "state_slots": slots, "capabilities": caps, "parameters": parameters}},
         "scene_snapshot_keys": list(XPR204E_SCENE_KEYS),
         "scene_snapshot_schema": _xpr_object({sid: slots[sid]["value_schema"] for sid in XPR204E_SCENE_KEYS}),
         "trusted_scene_callback": "scene_adapter(instance_id, updates): each call receives the full typed scene snapshot; raw force, unquantized filter, gain and zero truth are excluded",
@@ -883,7 +883,7 @@ def export_gamry_reference620_contract_metadata():
         "electrode_area_m2": {"value": None, "unit": "m^2", "evidence": "unknown", "note_zh": "未提供电极几何或有效面积。"},
         "calibration_error_v": {"value": None, "unit": "V", "evidence": "unknown", "note_zh": "未提供校准或误差数据。"},
     }
-    return {"asset_types": {GAMRY_REFERENCE620_TYPE: {"catalog_id": "CHEM-103", "model": "Gamry Reference 620", "asset_version": "1.0.1",
+    return {"asset_types": {GAMRY_REFERENCE620_TYPE: {"catalog_id": "CHEM-103", "model": "Gamry Reference 620", "asset_version": "1.1.0",
         "state_slots": slots, "capabilities": caps, "parameters": parameters}},
         "host_capabilities": {"sim.step": {"kind": "simulation", "visibility": "trusted_host_only",
             "binding": "GamryReference620Runtime.step(dt_s)", "effects": playback_effects,
@@ -1387,7 +1387,7 @@ def export_metrohm914_contract_metadata():
     }
     for n, unit in (("cell_constant_m_inv", "1/m"), ("contamination_coefficient", "1"), ("drift_rate", "1/s"), ("probe_mass_kg", "kg"), ("do_temperature_coefficient", "1/K"), ("reference_potential_v", "V"), ("reference_ph", "1"), ("endpoint_hold_s", "s"), ("endpoint_tolerance_fraction", "1"), ("conductance_temperature_coefficient", "1/K")):
         params[n] = parameter(None, unit, "unknown", "表未给出；不默认生成数值或用整机参数代替")
-    return {"asset_types": {METROHM914_TYPE: {"catalog_id": "CHEM-005", "model": "Metrohm | 914 pH/DO/Conductometer", "asset_version": "1.0.0", "state_slots": slots, "capabilities": caps, "parameters": params}},
+    return {"asset_types": {METROHM914_TYPE: {"catalog_id": "CHEM-005", "model": "Metrohm | 914 pH/DO/Conductometer", "asset_version": "1.1.0", "state_slots": slots, "capabilities": caps, "parameters": params}},
         "host_capabilities": {"sim.host_step": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "Metrohm914Runtime.host_step(time_s, inputs={instance_id: sample})"}},
         "limitations": ["All measurement outputs are synthetic and estimated; accuracy ±0.003 is an instrument specification, not simulated accuracy.", "pH and DO share one digital interface and cannot both be installed; conductance is an independent analog interface. Runtime selects one channel at a time; parallel acquisition is not implemented.", "No default cell constant, contamination/drift/noise or probe mass is invented. Conductance is S, not S/m; DO is kg/m3.", "Nernst, optional linear conductance compensation, single-point calibration and stability rules are engineering_assumption; DO temperature/pressure/salinity compensation is absent.", "Readings need explicit host samples; automatic temperature needs explicit host temperature. Missing values stay null. No intermediate samples are fabricated.", "Scene adapter receives only display/power/probe installation state; no robot, contact solver or hardware driver. A failing callback may partly modify the scene but leaves a command's process candidate uncommitted.", "Host-supplied principals enforce API visibility only. Python/process/filesystem sandbox isolation is not implemented.", "Request deduplication is in-memory and does not survive restart."]}
 
@@ -1973,7 +1973,7 @@ def export_metrohm899_contract_metadata():
             "state_effects": [{"state_id": sid, "meaning_zh": "由此调用更新；停止保留既有累计量。", "timing": "immediate"} for sid in effects],
             "observes": observes,
             "binding": {"backend": "python", "artifact_id": "runtime", "invocation": f"Metrohm899Session.invoke(instance_id=..., capability_id='{name}', arguments=..., request_id=...)"}}
-    return {"asset_type_id": METROHM899_TYPE, "catalog_id": "CHEM-102", "asset_version": "1.0.0", "state_slots": state,
+    return {"asset_type_id": METROHM899_TYPE, "catalog_id": "CHEM-102", "asset_version": "1.1.0", "state_slots": state,
         "capabilities": capabilities, "scene_callback_keys": ["power.enabled", "coulometry.running", "display.text"] + [f"slot.{x}.installed" for x in ("cell", "generator", "indicator")],
         "host_capabilities": {
             "sim.load_sample": {"invocation": "Metrohm899Host.load_sample(instance_id=..., water_mass_kg=..., background_drift_kg_s=..., reagent_ready=True, request_id=...)", "visibility": "trusted_host_only", "meaning_zh": "初始化合成样品场景；不是物质转移或真实仪器进样。"},
@@ -2584,7 +2584,7 @@ def export_metrohm_omnis_contract_metadata():
         "Session filtering is an API boundary only; the trusted host, Python runtime and filesystem require separate deployment isolation. Debug truth never enters agent read/invoke/describe/logs or scene snapshots.",
         "Request deduplication is in-memory only. Scene callback failure leaves process uncommitted but a partially changed external scene may need reconciliation.",
         "Unknown manufacturer flow/stability/calibration parameters remain null; explicitly configured simulation inputs are not manufacturer specifications."]
-    return {"asset_types": {METROHM_OMNIS_TYPE: {"catalog_id": "CHEM-101", "model": "Metrohm | OMNIS Professional Titrator 2.1001.0320", "asset_version": "1.0.0", "state_slots": slots, "capabilities": caps, "parameters": params}},
+    return {"asset_types": {METROHM_OMNIS_TYPE: {"catalog_id": "CHEM-101", "model": "Metrohm | OMNIS Professional Titrator 2.1001.0320", "asset_version": "1.1.0", "state_slots": slots, "capabilities": caps, "parameters": params}},
         "host_capabilities": {"sim.host_step": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "MetrohmOmnisRuntime.host_step(time_s)", "effects": reset_effects + ["stirring.angle_rad"]},
             "sim.load_sample": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "MetrohmOmnisRuntime.host_load_sample(instance_id, sample)", "semantics_zh": "宿主设置新实验的合成真值、清空旧实验与活塞累计；不代表实际自动换样或缸补液。"}},
         "scene_snapshot_keys": scene_keys, "limitations": limitations,
@@ -3260,7 +3260,7 @@ def export_magritek_spinsolve80_contract_metadata():
     limitations = ["所有FID、1D频谱与数值积分均为synthetic；工程假设教学模型不能声称复现Spinsolve响应、Classic线宽、灵敏度或真实测量。", "只实现1H/13C单脉冲1D、宿主显式扫描计时与无噪声平均；2D、耦合多重峰自动求解、解耦、梯度、结构约束、定量核磁、真实校准与故障概率未实现。", "每扫描耗时=用户弛豫延迟+用户采集时间；不模拟T1饱和恢复、脉冲时宽、接收器死区、磁场漂移或厂商固件。", "幅度任意且无量纲，积分单位Hz；积分不是浓度或核数。13C载频未知，不输出ppm横轴。", "样品槽仅逻辑关联；插入占比为示意映射，不执行机器人插入、接触或真实磁场作用。", "注册样品、共同绝对时钟由可信宿主管理；公开session过滤是API边界，不是同进程Python或文件系统沙箱。请求幂等缓存仅在内存中。", "可选scene_adapter失败时过程不提交；外部场景可能已部分修改，需宿主协调恢复。"]
     mechanisms = {"synthetic_nmr_signal": {"component_ids": ["magnet_module", "sample_port"], "state_ids": ["truth.registered_samples", "method.nucleus", "method.acquisition_time_s", "method.points", "measurement.fid", "measurement.spectrum", "measurement.integral_hz"], "meaning_zh": "engineering_assumption：阻尼复正弦合成FID、归一化DFT和观测频带积分；全部输出synthetic。", "implementation": "numerical", "equations": ["FID[n]=sum(A_j*exp(-t_n/T2_j)*exp(i*2*pi*f_j*t_n)); t_n=n*T_acq/N", "S[k]=sum(FID[n]*exp(-i*2*pi*k*n/N))/N; f_k=(k-floor(N/2))/T_acq", "integral=piecewise-linear trapezoid integral of abs(S) over explicit observed frequency interval"], "parameters": parameters, "source_ids": ["runtime_code", "workbook_parameters"], "limitations": limitations[:4]},
         "host_timed_scanning": {"component_ids": ["magnet_module", "control_panel"], "state_ids": ["method.scans", "method.relaxation_delay_s", "method.acquisition_time_s", "acquisition.elapsed_s", "acquisition.completed_scans", "acquisition.progress", "acquisition.status"], "meaning_zh": "engineering_assumption：由共享宿主绝对时钟推进离散完整扫描。", "implementation": "numerical", "equations": ["cycle=T_relax+T_acq; completed_scans=min(scans,floor((host_time-start_time)/cycle)); progress=min(1,elapsed/(scans*cycle))"], "parameters": {}, "source_ids": ["runtime_code"], "limitations": ["无自动世界推进；read/describe/query不推进时钟。", "未完成扫描不产生伪完整谱；取消保留已完成扫描。"]}}
-    return {"asset_types": {SPINSOLVE80_TYPE: {"catalog_id": "CHEM-068", "model": "Magritek | Spinsolve 80 Carbon", "asset_version": "1.0.0", "state_slots": slots, "capabilities": caps, "parameters": parameters}}, "mechanisms": mechanisms, "scene_snapshot_keys": list(SPINSOLVE80_SCENE_KEYS), "limitations": limitations,
+    return {"asset_types": {SPINSOLVE80_TYPE: {"catalog_id": "CHEM-068", "model": "Magritek | Spinsolve 80 Carbon", "asset_version": "1.1.0", "state_slots": slots, "capabilities": caps, "parameters": parameters}}, "mechanisms": mechanisms, "scene_snapshot_keys": list(SPINSOLVE80_SCENE_KEYS), "limitations": limitations,
         "host_capabilities": {"sim.host_step": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "MagritekSpinsolve80Runtime.host_step(time_s)", "state_effects": reset}, "sim.register_sample": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "MagritekSpinsolve80Runtime.register_sample(instance_id, sample_id, signals)", "state_effects": ["truth.registered_samples"]}}, "host_sample_schema": fixture}
 
 
@@ -3853,7 +3853,7 @@ def export_rigaku_miniflex600_contract_metadata():
         "theta_two_theta": {"name_zh": "理想θ–2θ展示", "meaning_zh": "engineering_assumption：样品台随2θ按一半角度显示，不模拟驱动器或惯性。", "component_ids": ["sample_holder", "goniometer"],
             "state_ids": ["goniometer.two_theta_rad", "goniometer.sample_theta_rad"], "implementation": "numerical", "equations": ["sample_theta_rad=0.5*two_theta_rad"],
             "parameters": {"sample_theta_ratio": params["sample_theta_ratio"], "motor_speed_rad_s": params["motor_speed_rad_s"]}, "source_ids": ["runtime_code"], "limitations": ["不宣称厂家实际传动、角度精度或动力学。"]}}
-    return {"asset_types": {RIGAKU_MINIFLEX600_TYPE: {"catalog_id": "CHEM-160", "model": "Rigaku | MiniFlex600，外置循环水配置", "asset_version": "1.0.0", "state_slots": slots, "capabilities": caps, "parameters": params}},
+    return {"asset_types": {RIGAKU_MINIFLEX600_TYPE: {"catalog_id": "CHEM-160", "model": "Rigaku | MiniFlex600，外置循环水配置", "asset_version": "1.1.0", "state_slots": slots, "capabilities": caps, "parameters": params}},
         "scene_snapshot_keys": scene_keys, "host_capabilities": {
             "sim.host_step": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "RigakuMiniFlex600Runtime.host_step(time_s)", "effects": reset_effects + ["goniometer.two_theta_rad", "goniometer.sample_theta_rad"]},
             "sim.set_cooling": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "RigakuMiniFlex600Runtime.host_set_cooling(instance_id, connection_id=..., ready=...)", "semantics_zh": "外置循环水逻辑依赖；失去ready时立即停止扫描，保留完整点。"},

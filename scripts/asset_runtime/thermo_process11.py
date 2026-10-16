@@ -1,14 +1,16 @@
 """CHEM-057: finite seven-cell twin-screw surrogate with species and heat balances.
 
-v1.1: 55-record real-data template library; material.load_reference drives the model with
-literature viscosity-temperature laws, reference.lookup returns exact measured conditions,
-material.lookup returns any record.  Process outputs remain model predictions (synthetic)."""
+v1.1: real-data template library; material.load_reference drives the model with literature
+viscosity-temperature laws, reference.lookup returns exact measured conditions, material.lookup
+returns any record.  v1.2: library v3 (commodity/engineering thermoplastics and more pharma
+carriers), Cross-WLF laws and measured shear-thinning parameters (Cross / Carreau-Yasuda) applied
+at the die apparent wall shear rate.  Process outputs remain model predictions (synthetic)."""
 from __future__ import annotations
 import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='thermo_process11'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-057'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.1.0'
+SLUG='thermo_process11'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-057'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.2.0'
 TEMPLATE_REL='assets/reactions/thermo_process11_extrusion_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -79,12 +81,15 @@ REFERENCE=obj({'reference_id':TEXT,'temperature_k':TEMP,'torque_total_range_nm':
 'screw_speed_rad_s':nullable(number('rad/s',0)),'feed_kg_s':nullable(number('kg/s',0)),'melt_temperature_k':nullable(number('K',0)),
 'viscosity_pa_s':nullable(number('Pa*s',0)),'sme_j_kg':nullable(number('J/kg',0)),'extruder':TEXT,'licence_flag':TEXT})
 REFERENCE_IN=dict(type='object',properties={'reference_id':TEXT,'temperature_k':TEMP,'screw_speed_rad_s':number('rad/s',0,OMEGA_MAX),'variant':TEXT},required=['reference_id','temperature_k'],additionalProperties=False)
-LAW=nullable(obj({'form':dict(type='string',enum=['arrhenius','wlf_exp']),'viscosity_ref_pa_s':number('Pa*s',0),'reference_temperature_k':number('K',0),
-'activation_j_mol':nullable(number('J/mol',0)),'c1':nullable(number('1')),'c2_k':nullable(number('K')),'evidence':TEXT,'valid_range_k':nullable(array(number('K',0),2))}))
+LAW=nullable(obj({'form':dict(type='string',enum=['arrhenius','wlf_exp','cross_wlf','exponential']),'viscosity_ref_pa_s':number('Pa*s',0),'reference_temperature_k':number('K',0),
+'activation_j_mol':nullable(number('J/mol',0)),'c1':nullable(number('1')),'c2_k':nullable(number('K')),'evidence':TEXT,'valid_range_k':nullable(array(number('K',0),2)),
+'shear_model':{'type':['string','null'],'enum':['cross','carreau_yasuda',None]},'n':nullable(number('1',0,1)),'tau_star_pa':nullable(number('Pa',0)),
+'lambda_s':nullable(number('s',0)),'a_cy':nullable(number('1',0)),'alpha_per_k':nullable(number('1/K',0))}))
 MATERIAL_INFO=obj({'reference_id':TEXT,'record_type':dict(type='string',enum=['material_reference','process_outcome']),'name_en':TEXT,'material_class':TEXT,'cas':NTEXT,
 'runtime_usage':dict(type='string',enum=['process_model','exact_condition_lookup','reference_only']),'tg_k':nullable(number('K',0)),'tm_k':nullable(number('K',0)),
 'degradation_onset_k':nullable(number('K',0)),'extrudable_window_k':nullable(array(number('K',0),2)),'minimum_processing_k':nullable(number('K',0)),
 'viscosity_law':LAW,'density_kg_m3':nullable(number('kg/m^3',0)),'heat_capacity_j_kg_k':nullable(number('J/(kg*K)',0)),'neat_extrudable':{'type':['boolean','null']},
+'density_evidence':NTEXT,'heat_capacity_evidence':NTEXT,'processing_window_k':nullable(array(number('K',0),2)),
 'lookup_temperatures_k':dict(type='array',items=number('K',0)),'condition_count':dict(type='integer',minimum=0,**{'x-unit':'1'}),
 'evidence':TEXT,'source':TEXT,'licence_flag':TEXT,'template_source':TEXT})
 LOAD_REF=dict(type='object',properties={'reference_id':TEXT,'mass_kg':number('kg',1e-6,.05),'density_kg_m3':number('kg/m^3',100,5000),
@@ -205,12 +210,18 @@ class ThermoProcess11Runtime:
     def _evidence(self,base):
         m=self.material or {}
         return base+'_with_literature_material_law:'+m['reference_id'] if m.get('law') else base
-    def _viscosity(self,t):
+    def _viscosity(self,t,shear_rate=None):
         m=self.material
-        if m.get('law')=='wlf_exp':
+        if m.get('law') in ('wlf_exp','cross_wlf'):
             d=t-m['reference_temperature_k'];x=-m['c1']*d/max(1e-6,m['c2_k']+d)
+        elif m.get('law')=='exponential':x=-m['alpha_per_k']*(t-m['reference_temperature_k'])
         else:x=m['activation_j_mol']/8.314462618*(1/t-1/m['reference_temperature_k'])
-        return m['viscosity_ref_pa_s']*math.exp(max(-50,min(50,x)))
+        # numeric guard only; Cross-WLF D1 can be ~1e23 Pa*s so the exponent reaches about -50 inside the processing window
+        eta0=m['viscosity_ref_pa_s']*math.exp(max(-300,min(300,x)));sh=m.get('shear')
+        if not sh or not shear_rate or shear_rate<=0:return eta0
+        if sh['model']=='cross':return eta0/(1+(eta0*shear_rate/sh['tau_star_pa'])**(1-sh['n']))
+        # Carreau-Yasuda with time-temperature superposition of the relaxation time: lambda(T)=lambda_ref*eta0(T)/eta0(Tref)
+        lam=sh['lambda_s']*eta0/sh['eta0_ref_pa_s'];return eta0*(1+(lam*shear_rate)**sh['a_cy'])**((sh['n']-1)/sh['a_cy'])
     OUTCOME_KEYS=('torque_percent_range','torque_reported_range_nm','torque_total_range_nm','pressure_range_pa','viscosity_pa_s','melt_temperature_k')
     def _reference(self,rid,t,speed=None,variant=None):
         if rid not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
@@ -235,8 +246,11 @@ class ThermoProcess11Runtime:
             tg_k=p.get('tg_k'),tm_k=p.get('tm_k'),degradation_onset_k=r.get('degradation_onset_k'),extrudable_window_k=r.get('extrudable_window_k'),
             minimum_processing_k=(r.get('minimum_processing') or {}).get('temperature_k'),
             viscosity_law=None if not law else dict(form=law['form'],viscosity_ref_pa_s=law['viscosity_ref_pa_s'],reference_temperature_k=law['reference_temperature_k'],
-                activation_j_mol=law.get('activation_j_mol'),c1=law.get('c1'),c2_k=law.get('c2_k'),evidence=law['evidence'],valid_range_k=law.get('valid_range_k')),
+                activation_j_mol=law.get('activation_j_mol'),c1=law.get('c1'),c2_k=law.get('c2_k'),evidence=law['evidence'],valid_range_k=law.get('valid_range_k'),
+                shear_model=(law.get('shear') or {}).get('model'),n=(law.get('shear') or {}).get('n'),tau_star_pa=(law.get('shear') or {}).get('tau_star_pa'),
+                lambda_s=(law.get('shear') or {}).get('lambda_s'),a_cy=(law.get('shear') or {}).get('a'),alpha_per_k=law.get('alpha_per_k')),
             density_kg_m3=(r.get('density') or {}).get('value_kg_m3'),heat_capacity_j_kg_k=(r.get('heat_capacity') or {}).get('value_j_kg_k'),neat_extrudable=r.get('neat_extrudable'),
+            density_evidence=(r.get('density') or {}).get('evidence'),heat_capacity_evidence=(r.get('heat_capacity') or {}).get('evidence'),processing_window_k=r.get('processing_window_k'),
             lookup_temperatures_k=r.get('lookup_temperatures_k',[]),condition_count=len(r.get('conditions',[])),evidence=r.get('evidence','measured_literature'),source=r['source'],
             licence_flag=r.get('licence_flag','permissive'),template_source=TEMPLATE_REL))
     def _load_reference(self,a):
@@ -248,10 +262,13 @@ class ThermoProcess11Runtime:
         law=r['viscosity_law'];tmin=r['minimum_processing']['temperature_k'];dens=(r.get('density') or {}).get('value_kg_m3');cp=(r.get('heat_capacity') or {}).get('value_j_kg_k')
         # Real values are never overridden; missing ones must be supplied explicitly by the host (assumption).
         if (dens is None)!=('density_kg_m3' in a) or (cp is None)!=('heat_capacity_j_kg_k' in a) or tmin<self.plant['ambient_k']:raise ActionRejected('INVALID_ARGUMENT')
-        ev=('density:'+('literature' if dens is not None else 'host_assumption')+';heat_capacity:'+('literature' if cp is not None else 'host_assumption')+';viscosity_law:'+law['form']+'('+law['evidence']+')')
+        sh=law.get('shear')
+        ev=('density:'+('literature' if dens is not None else 'host_assumption')+';heat_capacity:'+('literature' if cp is not None else 'host_assumption')+';viscosity_law:'+law['form']+'('+law['evidence']+')'
+            +(';shear:'+sh['model']+'('+sh.get('evidence','measured_literature')+')' if sh else ';shear:none(Newtonian)'))
         self.material=dict(reference_id=rid,base_kg=a['mass_kg'],additive_kg=0.,density_kg_m3=dens if dens is not None else a['density_kg_m3'],
             heat_capacity_j_kg_k=cp if cp is not None else a['heat_capacity_j_kg_k'],viscosity_ref_pa_s=law['viscosity_ref_pa_s'],reference_temperature_k=law['reference_temperature_k'],
-            activation_j_mol=law.get('activation_j_mol') or 0.,c1=law.get('c1'),c2_k=law.get('c2_k'),law=law['form'],minimum_processing_k=tmin,
+            activation_j_mol=law.get('activation_j_mol') or 0.,c1=law.get('c1'),c2_k=law.get('c2_k'),alpha_per_k=law.get('alpha_per_k'),law=law['form'],minimum_processing_k=tmin,
+            shear=None if not sh else dict(model=sh['model'],n=sh['n'],tau_star_pa=sh.get('tau_star_pa'),lambda_s=sh.get('lambda_s'),a_cy=sh.get('a'),eta0_ref_pa_s=sh.get('eta0_ref_pa_s')),
             degradation_onset_k=r.get('degradation_onset_k'),accept_uncalibrated_newtonian=True,parameter_evidence=ev)
         self.initial=[a['mass_kg'],0.];self.hopper=self.initial.copy()
         return {'configured':True,'parameter_evidence':ev}
@@ -363,7 +380,10 @@ class ThermoProcess11Runtime:
             dm[-1]=masses[-1]*fraction
             for i in range(5,-1,-1):dm[i]=min(masses[i]*fraction,max(0.,p['zone_capacity_kg']-masses[i+1]+dm[i+1]))
             if self.phase=='running':feed=min(self.feed_target*dt,sum(self.hopper),max(0.,p['zone_capacity_kg']-masses[0]+dm[0]))
-            Q=dm[-1]/dt/rho;pressure=8*mu[-1]*method['die_length_m']*Q/(math.pi*method['die_radius_m']**4)
+            Q=dm[-1]/dt/rho
+            # die: apparent wall shear rate 4Q/(pi R^3); shear thinning only when the library record carries measured Cross/Carreau-Yasuda parameters
+            mu_die=self._viscosity(self.temps[-1],4*Q/(math.pi*method['die_radius_m']**3)) if mat.get('shear') else mu[-1]
+            pressure=8*mu_die*method['die_length_m']*Q/(math.pi*method['die_radius_m']**4)
             drag=p['drag_coefficient_m3']*omega*sum(v*m/p['zone_capacity_kg'] for v,m in zip(mu,masses))/7*method['mixing_factor']
             torque=drag+(pressure*Q/(2*omega) if omega else 0.)
             self.torque=torque;self.pressure=pressure
@@ -449,6 +469,13 @@ class ThermoProcess11Session:
 
 
 
+def _library_limitations():
+    sm=json.loads((ROOT/TEMPLATE_REL).read_text())['summary']
+    return ['七区CSTR不是实际螺槽三维输送、返混/停留时间分布或螺杆元件CAD；mixing_factor不是厂家元件组合。',
+        f"material.configure 仅支持70/30 PCM-Affinisol 显式假设参数；material.load_reference 支持{sm['process_model_records']}种文献黏度律材料（{sm['process_model_with_real_density_and_cp']}种密度/热容全真实，其余缺项需宿主显式假设）；模型仍不能代表实测药物/塑料工艺或用于剂型制备。",
+        f"库共{sm['distinct_records']}条真实数据记录，运行时可用{sm['runtime_usable_records']}条（{'达到' if sm['target_50_met'] else '低于'}50条目标）；工况多来自Pharma 11/ZE12/ZSE12同级机及专用口模，只按原工况精确返回，不用于标定当前圆口模。",
+        '剪切变稀只在口模按表观壁面剪切率施加且仅限有实测Cross/Carreau-Yasuda参数的记录，无Rabinowitsch修正；筒内拖曳仍用零剪切黏度；无黏弹性/熔融潜热/降解动力学/挥发/返流/泄漏/溶解结晶；混合仅为两组分理想均匀账本。',
+        '七区瞬时等温且轴功均匀沉积，进料区水冷只为宿主边界；无冷却水温量或真实温控辨识。','控制界面菜单未复刻，完整安全联锁/机器人/硬件/接触力/部署隔离均not_run。']
 def export_thermo_process11_contract_metadata():
     caps={};slots={}
     for k,(s,u,o,v,c,w) in SLOTS.items():
@@ -481,10 +508,11 @@ def export_thermo_process11_contract_metadata():
         state_ids=list(slots),meaning_zh='双螺杆七有限完全混合区、圆口模牛顿压降和轴功/电热/带料焓平衡',implementation='lumped',
         equations=['dm_i/dt=in_i-out_i; out_i<=k*m_i, k=transport_per_rev*omega/(2*pi*mixing_factor), upstream limited by recipient free capacity',
         'finite hopper feeds fixed70/30 mixture; product/collected/waste retain both species',
-        'mu(T)=mu_ref*exp(Ea/R*(1/T-1/Tref)) (explicit parameters or library Arrhenius law) or mu_ref*exp(-C1*(T-Tr)/(C2+T-Tr)) (library WLF law); Newtonian, zero-shear/complex viscosity used as-is',
+        'mu0(T)=mu_ref*exp(Ea/R*(1/T-1/Tref)) (explicit parameters or library Arrhenius law), mu_ref*exp(-C1*(T-Tr)/(C2+T-Tr)) (library WLF law; Cross-WLF: mu_ref=D1, Tr=D2 (D3*p neglected), C1=A1, C2=A2) or mu_ref*exp(-alpha*(T-Tref)) (library exponential shift)',
+        'die only, records with measured shear parameters: gamma_a=4Q/(pi*R^3); Cross mu=mu0/(1+(mu0*gamma_a/tau*)^(1-n)); Carreau-Yasuda mu=mu0*(1+(lambda*aT*gamma_a)^a)^((n-1)/a), aT=mu0(T)/mu0(Tref); no Rabinowitsch correction; barrel drag keeps mu0',
         'material.load_reference: law, minimum processing T and TGA degradation onset from the library record; density/cp from the record or explicit host assumption',
         'any filled zone above the record degradation onset temperature latches DEGRADATION_ONSET after the energy step',
-        'pressure_gauge=8*mu_last*die_length*Q/(pi*die_radius^4); Q=out_mass_rate/rho',
+        'pressure_gauge=8*mu_die*die_length*Q/(pi*die_radius^4); Q=out_mass_rate/rho; mu_die=mu0(T_last) unless shear parameters exist',
         'torque_per_shaft=drag_coeff*omega*mean(mu_i*fill_i)*mixing_factor+pressure*Q/(2*omega)',
         'pressure>10MPa or per-shaft torque>6Nm causes latched stop before proposed transfer; thermal>623.15K trips after energy step',
         'E_i=(C_barrel+cp*m_i)*(T_i-Ta); dE_i/dt=heater_i-loss_i+2*tau*omega/7+enthalpy_in-enthalpy_out',
@@ -493,7 +521,7 @@ def export_thermo_process11_contract_metadata():
         'co-rotating phases q_a=q mod2pi; q_b=(q+pi/2)mod2pi, same -X axis; positive speed target10–1000rpm',
         'top-half barrel detached manually by host along +Z150mm proxy, not a motor or real hinge'],
         parameters={},source_ids=['manufacturer_primary','manufacturer_process','measured_reference','simulation_assumption'],
-        limitations=['七区CSTR不是实际螺槽三维输送、返混/停留时间分布或螺杆元件CAD；mixing_factor不是厂家元件组合。','material.configure 仅支持70/30 PCM-Affinisol 显式假设参数；material.load_reference 支持13种文献黏度律材料（2种密度/热容全真实，其余需宿主显式假设）；模型仍不能代表实测药物工艺或用于剂型制备。','库共55条真实数据记录，运行时可用37条（<50目标）；工况多来自Pharma 11/ZE12/ZSE12同级机及专用口模，只按原工况精确返回，不用于标定当前圆口模。','无剪切变稀/黏弹性/熔融潜热/降解/挥发/返流/泄漏/溶解结晶；混合仅为两组分理想均匀账本。','七区瞬时等温且轴功均匀沉积，进料区水冷只为宿主边界；无冷却水温量或真实温控辨识。','控制界面菜单未复刻，完整安全联锁/机器人/硬件/接触力/部署隔离均not_run。'])
+        limitations=_library_limitations())
     spec=importlib.util.spec_from_file_location('_process11_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH)
     ann.annotate_export(SLUG,caps,slots,{'extrusion':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE),'material.configure':(MATERIAL,MATERIAL_EXAMPLE)})

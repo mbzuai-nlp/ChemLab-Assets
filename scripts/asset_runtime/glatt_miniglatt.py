@@ -4,7 +4,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='glatt_miniglatt'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-061'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.1.0'
+SLUG='glatt_miniglatt'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-061'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.2.0'
 TEMPLATE_REL='assets/reactions/glatt_miniglatt_granulation_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -347,7 +347,7 @@ class GlattMiniglattRuntime:
             return dict(loaded=True,particle_density_kg_m3=powder['particle_density_kg_m3'],seed_diameter_m=powder['seed_diameter_m'],voidage=eps,sphericity=phi,
               provenance=json.dumps(dict(reference_id=r['reference_id'],doi=r['source']['doi'],density_field='true_density_kg_m3' if p.get('true_density_kg_m3') is not None else 'particle_density_kg_m3',diameter_basis=p.get('representative_diameter_basis'),voidage_source=es,sphericity_source=ps,kinetics='host_assumption'),ensure_ascii=False))
         if use not in ('binder_load','binder_load_host_density'):raise ActionRejected('REFERENCE_NOT_USABLE')
-        rho=p.get('density_kg_m3');src='record' if rho is not None else 'host_assumption'
+        rho=p.get('density_kg_m3');src=('record_derived' if r.get('property_provenance',{}).get('density_kg_m3',{}).get('evidence')=='derived' else 'record') if rho is not None else 'host_assumption'
         liquid=dict(source_tag=r['reference_id'],volume_m3=a['volume_m3'],density_kg_m3=rho if rho is not None else a['density_kg_m3_if_unmeasured'],binder_mass_fraction=r['binder_mass_fraction'],accept_water_only=a['accept_water_only'])
         validate(LIQUID,liquid);self._invoke('liquid.load',liquid)
         return dict(loaded=True,density_kg_m3=liquid['density_kg_m3'],binder_mass_fraction=liquid['binder_mass_fraction'],density_source=src,viscosity_pa_s=p.get('viscosity_pa_s'),surface_tension_n_m=p.get('surface_tension_n_m'))

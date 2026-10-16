@@ -2,8 +2,8 @@ cff-version: 1.2.0
 title: "ChemLab-Assets: Simulation-Ready Chemistry Laboratory Instruments with Executable Behaviour Contracts"
 message: "If you use these assets, please cite the release."
 type: dataset
-version: "1.1.0"
-date-released: "2026-10-15"
+version: "1.2.0"
+date-released: "2026-10-16"
 license: CC-BY-NC-4.0
 repository-code: "https://github.com/mbzuai-nlp/ChemLab-Assets"
 url: "https://huggingface.co/datasets/MBZUAI/ChemLab-Assets"

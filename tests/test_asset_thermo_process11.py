@@ -174,24 +174,36 @@ def host_args(rid):
     if not rec.get('density'):a['density_kg_m3']=HOST['density_kg_m3']
     if not rec.get('heat_capacity'):a['heat_capacity_j_kg_k']=HOST['heat_capacity_j_kg_k']
     return a
+def operating_k(x):
+    """Test operating temperature: just inside the published extrudable window; v3 records mid published processing window / law validity range (>= Tmin+3 K), else Tmin+20 K; v2 measured laws 10 K above the law reference."""
+    lo=x['minimum_processing']['temperature_k']
+    if x.get('extrudable_window_k'):return lo+3
+    if not x.get('data_module'):return max(x['viscosity_law']['reference_temperature_k'],lo)+10
+    w=x.get('processing_window_k') or x['viscosity_law'].get('valid_range_k')
+    return max(sum(w)/2 if w else lo+20,lo+3)
+V3=[rid for rid,x in LIB['templates'].items() if x.get('data_module')]
+V3_MODEL=[rid for rid in V3 if LIB['templates'][rid]['runtime_usage']=='process_model']
 class LibraryTests(Process11Tests.__mro__[1]):
     assert_balanced=Process11Tests.assert_balanced;rejected=Process11Tests.rejected
     def test_library_counts_provenance(self):
         t=LIB['templates'];s=LIB['summary']
-        self.assertEqual(s['distinct_records'],len(t));self.assertGreaterEqual(len(t),55)
-        self.assertEqual(s['runtime_usable_records'],sum(x['runtime_usage']!='reference_only' for x in t.values()))
-        self.assertGreaterEqual(s['process_model_records'],13);self.assertFalse(s['target_50_met'])
+        D={k:x for k,x in t.items() if x['counts_as_distinct']};self.assertEqual(s['library_entries'],len(t))
+        self.assertEqual(s['distinct_records'],len(D));self.assertGreaterEqual(len(D),55)
+        self.assertEqual(s['runtime_usable_records'],sum(x['runtime_usage']!='reference_only' for x in D.values()))
+        for k,x in t.items():
+            if not x['counts_as_distinct']:self.assertTrue(x['duplicates_existing'] and all(d in t for d in x['duplicates_existing']),k)
+        self.assertGreaterEqual(s['process_model_records'],13);self.assertEqual(s['target_50_met'],s['runtime_usable_records']>=50)
         for rid,x in t.items():
             for k in ['evidence','source','accessed','locator','raw_source','sha256','licence_flag']:self.assertTrue(x.get(k),(rid,k))
-            self.assertIn(x['licence_flag'],['permissive','unknown_licence_facts_only','restricted_nc_nd'])
-            self.assertFalse(x.get('digitized',False))
+            self.assertIn(x['licence_flag'],['permissive','unknown_licence_facts_only','restricted_nc_nd','restricted_nc','restricted_sa'])
+        self.assertEqual(s['digitized_records'],sum(bool(x.get('digitized')) for x in t.values()))
     def test_every_process_model_record_runs(self):
         for rid,x in LIB['templates'].items():
             if x['runtime_usage']!='process_model':continue
             lo=x['minimum_processing']['temperature_k'];td=x.get('degradation_onset_k')
             if td and td-lo<5:  # published window overlaps TGA onset (Eudragit RL PO): covered by test_degradation_onset_trip
                 self.assertTrue(loaded(rid,**host_args(rid)).material['degradation_onset_k']);continue
-            T=lo+3 if x.get('extrudable_window_k') else x['viscosity_law']['reference_temperature_k']+10
+            T=operating_k(x)
             h=loaded(rid,T,**host_args(rid));h.invoke('drive.set_enabled',enabled=True);h.invoke('acquisition.start');h.step(10)
             self.assertEqual(h.fault,'',rid);self.assertGreater(h.torque,0,rid);self.assertGreater(sum(h.product)+sum(map(sum,h.zones)),0,rid)
             self.assertIn(rid,h.invoke('extrusion.measure')['evidence']);self.assert_balanced(h)
@@ -249,6 +261,60 @@ class LibraryTests(Process11Tests.__mro__[1]):
             v=h.invoke('material.lookup',reference_id=rid);self.assertEqual(set(v),set(r.MATERIAL_INFO['properties']));self.assertEqual(v['runtime_usage'],x['runtime_usage']);classes.add(v['material_class'])
         self.assertGreaterEqual(len(classes),10);self.assertEqual(before,h.debug_snapshot())
         self.assertFalse(h.invoke('material.lookup',reference_id='eudragit_l100')['neat_extrudable'])
+    def test_v3_library_counts(self):
+        s=LIB['summary'];t=LIB['templates']
+        self.assertGreaterEqual(s['runtime_usable_records'],50);self.assertTrue(s['target_50_met'])
+        self.assertEqual(s['v3_new_records'],sum(t[k]['counts_as_distinct'] for k in V3));self.assertGreater(len(V3_MODEL),12)
+        self.assertEqual(s['strict_distinct_runtime_usable'],len({x['strict_family_key'] for x in t.values() if x['runtime_usage']!='reference_only'}))
+        self.assertLessEqual(s['strict_distinct_runtime_usable'],s['runtime_usable_records'])
+        for rid in V3:
+            x=t[rid];self.assertTrue(x['validation_needles'],rid);self.assertIn(x['evidence'],['measured_literature','derived'])
+            self.assertTrue(x.get('cas') or x['material_class'],rid)
+    def test_cross_wlf_zero_shear_and_die_shear_thinning(self):
+        recs=[rid for rid in V3_MODEL if LIB['templates'][rid]['viscosity_law']['form']=='cross_wlf']
+        self.assertGreater(len(recs),5)
+        for rid in recs:
+            x=LIB['templates'][rid];p=x['viscosity_law']['cross_wlf_parameters'];T=operating_k(x);h=loaded(rid,**host_args(rid))
+            eta0=p['d1_pa_s']*math.exp(-p['a1']*(T-p['d2_k'])/(p['a2_k']+T-p['d2_k']));self.assertAlmostEqual(h._viscosity(T)/eta0,1.,places=9)
+            g=100.;self.assertAlmostEqual(h._viscosity(T,g)/(eta0/(1+(eta0*g/p['tau_star_pa'])**(1-p['n']))),1.,places=9);self.assertLess(h._viscosity(T,g),eta0)
+            self.assertIn('shear:cross',h.material['parameter_evidence'])
+    def test_die_pressure_uses_shear_thinning_only_with_measured_parameters(self):
+        rid=next(rid for rid in V3_MODEL if LIB['templates'][rid]['viscosity_law'].get('shear'));x=LIB['templates'][rid];T=operating_k(x);out={}
+        for mode in ['measured_shear','newtonian_control']:
+            h=loaded(rid,T,**host_args(rid))
+            if mode=='newtonian_control':h.material['shear']=None
+            h.invoke('drive.set_enabled',enabled=True);h.invoke('acquisition.start');h.step(20);out[mode]=h.pressure;self.assert_balanced(h)
+            if mode=='measured_shear' and h.output_rate>0:
+                Q=h.output_rate/h.material['density_kg_m3'];R=h.method['die_radius_m']
+                self.assertAlmostEqual(h.pressure/(8*h._viscosity(h.temps[-1],4*Q/(math.pi*R**3))*h.method['die_length_m']*Q/(math.pi*R**4)),1.,places=6)
+        self.assertGreater(out['measured_shear'],0);self.assertLess(out['measured_shear'],out['newtonian_control'])
+        h=loaded('kollidon_va64',433.15,**host_args('kollidon_va64'));self.assertIsNone(h.material['shear']);self.assertIn('shear:none',h.material['parameter_evidence'])
+    def test_tait_and_measured_density_records(self):
+        n=0
+        for rid in V3_MODEL:
+            x=LIB['templates'][rid];d=x.get('density')
+            if not d:continue
+            h=loaded(rid,**host_args(rid));n+=1
+            if d['evidence']=='derived' and 'b1m_m3_kg' in d['inputs']:
+                i=d['inputs'];self.assertAlmostEqual(h.material['density_kg_m3'],1/(i['b1m_m3_kg']+i['b2m_m3_kg_k']*(i['temperature_k']-i['b5_k'])))
+            else:self.assertEqual(h.material['density_kg_m3'],d['value_kg_m3'])
+            self.assertIn('density:literature',h.material['parameter_evidence'])
+        self.assertGreater(n,5)
+    def test_v3_material_classes_change_model_output(self):
+        picks={}
+        for rid in V3_MODEL:picks.setdefault(LIB['templates'][rid]['material_class'],rid)
+        self.assertGreaterEqual(len(picks),6);out={}
+        for cls,rid in picks.items():
+            x=LIB['templates'][rid];h=loaded(rid,operating_k(x),**host_args(rid));h.invoke('drive.set_enabled',enabled=True);h.invoke('acquisition.start');h.step(15)
+            self.assertEqual(h.fault,'',rid);out[rid]=(round(h.torque,9),round(h.pressure,6));self.assert_balanced(h)
+            v=h.invoke('material.lookup',reference_id=rid);self.assertEqual(v['runtime_usage'],'process_model');self.assertEqual(v['viscosity_law']['form'],x['viscosity_law']['form'])
+        self.assertEqual(len(set(out.values())),len(out))
+    def test_v2_updates_keep_real_values(self):
+        for rid,x in LIB['templates'].items():
+            if not x.get('v3_update'):continue
+            if 'density_cp' in x['v3_update']:self.assertTrue(x.get('density') or x.get('heat_capacity'),rid)
+            if 'viscosity_law' in x['v3_update']:self.assertEqual(x['runtime_usage'],'process_model',rid)
+            self.assertTrue(x['supporting_sources'],rid)
     def test_agent_visibility_of_library(self):
         h=r.ThermoProcess11Runtime();d=h.session().describe(instance_id=h.instance_id)['capabilities']
         self.assertIn('material.lookup',d);self.assertNotIn('material.load_reference',d)

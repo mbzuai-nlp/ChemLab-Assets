@@ -173,7 +173,7 @@ def export_alicat_mc_contract_metadata():
             "binding": None if cid == "control.set_pid" else "basic40_runtime_automation.AlicatMCSession.invoke(instance_id=..., capability_id='%s', arguments=..., request_id=...)" % cid,
             "model_effects": {"mode": "none", "binding_ids": [], "description_zh": "未实现屏幕跨层同步；内阀行程与机构未知，未用归一化参数假冒机械关节"}}
     return {"asset_types": {ALICAT_MC_TYPE: {"catalog_id": "CHEM-180", "model": "Alicat Scientific MC, 1 SLPM, standard accuracy, Rev6 (2025-07)",
-        "asset_version": "1.0.0", "state_slots": slots, "capabilities": caps,
+        "asset_version": "1.1.0", "state_slots": slots, "capabilities": caps,
         "parameters": {
             "full_scale_standard_flow_m3_s": {"value": ALICAT_MC_FS_M3_S, "unit": "m^3/s", "evidence": "catalog"},
             "minimum_positive_control_m3_s": {"value": ALICAT_MC_MIN_M3_S, "unit": "m^3/s", "evidence": "catalog"},
@@ -1026,7 +1026,7 @@ def export_vici_euta_contract_metadata():
                          '可信宿主显式确认目标到位并提交转子姿态；只建立公共口与选中端口的无向连接。'),
         'host.set_time': cap({'world_time_s': time}, {'world_time_s': time}, {'world_time_s': 1.0}, [], ['actuator'], 'debug',
                            '接收宿主共同世界时钟；不自动推断到位、不生成切换持续时间。')}
-    return {'asset_type_id': VICI_EUTA_ASSET_TYPE_ID, 'asset_version': '1.0.0', 'catalog_id': 'CHEM-182',
+    return {'asset_type_id': VICI_EUTA_ASSET_TYPE_ID, 'asset_version': '1.0.2', 'catalog_id': 'CHEM-182',
             'adapter': 'basic40_runtime_automation.ViciEutaValveRuntime', 'state_slots': slots,
             'capabilities': capabilities, 'host_capabilities': host_caps,
             'configuration': {'position_count': 6, 'thermal_standoff_length_m': 0.0508,
@@ -1387,7 +1387,7 @@ def export_ziath_dp5_contract_metadata():
                 ('BUSY', '扫描资源正在使用。', 'none'), ('REQUEST_CONFLICT', '同一请求ID被用于不同参数。', 'none'),
                 ('UNSUPPORTED', '需要的场景回调尚未绑定。', 'none'), ('DEVICE_ERROR', '外部回调未确认；内部状态未提交，外部可能已部分改变。', 'unknown'),
                 ('UNKNOWN_OPERATION', '操作不存在或不属于当前实例和调用者。', 'none')]]}
-    return {'asset_type_id': ZIATH_DP5_TYPE, 'asset_version': '1.0.0', 'catalog_id': 'CHEM-179', 'state_slots': slots, 'capabilities': caps,
+    return {'asset_type_id': ZIATH_DP5_TYPE, 'asset_version': '1.0.1', 'catalog_id': 'CHEM-179', 'state_slots': slots, 'capabilities': caps,
         'parameters': {'scan_time_s': {'value': 2.0, 'unit': 's', 'evidence': 'catalog_approximation', 'note_zh': '约2 s规格用于固定时长仿真近似。'},
             'supported_rack_capacities': {'value': list(ZIATH_DP5_FORMATS), 'unit': '1', 'evidence': 'catalog'},
             'rack_lift_limit_m': {'value': .10, 'unit': 'm', 'evidence': 'assumed'},
@@ -1929,7 +1929,7 @@ def export_intellixcap_s1_contract_metadata():
                 "timeout_s": None, "cancellation": "supported" if async_cycle else "unsupported", "retry": "same_request_id", "resources": ["single_tube_workcell"] if async_cycle else [], "partial_failure_zh": "取消冻结当前姿态并保留现有约束；宿主需处理外部样品和释放，绝不自动回滚。拒绝不改变实例状态。"},
             "errors": [{"code": code, "meaning_zh": meaning, "side_effects": "none"} for code, meaning in [("UNKNOWN_INSTANCE", "实例不可访问"), ("UNKNOWN_CAPABILITY", "能力不存在"), ("INVALID_ARGUMENT", "参数类型、单位范围或字段不符"), ("PRECONDITION_FAILED", "缺少兼容性、样品、运动配置或张开条件"), ("BUSY", "已有活动周期或外部附着未解除"), ("ACCESS_DENIED", "身份或操作作用域不足"), ("REQUEST_CONFLICT", "请求ID被不同参数复用"), ("UNSUPPORTED", "扭矩控制尚未实现")]] + ([{"code": "HOST_REPORTED_FAILURE", "meaning_zh": "宿主报告开封盖失败；运动和外部约束已发生", "side_effects": "partial"}] if async_cycle else []),
             "example_arguments": example, "verification": [], "limitations": list(_IXS_LIMITATIONS), "source_ids": ["catalog", "runtime", "assumptions"]}
-    return {"asset_type_id": INTELLIXCAP_S1_TYPE, "asset_version": "1.0.0", "catalog_id": "CHEM-177", "state_slots": slots, "capabilities": caps,
+    return {"asset_type_id": INTELLIXCAP_S1_TYPE, "asset_version": "1.0.1", "catalog_id": "CHEM-177", "state_slots": slots, "capabilities": caps,
         "parameters": {"cap_diameter_min_m": 0.011, "cap_diameter_max_m": 0.040, "nominal_tube_volume_classes_m3": [15e-6, 50e-6], "typical_cycle_upper_exclusive_s": 3.0, "typical_cycle_note": "depends on consumable; not runtime default", "whole_instrument_dimensions_xyz_m": [0.170, 0.240, 0.300], "whole_instrument_mass_kg": 3.8, "supply_voltage_V": 24.0, "supply_current_A": 2.7,
             "default_rotation_delta_rad": None, "default_jaw_travel_m": None, "default_cycle_duration_s": None, "torque_limit_N_m": None, "clamp_force_N": None, "spindle_speed_rad_s": None, "component_masses_kg": None},
         "host_api": {"host_register_consumable": "Explicit compatible type, cap_diameter_m 0.011..0.040, optional nominal_volume_m3 and compatibility_evidence; no bundled library",
@@ -2459,7 +2459,7 @@ def export_azenta_heat_sealer_contract_metadata():
                 ('BUSY', '封膜操作占用资源。', 'none'), ('REQUEST_CONFLICT', '请求ID用于不同参数。', 'none'),
                 ('UNSUPPORTED', '能力不支持或场景未绑定。', 'none'), ('DEVICE_ERROR', '外部回调未确认，内部未提交。', 'unknown'),
                 ('UNKNOWN_OPERATION', '任务不属于当前实例和身份。', 'none')]]}
-    return {'asset_type_id': AZENTA_HEAT_SEALER_TYPE, 'asset_version': '1.0.0', 'catalog_id': 'CHEM-176', 'state_slots': slots, 'capabilities': caps,
+    return {'asset_type_id': AZENTA_HEAT_SEALER_TYPE, 'asset_version': '1.0.1', 'catalog_id': 'CHEM-176', 'state_slots': slots, 'capabilities': caps,
         'parameters': {k: {'value': v, 'unit': u, 'evidence': e} for k, v, u, e in [
             ('temperature_range_K', [373.15, 468.15], 'K', 'catalog'), ('press_time_range_s', [.1, 10], 's', 'catalog'),
             ('plate_height_range_m', [.003, .060], 'm', 'catalog'), ('film_width_range_m', [.075, .085], 'm', 'catalog'),
@@ -2984,7 +2984,7 @@ def export_opentrons_flex_contract_metadata():
             'binding': None if cid in _FLEX_UNSUPPORTED else "basic40_runtime_automation.OpentronsFlexSession.invoke(instance_id=..., capability_id='%s', arguments=..., request_id=...)" % cid,
             'model_effects': {'mode': mode, 'binding_ids': [], 'description_zh': model_note},
             'implementation': {'process': 'absent' if cid in _FLEX_UNSUPPORTED else 'implemented', 'scene': 'declared' if mode != 'none' else 'not_applicable', 'robot': 'absent', 'hardware': 'absent', 'host': 'implemented' if cid not in _FLEX_UNSUPPORTED else 'absent'}}
-    return {'asset_type_id': OPENTRONS_FLEX_TYPE, 'catalog_id': 'CHEM-175', 'asset_version': '1.0.0',
+    return {'asset_type_id': OPENTRONS_FLEX_TYPE, 'catalog_id': 'CHEM-175', 'asset_version': '1.0.1',
         'state_slots': slots, 'capabilities': caps, 'parameters': {
             'pipette_min_volume_m3': {'value': OPENTRONS_FLEX_MIN_M3, 'unit': 'm^3', 'evidence': 'catalog'},
             'pipette_max_volume_m3': {'value': OPENTRONS_FLEX_MAX_M3, 'unit': 'm^3', 'evidence': 'catalog'},
@@ -3422,7 +3422,7 @@ def export_quantos_q2_contract_metadata():
             'model_effects': {'mode': 'host_required' if scene else 'none', 'binding_ids': [], 'description_zh': 'scene_adapter(instance_id,{scene.door_opening_m:q})返回True后提交，apply_quantos_q2_scene_patch映射quantos__door_slide.location.y=q。' if scene else '逻辑装载、称量和投料读数不驱动额外几何；粒子粉末流和屏幕同步未实现。'},
             'execution_notes': {'mode': 'asynchronous' if cid == 'dosing.start' else 'synchronous', 'time_domain': 'simulation', 'cancellable': cid == 'dosing.start', 'completion_zh': '理想观测达到目标即停止，缺料则failed保留部分转移。' if cid == 'dosing.start' else '返回succeeded表示本次操作完成。', 'partial_failure_zh': '取消、断电和缺料保留已转移的质量和已用时间；外部场景回调失败的副作用为unknown。', 'retry_zh': '当前内存中相同请求ID及参数返回原响应；不同参数拒绝；不保证跨重启。'},
             'errors': [{'code': c, 'description_zh': d, 'side_effects': s} for c, d, s in [('INVALID_ARGUMENT', '参数类型、范围或额外字段无效。', 'none'), ('UNKNOWN_INSTANCE', '实例不存在或不在身份范围。', 'none'), ('UNKNOWN_CAPABILITY', '能力不存在。', 'none'), ('ACCESS_DENIED', '槽不可写或身份不能访问。', 'none'), ('PRECONDITION_FAILED', '供电、装载、门、去皮、配置或库存条件不满足。', 'none'), ('BUSY', '投料占用设备。', 'none'), ('REQUEST_CONFLICT', '请求ID参数冲突。', 'none'), ('UNKNOWN_OPERATION', '操作不属于当前身份与实例。', 'none'), ('UNSUPPORTED', '能力未装配或门场景未绑定。', 'none'), ('DEVICE_ERROR', '场景回调失败或未确认。', 'unknown'), ('SOURCE_DEPLETED', '粉末源在达到目标前耗尽；保留部分投料。', 'partial')]]}
-    return {'asset_type_id': QUANTOS_Q2_TYPE, 'asset_version': '1.0.0', 'catalog_id': 'CHEM-174', 'state_slots': slots, 'capabilities': caps,
+    return {'asset_type_id': QUANTOS_Q2_TYPE, 'asset_version': '1.0.2', 'catalog_id': 'CHEM-174', 'state_slots': slots, 'capabilities': caps,
         'parameters': {k: {'value': v, 'unit': u, 'evidence': e} for k,v,u,e in [('target_range_kg', [1e-6,.005], 'kg', 'catalog'), ('caco3_10mg_typical_time_s',22,'s','catalog'), ('caco3_10mg_rsd',.0115,'1','catalog'), ('caco3_50mg_rsd',.0026,'1','catalog'), ('caco3_1000mg_typical_time_s',71,'s','catalog'), ('optional_autosampler_positions',30,'1','catalog'), ('powder_rate_kg_s',None,'kg/s','unknown'), ('balance_readability_kg',None,'kg','unknown'), ('balance_capacity_kg',None,'kg','unknown'), ('door_manufacturer_travel_m',None,'m','unknown')]},
         'host_api': {k: {'entrypoint': 'QuantosQ2Runtime.'+k, 'description_zh': d} for k,d in {
             'create_instance':'独立实例，可选场景回调；所有未给出的物料和参数保持null。', 'register_principal':'可信宿主固定身份、权限与实例范围。', 'host_configure_geometry':'显式几何门行程和证据；关闭位置必须由回调确认。', 'host_load_head':'门开时装入唯一自由流动粉末头，源库存仅debug。', 'host_load_container':'门开时登记容器、位置和内容质量；不会移动几何。', 'host_configure_dosing':'显式正速率和理想质量观察证据；无厂家默认速率。', 'host_step':'dt_s与world_time_s必须匹配共同世界时钟，守恒转移并保存带供体/受体/量的账本。', 'host_attach':'外部attach事件与唯一约束ID确认，robot absent。', 'host_release':'外部release确认后清除约束，不移出容器。', 'host_unload_container':'门开且无附着无任务时移除容器引用，返回已保留内容质量给宿主。', 'host_unload_head':'门开且空闲时卸头，返回剩余粉末质量给宿主。', 'host_transfer_ledger':'仅可信宿主读取带事务ID的物质转移账本。'}.items()},
@@ -4142,7 +4142,7 @@ def export_preciseflex400_contract_metadata():
             'execution_notes': {'mode': 'synchronous', 'time_domain': 'simulation', 'cancellable': False, 'completion_zh': 'succeeded只确认设定目标已写入；实际姿态由host_commit_pose确认。' if cid == 'motion.set_joints' else '宿主约束回调明确True且事件已登记。' if attach else '返回所声明result；不推进时间。', 'partial_failure_zh': '回调失败外部副作用unknown；置fault并保留现有登记，禁止自动重放。其他拒绝不改变状态。', 'retry_zh': '身份、实例、request_id相同且参数相同返回原响应，参数不同拒绝；无跨重启保证。'},
             'errors': [{'code': c, 'description_zh': d, 'side_effects': side} for c, d, side in [
                 ('INVALID_ARGUMENT', '参数类型、范围或额外字段错误。', 'none'), ('UNKNOWN_INSTANCE', '实例不在身份允许范围。', 'none'), ('UNKNOWN_CAPABILITY', '能力不存在。', 'none'), ('ACCESS_DENIED', '状态不可写或不可读。', 'none'), ('PRECONDITION_FAILED', '供电、姿态、拓扑、约束或载荷条件不满足。', 'none'), ('BUSY', '外部回调执行期间拒绝重入写入。', 'none'), ('REQUEST_CONFLICT', '同一请求ID参数不一致。', 'none'), ('UNSUPPORTED', '没有本项执行器。', 'none'), ('DEVICE_ERROR', '外部约束回调未确认；fault已登记。', 'unknown')]]}
-    return {'asset_type_id': PRECISEFLEX400_TYPE, 'asset_version': '1.0.0', 'catalog_id': 'CHEM-178', 'state_slots': slots, 'capabilities': caps,
+    return {'asset_type_id': PRECISEFLEX400_TYPE, 'asset_version': '1.0.1', 'catalog_id': 'CHEM-178', 'state_slots': slots, 'capabilities': caps,
         'kinematics': {'joint_limits': _pf400_copy.deepcopy(_PF400_JOINT_LIMITS), 'joint_limit_evidence_zh': 'PreciseFlex 400 Rev B网页索引；标准臂带servo gripper配置，完整尺寸图未可靠取得。', 'geometry': _pf400_copy.deepcopy(_PF400_GEOMETRY), 'direction_zh': 'z_m沿+Z；三个角关节按局部+Z右手正向（从上看逆时针）；代理零位全伸+X；FK x,y在台面固定基座坐标系。', 'scene_targets': {'z_m': 'pf400__j1_z.location.z', 'shoulder_rad': 'pf400__j2_shoulder.rotation_euler.z', 'elbow_rad': 'pf400__j3_elbow.rotation_euler.z', 'wrist_rad': 'pf400__j4_wrist.rotation_euler.z', 'tcp': 'pf400__tcp.matrix_world'}},
         'parameters': {k: {'value': v, 'unit': u, 'evidence': e} for k, v, u, e in [('z_travel_m', .4, 'm', 'catalog'), ('horizontal_reach_m', .579, 'm', 'catalog'), ('rated_payload_kg', .5, 'kg', 'catalog'), ('whole_machine_mass_kg', 20.0, 'kg', 'catalog'), ('typical_tcp_speed_m_s', .5, 'm/s', 'catalog'), ('maximum_tcp_acceleration_m_s2', 2.0, 'm/s^2', 'catalog'), ('repeatability_m', .00009, 'm', 'catalog'), ('manufacturer_upper_arm_length_m', None, 'm', 'unknown'), ('manufacturer_forearm_length_m', None, 'm', 'unknown'), ('manufacturer_wrist_to_tcp_offset_m', None, 'm', 'unknown'), ('link_mass_kg', None, 'kg', 'unknown'), ('link_inertia_kg_m2', None, 'kg*m^2', 'unknown'), ('gripper_force_N', None, 'N', 'unknown'), ('contact_friction', None, '1', 'unknown'), ('joint_speed_limits_rad_s', None, 'rad/s', 'unknown')]},
         'host_api': {name: {'entrypoint': 'PreciseFlex400Runtime.' + name, 'description_zh': desc} for name, desc in {
