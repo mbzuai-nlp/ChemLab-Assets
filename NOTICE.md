@@ -1,6 +1,6 @@
 # NOTICE
 
-ChemLab-Assets, release 1.2 (October 2026). Copyright (c) 2026 Zirui Song, Jiadong Zhang, Jiahao Zhang, Xiaosong Ma, Xiaojun Chang, Xiuying Chen.
+ChemLab-Assets, release 1.3.0 (October 2026). Copyright (c) 2026 Zirui Song, Jiadong Zhang, Jiahao Zhang, Xiaosong Ma, Xiaojun Chang, Xiuying Chen.
 
 * Code: MIT (`LICENSE`). Assets and data: CC BY-NC 4.0 (`LICENSE-ASSETS.md`).
 * Third-party data keep their own terms. This file lists the sources behind every data file that needs attribution.
@@ -411,3 +411,15 @@ stated licence), the record carries a licence flag. Each line below summarises o
 * `assets/reactions/rigaku_miniflex600_xrd_library/templates.json` (updated in 1.2): 86 records; every record cites its source (see its source fields). Main sources: rruff.net; pubchem.ncbi.nlm.nih.gov; crystallography.net; doi:10.1007/s002690050246; doi:10.1107/s0108768103009017; doi:10.1103/physrevb.59.750; doi:10.1107/s0567740878005907. Licence notes found in the records: CC0.
 * `assets/reactions/substances.json` (updated in 1.2): 201 records; every record cites its source (see its source fields). Main sources: see the file.
 * `assets/reactions/thermo_process11_extrusion_library/templates.json` (updated in 1.2): 107 records; every record cites its source (see its source fields). Main sources: ebi.ac.uk; jefc.scholasticahq.com; strathprints.strath.ac.uk; doi:10.3390/pharmaceutics16030301; doi:10.3390/polym14061108; doi:10.3390/polym14030495; doi:10.3390/pharmaceutics10030132. Licence notes found in the records: COPYRIGHT, NO OPEN LICENCE, UNKNOWN LICENCE, CC BY NC ND.
+
+## Data added or updated in release 1.3.0
+
+Release 1.3.0 (2026-10-17) added or extended template libraries. Every record in these files cites its source in its own
+source fields; where a source is not permissively licensed (CC BY-SA, CC BY-NC / NC-ND, publisher rights reserved or no
+stated licence), the record carries a licence flag. Each line below summarises one file.
+
+* `assets/reactions/agilent_1260infinity_sfc_retention_library/sfc_retention_library.json` (added in 1.3.0): 107 records; every record cites its source (see its source fields). Main sources: webbook.nist.gov; doi:10.5281/zenodo.12707608; doi:10.5281/zenodo.14651083; doi:10.1021/acs.analchem.4c01811; doi:10.1021/acs.analchem.4c05176. Licence notes found in the records: PUBLIC DOMAIN, COPYRIGHT.
+* `assets/reactions/camag_tlcscanner_tlc_library/templates.json` (added in 1.3.0): 345 records; every record cites its source (see its source fields). Main sources: github.com; webbook.nist.gov; pubchem.ncbi.nlm.nih.gov. Licence notes found in the records: COPYRIGHT, PUBLIC DOMAIN.
+* `assets/reactions/eco_ncld822_nox_library/templates.json` (added in 1.3.0): 79 records; every record cites its source (see its source fields). Main sources: tsapps.nist.gov; acp.copernicus.org; ntrs.nasa.gov; henrys-law.org; doi:10.5194/acp-7-2691-2007; doi:10.5194/acp-4-1461-2004; doi:10.5194/acp-23-10901-2023. Licence notes found in the records: COPYRIGHT, PUBLIC DOMAIN, CC0.
+* `assets/reactions/sciex_pa800_mobility_library/templates.json` (added in 1.3.0): 427 records; every record cites its source (see its source fields). Main sources: raw.githubusercontent.com; pubchem.ncbi.nlm.nih.gov. Licence notes found in the records: PUBLIC DOMAIN.
+* `assets/reactions/wyatt_eclipseaf4_fractionation_library/templates.json` (added in 1.3.0): 67 records; every record cites its source (see its source fields). Main sources: pmc.ncbi.nlm.nih.gov; tsapps.nist.gov; biologicalproceduresonline.biomedcentral.com; wyatt.com; doi:10.1529/biophysj.104.047746; doi:10.1007/s12575-009-9008-x. Licence notes found in the records: COPYRIGHT, PUBLIC DOMAIN.

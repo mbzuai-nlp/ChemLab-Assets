@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="docs/media/banner.jpg" alt="198 台仪器中的 24 台，统一影棚渲染" width="100%">
+<img src="docs/media/banner.jpg" alt="203 台仪器中的 24 台，统一影棚渲染" width="100%">
 
 # ChemLab-Assets
 
-**198 台可直接用于仿真的化学实验室仪器资产**<br>
+**203 台可直接用于仿真的化学实验室仪器资产**<br>
 零件级几何 · 可动关节 · 可执行的行为模型 · 机器可读的资产合同
 
 Zirui Song · Jiadong Zhang · Jiahao Zhang · Xiaosong Ma · Xiaojun Chang · Xiuying Chen<br>
@@ -16,6 +16,7 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 ## 更新动态
 
+- **[2026-10-17] v1.3.0：** 新增 5 台仪器（共 203 台）；44 台仪器重建为更逼真的 3D 模型。
 - **[2026-10-16] v1.2：** 内置化学反应增至 103 条，新增光驱动和电驱动反应；参考数据更丰富；新增仪器申请入口。
 - **[2026-10-15] v1.1：** 又有 17 台仪器配上真实参考数据；200 种化合物公共表；38 条内置反应。
 - **[2026-10-14] v1.0：** 198 台可直接用于仿真的实验室仪器。
@@ -32,14 +33,14 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 | | |
 |---|---|
-| **仪器** | 198 台商用型号，来自 115 家厂商，分属 16 个能力域 |
-| **几何** | GLB、带碰撞代理的 URDF、14,492 个分件 OBJ、Blender 源文件 |
-| **关节** | 1,328 个（平移 909、转动 388、连续 31）：门、移门、盖、按键、旋钮 |
-| **合同** | 14,272 个组件、6,282 个带类型的状态槽、4,701 个带 JSON-Schema 参数与错误声明的能力 |
-| **接口** | 648 个读数（显示屏、指示灯）和 2,348 个接口点（放置、抓取、端口） |
+| **仪器** | 203 台商用型号，来自 119 家厂商，分属 16 个能力域 |
+| **几何** | GLB、带碰撞代理的 URDF、15,258 个分件 OBJ、Blender 源文件 |
+| **关节** | 1,360 个（平移 936、转动 393、连续 31）：门、移门、盖、按键、旋钮 |
+| **合同** | 15,054 个组件、6,479 个带类型的状态槽、4,822 个带 JSON-Schema 参数与错误声明的能力 |
+| **接口** | 667 个读数（显示屏、指示灯）和 2,547 个接口点（放置、抓取、端口） |
 | **行为** | 每台一个 Python 运行层：按时间步推进的过程模型，提供 `describe` / `read` / `invoke` / `poll`，区分智能体与评测者视角，噪声可设种子 |
-| **来源** | 共引用 3,445 条来源；第三方原始文档不随发布再分发 |
-| **仿真** | 全部 198 台已转为 USD，并通过 Matterix 框架在 NVIDIA Isaac Lab 中运行检查 |
+| **来源** | 共引用 3,501 条来源；第三方原始文档不随发布再分发 |
+| **仿真** | 全部 203 台已转为 USD，并通过 Matterix 框架在 NVIDIA Isaac Lab 中运行检查 |
 
 ## 图库
 
@@ -49,7 +50,7 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 <tr><td align="center" width="25%"><img src="docs/media/thumb/opentrons_flex_single_5_1000ul.webp" width="190" alt="Automated liquid-handling robot"><br><sub><b>Automated liquid-handling robot</b><br>Opentrons Flex (1-channel 5–1000 µL)</sub></td><td align="center" width="25%"><img src="docs/media/thumb/magritek_spinsolve80.webp" width="190" alt="Benchtop NMR spectrometer"><br><sub><b>Benchtop NMR spectrometer</b><br>Magritek Spinsolve 80 Carbon</sub></td><td align="center" width="25%"><img src="docs/media/thumb/inert_purelab_he_2gb.webp" width="190" alt="Inert-atmosphere glovebox"><br><sub><b>Inert-atmosphere glovebox</b><br>Inert PureLab HE 2GB</sub></td><td align="center" width="25%"><img src="docs/media/thumb/park_nx10.webp" width="190" alt="Atomic force microscope"><br><sub><b>Atomic force microscope</b><br>Park Systems NX10</sub></td></tr>
 </table>
 
-在 [3D 浏览器](https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer) 中可以查看全部 198 台，拖动关节滑块、逐个查看零件注释。
+在 [3D 浏览器](https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer) 中可以查看全部 203 台，拖动关节滑块、逐个查看零件注释。
 
 ## 按能力域分类
 
@@ -63,17 +64,17 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | 分子光谱与结构 | 14 | Circular dichroism spectrometer (JASCO J-1500); Time-domain NMR relaxometer (Bruker minispec mq20); Spectrofluorometer (JASCO FP-8350) |
 | 消解与固体前处理 | 13 | Graphite block digestion system (SCP SCIENCE DigiPREP MS); Planetary ball mill (RETSCH PM 100); Vibratory sieve shaker (RETSCH AS 200 control) |
 | 薄膜与功能材料制备 | 13 | Vibrating-nozzle encapsulator (BUCHI Encapsulator B-390); Spin coater (Ossila Spin Coater V3); Dip coater (Ossila Dip Coater V2) |
-| 元素与质谱分析 | 12 | Organic elemental (CHNS) analyzer (Elementar vario EL cube); Total organic carbon analyzer (Shimadzu TOC-L CSH); Atomic absorption spectrometer (Analytik Jena contrAA 800 D) |
+| 元素与质谱分析 | 13 | Organic elemental (CHNS) analyzer (Elementar vario EL cube); Total organic carbon analyzer (Shimadzu TOC-L CSH); Atomic absorption spectrometer (Analytik Jena contrAA 800 D) |
 | 显微成像与衍射 | 12 | Scanning electron microscope (JEOL JSM-IT200 LA); Transmission electron microscope (JEOL JEM-1400Flash); Small-angle X-ray scattering system (Anton Paar SAXSpace) |
 | 生化与湿化学分析 | 11 | Microplate washer (Agilent BioTek 405 TS (96-tube manifold)); Gel electrophoresis system (Bio-Rad Mini-PROTEAN Tetra + power supply); Gel & blot imager (Thermo Fisher Scientific iBright FL1500) |
 | 自动化与气液供给 | 11 | Automated powder dosing system (METTLER TOLEDO Quantos Q2 + XPE206DR); Automated liquid-handling robot (Opentrons Flex (1-channel 5–1000 µL)); Automated microplate heat sealer (Azenta Life Sciences Automated Roll Heat Sealer (a4S)) |
+| 色谱与电泳分离 | 10 | TLC scanner (densitometer) (CAMAG TLC Scanner 4); Capillary electrophoresis system (SCIEX PA 800 Plus); Supercritical fluid chromatograph (SFC) (Agilent 1260 Infinity III SFC) |
 | 反应与分子合成 | 9 | Microwave synthesis reactor (Anton Paar Monowave 400); Electro-organic synthesis system (IKA ElectraSyn 2.0); Photochemical reactor (HepatoChem PhotoRedOx Box UV-Vis) |
 | 电化学与定量分析 | 7 | Automatic potentiometric titrator (Metrohm OMNIS Professional Titrator); Karl Fischer coulometer (Metrohm 899 Coulometer); Potentiostat / electrochemical workstation (Gamry Reference 620) |
-| 色谱与电泳分离 | 6 | Gas chromatograph (Agilent 8890B GC); HPLC system (Agilent 1260 Infinity III LC); Ion chromatograph (Thermo Fisher Scientific Dionex Integrion HPIC) |
 | 分析进样与接口 | 5 | Headspace autosampler (48-vial tray) (Agilent 8697); Purge-and-trap autosampler (Teledyne Tekmar Atomx XYZ); Laser ablation sampling system (Teledyne CETAC Analyte Excite+) |
 
 <details>
-<summary><b>全部 198 台仪器</b></summary>
+<summary><b>全部 203 台仪器</b></summary>
 
 | 编号 | 仪器 | 厂家 | 型号 | 能力域 | 关节 | 状态槽 | 能力 |
 |---|---|---|---|---|---:|---:|---:|
@@ -167,6 +168,11 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 | CHEM-088 | Thermo Fisher Scientific Orbitrap Explor | Thermo Fisher Scientific | Orbitrap Exploris 120 | 元素与质谱分析 | 4 | 37 | 37 |
 | CHEM-089 | LECO ONH836 惰气熔融氧氮氢分析仪 | LECO | ONH836 | 元素与质谱分析 | 4 | 36 | 35 |
 | CHEM-090 | 稳定同位素比质谱仪Elementar isoprime precisION | Elementar | isoprime precisION | 元素与质谱分析 | 2 | 21 | 30 |
+| CHEM-091 | ECO PHYSICS nCLD 822 M 化学发光氮氧化物分析仪 | ECO PHYSICS | nCLD 822 M | 元素与质谱分析 | 4 | 34 | 20 |
+| CHEM-092 | CAMAG TLC Scanner 4 薄层色谱扫描仪 | CAMAG | TLC Scanner 4 | 色谱与电泳分离 | 11 | 33 | 28 |
+| CHEM-093 | SCIEX PA 800 Plus 毛细管电泳仪 | SCIEX | PA 800 Plus | 色谱与电泳分离 | 4 | 48 | 18 |
+| CHEM-094 | Agilent 1260 Infinity III SFC 超临界流体色谱系统 | Agilent | 1260 Infinity III SFC | 色谱与电泳分离 | 11 | 57 | 25 |
+| CHEM-095 | 非对称流场流分离仪 Wyatt Technology Eclipse AF4 | Wyatt Technology | Eclipse AF4 | 色谱与电泳分离 | 2 | 25 | 30 |
 | CHEM-096 | Agilent 8890B GC 气相色谱仪 | Agilent | 8890B GC | 色谱与电泳分离 | 50 | 22 | 56 |
 | CHEM-097 | 高效液相色谱仪 Agilent | 1260 Infinity III LC | Agilent | 1260 Infinity III LC | 色谱与电泳分离 | 1 | 24 | 15 |
 | CHEM-098 | Thermo Scientific Dionex Integrion HPIC  | Thermo Fisher Scientific | Dionex Integrion HPIC | 色谱与电泳分离 | 2 | 21 | 16 |
@@ -325,7 +331,7 @@ anemometer           0.309 m/s
 after calibration    reading 0.31 m/s   alarm none
 ```
 
-**3. 放进仿真器。** URDF 中的网格路径都是相对路径，任何 URDF 加载器都能直接用。全部 198 个 URDF 均已用 [yourdfpy](https://github.com/clemense/yourdfpy) 验证可加载：
+**3. 放进仿真器。** URDF 中的网格路径都是相对路径，任何 URDF 加载器都能直接用。全部 203 个 URDF 均已用 [yourdfpy](https://github.com/clemense/yourdfpy) 验证可加载：
 
 ```python
 import yourdfpy
@@ -363,7 +369,7 @@ tests/test_asset_esco_efa5uduvw.py        # its tests
 * **来源**：每个状态槽和能力都写明依据。厂家资料给出尺寸、量程和操作限值；论文、标准和公开数据库给出仪器输出背后的实测数据；两者都没有时，合同明确写出假设。第三方原始文档（PDF 手册、样本、应用笔记、论文、谱图文件、照片）不再分发，合同只保留引用和派生数值。
 * **许可**：代码采用 MIT（[`LICENSE`](LICENSE)）；模型、合同与数据采用 CC BY-NC 4.0（[`LICENSE-ASSETS.md`](LICENSE-ASSETS.md)）。部分数据文件沿用其来源的条款（CC BY-SA、非商用或出版方保留权利），[`NOTICE.md`](NOTICE.md) 逐一列出。
 * **商标**：产品与公司名称仅用于标明所建模的仪器，本项目与任何厂商无关联，也未获其背书。
-* **边界**：786 个能力已声明但标为不支持；没有任何能力声称经过机器人接触或真实硬件验证。请把这些资产当作有文档、可测试的行为模型用于具身智能研究，而不是经过认证的数字孪生。
+* **边界**：804 个能力已声明但标为不支持；没有任何能力声称经过机器人接触或真实硬件验证。请把这些资产当作有文档、可测试的行为模型用于具身智能研究，而不是经过认证的数字孪生。
 * **构建记录**：合同中列出的部分文件属于原始构建过程（验证日志、评审记录、来源缓存），不在本次发布范围内；`release_manifest.json` 说明了哪些文件随发布提供。
 
 ## 待办清单
@@ -386,6 +392,6 @@ tests/test_asset_esco_efa5uduvw.py        # its tests
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.2}
+  note         = {Dataset, release 1.3.0}
 }
 ```

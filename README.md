@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="docs/media/banner.jpg" alt="Twenty-four of the 198 instruments, rendered in the same studio setup" width="100%">
+<img src="docs/media/banner.jpg" alt="Twenty-four of the 203 instruments, rendered in the same studio setup" width="100%">
 
 # ChemLab-Assets
 
-**198 simulation-ready chemistry laboratory instruments**<br>
+**203 simulation-ready chemistry laboratory instruments**<br>
 part-level geometry · working joints · executable behaviour models · machine-readable contracts
 
 <a href="https://mbzuai-nlp.github.io/ChemLab-Assets/"><img alt="Website" src="https://img.shields.io/badge/website-project%20page-0a6bc2"></a>
@@ -23,6 +23,7 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 ## News
 
+- **[2026-10-17] v1.3.0:** 5 new instruments (203 in total); 44 instruments rebuilt with more realistic 3D models.
 - **[2026-10-16] v1.2:** 103 built-in reactions, now including light- and current-driven ones; richer reference data; instrument request form.
 - **[2026-10-15] v1.1:** real reference data for 17 more instruments, a shared table of 200 compounds, 38 built-in reactions.
 - **[2026-10-14] v1.0:** 198 simulation-ready laboratory instruments.
@@ -43,14 +44,14 @@ This repository holds the code (runtimes, tests, examples, contract validator), 
 
 | | |
 |---|---|
-| **Instruments** | 198 commercial models from 115 manufacturers, in 16 capability domains |
-| **Geometry** | GLB, URDF with primitive collision proxies, 14,492 per-part OBJ meshes, Blender sources |
-| **Articulation** | 1,328 joints (909 prismatic, 388 revolute, 31 continuous): doors, sashes, lids, keys and knobs |
-| **Contracts** | 14,272 components, 6,282 typed state slots, 4,701 capabilities with JSON-Schema arguments and declared errors |
-| **Interfaces** | 648 readouts (displays, LEDs) and 2,348 interface points (place, grasp, ports) |
+| **Instruments** | 203 commercial models from 119 manufacturers, in 16 capability domains |
+| **Geometry** | GLB, URDF with primitive collision proxies, 15,258 per-part OBJ meshes, Blender sources |
+| **Articulation** | 1,360 joints (936 prismatic, 393 revolute, 31 continuous): doors, sashes, lids, keys and knobs |
+| **Contracts** | 15,054 components, 6,479 typed state slots, 4,822 capabilities with JSON-Schema arguments and declared errors |
+| **Interfaces** | 667 readouts (displays, LEDs) and 2,547 interface points (place, grasp, ports) |
 | **Behaviour** | a Python runtime per instrument: time-stepped process models behind `describe` / `read` / `invoke` / `poll`, agent and evaluator views, seeded noise |
-| **Provenance** | 3,445 cited sources; raw third-party documents are not redistributed |
-| **Simulation** | all 198 converted to USD and stepped in NVIDIA Isaac Lab through the Matterix framework |
+| **Provenance** | 3,501 cited sources; raw third-party documents are not redistributed |
+| **Simulation** | all 203 converted to USD and stepped in NVIDIA Isaac Lab through the Matterix framework |
 
 ## Gallery
 
@@ -60,7 +61,7 @@ This repository holds the code (runtimes, tests, examples, contract validator), 
 <tr><td align="center" width="25%"><img src="docs/media/thumb/opentrons_flex_single_5_1000ul.webp" width="190" alt="Automated liquid-handling robot"><br><sub><b>Automated liquid-handling robot</b><br>Opentrons Flex (1-channel 5–1000 µL)</sub></td><td align="center" width="25%"><img src="docs/media/thumb/magritek_spinsolve80.webp" width="190" alt="Benchtop NMR spectrometer"><br><sub><b>Benchtop NMR spectrometer</b><br>Magritek Spinsolve 80 Carbon</sub></td><td align="center" width="25%"><img src="docs/media/thumb/inert_purelab_he_2gb.webp" width="190" alt="Inert-atmosphere glovebox"><br><sub><b>Inert-atmosphere glovebox</b><br>Inert PureLab HE 2GB</sub></td><td align="center" width="25%"><img src="docs/media/thumb/park_nx10.webp" width="190" alt="Atomic force microscope"><br><sub><b>Atomic force microscope</b><br>Park Systems NX10</sub></td></tr>
 </table>
 
-Browse all 198 in 3D, with joint sliders and part-by-part annotations, in the [3D explorer](https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer).
+Browse all 203 in 3D, with joint sliders and part-by-part annotations, in the [3D explorer](https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer).
 
 ## Instruments by domain
 
@@ -74,17 +75,17 @@ Browse all 198 in 3D, with joint sliders and part-by-part annotations, in the [3
 | Molecular Spectroscopy & Structure | 14 | Circular dichroism spectrometer (JASCO J-1500); Time-domain NMR relaxometer (Bruker minispec mq20); Spectrofluorometer (JASCO FP-8350) |
 | Digestion & Solid Sample Prep | 13 | Graphite block digestion system (SCP SCIENCE DigiPREP MS); Planetary ball mill (RETSCH PM 100); Vibratory sieve shaker (RETSCH AS 200 control) |
 | Thin-Film & Functional Materials | 13 | Vibrating-nozzle encapsulator (BUCHI Encapsulator B-390); Spin coater (Ossila Spin Coater V3); Dip coater (Ossila Dip Coater V2) |
-| Elemental & Mass Spectrometry | 12 | Organic elemental (CHNS) analyzer (Elementar vario EL cube); Total organic carbon analyzer (Shimadzu TOC-L CSH); Atomic absorption spectrometer (Analytik Jena contrAA 800 D) |
+| Elemental & Mass Spectrometry | 13 | Organic elemental (CHNS) analyzer (Elementar vario EL cube); Total organic carbon analyzer (Shimadzu TOC-L CSH); Atomic absorption spectrometer (Analytik Jena contrAA 800 D) |
 | Microscopy, Imaging & Diffraction | 12 | Scanning electron microscope (JEOL JSM-IT200 LA); Transmission electron microscope (JEOL JEM-1400Flash); Small-angle X-ray scattering system (Anton Paar SAXSpace) |
 | Biochemical & Wet-Chemistry Assays | 11 | Microplate washer (Agilent BioTek 405 TS (96-tube manifold)); Gel electrophoresis system (Bio-Rad Mini-PROTEAN Tetra + power supply); Gel & blot imager (Thermo Fisher Scientific iBright FL1500) |
 | Automation & Gas/Liquid Supply | 11 | Automated powder dosing system (METTLER TOLEDO Quantos Q2 + XPE206DR); Automated liquid-handling robot (Opentrons Flex (1-channel 5–1000 µL)); Automated microplate heat sealer (Azenta Life Sciences Automated Roll Heat Sealer (a4S)) |
+| Chromatography & Electrophoresis | 10 | TLC scanner (densitometer) (CAMAG TLC Scanner 4); Capillary electrophoresis system (SCIEX PA 800 Plus); Supercritical fluid chromatograph (SFC) (Agilent 1260 Infinity III SFC) |
 | Reaction & Molecular Synthesis | 9 | Microwave synthesis reactor (Anton Paar Monowave 400); Electro-organic synthesis system (IKA ElectraSyn 2.0); Photochemical reactor (HepatoChem PhotoRedOx Box UV-Vis) |
 | Electrochemistry & Titration | 7 | Automatic potentiometric titrator (Metrohm OMNIS Professional Titrator); Karl Fischer coulometer (Metrohm 899 Coulometer); Potentiostat / electrochemical workstation (Gamry Reference 620) |
-| Chromatography & Electrophoresis | 6 | Gas chromatograph (Agilent 8890B GC); HPLC system (Agilent 1260 Infinity III LC); Ion chromatograph (Thermo Fisher Scientific Dionex Integrion HPIC) |
 | Analytical Sampling & Interfaces | 5 | Headspace autosampler (48-vial tray) (Agilent 8697); Purge-and-trap autosampler (Teledyne Tekmar Atomx XYZ); Laser ablation sampling system (Teledyne CETAC Analyte Excite+) |
 
 <details>
-<summary><b>All 198 instruments</b></summary>
+<summary><b>All 203 instruments</b></summary>
 
 | CHEM ID | Instrument | Maker | Model | Domain | Joints | State slots | Capabilities |
 |---|---|---|---|---|---:|---:|---:|
@@ -178,6 +179,11 @@ Browse all 198 in 3D, with joint sliders and part-by-part annotations, in the [3
 | CHEM-088 | High-resolution Orbitrap mass spectrometer | Thermo Fisher Scientific | Orbitrap Exploris 120 | Elemental & Mass Spectrometry | 4 | 37 | 37 |
 | CHEM-089 | Inert-gas fusion O/N/H analyzer | LECO | ONH836 | Elemental & Mass Spectrometry | 4 | 36 | 35 |
 | CHEM-090 | Stable isotope-ratio mass spectrometer | Elementar | isoprime precisION | Elemental & Mass Spectrometry | 2 | 21 | 30 |
+| CHEM-091 | Chemiluminescence NO/NOx analyzer | ECO PHYSICS | nCLD 822 M | Elemental & Mass Spectrometry | 4 | 34 | 20 |
+| CHEM-092 | TLC scanner (densitometer) | CAMAG | TLC Scanner 4 | Chromatography & Electrophoresis | 11 | 33 | 28 |
+| CHEM-093 | Capillary electrophoresis system | SCIEX | PA 800 Plus | Chromatography & Electrophoresis | 4 | 48 | 18 |
+| CHEM-094 | Supercritical fluid chromatograph (SFC) | Agilent | 1260 Infinity III SFC | Chromatography & Electrophoresis | 11 | 57 | 25 |
+| CHEM-095 | Asymmetric-flow field-flow fractionation (AF4) system | Wyatt Technology | Eclipse AF4 | Chromatography & Electrophoresis | 2 | 25 | 30 |
 | CHEM-096 | Gas chromatograph | Agilent | 8890B GC | Chromatography & Electrophoresis | 50 | 22 | 56 |
 | CHEM-097 | HPLC system | Agilent | 1260 Infinity III LC | Chromatography & Electrophoresis | 1 | 24 | 15 |
 | CHEM-098 | Ion chromatograph | Thermo Fisher Scientific | Dionex Integrion HPIC | Chromatography & Electrophoresis | 2 | 21 | 16 |
@@ -342,7 +348,7 @@ anemometer           0.309 m/s
 after calibration    reading 0.31 m/s   alarm none
 ```
 
-**3. Load it in a simulator.** URDF mesh paths are relative, so any URDF loader works from the asset folder. All 198
+**3. Load it in a simulator.** URDF mesh paths are relative, so any URDF loader works from the asset folder. All 203
 URDFs load with [yourdfpy](https://github.com/clemense/yourdfpy):
 
 ```python
@@ -394,7 +400,7 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
   rights reserved by the publisher); [`NOTICE.md`](NOTICE.md) lists every one with its source.
 * **Trademarks.** Product and company names identify the modelled instrument only. This project is not affiliated
   with or endorsed by any manufacturer.
-* **Limits.** 786 capabilities are declared but marked unsupported. No capability claims robot-contact or
+* **Limits.** 804 capabilities are declared but marked unsupported. No capability claims robot-contact or
   real-hardware validation. Treat the assets as documented, testable behaviour models for embodied-AI research, not
   as certified digital twins.
 * **Build records.** Contracts list the files of the original build (validation logs, review records, cached source
@@ -420,6 +426,6 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.2}
+  note         = {Dataset, release 1.3.0}
 }
 ```

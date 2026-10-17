@@ -1,24 +1,24 @@
 {
  "name": "ChemLab-Assets",
- "version": "1.2.0",
+ "version": "1.3.0",
  "hf_dataset": "MBZUAI/ChemLab-Assets",
  "file_base_url": "https://huggingface.co/datasets/MBZUAI/ChemLab-Assets/resolve/main/",
  "totals": {
-  "instruments": 198,
+  "instruments": 203,
   "domains": 16,
-  "makers": 115,
-  "components": 14272,
-  "mesh_parts": 14492,
-  "joints": 1328,
-  "state_slots": 6282,
-  "capabilities": 4701,
-  "capabilities_unsupported": 786,
-  "mechanisms": 219,
-  "readouts": 648,
-  "interface_points": 2348,
-  "sources": 3445,
-  "with_output_templates": 174,
-  "isaac_lab": 198
+  "makers": 119,
+  "components": 15054,
+  "mesh_parts": 15258,
+  "joints": 1360,
+  "state_slots": 6479,
+  "capabilities": 4822,
+  "capabilities_unsupported": 804,
+  "mechanisms": 230,
+  "readouts": 667,
+  "interface_points": 2547,
+  "sources": 3501,
+  "with_output_templates": 179,
+  "isaac_lab": 203
  },
  "domains": [
   {
@@ -73,7 +73,7 @@
    "key": "elemental",
    "name": "Elemental & Mass Spectrometry",
    "name_zh": "元素与质谱分析",
-   "count": 12
+   "count": 13
   },
   {
    "key": "imaging",
@@ -94,6 +94,12 @@
    "count": 11
   },
   {
+   "key": "chromatography",
+   "name": "Chromatography & Electrophoresis",
+   "name_zh": "色谱与电泳分离",
+   "count": 10
+  },
+  {
    "key": "synthesis",
    "name": "Reaction & Molecular Synthesis",
    "name_zh": "反应与分子合成",
@@ -104,12 +110,6 @@
    "name": "Electrochemistry & Titration",
    "name_zh": "电化学与定量分析",
    "count": 7
-  },
-  {
-   "key": "chromatography",
-   "name": "Chromatography & Electrophoresis",
-   "name_zh": "色谱与电泳分离",
-   "count": 6
   },
   {
    "key": "sampling",
@@ -509,8 +509,8 @@
     0.75,
     0.52
    ],
-   "n_components": 48,
-   "n_mesh_parts": 48,
+   "n_components": 58,
+   "n_mesh_parts": 58,
    "n_joints": 14,
    "joint_types": {
     "prismatic": 13,
@@ -976,15 +976,15 @@
    "path": "assets/expansion_batch03/t5_automation/syrris_asiadiscovery",
    "size_m": [
     1.23,
-    0.3103,
-    0.48
+    0.309,
+    0.5124
    ],
-   "n_components": 66,
-   "n_mesh_parts": 67,
+   "n_components": 96,
+   "n_mesh_parts": 96,
    "n_joints": 4,
    "joint_types": {
-    "revolute": 1,
-    "prismatic": 3
+    "prismatic": 3,
+    "revolute": 1
    },
    "n_state_slots": 38,
    "n_capabilities": 13,
@@ -1115,12 +1115,12 @@
    "domain_zh": "反应与分子合成",
    "path": "assets/expansion_batch03/t5_automation/cem_libertyblue",
    "size_m": [
-    1.15,
-    0.52,
-    0.78
+    1.149,
+    0.5,
+    0.75
    ],
-   "n_components": 103,
-   "n_mesh_parts": 103,
+   "n_components": 120,
+   "n_mesh_parts": 120,
    "n_joints": 2,
    "joint_types": {
     "prismatic": 2
@@ -1161,12 +1161,12 @@
    "domain_zh": "反应与分子合成",
    "path": "assets/expansion_batch03/t5_automation/cytiva_ktaoligosynt",
    "size_m": [
-    0.7,
-    0.54,
+    0.7018,
+    0.5075,
     0.63
    ],
-   "n_components": 116,
-   "n_mesh_parts": 116,
+   "n_components": 131,
+   "n_mesh_parts": 131,
    "n_joints": 3,
    "joint_types": {
     "revolute": 2,
@@ -1307,8 +1307,8 @@
     0.64,
     1.052
    ],
-   "n_components": 62,
-   "n_mesh_parts": 62,
+   "n_components": 95,
+   "n_mesh_parts": 95,
    "n_joints": 2,
    "joint_types": {
     "prismatic": 2
@@ -1349,12 +1349,12 @@
    "domain_zh": "萃取纯化与干燥",
    "path": "assets/expansion_batch03/t2_vacuum/tousimis_autosamdri815",
    "size_m": [
-    0.598,
-    0.546,
-    0.32
+    0.622,
+    0.548,
+    0.324
    ],
-   "n_components": 66,
-   "n_mesh_parts": 67,
+   "n_components": 77,
+   "n_mesh_parts": 77,
    "n_joints": 2,
    "joint_types": {
     "prismatic": 2
@@ -1395,12 +1395,12 @@
    "domain_zh": "萃取纯化与干燥",
    "path": "assets/expansion_batch03/t2_vacuum/buchi_speedextractore",
    "size_m": [
-    0.67,
+    0.6698,
     0.5,
     0.725
    ],
-   "n_components": 138,
-   "n_mesh_parts": 139,
+   "n_components": 159,
+   "n_mesh_parts": 159,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 4
@@ -1442,11 +1442,11 @@
    "path": "assets/expansion_batch03/t2_vacuum/gilson_cpc250",
    "size_m": [
     1.39,
-    0.59,
+    0.5935,
     0.66
    ],
-   "n_components": 256,
-   "n_mesh_parts": 257,
+   "n_components": 277,
+   "n_mesh_parts": 277,
    "n_joints": 3,
    "joint_types": {
     "revolute": 1,
@@ -1582,8 +1582,8 @@
     0.57,
     0.76
    ],
-   "n_components": 64,
-   "n_mesh_parts": 65,
+   "n_components": 92,
+   "n_mesh_parts": 92,
    "n_joints": 3,
    "joint_types": {
     "revolute": 2,
@@ -1675,8 +1675,8 @@
     0.393,
     0.545
    ],
-   "n_components": 200,
-   "n_mesh_parts": 201,
+   "n_components": 217,
+   "n_mesh_parts": 217,
    "n_joints": 3,
    "joint_types": {
     "prismatic": 3
@@ -1717,12 +1717,12 @@
    "domain_zh": "萃取纯化与干燥",
    "path": "assets/expansion_batch03/t2_vacuum/pccell_ed64002",
    "size_m": [
-    0.8,
-    0.36,
-    0.3412
+    0.64,
+    0.364,
+    0.5783
    ],
-   "n_components": 112,
-   "n_mesh_parts": 113,
+   "n_components": 140,
+   "n_mesh_parts": 140,
    "n_joints": 3,
    "joint_types": {
     "revolute": 3
@@ -1814,8 +1814,8 @@
     0.5,
     2.7
    ],
-   "n_components": 95,
-   "n_mesh_parts": 96,
+   "n_components": 116,
+   "n_mesh_parts": 116,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 3,
@@ -1857,12 +1857,12 @@
    "domain_zh": "萃取纯化与干燥",
    "path": "assets/expansion_batch03/t2_vacuum/uic_kdl1basic",
    "size_m": [
-    0.8,
-    0.4,
+    0.9,
+    0.42,
     1.2
    ],
-   "n_components": 74,
-   "n_mesh_parts": 74,
+   "n_components": 89,
+   "n_mesh_parts": 89,
    "n_joints": 5,
    "joint_types": {
     "revolute": 4,
@@ -1998,11 +1998,11 @@
    "path": "assets/expansion_batch03/t1_thermal/retsch_as200",
    "size_m": [
     0.417,
-    0.3895,
+    0.4031,
     0.842
    ],
-   "n_components": 61,
-   "n_mesh_parts": 61,
+   "n_components": 65,
+   "n_mesh_parts": 65,
    "n_joints": 16,
    "joint_types": {
     "prismatic": 15,
@@ -2044,16 +2044,16 @@
    "domain_zh": "消解与固体前处理",
    "path": "assets/expansion_batch03/t1_thermal/retsch_pt100",
    "size_m": [
-    0.582,
-    0.42,
-    0.9115
+    0.5868,
+    0.4226,
+    0.905
    ],
-   "n_components": 74,
-   "n_mesh_parts": 74,
+   "n_components": 82,
+   "n_mesh_parts": 82,
    "n_joints": 15,
    "joint_types": {
-    "continuous": 1,
     "prismatic": 12,
+    "continuous": 1,
     "revolute": 2
    },
    "n_state_slots": 25,
@@ -2096,8 +2096,8 @@
     0.3,
     0.628
    ],
-   "n_components": 34,
-   "n_mesh_parts": 34,
+   "n_components": 36,
+   "n_mesh_parts": 36,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 2,
@@ -2141,11 +2141,11 @@
    "path": "assets/expansion_batch03/t1_thermal/sonics_vcx750",
    "size_m": [
     0.52,
-    0.3679,
+    0.4079,
     0.49
    ],
-   "n_components": 66,
-   "n_mesh_parts": 66,
+   "n_components": 74,
+   "n_mesh_parts": 74,
    "n_joints": 25,
    "joint_types": {
     "prismatic": 25
@@ -2235,11 +2235,11 @@
    "path": "assets/expansion_batch03/t1_thermal/metrohm_909uv",
    "size_m": [
     0.33,
-    0.31,
+    0.3164,
     0.5
    ],
-   "n_components": 72,
-   "n_mesh_parts": 72,
+   "n_components": 84,
+   "n_mesh_parts": 84,
    "n_joints": 10,
    "joint_types": {
     "revolute": 1,
@@ -2327,12 +2327,12 @@
    "domain_zh": "消解与固体前处理",
    "path": "assets/expansion_batch03/t1_thermal/velp_udk159",
    "size_m": [
-    0.385,
-    0.416,
+    0.3893,
+    0.4175,
     0.78
    ],
-   "n_components": 57,
-   "n_mesh_parts": 57,
+   "n_components": 65,
+   "n_mesh_parts": 65,
    "n_joints": 6,
    "joint_types": {
     "prismatic": 3,
@@ -2375,11 +2375,11 @@
    "path": "assets/expansion_batch03/t1_thermal/buchi_hydrolexh",
    "size_m": [
     0.312,
-    0.614,
-    0.47
+    0.6153,
+    0.4684
    ],
-   "n_components": 92,
-   "n_mesh_parts": 92,
+   "n_components": 108,
+   "n_mesh_parts": 108,
    "n_joints": 10,
    "joint_types": {
     "revolute": 8,
@@ -2472,8 +2472,8 @@
     0.19,
     0.61
    ],
-   "n_components": 57,
-   "n_mesh_parts": 57,
+   "n_components": 66,
+   "n_mesh_parts": 66,
    "n_joints": 9,
    "joint_types": {
     "prismatic": 4,
@@ -2515,12 +2515,12 @@
    "domain_zh": "薄膜与功能材料制备",
    "path": "assets/expansion_batch04/t5_automation/buchi_encapsulatorb",
    "size_m": [
-    0.435,
-    0.34,
+    0.4351,
+    0.4133,
     0.29
    ],
-   "n_components": 53,
-   "n_mesh_parts": 53,
+   "n_components": 66,
+   "n_mesh_parts": 66,
    "n_joints": 8,
    "joint_types": {
     "prismatic": 6,
@@ -2609,12 +2609,12 @@
    "domain_zh": "薄膜与功能材料制备",
    "path": "assets/expansion_batch04/t5_automation/ossila_dipcoater",
    "size_m": [
-    0.2,
-    0.3,
+    0.2004,
+    0.3002,
     0.35
    ],
-   "n_components": 45,
-   "n_mesh_parts": 45,
+   "n_components": 53,
+   "n_mesh_parts": 53,
    "n_joints": 15,
    "joint_types": {
     "prismatic": 15
@@ -2655,12 +2655,12 @@
    "domain_zh": "薄膜与功能材料制备",
    "path": "assets/expansion_batch04/t5_automation/ossila_doctorblade",
    "size_m": [
-    0.28,
-    0.36,
+    0.2804,
+    0.3858,
     0.19
    ],
-   "n_components": 66,
-   "n_mesh_parts": 66,
+   "n_components": 74,
+   "n_mesh_parts": 74,
    "n_joints": 16,
    "joint_types": {
     "prismatic": 15,
@@ -2703,11 +2703,11 @@
    "path": "assets/expansion_batch04/t5_automation/ossila_slotdie",
    "size_m": [
     0.28,
-    0.36,
-    0.19
+    0.3654,
+    0.223
    ],
-   "n_components": 64,
-   "n_mesh_parts": 64,
+   "n_components": 83,
+   "n_mesh_parts": 83,
    "n_joints": 17,
    "joint_types": {
     "prismatic": 16,
@@ -2749,16 +2749,16 @@
    "domain_zh": "薄膜与功能材料制备",
    "path": "assets/expansion_batch04/t5_automation/thermo_process11",
    "size_m": [
-    0.82,
-    0.48,
-    0.41
+    0.829,
+    0.4792,
+    0.5367
    ],
-   "n_components": 66,
-   "n_mesh_parts": 66,
+   "n_components": 77,
+   "n_mesh_parts": 77,
    "n_joints": 5,
    "joint_types": {
-    "revolute": 2,
-    "prismatic": 3
+    "prismatic": 3,
+    "revolute": 2
    },
    "n_state_slots": 32,
    "n_capabilities": 24,
@@ -2844,11 +2844,11 @@
    "path": "assets/expansion_batch04/t5_automation/linari_rtadvanced",
    "size_m": [
     1.05,
-    1.0455,
+    1.035,
     2.2
    ],
-   "n_components": 63,
-   "n_mesh_parts": 63,
+   "n_components": 80,
+   "n_mesh_parts": 80,
    "n_joints": 14,
    "joint_types": {
     "revolute": 1,
@@ -3081,12 +3081,12 @@
    "domain_zh": "薄膜与功能材料制备",
    "path": "assets/expansion_batch04/t5_automation/arradiance_gemstarxt",
    "size_m": [
-    1.1576,
-    0.6096,
-    0.635
+    1.1726,
+    0.6406,
+    0.637
    ],
-   "n_components": 74,
-   "n_mesh_parts": 74,
+   "n_components": 92,
+   "n_mesh_parts": 92,
    "n_joints": 8,
    "joint_types": {
     "revolute": 2,
@@ -3544,16 +3544,16 @@
    "domain_zh": "分子光谱与结构",
    "path": "assets/expansion_batch04/t3_analytical/applied_sx20",
    "size_m": [
-    1.2,
-    0.5,
-    0.5775
+    1.56,
+    0.5502,
+    0.632
    ],
-   "n_components": 63,
-   "n_mesh_parts": 63,
+   "n_components": 82,
+   "n_mesh_parts": 82,
    "n_joints": 6,
    "joint_types": {
-    "prismatic": 2,
-    "revolute": 4
+    "revolute": 4,
+    "prismatic": 2
    },
    "n_state_slots": 30,
    "n_capabilities": 19,
@@ -3591,12 +3591,12 @@
    "domain_zh": "分子光谱与结构",
    "path": "assets/expansion_batch04/t3_analytical/edinburgh_fls1000tcspc",
    "size_m": [
-    1.2,
-    0.8,
-    0.63
+    1.5257,
+    0.7857,
+    0.5475
    ],
-   "n_components": 55,
-   "n_mesh_parts": 55,
+   "n_components": 64,
+   "n_mesh_parts": 64,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 3,
@@ -3642,8 +3642,8 @@
     0.85,
     0.66
    ],
-   "n_components": 56,
-   "n_mesh_parts": 56,
+   "n_components": 66,
+   "n_mesh_parts": 66,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 4
@@ -3685,11 +3685,11 @@
    "path": "assets/expansion_batch04/t3_analytical/jasco_fvs6000",
    "size_m": [
     0.945,
-    0.67,
+    0.6907,
     0.425
    ],
-   "n_components": 74,
-   "n_mesh_parts": 74,
+   "n_components": 78,
+   "n_mesh_parts": 78,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 3,
@@ -3735,8 +3735,8 @@
     0.7,
     1.0
    ],
-   "n_components": 107,
-   "n_mesh_parts": 107,
+   "n_components": 117,
+   "n_mesh_parts": 117,
    "n_joints": 5,
    "joint_types": {
     "prismatic": 1,
@@ -3779,11 +3779,11 @@
    "path": "assets/expansion_batch04/t3_analytical/elementar_varioel",
    "size_m": [
     0.815,
-    0.55,
+    0.562,
     0.57
    ],
-   "n_components": 81,
-   "n_mesh_parts": 81,
+   "n_components": 87,
+   "n_mesh_parts": 87,
    "n_joints": 5,
    "joint_types": {
     "revolute": 4,
@@ -3825,16 +3825,16 @@
    "domain_zh": "元素与质谱分析",
    "path": "assets/expansion_batch03/t3_analytical/shimadzu_tocl",
    "size_m": [
-    0.34,
-    0.66,
+    0.3534,
+    0.6747,
     0.48
    ],
-   "n_components": 148,
-   "n_mesh_parts": 148,
+   "n_components": 150,
+   "n_mesh_parts": 150,
    "n_joints": 40,
    "joint_types": {
-    "revolute": 3,
-    "prismatic": 37
+    "prismatic": 37,
+    "revolute": 3
    },
    "n_state_slots": 32,
    "n_capabilities": 29,
@@ -3872,12 +3872,12 @@
    "domain_zh": "元素与质谱分析",
    "path": "assets/expansion_batch03/t3_analytical/jena_contraa800",
    "size_m": [
-    1.115,
-    0.97,
+    1.1158,
+    0.9825,
     0.625
    ],
-   "n_components": 118,
-   "n_mesh_parts": 118,
+   "n_components": 123,
+   "n_mesh_parts": 123,
    "n_joints": 10,
    "joint_types": {
     "revolute": 6,
@@ -3923,8 +3923,8 @@
     0.72,
     0.91
    ],
-   "n_components": 97,
-   "n_mesh_parts": 97,
+   "n_components": 113,
+   "n_mesh_parts": 113,
    "n_joints": 3,
    "joint_types": {
     "revolute": 1,
@@ -3967,11 +3967,11 @@
    "path": "assets/expansion_batch04/t3_analytical/shimadzu_icpms2030",
    "size_m": [
     1.0133,
-    0.645,
+    0.6457,
     0.857
    ],
-   "n_components": 126,
-   "n_mesh_parts": 126,
+   "n_components": 132,
+   "n_mesh_parts": 132,
    "n_joints": 5,
    "joint_types": {
     "revolute": 2,
@@ -4013,12 +4013,12 @@
    "domain_zh": "元素与质谱分析",
    "path": "assets/expansion_batch04/t3_analytical/shimadzu_edx7200",
    "size_m": [
-    0.46,
+    0.785,
     0.59,
-    0.5775
+    0.36
    ],
-   "n_components": 71,
-   "n_mesh_parts": 75,
+   "n_components": 74,
+   "n_mesh_parts": 74,
    "n_joints": 3,
    "joint_types": {
     "revolute": 1,
@@ -4111,8 +4111,8 @@
     0.42,
     0.3
    ],
-   "n_components": 114,
-   "n_mesh_parts": 114,
+   "n_components": 118,
+   "n_mesh_parts": 118,
    "n_joints": 5,
    "joint_types": {
     "revolute": 3,
@@ -4158,8 +4158,8 @@
     0.5812,
     0.264
    ],
-   "n_components": 99,
-   "n_mesh_parts": 102,
+   "n_components": 100,
+   "n_mesh_parts": 100,
    "n_joints": 2,
    "joint_types": {
     "prismatic": 2
@@ -4201,11 +4201,11 @@
    "path": "assets/expansion_batch04/t3_analytical/thermo_orbitrapexploris",
    "size_m": [
     0.534,
-    0.939,
+    0.9391,
     0.703
    ],
-   "n_components": 119,
-   "n_mesh_parts": 119,
+   "n_components": 123,
+   "n_mesh_parts": 123,
    "n_joints": 4,
    "joint_types": {
     "revolute": 3,
@@ -4248,11 +4248,11 @@
    "path": "assets/expansion_batch04/t3_analytical/leco_onh836",
    "size_m": [
     0.71,
-    0.76,
+    0.7601,
     0.915
    ],
-   "n_components": 140,
-   "n_mesh_parts": 141,
+   "n_components": 143,
+   "n_mesh_parts": 143,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 4
@@ -4325,6 +4325,238 @@
    },
    "thumb": "media/thumb/elementar_isoprimeprecision.webp",
    "hero": "media/hero/elementar_isoprimeprecision.webp"
+  },
+  {
+   "id": "instrument.eco_ncld822",
+   "slug": "eco_ncld822",
+   "chem_id": "CHEM-091",
+   "name": "Chemiluminescence NO/NOx analyzer",
+   "maker": "ECO PHYSICS",
+   "model": "nCLD 822 M",
+   "title": "ECO PHYSICS nCLD 822 M",
+   "name_zh": "ECO PHYSICS nCLD 822 M 化学发光氮氧化物分析仪",
+   "domain": "elemental",
+   "domain_name": "Elemental & Mass Spectrometry",
+   "domain_zh": "元素与质谱分析",
+   "path": "assets/expansion_batch04/t3_analytical/eco_ncld822",
+   "size_m": [
+    0.495,
+    0.564,
+    0.133
+   ],
+   "n_components": 35,
+   "n_mesh_parts": 35,
+   "n_joints": 4,
+   "joint_types": {
+    "prismatic": 4
+   },
+   "n_state_slots": 34,
+   "n_capabilities": 20,
+   "n_capabilities_implemented": 17,
+   "n_capabilities_unsupported": 3,
+   "n_mechanisms": 3,
+   "n_readouts": 3,
+   "n_interface_points": 5,
+   "n_sources": 22,
+   "n_limitations": 10,
+   "isaac_lab": "bridged",
+   "glb_up": "z",
+   "output_templates": true,
+   "files": {
+    "glb": "assets/expansion_batch04/t3_analytical/eco_ncld822/model.glb",
+    "urdf": "assets/expansion_batch04/t3_analytical/eco_ncld822/model.urdf",
+    "blend": "assets/expansion_batch04/t3_analytical/eco_ncld822/model.blend",
+    "contract": "assets/expansion_batch04/t3_analytical/eco_ncld822/asset.contract.json",
+    "runtime": "scripts/asset_runtime/eco_ncld822.py"
+   },
+   "thumb": "media/thumb/eco_ncld822.webp",
+   "hero": "media/hero/eco_ncld822.webp"
+  },
+  {
+   "id": "instrument.camag_tlcscanner",
+   "slug": "camag_tlcscanner",
+   "chem_id": "CHEM-092",
+   "name": "TLC scanner (densitometer)",
+   "maker": "CAMAG",
+   "model": "TLC Scanner 4",
+   "title": "CAMAG TLC Scanner 4",
+   "name_zh": "CAMAG TLC Scanner 4 薄层色谱扫描仪",
+   "domain": "chromatography",
+   "domain_name": "Chromatography & Electrophoresis",
+   "domain_zh": "色谱与电泳分离",
+   "path": "assets/expansion_batch03/t3_analytical/camag_tlcscanner",
+   "size_m": [
+    0.59,
+    0.65,
+    0.367
+   ],
+   "n_components": 33,
+   "n_mesh_parts": 33,
+   "n_joints": 11,
+   "joint_types": {
+    "prismatic": 11
+   },
+   "n_state_slots": 33,
+   "n_capabilities": 28,
+   "n_capabilities_implemented": 26,
+   "n_capabilities_unsupported": 2,
+   "n_mechanisms": 1,
+   "n_readouts": 5,
+   "n_interface_points": 4,
+   "n_sources": 11,
+   "n_limitations": 21,
+   "isaac_lab": "bridged",
+   "glb_up": "z",
+   "output_templates": true,
+   "files": {
+    "glb": "assets/expansion_batch03/t3_analytical/camag_tlcscanner/model.glb",
+    "urdf": "assets/expansion_batch03/t3_analytical/camag_tlcscanner/model.urdf",
+    "blend": "assets/expansion_batch03/t3_analytical/camag_tlcscanner/model.blend",
+    "contract": "assets/expansion_batch03/t3_analytical/camag_tlcscanner/asset.contract.json",
+    "runtime": "scripts/asset_runtime/camag_tlcscanner.py"
+   },
+   "thumb": "media/thumb/camag_tlcscanner.webp",
+   "hero": "media/hero/camag_tlcscanner.webp"
+  },
+  {
+   "id": "instrument.sciex_pa800",
+   "slug": "sciex_pa800",
+   "chem_id": "CHEM-093",
+   "name": "Capillary electrophoresis system",
+   "maker": "SCIEX",
+   "model": "PA 800 Plus",
+   "title": "SCIEX PA 800 Plus",
+   "name_zh": "SCIEX PA 800 Plus 毛细管电泳仪",
+   "domain": "chromatography",
+   "domain_name": "Chromatography & Electrophoresis",
+   "domain_zh": "色谱与电泳分离",
+   "path": "assets/expansion_batch04/t3_analytical/sciex_pa800",
+   "size_m": [
+    0.6353,
+    0.7232,
+    0.742
+   ],
+   "n_components": 52,
+   "n_mesh_parts": 52,
+   "n_joints": 4,
+   "joint_types": {
+    "prismatic": 1,
+    "revolute": 3
+   },
+   "n_state_slots": 48,
+   "n_capabilities": 18,
+   "n_capabilities_implemented": 17,
+   "n_capabilities_unsupported": 1,
+   "n_mechanisms": 2,
+   "n_readouts": 4,
+   "n_interface_points": 169,
+   "n_sources": 7,
+   "n_limitations": 9,
+   "isaac_lab": "bridged",
+   "glb_up": "z",
+   "output_templates": true,
+   "files": {
+    "glb": "assets/expansion_batch04/t3_analytical/sciex_pa800/model.glb",
+    "urdf": "assets/expansion_batch04/t3_analytical/sciex_pa800/model.urdf",
+    "blend": "assets/expansion_batch04/t3_analytical/sciex_pa800/model.blend",
+    "contract": "assets/expansion_batch04/t3_analytical/sciex_pa800/asset.contract.json",
+    "runtime": "scripts/asset_runtime/sciex_pa800.py"
+   },
+   "thumb": "media/thumb/sciex_pa800.webp",
+   "hero": "media/hero/sciex_pa800.webp"
+  },
+  {
+   "id": "instrument.agilent_1260infinity",
+   "slug": "agilent_1260infinity",
+   "chem_id": "CHEM-094",
+   "name": "Supercritical fluid chromatograph (SFC)",
+   "maker": "Agilent",
+   "model": "1260 Infinity III SFC",
+   "title": "Agilent 1260 Infinity III SFC",
+   "name_zh": "Agilent 1260 Infinity III SFC 超临界流体色谱系统",
+   "domain": "chromatography",
+   "domain_name": "Chromatography & Electrophoresis",
+   "domain_zh": "色谱与电泳分离",
+   "path": "assets/expansion_batch04/t3_analytical/agilent_1260infinity",
+   "size_m": [
+    0.6945,
+    0.494,
+    1.061
+   ],
+   "n_components": 86,
+   "n_mesh_parts": 86,
+   "n_joints": 11,
+   "joint_types": {
+    "prismatic": 9,
+    "revolute": 2
+   },
+   "n_state_slots": 57,
+   "n_capabilities": 25,
+   "n_capabilities_implemented": 21,
+   "n_capabilities_unsupported": 4,
+   "n_mechanisms": 4,
+   "n_readouts": 6,
+   "n_interface_points": 18,
+   "n_sources": 9,
+   "n_limitations": 11,
+   "isaac_lab": "bridged",
+   "glb_up": "z",
+   "output_templates": true,
+   "files": {
+    "glb": "assets/expansion_batch04/t3_analytical/agilent_1260infinity/model.glb",
+    "urdf": "assets/expansion_batch04/t3_analytical/agilent_1260infinity/model.urdf",
+    "blend": "assets/expansion_batch04/t3_analytical/agilent_1260infinity/model.blend",
+    "contract": "assets/expansion_batch04/t3_analytical/agilent_1260infinity/asset.contract.json",
+    "runtime": "scripts/asset_runtime/agilent_1260infinity.py"
+   },
+   "thumb": "media/thumb/agilent_1260infinity.webp",
+   "hero": "media/hero/agilent_1260infinity.webp"
+  },
+  {
+   "id": "instrument.wyatt_eclipseaf4",
+   "slug": "wyatt_eclipseaf4",
+   "chem_id": "CHEM-095",
+   "name": "Asymmetric-flow field-flow fractionation (AF4) system",
+   "maker": "Wyatt Technology",
+   "model": "Eclipse AF4",
+   "title": "Wyatt Technology Eclipse AF4",
+   "name_zh": "非对称流场流分离仪 Wyatt Technology Eclipse AF4（控制单元+长分析通道）",
+   "domain": "chromatography",
+   "domain_name": "Chromatography & Electrophoresis",
+   "domain_zh": "色谱与电泳分离",
+   "path": "assets/expansion_batch04/t3_analytical/wyatt_eclipseaf4",
+   "size_m": [
+    0.496,
+    0.6403,
+    0.25
+   ],
+   "n_components": 46,
+   "n_mesh_parts": 46,
+   "n_joints": 2,
+   "joint_types": {
+    "prismatic": 2
+   },
+   "n_state_slots": 25,
+   "n_capabilities": 30,
+   "n_capabilities_implemented": 22,
+   "n_capabilities_unsupported": 8,
+   "n_mechanisms": 1,
+   "n_readouts": 1,
+   "n_interface_points": 3,
+   "n_sources": 7,
+   "n_limitations": 20,
+   "isaac_lab": "bridged",
+   "glb_up": "z",
+   "output_templates": true,
+   "files": {
+    "glb": "assets/expansion_batch04/t3_analytical/wyatt_eclipseaf4/model.glb",
+    "urdf": "assets/expansion_batch04/t3_analytical/wyatt_eclipseaf4/model.urdf",
+    "blend": "assets/expansion_batch04/t3_analytical/wyatt_eclipseaf4/model.blend",
+    "contract": "assets/expansion_batch04/t3_analytical/wyatt_eclipseaf4/asset.contract.json",
+    "runtime": "scripts/asset_runtime/wyatt_eclipseaf4.py"
+   },
+   "thumb": "media/thumb/wyatt_eclipseaf4.webp",
+   "hero": "media/hero/wyatt_eclipseaf4.webp"
   },
   {
    "id": "instrument.agilent_gc8890b",
