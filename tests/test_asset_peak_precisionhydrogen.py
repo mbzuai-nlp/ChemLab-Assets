@@ -273,12 +273,20 @@ class Physics(unittest.TestCase):
         g.call(g.E, 'consumer.set', demand_sccm=450.0, min_pressure_pa=2e5)
         g.call(g.A, 'cycle.start')
         g.step(3 * 86400.0)
-        self.assertIn('WATER_LOW', g.read('alarms.active'))
+        self.assertIn('WATER_LEVEL_FAULT', g.read('alarms.active'))               # 1.1.1: 3 h below the low level -> shut down (manual p.28)
         self.assertTrue(g.read('indicator.water'))
         self.assertEqual(g.read('truth.gas')['product_mol_s'], 0.0)
         g.call(g.A, 'water.refill', volume_m3=0.003, conductivity_s_m=5e-5)
         g.step(600.0)
-        self.assertNotIn('WATER_LOW', g.read('alarms.active'))
+        self.assertIn('WATER_LEVEL_FAULT', g.read('alarms.active'))               # no automatic restart: the power must be cycled
+        self.assertEqual(g.read('truth.gas')['product_mol_s'], 0.0)
+        g.call(g.A, 'power.set', on=False)
+        g.call(g.A, 'power.set', on=True)
+        g.step(rt.DOC['leak_test_s'] + 120.0)
+        self.assertEqual(g.read('state.current'), 'standby')
+        self.assertFalse({'WATER_LOW', 'WATER_LEVEL_FAULT'} & set(g.read('alarms.active')))
+        g.call(g.A, 'cycle.start')
+        g.step(600.0)
         self.assertGreater(g.read('truth.gas')['product_mol_s'], 0.0)
         _balance(self, g.ledger())
         d = Rig(feed_conductivity_s_m=5e-4, bottle_volume_m3=0.02, bottle_water_m3=0.02)
@@ -334,6 +342,9 @@ class ReviewR1(unittest.TestCase):
         n_low = sum(e['code'] == 'WATER_LOW' for e in g.call(g.A, 'events.read', since_s=0.0)['events'])
         self.assertEqual(n_low, 1)
         g.call(g.A, 'water.refill', volume_m3=0.003)
+        g.step(300.0)                                                             # 1.1.1: the loading pump has stopped (manual p.28)
+        self.assertEqual((g.read('state.current'), g.read('truth.water')['pump_on']), ('diagnostics', False))
+        g.call(g.A, 'water.recover')                                              # RECOVERY re-engages it
         g.step(rt.DOC['leak_test_s'] + 120.0)
         self.assertEqual(g.read('state.current'), 'standby', g.read('alarms.active'))
 
@@ -410,6 +421,99 @@ class ReviewR2(unittest.TestCase):
         g.h.di_age = rt.DOC['deioniser_interval_s'] + 1.0                       # a silent notice appears
         g.step(1.0)
         self.assertFalse(g.read('alarm.audible'))
+
+
+class WaterFaults111(unittest.TestCase):
+    """1.1.1 (sync audit, other notes): the documented water behaviour of the B&W manual p.28: the loading pump stops when the power-up load fails
+    (RECOVERY re-engages it) and 3 h below the low-level sensor in operation shut the generator down until the power is cycled."""
+
+    def test_low_water_timer_shuts_down_after_3_h(self):
+        g = Rig(bottle_water_m3=0.0)
+        g.ready()
+        g.call(g.E, 'consumer.set', demand_sccm=450.0, min_pressure_pa=2e5)
+        g.call(g.A, 'cycle.start')
+        g.until(lambda: g.read('water.low_level_s') > 0.0, 5 * 86400.0, every=60.0)
+        t_low = g.h.t - g.read('water.low_level_s')
+        g.until(lambda: 'WATER_LEVEL_FAULT' in g.read('alarms.active'), 4 * 3600.0, every=60.0)
+        ev = [e for e in g.call(g.A, 'events.read', since_s=0.0)['events'] if e['code'] == 'WATER_LEVEL_FAULT']
+        self.assertEqual(len(ev), 1)
+        self.assertAlmostEqual(ev[0]['time_s'] - t_low, rt.LOW_WATER_SHUTDOWN_S, delta=1.0)
+        self.assertEqual((g.read('state.current'), g.read('truth.water')['pump_on']), ('fault', False))
+        g.call(g.A, 'cycle.start', expect='FAULT_ACTIVE')
+        self.assertTrue(g.read('alarm.audible'))
+        g.call(g.A, 'alarm.mute')
+
+    def test_refill_within_3_h_keeps_running(self):
+        g = Rig(bottle_water_m3=0.0)
+        g.ready()
+        g.call(g.E, 'consumer.set', demand_sccm=450.0, min_pressure_pa=2e5)
+        g.call(g.A, 'cycle.start')
+        g.until(lambda: g.read('water.low_level_s') > 3600.0, 5 * 86400.0, every=60.0)
+        g.call(g.A, 'water.refill', volume_m3=0.003)
+        g.step(1800.0)
+        self.assertEqual((g.read('water.low_level_s'), g.read('state.current')), (0.0, 'running'))
+        g.step(4 * 3600.0)
+        self.assertNotIn('WATER_LEVEL_FAULT', g.read('alarms.active'))
+
+    def test_power_up_load_timeout_stops_the_pump(self):
+        g = Rig(bottle_water_m3=0.0)
+        g.h.tank = 0.2 * rt.ENG['tank_volume_m3']
+        g.call(g.A, 'power.set', on=True)
+        g.step(rt.WATER_LOAD_TIMEOUT_S - 1.0)
+        self.assertTrue(g.read('truth.water')['pump_on'])
+        g.step(2.0)
+        self.assertEqual((g.read('truth.water')['pump_on'], g.read('truth.water')['pump_timed_out']), (False, True))
+        g.call(g.A, 'water.refill', volume_m3=0.003)
+        g.step(600.0)
+        self.assertEqual(g.read('state.current'), 'diagnostics')                # refilling alone does not restart the loading
+        g.call(g.A, 'power.set', on=False)                                       # a power cycle also starts a new loading attempt
+        g.call(g.A, 'power.set', on=True)
+        g.step(rt.DOC['leak_test_s'] + 120.0)
+        self.assertEqual(g.read('state.current'), 'standby')
+
+
+class HmiFunctions(unittest.TestCase):
+    """1.1.0 HMI functions of the B&W manual: RECOVERY after a failed power-up water load, the column change dialog (swap with the unit on,
+    CONFIRM restarts the column interval), the water level alarm sounds and can be muted."""
+    def test_recovery_restarts_the_water_check(self):
+        g = Rig(bottle_water_m3=0.0)
+        g.h.tank = 0.2 * rt.ENG['tank_volume_m3']
+        g.call(g.A, 'power.set', on=True)
+        g.call(g.A, 'water.recover', expect='NO_WATER_FAULT')
+        g.step(200.0)
+        self.assertIn('WATER_LOW', g.read('alarms.active'))
+        self.assertTrue(g.read('alarm.audible'))
+        g.call(g.A, 'alarm.mute')
+        self.assertFalse(g.read('alarm.audible'))
+        g.call(g.A, 'water.refill', volume_m3=0.003)
+        self.assertTrue(g.call(g.A, 'water.recover')['retrying'])
+        self.assertNotIn('WATER_LOW', g.read('alarms.active'))
+        g.step(rt.DOC['leak_test_s'] + 200.0)
+        self.assertEqual(g.read('state.current'), 'standby')
+        self.assertEqual(sum(e['code'] == 'WATER_RECOVERY' for e in g.call(g.A, 'events.read', since_s=0.0)['events']), 1)
+
+    def test_column_change_dialog(self):
+        g = Rig()
+        g.call(g.A, 'deioniser.change_begin', expect='POWER_OFF')
+        g.call(g.A, 'power.set', on=True)
+        g.call(g.A, 'deioniser.change_begin', expect='DIAGNOSTICS_RUNNING')
+        g.step(rt.DOC['leak_test_s'] + 10.0)
+        g.h.di_age = rt.DOC['deioniser_interval_s'] + 1.0
+        g.step(1.0)
+        self.assertIn('DEIONISER_DUE', g.read('alarms.active'))
+        g.call(g.A, 'deioniser.change_confirm', expect='NOT_CHANGING')
+        g.call(g.A, 'deioniser.replace', expect='POWER_ON')
+        self.assertTrue(g.call(g.A, 'deioniser.change_begin')['change_pending'])
+        used = g.read('truth.water')['deioniser_used_eq']
+        g.step(600.0)
+        self.assertEqual(g.read('truth.water')['deioniser_used_eq'], used)       # no flow through the open column
+        g.call(g.A, 'deioniser.replace')                                         # swapped with the unit on, inside the change
+        self.assertFalse(g.call(g.A, 'deioniser.change_confirm')['change_pending'])
+        self.assertEqual(g.read('deioniser.age_s'), 0.0)
+        self.assertNotIn('DEIONISER_DUE', g.read('alarms.active'))
+        g.call(g.A, 'deioniser.change_begin')
+        g.call(g.A, 'power.set', on=False)
+        self.assertFalse(g.read('deioniser.change_pending'))                       # the dialog does not survive a power cycle
 
 
 class ZCoverage(unittest.TestCase):

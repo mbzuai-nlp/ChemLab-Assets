@@ -80,4 +80,103 @@ class TestE916(unittest.TestCase):
  def test_16_cell_capacity_variants_and_solvent_flush(self):
   for volume in (10e-6,40e-6):
    h=finish(setup(1,method={'cycles':1,'solvent_flush_s':5.},sample={'cell_volume_m3':volume}));self.assertEqual(h.phase,'succeeded');self.assertIn('solvent_flush',[x['stage'] for x in h.history]);self.ledger(h)
+def device(blanks=(),powered=True):
+ h=BuchiSpeedextractoreRuntime();h.invoke('plant.configure',**EXAMPLE)
+ if powered:h.invoke('power.set',enabled=True)
+ if blanks:
+  h.invoke('shield.set_lift',lift_m=.18);h.invoke('drawer.set_extension',extension_m=.16)
+  for p in blanks:h.invoke('cell.insert_empty',position=p,cell_volume_m3=20e-6,gripper_confirmed=True)
+  h.invoke('drawer.set_extension',extension_m=0.);h.invoke('shield.set_lift',lift_m=0.)
+ return h
+def run_until(h,cond,limit=5000.):
+ t=0.
+ while not cond():
+  assert t<limit,'not reached';h.step(1.);t+=1.
+def solvent_ledger(h):
+ q=h._inventory();return q['initial_solvent_m3']-sum(q[k] for k in ['reservoir_solvent_m3','cell_solvent_m3','extract_solvent_m3','waste_solvent_m3','removed_solvent_m3'])
+class DeviceFunctions(unittest.TestCase):
+ """1.1 firmware functions behind the front-panel menus, called directly (om = operation manual 093218)."""
+ def test_17_positions_method_store_and_extras(self):
+  h=device();self.assertIsNone(h.read()['positions.active'])
+  self.assertEqual(h.invoke('positions.set',active=[True]*6)['active'],[True]*6);self.assertEqual(h.invoke('positions.set',position=6,enabled=False)['active'],[True]*5+[False])
+  for bad in [dict(),dict(position=7,enabled=True),dict(active=[True]*5),dict(position=1)]:self.assertRaises(ActionRejected,h.invoke,'positions.set',**bad)
+  steps=[dict(hold_s=60.,discharge_s=30.,vial_change=True,port=0),dict(hold_s=30.,discharge_s=30.,vial_change=False,port=2)]
+  h.invoke('method.configure',**dict(METHOD_EXAMPLE,vial='60',cell_volume_m3=20e-6,solvent_names=['Acetone','Ethanol','',''],cycle_steps=steps))
+  self.assertTrue(h.read()['method.modified']);self.assertEqual(h.read()['method.current']['cycle_steps'],steps)
+  self.assertRaises(ActionRejected,h.invoke,'method.configure',**dict(METHOD_EXAMPLE,cycle_steps=steps[:1]))
+  self.assertEqual(h.invoke('method.save',slot=7,name='PAH-01'),dict(slot=7,name='PAH-01'));self.assertEqual((h.method_name,h.method_modified),('PAH-01',False))
+  for bad in ['','X'*17,'bad#name']:self.assertRaises(ActionRejected,h.invoke,'method.save',slot=1,name=bad)
+  h.invoke('method.configure',**METHOD_EXAMPLE);self.assertTrue(h.method_modified);h.invoke('method.open',slot=7);self.assertEqual(h.method['vial'],'60');self.assertFalse(h.method_modified)
+  self.assertRaises(ActionRejected,h.invoke,'method.open',slot=8);h.invoke('method.delete',slot=7);self.assertEqual(h.read()['method.library'],[]);self.assertRaises(ActionRejected,h.invoke,'method.delete',slot=7)
+ def test_18_preheat_setpoint_eco_and_settings(self):
+  h=device();h.invoke('thermal.preheat',temperature_k=353.15,enabled=False);self.assertEqual((h.preheat,h.preheat_k),(False,353.15))
+  h.invoke('thermal.preheat',temperature_k=353.15);run_until(h,lambda:abs(h.temperature-353.15)<.5);self.assertIsNone(h.read()['thermal.target_k'])
+  h.invoke('thermal.set_eco_mode',enabled=True);self.assertTrue(h.read()['thermal.eco_mode']);h.invoke('power.set',enabled=False);self.assertFalse(h.eco)
+  h.invoke('power.set',enabled=True);h.invoke('thermal.preheat',enabled=False);self.assertFalse(h.preheat)
+  h.invoke('settings.configure',key='language',value='Deutsch');h.invoke('settings.configure',key='contrast',value=55)
+  for k,v in [('contrast',101),('contrast',True),('language','Klingon'),('beep_key',1)]:self.assertRaises(ActionRejected,h.invoke,'settings.configure',key=k,value=v)
+  self.assertEqual(h.read()['device.settings']['contrast'],55);h.invoke('solvents.set_name',index=4,name='DCM');h.invoke('solvents.set_name',index=11,name='Chlorobenzene')
+  self.assertRaises(ActionRejected,h.invoke,'solvents.set_name',index=1,name='x'*21);h.invoke('solvents.load_default');self.assertEqual(h.solvent_list[3],'Dichloromethane');self.assertEqual(h.solvent_list[10],'Chlorobenzene')
+  h.invoke('fan.set',fan='extraction',percent=60);self.assertEqual(h.read()['service.fans'],dict(extraction=60,electronic=30))
+ def test_19_leak_test_with_empty_cells_and_seal_leak(self):
+  h=device(blanks=range(1,7));h.invoke('positions.set',active=[True]*6);h.invoke('leak_test.configure',solvent_fractions=[0.,1.,0.,0.],hold_s=60.)
+  self.assertRaises(ActionRejected,h.invoke,'leak_test.start');h.invoke('thermal.preheat',temperature_k=373.15);run_until(h,lambda:abs(h.temperature-373.15)<1)
+  h.invoke('seal.configure_leak',position=2,leak_pa_s=5e4);h.invoke('leak_test.start')
+  self.assertRaises(ActionRejected,h.invoke,'acquisition.start');self.assertRaises(ActionRejected,h.invoke,'valve.set',valve='solvent_1',open=True)
+  run_until(h,lambda:h.aux is None);r=h.read()['leak_test.status']['result']
+  self.assertTrue(r['completed']);self.assertFalse(r['passed']);self.assertLess(r['pressures_pa'][1],r['pressures_pa'][0]-15e5);self.assertAlmostEqual(solvent_ledger(h),0.,places=12)
+  self.assertEqual((h.heater,h.rack,h.counters['leak_tests']),(0.,0.,1));h.invoke('seal.configure_leak',position=2,leak_pa_s=0.)
+  h.invoke('leak_test.configure',temperature_k=473.15);self.assertRaises(ActionRejected,h.invoke,'leak_test.start')           # 100 K away: Error 2
+  h.invoke('leak_test.configure',temperature_k=363.15);self.assertRaises(ActionRejected,h.invoke,'leak_test.start')           # 10 K too hot: Error 3
+  h.invoke('leak_test.start',start_anyway=True);run_until(h,lambda:h.aux['stage']=='hold');h.invoke('leak_test.stop');self.assertEqual(h.aux['stage'],'discharge')
+  self.assertFalse(h.aux['result']['completed']);self.assertRaises(ActionRejected,h.invoke,'leak_test.stop');run_until(h,lambda:h.aux is None)
+  h2=device(blanks=[1,2]);h2.invoke('positions.set',active=[True,True,True,False,False,False]);h2.invoke('thermal.preheat',temperature_k=373.15);run_until(h2,lambda:abs(h2.temperature-373.15)<1)
+  h2.invoke('leak_test.start');run_until(h2,lambda:h2.aux is None);self.assertEqual(h2.notice['code'],'position_pressure_too_low:3');self.assertEqual(h2.aux_last['leak_test']['fault'],'position_pressure_too_low:3')
+ def test_20_flush_into_waste_and_stop(self):
+  h=device(blanks=[1]);h.invoke('positions.set',active=[True]+[False]*5);h.invoke('flush.configure',solvent_s=60.,gas_s=60.,flush_into='waste')
+  stock=sum(h.reservoir);h.invoke('flush.start');run_until(h,lambda:h.aux is None)
+  self.assertAlmostEqual(stock-sum(h.reservoir),50e-6/60*60,delta=1e-9);self.assertGreater(sum(h.waste),49e-6);self.assertAlmostEqual(solvent_ledger(h),0.,places=12)
+  h.invoke('flush.configure',solvent_fractions=[.5,.4,0.,0.]);self.assertRaises(ActionRejected,h.invoke,'flush.start');h.invoke('flush.configure',solvent_fractions=[.5,.5,0.,0.])
+  h.invoke('flush.start');h.step(30.);self.assertEqual(h.aux['stage'],'solvent');h.invoke('flush.stop');self.assertEqual(h.aux['stage'],'release');run_until(h,lambda:h.aux is None)
+  self.assertTrue(h.read()['flush.status']['stage']=='release');self.assertAlmostEqual(solvent_ledger(h),0.,places=12)
+  h.invoke('positions.set',active=[False]*6);self.assertRaises(ActionRejected,h.invoke,'flush.start');h.invoke('shield.set_lift',lift_m=.1);h.invoke('positions.set',active=[True]+[False]*5)
+  self.assertRaises(ActionRejected,h.invoke,'flush.start')
+ def test_21_service_valves_pump_flow_test_sensors_lifts(self):
+  h=device(blanks=[1]);self.assertRaises(ActionRejected,h.invoke,'pump.run',enabled=True)
+  self.assertRaises(ActionRejected,h.invoke,'flow_test.start');h.invoke('lift.move',lift='cell',direction='up');h.invoke('lift.move',lift='vial',direction='up');h.step(5.)
+  self.assertEqual((h.heater,h.rack),(.035,.035));self.assertEqual(h.read()['service.counters']['current_max_a'],dict(cell=.35,vial=.35))
+  for v in ['solvent_1','media_solvent','position_1','outlet_waste']:h.invoke('valve.set',valve=v,open=True)
+  h.invoke('pump.run',enabled=True,flow_m3_s=20e-6/60);h.step(30.);self.assertAlmostEqual(h.pump['actual_m3_s'],20e-6/60,delta=1e-9);self.assertGreater(sum(h.waste),0.);self.assertAlmostEqual(solvent_ledger(h),0.,places=12)
+  h.invoke('valve.set',valve='outlet_waste',open=False);self.assertFalse(h.pump['on']);self.assertEqual(h.notice['code'],'pump_pressure_too_high')
+  h.invoke('valve.set',valve='media_gas',open=True);self.assertEqual(h.valves['media'],'gas')                     # rotary valve: one path at a time
+  h.invoke('valve.calibrate',valve='media');self.assertIsNone(h.valves['media']);h.invoke('valve.set',valve='position_all',open=True);self.assertEqual(h.valves['position'],[True]*6)
+  h.invoke('flow_test.configure',flush_into='waste',port=2,position=1);h.invoke('flow_test.start');h.step(20.);self.assertAlmostEqual(h._readings()[1],3e5,delta=1.)
+  self.assertEqual(h.read()['flow_test.status']['kind'],'flow_test');h.invoke('flow_test.stop');self.assertIsNone(h.aux);h.invoke('flow_test.configure',position=3)
+  self.assertRaises(ActionRejected,h.invoke,'flow_test.start');h.invoke('sensor.configure_error',sensor=4,offset_pa=4e4);self.assertAlmostEqual(h._readings()[4],4e4)
+  h.invoke('pressure.calibrate');self.assertAlmostEqual(h._readings()[4],0.);self.assertAlmostEqual(h.read()['pressure.sensors']['zero_pa'][4],4e4)
+  h.invoke('service.reset_current_max');self.assertEqual(h.current_max,dict(cell=0.,vial=0.))
+  h.invoke('lift.move',lift='cell',direction='down');h.step(1.);h.invoke('lift.move',lift='cell',direction='stop');x=h.heater;h.step(2.);self.assertEqual(h.heater,x)
+ def test_22_skip_vial_change_halt_and_ledgers(self):
+  h=setup(2,method={'cycles':2,'cycle_steps':[dict(hold_s=300.,discharge_s=30.,vial_change=True,port=0),dict(hold_s=30.,discharge_s=30.,vial_change=False,port=1)]})
+  self.assertRaises(ActionRejected,h.invoke,'acquisition.skip');advance(h,'hold');h.invoke('acquisition.skip')
+  self.assertEqual(h.stage,'discharge');run_until(h,lambda:h.stage=='vial_change');self.assertEqual((h.phase,h.notice['code']),('cancelled','change_vials'))
+  run_until(h,lambda:h.rack==0.);h.invoke('vials.exchange',gripper_confirmed=True);self.assertEqual(sum(sum(c['vial']) for c in h.cells.values()),0.)
+  h.invoke('acquisition.start');run_until(h,lambda:h.stage=='fill');self.assertEqual(h.cycle,2);self.assertEqual(h._fractions(),[1.,0.,0.,0.])
+  for c in h.cells.values():self.assertAlmostEqual(c['spec']['target_mass_kg'],c['sorbed']+c['dissolved']+c['extract']+c['degraded']+c['wasted']+c['collected'],places=15)
+  advance(h,'hold');h.invoke('acquisition.halt');self.assertEqual((h.phase,h.stage),('cancelled','halted'))
+  p=h._maxp();h.step(5.);self.assertEqual(h._maxp(),p);self.assertRaises(ActionRejected,h.invoke,'acquisition.start');self.assertRaises(ActionRejected,h.invoke,'acquisition.abort')
+  for v in ['position_all','outlet_vial']:h.invoke('valve.set',valve=v,open=True)
+  run_until(h,lambda:h._maxp()<=1e5);h.invoke('lift.move',lift='cell',direction='down');h.invoke('lift.move',lift='vial',direction='down');run_until(h,lambda:h.heater==0. and h.rack==0.)
+  h.invoke('shield.set_lift',lift_m=.18);h.invoke('drawer.set_extension',extension_m=.16);h.invoke('sample.unload',position=0,sample_id='soil_0',gripper_confirmed=True)
+  q=h._inventory();self.assertAlmostEqual(q['initial_target_kg'],sum(q[k] for k in ['sorbed_target_kg','dissolved_target_kg','extract_target_kg','degraded_target_kg','removed_target_kg']),places=15)
+  self.assertAlmostEqual(solvent_ledger(h),0.,places=12)
+ def test_23_waste_vial_empty_cell_unload_and_atomic_rejections(self):
+  h=finish(setup(1,method={'vial':'waste'}));self.assertEqual(h.phase,'succeeded');self.assertEqual(h.cells[0]['extract'],0.);self.assertGreater(h.cells[0]['wasted'],0.);self.assertAlmostEqual(solvent_ledger(h),0.,places=12)
+  h=device(blanks=[2]);self.assertEqual(h.read()['cells.occupancy'],[None,'empty',None,None,None,None]);h.invoke('shield.set_lift',lift_m=.18);h.invoke('drawer.set_extension',extension_m=.16)
+  self.assertRaises(ActionRejected,h.invoke,'cell.insert_empty',position=2,cell_volume_m3=20e-6,gripper_confirmed=True);h.invoke('cell.remove_empty',position=2,gripper_confirmed=True)
+  self.assertEqual(h.read()['cells.occupancy'],[None]*6);self.assertRaises(ActionRejected,h.invoke,'cell.remove_empty',position=2,gripper_confirmed=True)
+  for cap,a in [('valve.set',dict(valve='solvent_9',open=True)),('lift.move',dict(lift='cell',direction='up')),('fan.set',dict(fan='extraction',percent=101)),('method.open',dict(slot=3)),('acquisition.skip',{}),('acquisition.halt',{}),('vials.exchange',dict(gripper_confirmed=False))]:
+   b=h.read('evaluator');self.assertRaises(ActionRejected,h.invoke,cap,**a);self.assertEqual(b,h.read('evaluator'))
+  m=export_buchi_speedextractore_contract_metadata();self.assertTrue(set(DEVICE_CAPS)<=set(m['capabilities']))
+  for k in ('settings.configure','solvents.load_default','fan.set','sensor.configure_error','seal.configure_leak','service.reset_current_max','thermal.set_eco_mode'):validate(CAPS[k][1],h.invoke(k,**CAPS[k][6]))
 if __name__=='__main__':unittest.main()

@@ -24,10 +24,16 @@ Process model (fixed 0.5 s grid anchored at t = 0, air transport on 0.1 s sub-st
   * Chemical scenario: open vessels evaporate (Mackay-Matsugu mass transfer at the downflow velocity, Raoult not needed - single liquids,
     NIST Antoine vapour pressure at the cabinet temperature); the H14 filters do not retain vapours, about 2/3 of the air is recirculated and
     the unducted exhaust returns the vapour to the room (the cabinet is not a fume hood).
-  * Electrical: electronics + LED + UV + blower shaft power / efficiency + socket loads (5 A fuse)."""
+  * Electrical: electronics + LED + UV + blower shaft power / efficiency + socket loads (5 A fuse).
+
+Front panel (panel.press / panel.switch / panel.capture / panel.frame): the Sentinel Gold keys, 4-line LCD and LEDs and the key switch (panel_ui.json
+beside the contract, from manual chapter 2) run by the generic engine _panel_ui.py on the capabilities below; the menu functions (PIN session,
+modes, display settings, clock, field calibration, admin resets) are capabilities of their own (menu.enter ... maintenance.field_calibration)."""
 import copy
+import hashlib
 import json
 import math
+import tempfile
 import re
 import zlib
 from pathlib import Path
@@ -35,6 +41,11 @@ from pathlib import Path
 PROTOCOL_VERSION = "1.0.0"
 ASSET_TYPE_ID = "instrument.esco_ac24s8"
 CATALOG_ID = "CHEM-193"
+ASSET_VERSION = '1.1.2'
+EPOCH_S = 1767225600.0                  # device clock at host time 0: 2026-01-01 00:00:00 (assumption; SET CLOCK / SET DATE move it)
+PIN_DEFAULT = dict(fan='0000', admin='0009')
+MENU_BEEP_S = 2.0                       # the buzzer sounds when the menu is entered (monitoring suspended; length not stated)
+RECERT_S = 365 * 86400.0                # certification expires after a year (manual 5.2: at least once a year)
 ROOT = Path(__file__).resolve().parents[2]
 ASSET_DIR = ROOT / 'assets/expansion_batch04/t2_vacuum/esco_ac24s8'
 LIBS = {'liquids': 'liquid_library.json', 'instrument': 'instrument_model.json'}
@@ -90,7 +101,7 @@ FAULTS = ['exhaust_blower_failure', 'downflow_blower_failure', 'downflow_filter_
           'filter_clogged']
 FAN_STATES = ['off', 'warm_up', 'on', 'standby', 'post_purge']
 INTERLOCK = {'fan': ['POST_PURGE'], 'lamp': ['STANDBY', 'POST_PURGE'], 'socket': ['STANDBY', 'WARMING_UP', 'POST_PURGE'],   # panel keys refused per fan state
-             'uv': ['STANDBY', 'WARMING_UP', 'POST_PURGE'], 'sash': ['STANDBY', 'WARMING_UP'], 'mute': ['STANDBY']}                              # (manual 2.6 standby, 3.2 warm-up / post-purge)
+             'uv': ['STANDBY', 'WARMING_UP', 'POST_PURGE'], 'sash': ['STANDBY', 'WARMING_UP'], 'mute': ['STANDBY'], 'menu': ['STANDBY', 'POST_PURGE']}                              # (manual 2.6 standby, 3.2 warm-up / post-purge)
 ITEM_KINDS = ['open_vessel', 'closed_container', 'culture_plate', 'aerosol_source', 'equipment']
 _M64 = (1 << 64) - 1
 
@@ -290,14 +301,65 @@ cap('ledger.read', obj({}), obj(dict(ledger=FREE_OBJ)), {}, _BODY, '粒子数、
 cap('fault.inject', obj(dict(fault=enum(FAULTS), active=BOOL)), obj(dict(faults=array(TEXT, 0, 16))), dict(fault='exhaust_blower_failure', active=True), _BODY,
     '故障注入：排气/下行流风机失效、下行流过滤器泄漏、排气口被遮挡、窗位传感器故障、风速传感器未标定、过滤器堵塞（积尘到无法补偿）', 'evaluator', 'simulation')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=60.0), _BODY, '宿主推进仿真时钟', 'evaluator', 'simulation')
+PIN = {'type': 'string', 'pattern': '^[0-9]{4}$'}
+DATE = {'type': 'string', 'pattern': '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'}
+_MENU = ['menu_pad', 'control_panel']
+cap('menu.enter', obj(dict(pin=PIN), optional=('pin',)), obj(dict(level=TEXT)), dict(pin='0000'), _MENU,
+    'MENU键＋四位PIN进入菜单（FAN PIN：设置与模式；ADMIN PIN：另有维护模式、现场标定与管理员设置；维护模式中不要PIN）；进入时蜂鸣器响、监测暂停，预热中只认ADMIN PIN且预热暂停', 'agent', 'configuration')
+cap('menu.exit', obj({}), obj(dict(open=BOOL)), {}, _MENU, '退出菜单（恢复监测与预热计时）', 'agent', 'configuration')
+cap('pin.check', obj(dict(pin=PIN)), obj(dict(level=TEXT)), dict(pin='0000'), _MENU, '输入FAN PIN（风机键与从全关抬窗前的PIN）：返回权限级别', 'agent', 'configuration')
+cap('pin.set', obj(dict(which=enum(['fan', 'admin']), pin=PIN)), obj(dict(which=TEXT, pin_set=BOOL)), dict(which='fan', pin='1234'), _MENU,
+    '管理员设置：新ADMIN PIN或新FAN PIN（FAN PIN 0000为停用）', 'agent', 'configuration')
+cap('mode.set', obj(dict(mode=enum(['normal', 'quickstart', 'maintenance']))), obj(dict(mode=TEXT, maintenance=BOOL)), dict(mode='normal'), _MENU,
+    'SET MODE：正常、快速启动或维护模式（维护模式需ADMIN PIN：报警停用、联锁解除，LCD闪烁MAINTENANCE）', 'agent', 'configuration')
+cap('menu.configure', obj(dict(unit=enum(['metric', 'imperial']), filter_life_display=BOOL, language=enum(['english', 'german']), airflow_out_temp=BOOL,
+                               date_certified=DATE), optional=('unit', 'filter_life_display', 'language', 'airflow_out_temp', 'date_certified')),
+    obj(dict(settings=FREE_OBJ)), dict(unit='imperial'), _MENU,
+    '显示设置：风速单位（m/s或fpm）、过滤器寿命显示、LCD语言、环境温度超出18–30 °C时是否显示风速、认证日期（满一年提示重新认证；后四项需ADMIN PIN）', 'agent', 'configuration')
+cap('clock.set', obj(dict(date=DATE, time=dict(type='string', pattern='^[0-9]{2}:[0-9]{2}$')), optional=('date', 'time')), obj(dict(clock=TEXT)),
+    dict(time='08:30'), _MENU, 'SET CLOCK / SET DATE：设定LCD时钟（断电后保持）', 'agent', 'configuration')
+cap('meters.reset', obj(dict(meter=enum(['blower', 'uv', 'filter']))), obj(dict(meters=FREE_OBJ)), dict(meter='filter'), _MENU,
+    '管理员设置：风机、UV灯或过滤器小时计清零（更换后）', 'agent', 'configuration')
+cap('sash.set_cycles', obj(dict(count=integer(0, 16000))), obj(dict(sash_cycles=integer(0, 10 ** 6))), dict(count=0), _MENU, '管理员设置：窗电机循环次数清零或输入（0–16000）', 'agent',
+    'configuration')
+cap('settings.reset_default', obj({}), obj(dict(settings=FREE_OBJ)), {}, _MENU,
+    '管理员设置：恢复出厂设置（预热3 min、后吹扫0、UV定时60 min、公制、风量监测开、ADMIN PIN 0009、过滤器寿命不显示、FAN PIN 0000；标定与小时计不变）', 'agent', 'configuration')
+cap('maintenance.field_calibration', obj(dict(action=enum(['calibrate', 'reset']), measured_inflow_m_s=number('m/s', 0.1, 1.5)), optional=('measured_inflow_m_s',)),
+    obj(dict(calibrated=BOOL, display_inflow_m_s=nullable(number('m/s')))), dict(action='calibrate', measured_inflow_m_s=0.45), _MENU,
+    'FIELD CALIB（需ADMIN PIN）：AIRFLOW CALIBRATION按参考风速计测得的入流把显示对到参考值（风机工作、窗在安全高度）；RESET CALIBRATION恢复工厂标定', 'agent', 'configuration')
 UNSUPPORTED = {
     'decontamination.vhp': '过氧化氢（VHP/HPV）气体去污染需要选配的注入口与外部发生器（未选）；福尔马林/二氧化氯熏蒸由维护人员按手册另行进行。',
     'exhaust.thimble_collar': '套管排气罩（接建筑排风，需554 m³/h、38 Pa）为选件（未选）：本柜排气回到室内。',
     'service_fixture.open': '气体/真空/水服务旋塞为改装预留（未安装）。',
-    'maintenance.field_calibration': '现场风量标定与维护模式需ADMIN PIN与认证人员，不对agent开放（标定误差用fault.inject代理）。',
 }
 for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, _BODY, _v, 'agent', 'device_command')
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.esco_ac24s8 (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+def _hook_text(panel, ctx, s):
+    """Menu fields keyed in as numbers, written as text (time HH:MM, dates YYYY-MM-DD): s['pattern'].format(*fields)."""
+    return s['pattern'].format(*[int(round(panel._src({'field': f}, ctx) or 0)) for f in s['fields']])
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / switch / capture / frame (kept out of CAPS:
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # CAPS stays the instrument's own command set)
+PANEL_HOOKS = {'ac2_text': _hook_text}
 
 
 # ---------------------------------------------------------------- state slots
@@ -331,6 +393,8 @@ slot('indicator.uv', BOOL, '1', 'derived', 'uv_led', 'UV键橙色指示灯')
 slot('indicator.alarm', BOOL, '1', 'derived', 'alarm_led', '面板红色报警灯（有报警时亮）')
 slot('meters', FREE_OBJ, '1', 'derived', 'lcd_display', '诊断计时器：风机小时、过滤器小时与寿命百分比（10000 h）、UV灯小时与寿命百分比（2000 h）、窗电机循环次数')
 slot('settings.current', FREE_OBJ, '1', 'setpoint', 'control_panel', '当前菜单设置（预热、后吹扫、UV定时、静音时间、模式、风量监测、记录周期）')
+slot('menu.state', FREE_OBJ, '1', 'derived', 'menu_pad', '菜单与面板状态：菜单是否打开及权限级别、维护模式、单位、语言、过滤器寿命显示、超温显示风速、认证日期、FAN PIN是否启用、现场标定增益')
+slot('device.clock', TEXT, '1', 'derived', 'lcd_display', 'LCD时钟（YYYY-MM-DDTHH:MM:SS）')
 slot('operator.arms_in', BOOL, '1', 'setpoint', 'front_grille', '操作者手臂是否伸入工作区')
 slot('items.present', array(TEXT, 0, MAX_ITEMS), '1', 'derived', 'work_tray', '工作区内物品标识')
 slot('truth.airflow', FREE_OBJ, '1', 'process_truth', 'downflow_blower', '风量真值：两支路风量、占空比、过滤器阻力与积尘、真实入流/下行流速度、功耗', 'evaluator')
@@ -391,6 +455,15 @@ class EscoAc24s8Runtime:
                         dust_in_kg=0.0, vapour={})
         self.T_cab = None
         self._principals, self._requests, self._caller = {}, {}, None
+        self.menu = dict(open=False, level=None, beep_until=None)              # menu session (MENU + PIN)
+        self.pins = dict(PIN_DEFAULT)
+        self.maintenance = False
+        self.disp = dict(unit='metric', filter_life_display=False, language='english', airflow_out_temp=False, date_certified=None)
+        self.clock_offset = 0.0
+        self.cal_gain = 1.0                                                    # field calibration of the inflow display
+        self.power_epoch = 0
+        self.panel_capture_dir = None                                          # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self, hooks=PANEL_HOOKS)
 
     # ---- sessions
     @property
@@ -560,7 +633,7 @@ class EscoAc24s8Runtime:
                     self.sash_stop_at = None
                     self._sash_arrived()
         # ---- fan state timers
-        if self.fan in ('warm_up', 'post_purge'):
+        if self.fan in ('warm_up', 'post_purge') and not (self.fan == 'warm_up' and self.menu['open']):   # the menu pauses the warm-up
             self.fan_timer -= h
             if self.fan_timer <= 1e-9:
                 self.fan_timer = 0.0
@@ -723,17 +796,21 @@ class EscoAc24s8Runtime:
         elif st == 'full_open':
             if self.powered and self.fan != 'standby':
                 self.lamp = True                                     # light on to facilitate cleaning
-        else:
+        elif not self.maintenance:                                   # maintenance: the window moves without the light switching off (5.3.1)
             self.lamp = False                                        # stopped mid-way: lights off
         self._event('operation', 'SASH_' + st.upper(), f'窗停在{self.h * 1000:.0f} mm（{st}）')
 
     def _start_fan(self):
+        if self.maintenance:                                             # maintenance mode: fan without warm-up (manual 7 table)
+            self.fan, self.fan_timer = 'on', 0.0
+            self._event('operation', 'FAN_ON', '风机开启（维护模式，无预热）')
+            return
         self.fan = 'warm_up'
         self.fan_timer = self.settings['warm_up_s']
         self._event('operation', 'FAN_ON', '风机开启，开始预热')
 
     def _stop_fan(self):
-        if self.settings['post_purge_s'] > 0:
+        if self.settings['post_purge_s'] > 0 and not self.maintenance:
             self.fan, self.fan_timer = 'post_purge', self.settings['post_purge_s']
             self._event('operation', 'POST_PURGE', '风机关闭，后吹扫')
         else:
@@ -745,11 +822,17 @@ class EscoAc24s8Runtime:
         lo, hi = DOC['airflow_monitor_ambient_k']
         return self.settings['airflow_monitor'] and lo <= a <= hi
 
+    def _shows_airflow(self):
+        """Velocities on the LCD: with the monitor on; outside 18-30 C only when AIRFLOW OUT TEMP is set (the alarm stays off)."""
+        a = self.plant['ambient_k']
+        lo, hi = DOC['airflow_monitor_ambient_k']
+        return self.settings['airflow_monitor'] and (lo <= a <= hi or self.disp['airflow_out_temp'])
+
     def _display(self, which):
-        if not self.powered or self.fan in ('off', 'warm_up', 'standby') or not self._monitor_enabled():
+        if not self.powered or self.fan in ('off', 'warm_up', 'standby') or not self._shows_airflow():
             return None
         if which == 'in':
-            v = self.Q['exh'] / (W_INT * H_SAFE)                      # exhaust sensor calibrated at the safe height
+            v = self.Q['exh'] / (W_INT * H_SAFE) * self.cal_gain      # exhaust sensor calibrated at the safe height (field calibration gain)
             if 'airflow_sensor_uncalibrated' in self.faults:
                 v *= 1.25
             ch = 1
@@ -777,7 +860,7 @@ class EscoAc24s8Runtime:
 
     def _update_warnings(self):
         W = {}
-        if self.plant is None or not self.powered:
+        if self.plant is None or not self.powered or self.maintenance or self.menu['open']:   # maintenance: alarms off; menu: not monitoring (2.1)
             self.warnings = W
             return
         st = self._sash_state()
@@ -800,11 +883,46 @@ class EscoAc24s8Runtime:
                 W.pop('REPLACE_SASH_MOTOR', None)
                 W.pop('STOP_USING_SASH', None)
                 W[code] = f'窗电机循环{sc}次'
+        if self.disp['date_certified'] is not None and self._clock_text()[:10] >= self._expiry():
+            W['RECERTIFICATION'] = '认证已过期：请联系服务重新认证（Call Service for re-certification）'
         self.warnings = W                                            # a blown socket fuse is not a panel alarm (manual alarm list): socket.on false + event
 
     def _audible(self):
+        if self.menu['beep_until'] is not None and self.t < self.menu['beep_until']:
+            return True                                              # menu entry beep
         loud = {'SASH_ALARM', 'AIRFLOW_FAIL', 'SASH_ERROR'} & set(self.warnings)
         return bool(loud) and not (self.muted_until is not None and self.t < self.muted_until)
+
+    # ---- the Sentinel Gold menu (manual 2.2): PIN session, clock, display settings
+    def _clock_s(self):
+        return EPOCH_S + self.t + self.clock_offset
+
+    def _clock_text(self):
+        import datetime
+        return datetime.datetime.fromtimestamp(math.floor(self._clock_s()), tz=datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
+    def _expiry(self):
+        import datetime
+        d = datetime.date.fromisoformat(self.disp['date_certified'])
+        return (d + datetime.timedelta(days=365)).isoformat()
+
+    def _menu_state(self):
+        return dict(open=self.menu['open'], level=self.menu['level'], maintenance=self.maintenance, fan_pin_set=self.pins['fan'] != '0000',
+                    calibration_gain=self.cal_gain, **self.disp)
+
+    def _need_admin(self):
+        self._need_power()
+        if not (self.menu['open'] and self.menu['level'] == 'admin'):
+            raise ActionRejected('ADMIN_PIN_REQUIRED')
+
+    def _level(self, pin):
+        if pin is None:
+            raise ActionRejected('WRONG_PIN')
+        if pin == self.pins['admin']:
+            return 'admin'
+        if pin == self.pins['fan']:
+            return 'fan'
+        raise ActionRejected('WRONG_PIN')
 
     # ---- commands
     def invoke(self, capability_id, **args):
@@ -812,7 +930,7 @@ class EscoAc24s8Runtime:
             raise ActionRejected('UNSUPPORTED')
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
         out = fn(**args)
-        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'datalog.read'):
+        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'datalog.read', 'panel.capture', 'panel.frame'):
             self.revision += 1
         if capability_id != 'sim.step':
             self._update_warnings()
@@ -845,10 +963,12 @@ class EscoAc24s8Runtime:
         self._need_plant()
         if on and not self.powered:
             self.powered = True
+            self.power_epoch += 1
             self.next_log = self.t
             self._event('system', 'POWER_ON', '钥匙开关接通')
         elif not on and self.powered:
             self.powered = False
+            self.menu = dict(open=False, level=None, beep_until=None)
             self.fan, self.fan_timer = 'off', 0.0
             self.lamp = self.socket = self.uv = False
             self.uv_left = None
@@ -863,7 +983,9 @@ class EscoAc24s8Runtime:
         return self._cmd_power_set(on=not self.powered)
 
     def _interlock(self, what):
-        """Buttons disabled during warm-up / post-purge / standby (manual 3.2, 2.6); INTERLOCK lists the codes per key."""
+        """Buttons disabled during warm-up / post-purge / standby (manual 3.2, 2.6); INTERLOCK lists the codes per key; defeated in maintenance."""
+        if self.maintenance:
+            return
         code = {'standby': 'STANDBY', 'warm_up': 'WARMING_UP', 'post_purge': 'POST_PURGE'}.get(self.fan)
         if code in INTERLOCK[what]:
             raise ActionRejected(code)
@@ -871,7 +993,7 @@ class EscoAc24s8Runtime:
     def _cmd_fan_set(self, state):
         self._need_power()
         self._interlock('fan')
-        if state in ('on', 'standby') and self._sash_state() == 'closed':
+        if state in ('on', 'standby') and self._sash_state() == 'closed' and not self.maintenance:
             raise ActionRejected('SASH_CLOSED')
         if state == 'on':
             if self.fan == 'off':
@@ -897,7 +1019,7 @@ class EscoAc24s8Runtime:
         self._need_power()
         self._interlock('fan')
         if self.fan == 'off':
-            if self._sash_state() == 'closed':
+            if self._sash_state() == 'closed' and not self.maintenance:     # maintenance: fan and light also with the sash closed
                 raise ActionRejected('SASH_CLOSED')
             self._start_fan()
         else:
@@ -907,7 +1029,7 @@ class EscoAc24s8Runtime:
     def _cmd_lamp_toggle(self):
         self._need_power()
         self._interlock('lamp')
-        if not self.lamp and self._sash_state() == 'closed':
+        if not self.lamp and self._sash_state() == 'closed' and not self.maintenance:
             raise ActionRejected('SASH_CLOSED')
         self.lamp = not self.lamp
         return dict(on=self.lamp)
@@ -924,6 +1046,8 @@ class EscoAc24s8Runtime:
         self._need_power()
         self._interlock('uv')
         if not self.uv:
+            if self.maintenance:
+                raise ActionRejected('MAINTENANCE_MODE')                   # UV interlocked in maintenance mode (manual 7 table)
             if self._sash_state() != 'closed':
                 raise ActionRejected('SASH_NOT_CLOSED')
             if self.fan != 'off':
@@ -972,9 +1096,120 @@ class EscoAc24s8Runtime:
         self.muted_until = self.t + self.settings['mute_s']
         return dict(muted_until_s=self.muted_until)
 
+    def _cmd_menu_enter(self, pin=None):
+        self._need_power()
+        self._interlock('menu')                                                  # standby: only the FAN key; post-purge: keys disabled
+        level = 'admin' if self.maintenance and pin is None else self._level(pin)     # maintenance mode: menu without PIN (manual 7, table)
+        if self.fan == 'warm_up' and level != 'admin':
+            raise ActionRejected('ADMIN_PIN_REQUIRED')                     # during warm-up only the ADMIN PIN opens the menu (2.2.1.5)
+        self.menu = dict(open=True, level=level, beep_until=self.t + MENU_BEEP_S)
+        self._event('operation', 'MENU_ENTER', f'进入菜单（{level}）：监测暂停' + ('，预热暂停' if self.fan == 'warm_up' else ''))
+        return dict(level=level)
+
+    def _cmd_menu_exit(self):
+        self._need_power()
+        if self.menu['open']:
+            self._event('operation', 'MENU_EXIT', '退出菜单')
+        self.menu = dict(open=False, level=None, beep_until=None)
+        return dict(open=False)
+
+    def _cmd_pin_check(self, pin):
+        self._need_power()
+        return dict(level=self._level(pin))
+
+    def _cmd_pin_set(self, which, pin):
+        self._need_admin()
+        self.pins[which] = pin
+        self._event('operation', 'PIN_SET', f'新的{which.upper()} PIN已设定')
+        return dict(which=which, pin_set=pin != '0000')
+
+    def _cmd_mode_set(self, mode):
+        self._need_power()
+        if not self.menu['open']:
+            raise ActionRejected('MENU_CLOSED')
+        if mode == 'maintenance':
+            if self.menu['level'] != 'admin':
+                raise ActionRejected('ADMIN_PIN_REQUIRED')
+            self.maintenance = True
+            self._event('operation', 'MAINTENANCE_MODE', '维护模式：报警停用、联锁解除')
+        else:
+            self.maintenance = False
+            self.settings['mode'] = mode
+            self._event('operation', 'MODE_' + mode.upper(), f'{mode}模式')
+        return dict(mode=mode, maintenance=self.maintenance)
+
+    def _cmd_menu_configure(self, unit=None, filter_life_display=None, language=None, airflow_out_temp=None, date_certified=None):
+        self._need_power()
+        if any(v is not None for v in (filter_life_display, language, airflow_out_temp, date_certified)):
+            self._need_admin()                                            # admin settings (2.2.4); the unit is under SETTINGS
+        if date_certified is not None:
+            import datetime
+            try:
+                datetime.date.fromisoformat(date_certified)
+            except ValueError:
+                raise ActionRejected('INVALID_DATE') from None
+            if not '2000-01-01' <= date_certified <= '2099-12-31':
+                raise ActionRejected('INVALID_DATE')
+        for k, v in dict(unit=unit, filter_life_display=filter_life_display, language=language, airflow_out_temp=airflow_out_temp, date_certified=date_certified).items():
+            if v is not None:
+                self.disp[k] = v
+        return dict(settings=self._menu_state())
+
+    def _cmd_clock_set(self, date=None, time=None):
+        self._need_power()
+        import datetime
+        cur = self._clock_text()
+        try:
+            d = datetime.datetime.strptime(f'{date or cur[:10]} {time or cur[11:16]}', '%Y-%m-%d %H:%M').replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            raise ActionRejected('INVALID_DATE') from None
+        self.clock_offset = d.timestamp() - (EPOCH_S + self.t) + (0 if time else float(cur[17:19]))
+        self._event('operation', 'CLOCK_SET', f'时钟设为{self._clock_text()}')
+        return dict(clock=self._clock_text())
+
+    def _cmd_meters_reset(self, meter):
+        self._need_admin()
+        self.meters[dict(blower='blower_h', uv='uv_h', filter='filter_h')[meter]] = 0.0
+        self._event('maintenance', 'METER_RESET', f'{meter}小时计清零')
+        return dict(meters=dict(self.meters))
+
+    def _cmd_sash_set_cycles(self, count):
+        self._need_admin()
+        self.meters['sash_cycles'] = int(count)
+        return dict(sash_cycles=self.meters['sash_cycles'])
+
+    def _cmd_settings_reset_default(self):
+        self._need_admin()
+        self.settings.update(warm_up_s=DOC['warm_up_s']['default'], post_purge_s=DOC['post_purge_s']['default'], uv_timer_s=DOC['uv_timer_s']['default'],
+                             airflow_monitor=True)
+        self.disp.update(unit='metric', filter_life_display=False)
+        self.pins = dict(PIN_DEFAULT)
+        self._event('operation', 'RESET_DEFAULT', '恢复出厂设置（标定与小时计不变）')
+        return dict(settings=dict(self.settings, **self._menu_state()))
+
+    def _cmd_maintenance_field_calibration(self, action, measured_inflow_m_s=None):
+        self._need_admin()
+        if action == 'reset':
+            self.cal_gain = 1.0
+            self._event('maintenance', 'CALIBRATION_RESET', '恢复工厂标定')
+            return dict(calibrated=False, display_inflow_m_s=self._display('in'))
+        if self.fan != 'on' or self._sash_state() != 'safe' or measured_inflow_m_s is None:
+            raise ActionRejected('NOT_CALIBRATABLE')                      # fan running, sash at the working height, a reference reading
+        raw = self.Q['exh'] / (W_INT * H_SAFE)
+        gain = measured_inflow_m_s / raw if raw > 1e-6 else 0.0
+        if not 0.7 <= gain <= 1.3:
+            raise ActionRejected('CALIBRATION_ERROR')                     # the sensor cannot be brought to the reference (manual: CALIBRATION ERROR)
+        self.cal_gain = gain
+        self.faults.discard('airflow_sensor_uncalibrated')                # the field calibration removes SENSOR UNCALIBRATED
+        self._event('maintenance', 'FIELD_CALIBRATION', f'现场标定：参考入流{measured_inflow_m_s:.2f} m/s')
+        return dict(calibrated=True, display_inflow_m_s=self._display('in'))
+
     def _cmd_settings_configure(self, **kw):
         self._need_power()
-        if self.fan in ('warm_up', 'post_purge', 'standby'):
+        admin_menu = self.menu['open'] and self.menu['level'] == 'admin'
+        if self.fan == 'warm_up' and admin_menu and kw.get('warm_up_s') is None:
+            pass                                                         # the ADMIN PIN menu works during warm-up, except WARM UP (2.2.1.5)
+        elif self.fan in ('warm_up', 'post_purge', 'standby'):
             raise ActionRejected({'warm_up': 'WARMING_UP', 'post_purge': 'POST_PURGE', 'standby': 'STANDBY'}[self.fan])
         self.settings.update({k: v for k, v in kw.items() if v is not None})
         return dict(settings=dict(self.settings))
@@ -1097,6 +1332,54 @@ class EscoAc24s8Runtime:
     def _cmd_sim_step(self, dt_s):
         return dict(time_s=self.step(dt_s))
 
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the panel sees: the agent slots plus the key switch, the power-up count and the LCD clock as numbers."""
+        out = self.read('agent')
+        c = self._clock_text()
+        out.update({'host.powered': self.powered and self.plant is not None, 'host.power_epoch': self.power_epoch,
+                    'host.clock': dict(year=int(c[0:4]), month=int(c[5:7]), day=int(c[8:10]), hour=int(c[11:13]), minute=int(c[14:16]))})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything)."""
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_switch(self, input_id, position):
+        return self._panel(self.panel.switch, input_id, position)
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
+
     # ---- read
     def read(self, visibility='agent'):
         pw = self.powered and self.plant is not None
@@ -1121,6 +1404,8 @@ class EscoAc24s8Runtime:
                              filter_life_fraction=max(0.0, 1.0 - self.meters['filter_h'] / DOC['filter_life_h']), uv_h=self.meters['uv_h'],
                              uv_life_fraction=max(0.0, 1.0 - self.meters['uv_h'] / DOC['uv_lamp_life_h']), sash_cycles=self.meters['sash_cycles'])
         out['settings.current'] = dict(self.settings)
+        out['menu.state'] = self._menu_state()
+        out['device.clock'] = self._clock_text()
         out['operator.arms_in'] = self.arms_in
         out['items.present'] = sorted(self.items)
         if visibility != 'agent':
@@ -1191,7 +1476,7 @@ class EscoAc24s8Session:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -1225,13 +1510,13 @@ class EscoAc24s8Session:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             h._caller = self._principal
             try:
                 result = _jsonable(h.invoke(capability_id, **arguments))
@@ -1274,6 +1559,9 @@ ERROR_ZH = {
     'SASH_MOTOR_LOCKED': '窗电机循环达到16000次：锁定', 'NO_ALARM': '没有可静音的报警', 'ITEM_EXISTS': '物品标识已存在', 'TOO_MANY_ITEMS': '物品数量超过上限',
     'MISSING_SETTING': '缺少必需参数（开口容器须给液体、质量与液面面积；气溶胶源须给发生速率；设备须给功率）', 'UNKNOWN_LIQUID': '液体不在液体库中',
     'NO_SPACE': '台面放不下（物品占地合计超过0.56 m²）', 'UNKNOWN_ITEM': '物品不存在',
+    'WRONG_PIN': 'PIN不对', 'ADMIN_PIN_REQUIRED': '需要用ADMIN PIN进入菜单（预热中、维护模式、现场标定与管理员设置）', 'MENU_CLOSED': '菜单未打开（先menu.enter）',
+    'INVALID_DATE': '日期或时间无效（认证年份2000–2099）', 'NOT_CALIBRATABLE': '标定需风机工作、窗在安全工作高度并给出参考入流',
+    'CALIBRATION_ERROR': '标定失败：参考值与传感器偏差过大（CALIBRATION ERROR）', 'MAINTENANCE_MODE': '维护模式中UV灯联锁',
 }
 _P = ['PLANT_REQUIRED']
 _PW = _P + ['POWER_OFF']
@@ -1282,29 +1570,45 @@ CAP_ERRORS = {
     'plant.configure': ['SEED_FIXED'], 'power.set': _P, 'power.toggle': _P,
     'fan.set': _PW + INTERLOCK['fan'] + ['SASH_CLOSED', 'FAN_NOT_RUNNING'], 'fan.toggle': _PW + INTERLOCK['fan'] + ['SASH_CLOSED'],
     'lamp.toggle': _PW + INTERLOCK['lamp'] + ['SASH_CLOSED'], 'socket.toggle': _PW + INTERLOCK['socket'] + ['FUSE_BLOWN'],
-    'uv.toggle': _PW + INTERLOCK['uv'] + ['SASH_NOT_CLOSED', 'FAN_RUNNING'],
+    'uv.toggle': _PW + INTERLOCK['uv'] + ['SASH_NOT_CLOSED', 'FAN_RUNNING', 'MAINTENANCE_MODE'],
     'sash.move': _PW + INTERLOCK['sash'] + ['SASH_SENSOR_ERROR', 'SASH_MOTOR_LOCKED', 'SASH_AT_LIMIT'], 'alarm.mute': _PW + INTERLOCK['mute'] + ['NO_ALARM'],
     'settings.configure': _PW + _IL,
     'item.place': _P + ['SASH_CLOSED', 'ITEM_EXISTS', 'TOO_MANY_ITEMS', 'MISSING_SETTING', 'UNKNOWN_LIQUID', 'NO_SPACE'], 'item.remove': _P + ['SASH_CLOSED', 'UNKNOWN_ITEM'],
     'operator.set': _P + ['SASH_CLOSED'], 'datalog.read': _PW, 'events.read': [], 'truth.inspect': [], 'ledger.read': [], 'fault.inject': _P, 'sim.step': [],
+    'menu.enter': _PW + INTERLOCK['menu'] + ['WRONG_PIN', 'ADMIN_PIN_REQUIRED'], 'menu.exit': _PW, 'pin.check': _PW + ['WRONG_PIN'], 'pin.set': _PW + ['ADMIN_PIN_REQUIRED'],
+    'mode.set': _PW + ['MENU_CLOSED', 'ADMIN_PIN_REQUIRED'], 'menu.configure': _PW + ['ADMIN_PIN_REQUIRED', 'INVALID_DATE'], 'clock.set': _PW + ['INVALID_DATE'],
+    'meters.reset': _PW + ['ADMIN_PIN_REQUIRED'], 'sash.set_cycles': _PW + ['ADMIN_PIN_REQUIRED'], 'settings.reset_default': _PW + ['ADMIN_PIN_REQUIRED'],
+    'maintenance.field_calibration': _PW + ['ADMIN_PIN_REQUIRED', 'NOT_CALIBRATABLE', 'CALIBRATION_ERROR'],
+    **{k: ([] if k == 'panel.frame' else _P) for k in PANEL_CAPS},
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 PRECONDITIONS = {
     'plant.configure': ('首次声明时设定噪声种子与过滤器/计时器初值；之后再声明须给同一种子（初值只在首次生效）', ['plant.configured']),
     'power.set': ('断电时风机、照明、UV、插座全部停止，窗停在原位', ['power.on']), 'power.toggle': ('同power.set', ['power.on']),
-    'fan.set': ('已通电；待机时只能用风机键，预热中只能关风机，后吹扫中不可；开风机或待机时窗不能全关；待机只能从工作状态进入', ['power.on', 'fan.state', 'sash.status']),
+    'fan.set': ('已通电；待机时只能用风机键，预热中只能关风机，后吹扫中不可；开风机或待机时窗不能全关；待机只能从工作状态进入；维护模式中无预热与后吹扫、窗全关时也可开风机', ['power.on', 'fan.state', 'sash.status']),
     'fan.toggle': ('同fan.set（关→开、开/待机→关）', ['power.on', 'fan.state', 'sash.status']),
-    'lamp.toggle': ('已通电；不在待机或后吹扫；窗全关时不能开灯', ['power.on', 'fan.state', 'sash.status']),
+    'lamp.toggle': ('已通电；不在待机或后吹扫；窗全关时不能开灯（维护模式中可以）', ['power.on', 'fan.state', 'sash.status']),
     'socket.toggle': ('已通电；不在待机、预热或后吹扫；熔断器未熔断（熔断后断电一次即视为更换熔断器）', ['power.on', 'fan.state', 'socket.on']),
-    'uv.toggle': ('已通电；不在待机、预热或后吹扫；开UV需窗全关且风机停（后吹扫结束）', ['power.on', 'fan.state', 'sash.status']),
+    'uv.toggle': ('已通电；不在待机、预热或后吹扫；开UV需窗全关且风机停（后吹扫结束）；维护模式中UV联锁', ['power.on', 'fan.state', 'sash.status']),
     'sash.move': ('已通电；不在待机或预热；窗位传感器正常；窗电机未锁定；该方向还有停位', ['power.on', 'fan.state', 'sash.status', 'meters']),
     'alarm.mute': ('已通电；不在待机（待机时只有风机键可用）；有窗位、风量或窗位传感器报警', ['power.on', 'fan.state', 'alarms.active']),
-    'settings.configure': ('已通电；不在预热、待机或后吹扫中（待机时只有风机键可用）', ['power.on', 'fan.state']),
+    'settings.configure': ('已通电；不在预热、待机或后吹扫中（待机时只有风机键可用）；预热中用ADMIN PIN打开菜单时可设置（预热时间除外）', ['power.on', 'fan.state', 'menu.state']),
     'item.place': ('窗至少在安全工作高度；标识唯一；开口容器给液体、质量与液面面积，气溶胶源给速率，设备给功率；台面放得下', ['sash.opening_m', 'items.present']),
     'item.remove': ('窗至少在安全工作高度；物品存在', ['sash.opening_m', 'items.present']),
     'operator.set': ('伸手时窗至少在安全工作高度', ['sash.opening_m']), 'datalog.read': ('已通电', ['power.on']), 'fault.inject': ('无', ['plant.configured']),
+    'menu.enter': ('已通电；不在待机或后吹扫（维护模式除外）；PIN为FAN或ADMIN PIN（维护模式中可不给）；预热中只认ADMIN PIN', ['power.on', 'fan.state', 'menu.state']), 'menu.exit': ('已通电', ['menu.state']),
+    'pin.check': ('已通电', ['power.on']), 'pin.set': ('已用ADMIN PIN进入菜单', ['menu.state']),
+    'mode.set': ('菜单已打开；维护模式需ADMIN PIN', ['menu.state']), 'menu.configure': ('已通电；单位以外的项需ADMIN PIN进入菜单；认证年份2000–2099', ['menu.state']),
+    'clock.set': ('已通电；日期时间有效', ['device.clock']), 'meters.reset': ('已用ADMIN PIN进入菜单', ['menu.state', 'meters']),
+    'sash.set_cycles': ('已用ADMIN PIN进入菜单', ['menu.state', 'meters']), 'settings.reset_default': ('已用ADMIN PIN进入菜单', ['menu.state']),
+    'maintenance.field_calibration': ('已用ADMIN PIN进入菜单；标定时风机工作、窗在安全工作高度并给出参考入流；增益0.7–1.3', ['menu.state', 'fan.state', 'sash.status']),
+    **{k: ('面板按当前画面处理手势（手册第2章Sentinel Gold）：钥匙开关断开时只有钥匙开关起作用；MENU与四位PIN进入菜单，上/下移动或改值，SET确认，MENU返回；'
+           '主画面上/下按住移动电动窗，SET静音或进入诊断；被调用能力的前提同样适用（被拒时显示仪器提示，手势不被接受）',
+           ['power.on', 'fan.state', 'sash.status', 'menu.state', 'alarms.active'])
+       for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
+    'panel.capture': ('无（断电时为暗屏）', ['power.on']), 'panel.frame': ('无', ['plant.configured']),
 }
-_EVOLVE = ['fan.state', 'fan.remaining_s', 'sash.opening_m', 'sash.status', 'lamp.on', 'uv.on', 'uv.remaining_s', 'display.inflow_m_s', 'display.downflow_m_s',
+_EVOLVE = ['device.clock', 'menu.state', 'fan.state', 'fan.remaining_s', 'sash.opening_m', 'sash.status', 'lamp.on', 'uv.on', 'uv.remaining_s', 'display.inflow_m_s', 'display.downflow_m_s',
            'airflow.status', 'cabinet.temperature_k', 'alarms.active', 'alarm.audible', 'indicator.fan', 'indicator.light', 'indicator.uv', 'indicator.alarm', 'meters',
            'socket.on', 'truth.airflow', 'truth.containment', 'truth.workzone', 'truth.items']
 _IND = ['indicator.fan', 'indicator.light', 'indicator.uv', 'indicator.alarm', 'alarm.audible', 'alarms.active']
@@ -1320,14 +1624,25 @@ EFFECTS = {
     'operator.set': ['operator.arms_in', 'truth.containment'], 'fault.inject': ['truth.faults', 'sash.status', 'display.inflow_m_s', 'airflow.status', 'truth.airflow'] + _IND,
     'sim.step': ['clock.time_s'],
 }
+EFFECTS['power.set'] = EFFECTS['power.set'] + ['menu.state']
 EFFECTS['power.toggle'] = list(EFFECTS['power.set'])
 EFFECTS['fan.toggle'] = list(EFFECTS['fan.set'])
+EFFECTS.update({'menu.enter': ['menu.state'] + _IND, 'menu.exit': ['menu.state'] + _IND, 'pin.check': [], 'pin.set': ['menu.state'],
+                'mode.set': ['menu.state', 'settings.current'] + _IND, 'menu.configure': ['menu.state', 'display.inflow_m_s', 'display.downflow_m_s'] + _IND,
+                'clock.set': ['device.clock'] + _IND, 'meters.reset': ['meters'] + _IND, 'sash.set_cycles': ['meters'] + _IND,
+                'settings.reset_default': ['settings.current', 'menu.state', 'airflow.status', 'display.inflow_m_s', 'display.downflow_m_s'] + _IND,
+                'maintenance.field_calibration': ['menu.state', 'display.inflow_m_s', 'airflow.status', 'truth.faults'] + _IND})
 ON_STEP = {
     'sim.step': _EVOLVE + ['clock.time_s'], 'fan.set': _EVOLVE, 'fan.toggle': _EVOLVE, 'sash.move': _EVOLVE, 'power.set': _EVOLVE, 'power.toggle': _EVOLVE,
     'uv.toggle': ['uv.on', 'uv.remaining_s', 'indicator.uv', 'meters', 'truth.workzone'], 'item.place': ['truth.items', 'truth.workzone'], 'operator.set': ['truth.workzone'],
     'fault.inject': _EVOLVE, 'plant.configure': _EVOLVE, 'socket.toggle': _EVOLVE,
 }
-for _k in ('lamp.toggle', 'uv.toggle', 'item.place', 'item.remove', 'operator.set', 'settings.configure', 'alarm.mute'):
+_PANEL_FX = list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in EFFECTS.get(c, [])))
+_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+for _k in _GESTURES:
+    EFFECTS[_k] = list(_PANEL_FX)                                           # a gesture changes what the commands it calls change
+for _k in ('lamp.toggle', 'uv.toggle', 'item.place', 'item.remove', 'operator.set', 'settings.configure', 'alarm.mute', 'menu.enter', 'menu.exit', 'mode.set',
+           'menu.configure', 'clock.set', 'meters.reset', 'sash.set_cycles', 'settings.reset_default', 'maintenance.field_calibration', *_GESTURES):
     ON_STEP[_k] = _EVOLVE                                      # load, temperature, evaporation, protection and alarm re-sound follow at the next step
 ON_STEP_ZH = {
     'sim.step': '按0.5 s网格（空气输运0.1 s子步）积分：电动窗、预热/后吹扫计时、ECM风机自补偿与风量、过滤器积尘、气幕保护、粒子/气溶胶/蒸气输运与沉积、UV、电功率与柜温、计时器与报警、数据记录',
@@ -1340,8 +1655,10 @@ ON_STEP_ZH = {
 EXEC_TEXT = {
     'sash.move': ('sash.opening_m到达目标停位（或按住时间结束）后sash.status为closed/safe/full_open/intermediate', '途中断电或窗位故障时停在原位'),
     'fan.set': ('fan.state经warm_up（预热时间）后为on；关风机时经post_purge后为off', '预热中关风机直接进入后吹扫/停止'),
+    **{k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看',
+           '一个手势可依次调用多个能力，前面已提交的不回滚；被拒的能力不改变状态') for k in _GESTURES},
 }
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 for _k in ('sash.move', 'item.place', 'item.remove', 'operator.set'):
     RESOURCES[_k] = ['host_clock', 'sash_window']
 OBSERVES = {'sash.move': ['sash.opening_m', 'sash.status'], 'fan.set': ['fan.state', 'airflow.status'], 'fan.toggle': ['fan.state'], 'uv.toggle': ['uv.remaining_s']}
@@ -1351,15 +1668,30 @@ CAP_SOURCES.update({'power.set': [_BR], 'power.toggle': [_BR], 'fan.set': [_MN, 
                     'uv.toggle': [_MN, _PR], 'sash.move': [_MN, _BR, _PR], 'alarm.mute': [_MN], 'settings.configure': [_MN], 'item.place': [_MN, _NI, _SIM],
                     'item.remove': [_MN], 'operator.set': [_MN, _SIM], 'datalog.read': [_BR, _MN], 'fault.inject': [_MN, _SIM]})
 CAP_SOURCES.update({k: [_BR, _MN] for k in UNSUPPORTED})
+_MENU_FUNCTIONS = ('menu.enter', 'menu.exit', 'pin.check', 'pin.set', 'mode.set', 'menu.configure', 'clock.set', 'meters.reset', 'sash.set_cycles',
+                   'settings.reset_default', 'maintenance.field_calibration')
+CAP_SOURCES.update({k: [_MN, _SIM] for k in _MENU_FUNCTIONS})
+CAP_SOURCES.update({k: [_MN, _BR, _SIM] for k in PANEL_CAPS})
 PARAM_ZH = {'ambient_k': '环境温度', 'pressure_pa': '大气压', 'room_particles_m3': '室内≥0.5 µm粒子数浓度', 'room_dust_kg_m3': '室内粉尘质量浓度',
             'cross_draft_m_s': '前开口处的室内横向气流速度', 'noise_seed': '噪声随机数种子（只在首次声明时生效）', 'downflow_filter_dust_kg': '下行流过滤器已积尘量（维护史）',
-            'exhaust_filter_dust_kg': '排气过滤器已积尘量', 'filter_hours_h': '过滤器/风机小时计初值', 'uv_hours_h': 'UV灯小时计初值', 'sash_cycles': '窗电机循环次数初值'}
+            'exhaust_filter_dust_kg': '排气过滤器已积尘量', 'filter_hours_h': '过滤器/风机小时计初值', 'uv_hours_h': 'UV灯小时计初值', 'sash_cycles': '窗电机循环次数初值',
+            'pin': '四位PIN', 'which': 'FAN或ADMIN PIN', 'mode': '工作模式', 'unit': '风速单位', 'filter_life_display': '显示过滤器寿命', 'language': 'LCD语言',
+            'airflow_out_temp': '超温时显示风速', 'date_certified': '认证日期', 'date': '日期YYYY-MM-DD', 'time': '时间HH:MM', 'meter': '小时计', 'count': '循环次数',
+            'action': '标定或恢复工厂标定', 'measured_inflow_m_s': '参考风速计测得的入流', 'input_id': '面板输入件（按键、钥匙开关）', 'duration_s': '按住时间',
+            'position': '开关位置', 'display_id': '显示件（LCD或指示灯）'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.class_ii_bsc_airflow.limitations。'
 CAP_LIMITS = {
+    **{k: ['面板层按panel_ui.json解释手势并调用本运行层的同名能力；菜单树由手册2.2各节与p.31-32的MENU OPTIONS画面重建（p.13菜单图无文字）；LCD为4行24字符（假设）；'
+           '手势不推进仿真时钟（按住上/下键的时长作为窗的移动时间交给sash.move）。'] for k in PANEL_CAPS},
     'sash.move': ['按住式电动窗按“按住直到停位或按住hold_s秒”抽象；窗速为工程值；窗位磁开关容差±5 mm（工程值）。'],
     'item.place': ['物品不改变工作区气流分布（只按是否在前格栅区计挡格栅比例）；开口容器为单一液体、等温（不计蒸发冷却）；气溶胶源按恒定发生速率。'],
     'operator.set': ['手臂对气幕的影响按有效入流速度的工程折减；没有手臂几何与机器人接触。'],
-    'settings.configure': ['FAN PIN、ADMIN PIN、日期、语言与单位不建模；菜单进入时预热暂停不建模（预热或后吹扫中拒绝设置）。'],
+    'settings.configure': ['直接调用不要求PIN（菜单的PIN会话见menu.enter）；预热或后吹扫中拒绝设置。'],
+    'maintenance.field_calibration': ['现场标定按一点增益把显示入流对到参考风速计读数（手册两点标定的失效点由标称点偏移推得，ADC细节不建模）；增益超出0.7–1.3视为CALIBRATION ERROR；'
+                                      '标定清除“传感器未标定”状态。'],
+    'mode.set': ['维护模式：报警停用、按键联锁（预热/后吹扫/待机）解除、窗中途停住时照明不关；UV只在窗全关时可开的联锁保留（假设）。'],
+    'menu.enter': ['进入菜单时蜂鸣器响2 s（时长为假设），菜单打开期间不监测（报警清空），预热计时暂停。'],
+    'clock.set': ['LCD时钟=宿主时钟（2026-01-01 00:00起，假设）+偏移，不含时区。'],
 }
 LIMITATIONS = [
     '所选配置：AC2-4S8-TU（4 ft、不锈钢侧壁S系列、220–240 V）＋UV-30A灯；排气直接回室内（套管排气罩未选）；VHP注入口、服务旋塞、IV杆与电源插座为预留未装；操作细节（预热、后吹扫、UV定时、静音、窗状态与报警、待机、快速启动）取自同平台AC2 Gen 3手册（已标注same_platform_ac2_g3）。',
@@ -1384,7 +1716,7 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if CAPS[k]['visibility'] != 'agent' else []
+    extra = ['ACCESS_DENIED'] if ALL_CAPS[k]['visibility'] != 'agent' else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1449,7 +1781,7 @@ def export_esco_ac24s8_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'EscoAc24s8Session.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',

@@ -26,16 +26,23 @@ Process model (fixed 1 s grid anchored at t = 0; SI units, temperatures in K, th
   * Panel: alarms with delays, signal tone and mute / test, BMS remote relay, battery back-up (charging, 72 h), lock code and programming mode,
     optional monitoring log (VisioNize abstraction).
   * Ledgers: cabinet energy (conduction, air exchange, refrigeration, items in / out, melt water wiped), water (frost, melt water) and
-    interior air moles close exactly; electrical energy and room heat are accumulated."""
+    interior air moles close exactly; electrical energy and room heat are accumulated.
+
+Front panel (panel.press / panel.switch / panel.capture / panel.frame): the four-digit LED display, the status and softkey lights, the softkeys,
+numerical keys and switches of the manual (panel_ui.json beside the contract) run by the generic engine _panel_ui.py on top of the capabilities
+below (no second copy of the logic)."""
 import copy
+import hashlib
 import json
 import math
 import re
+import tempfile
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
 ASSET_TYPE_ID = "instrument.eppendorf_cryocubef570n"
 CATALOG_ID = "CHEM-197"
+ASSET_VERSION = '1.1.0'
 ROOT = Path(__file__).resolve().parents[2]
 ASSET_DIR = ROOT / 'assets/expansion_batch04/t2_vacuum/eppendorf_cryocubef570n'
 LIBS = {'instrument': 'instrument_model.json'}
@@ -282,6 +289,26 @@ for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, _BODY, _v, 'agent', 'device_command')
 
 
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.eppendorf_cryocubef570n (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / switch / capture / frame (kept out of CAPS:
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # CAPS stays the instrument's own command set)
+
+
 # ---------------------------------------------------------------- state slots
 SLOTS = {}
 
@@ -407,10 +434,13 @@ class EppendorfCryocubef570nRuntime:
         self.events, self.events_dropped = [], 0
         self.log, self.next_log = [], 0.0
         self.revision = 0
+        self.power_epoch = 0                                                 # switch-ons at the mains switch (the panel shows the version)
+        self.panel_capture_dir = None                                        # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
         self.led = dict(e_initial_j=0.0, e_conduction_in_j=0.0, e_exchange_in_j=0.0, e_refrigeration_out_j=0.0, e_items_added_j=0.0, e_items_removed_j=0.0,
                         e_meltwater_wiped_j=0.0, w_deposited_kg=0.0, w_wiped_kg=0.0, w_deiced_kg=0.0, n_initial_mol=0.0, n_door_mol=0.0, n_vent_mol=0.0,
                         electric_energy_j=0.0, room_heat_j=0.0)
         self._principals, self._requests, self._caller = {}, {}, None
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self)
 
     # ---- sessions
     @property
@@ -739,7 +769,7 @@ class EppendorfCryocubef570nRuntime:
             raise ActionRejected('UNSUPPORTED')
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
         out = fn(**args)
-        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'inventory.read', 'log.read'):
+        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'inventory.read', 'log.read', 'panel.capture', 'panel.frame'):
             self.revision += 1
         if self.plant is not None and 'alarms.active' in EFFECTS.get(capability_id, ()):
             self._update_alarms(timed=False)
@@ -768,6 +798,7 @@ class EppendorfCryocubef570nRuntime:
         if on and not self.mains_switch:
             self.mains_switch = True
             self.reached = False
+            self.power_epoch += 1
             self._event('system', 'POWER_ON', '主电源开关接通：显示软件版本，压缩机延时启动')
         elif not on and self.mains_switch:
             self.mains_switch = False
@@ -1019,6 +1050,53 @@ class EppendorfCryocubef570nRuntime:
     def _cmd_sim_step(self, dt_s):
         return dict(time_s=self.step(dt_s))
 
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the panel firmware sees: the agent slots plus whether the panel has supply, the switch-on count and the lamp test."""
+        out = self.read('agent')
+        pon = self.plant is not None and self._panel_on()
+        out.update({'host.powered': pon, 'host.power_epoch': self.power_epoch, 'host.lamp_test': bool(pon and self.t < self.test_until)})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything)."""
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_switch(self, input_id, position):
+        return self._panel(self.panel.switch, input_id, position)
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
+
     # ---- read
     def read(self, visibility='agent'):
         pc = self.plant is not None
@@ -1037,7 +1115,7 @@ class EppendorfCryocubef570nRuntime:
                'alarms.active': al, 'alarm.audible': self._audible() if pc else False, 'alarm.remote_relay': bool(pc and self.relay),
                'indicator.temp_alarm': test or bool(pon and ({'TEMP_HIGH', 'TEMP_LOW'} & set(al))), 'indicator.power_fail': test or bool(pon and 'POWER_FAIL' in al),
                'indicator.battery_low': test or bool(pon and 'BATTERY_LOW' in al), 'indicator.fault': test or bool(pon and codes), 'indicator.filter_clean': test or bool(pon and 'FILTER_CLEAN' in al),
-               'indicator.remote': test or bool(pon and self.plant.get('remote_connected')), 'indicator.lock': test or bool(pon and self.programming and self.code != '0000'),
+               'indicator.remote': test or bool(pon and self.plant.get('remote_connected')), 'indicator.lock': test or bool(pon and self.programming),
                'door.outer_angle_rad': self.door, 'door.handle_angle_rad': self.handle, 'door.cylinder_locked': self.cyl, 'inventory.count': len(self.items)}
         for i in range(N_COMP):
             out[f'door.inner{i + 1}_angle_rad'] = self.inner[i]
@@ -1101,7 +1179,7 @@ class EppendorfCryocubef570nSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -1135,13 +1213,13 @@ class EppendorfCryocubef570nSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             h._caller = self._principal
             try:
                 result = _jsonable(h.invoke(capability_id, **arguments))
@@ -1198,6 +1276,7 @@ CAP_ERRORS = {
     'load.remove': _P + ['UNKNOWN_ITEM', 'OUTER_DOOR_CLOSED', 'INNER_DOOR_CLOSED'], 'inventory.read': [],
     'interior.dry': _P + ['POWER_ON', 'OUTER_DOOR_CLOSED', 'FROST_REMAINING'], 'log.read': _P + ['NO_MONITORING'],
     'events.read': [], 'truth.inspect': [], 'ledger.read': [], 'fault.inject': _P, 'sim.step': [],
+    **{k: ([] if k == 'panel.frame' else _P) for k in PANEL_CAPS},
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 PRECONDITIONS = {
@@ -1218,6 +1297,10 @@ PRECONDITIONS = {
     'load.remove': ('物品存在；外门与其内门打开', ['door.outer_angle_rad', 'inventory.count']),
     'interior.dry': ('主开关已断、外门打开、霜已化完', ['power.on', 'door.outer_angle_rad']), 'log.read': ('接了监控（plant.configure monitoring）', ['plant.configured']),
     'fault.inject': ('无', ['plant.configured']),
+    **{k: ('面板按当前画面与手册规则处理手势：面板无电时只有主电源开关、电池开关与auto vent键起作用；不在编程模式时软键与8/9只显示存储值，锁定码启用时lock先要求输入四位码；'
+           '编程模式中软键（或8/9）开始输入，数字键输入、C删除、E确认（超限显示EE）；被调用能力的前提同样适用（被拒时显示仪器自己的指示，手势不被接受）',
+           ['power.on', 'battery.on', 'panel.programming', 'panel.code_active']) for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
+    'panel.capture': ('无（面板无电时为暗屏与暗灯）', ['power.on']), 'panel.frame': ('无', ['plant.configured']),
 }
 _LAMPS_ALARMS = ['alarms.active', 'alarm.audible', 'alarm.remote_relay'] + _INDS
 _EVOLVE = (['state.current', 'temperature.interior_k', 'display.temperature', 'display.code', 'display.flashing', 'truth.thermal', 'truth.items', 'truth.power']
@@ -1240,10 +1323,16 @@ EFFECTS = {
 }
 EFFECTS['power.toggle'] = list(EFFECTS['power.set'])
 EFFECTS['battery.toggle'] = list(EFFECTS['battery.set'])
+_PANEL_EFFECTS = list(dict.fromkeys(s for c in _panel_ui.spec_capabilities(PANEL_SPEC) for s in EFFECTS.get(c, [])))
+_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+for _k in _GESTURES:
+    EFFECTS[_k] = list(_PANEL_EFFECTS)                                       # a gesture changes what the commands it calls change
 _STEPPED = ('plant.configure', 'power.set', 'power.toggle', 'battery.set', 'battery.toggle', 'settings.configure', 'alarm.mute', 'door.move', 'inner_door.move', 'vent.press',
             'vent.deice', 'seals.clean', 'filter.clean', 'load.place', 'load.remove', 'interior.dry', 'fault.inject')
 ON_STEP = {k: list(_EVOLVE) for k in _STEPPED}
 ON_STEP['sim.step'] = _EVOLVE + ['clock.time_s']
+for _k in _GESTURES:
+    ON_STEP[_k] = list(_EVOLVE)
 ON_STEP_ZH = {
     'sim.step': '按1 s网格积分：内室空气、内胆、泡沫与物品传热，开门空气交换与结霜，制冷量（比例积分控制、冷凝温度、供电上限）与电功率，压力平衡，融霜，电池与滤网，报警与灯光',
     'power.set': '压缩机降温或断电后腔温回升', 'door.move': '开门空气交换使腔温升高、结霜；关门后负压与压力平衡', 'inner_door.move': '打开的内室与室内空气交换',
@@ -1254,7 +1343,9 @@ ON_STEP_ZH = {
 }
 EXEC_TEXT = {'power.set': ('state.current经pull_down（约3 h 53 min，空柜从20 °C）变为running', '断电后腔温逐步回升'),
              'door.move': ('door.outer_angle_rad为给定角度', '负压未平衡时拒绝开门')}
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+EXEC_TEXT.update({k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看',
+                      '一个手势可依次调用多个能力，前面已提交的不回滚（与真实面板相同）；被拒的能力不改变状态') for k in _GESTURES})
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 for _k in ('load.place', 'load.remove', 'door.move', 'inner_door.move', 'vent.deice', 'seals.clean', 'filter.clean', 'interior.dry', 'lock.set'):
     RESOURCES[_k] = ['host_clock', 'robot_or_operator']
 OBSERVES = {'power.set': ['state.current', 'temperature.interior_k'], 'door.move': ['door.outer_angle_rad', 'temperature.interior_k'],
@@ -1265,22 +1356,26 @@ CAP_SOURCES.update({'plant.configure': [_MN, _SIM], 'load.place': [_BR, _MN, _WB
                     'log.read': [_BR, _WB, _SIM], 'events.read': [_SIM], 'truth.inspect': [_SIM], 'ledger.read': [_SIM], 'fault.inject': [_MN, _SIM], 'sim.step': [_SIM],
                     'settings.configure': [_MN, _BR, _WB], 'door.move': [_MN, _BR], 'vent.press': [_MN, _BR, _PG]})
 CAP_SOURCES.update({k: [_BR, _MN] for k in UNSUPPORTED})
+CAP_SOURCES.update({k: [_MN, _SIM] for k in PANEL_CAPS})
 PARAM_ZH = {'ambient_k': '室温', 'relative_humidity': '室内相对湿度（0–1）', 'pressure_pa': '大气压', 'mains_v': '电源电压', 'monitoring': '是否接监控（VisioNize）',
             'remote_connected': '是否由计算机远程控制（remote control灯）', 'noise_seed': '噪声随机数种子（只在首次声明时生效）', 'on': '是否接通',
             'code': '四位锁定码（0000为停用）', 'set_point_k': '设定腔温', 'high_alarm_k': '高温报警限', 'low_alarm_k': '低温报警限', 'onsite_delay_s': '现场报警延时',
             'remote_delay_s': '远程报警延时', 'locked': '锁定或解锁', 'angle_rad': '开启角', 'compartment': '内室（1为最上层）', 'item_id': '物品编号',
             'kind': '物品类型（冻存架、冻存盒、样品、其他）', 'label': '外部样品管理系统中的位置/标签', 'water_kg': '含水（水溶液样品）质量', 'polymer_kg': '塑料（管、盒）质量',
             'cardboard_kg': '纸盒质量', 'steel_kg': '不锈钢（冻存架）质量', 'aluminium_kg': '铝（冻存架）质量', 'initial_k': '放入时的温度', 'last': '最近记录条数',
-            'fault': '故障名', 'active': '注入或清除', 'since_s': '起始时间', 'dt_s': '推进时间'}
+            'fault': '故障名', 'active': '注入或清除', 'since_s': '起始时间', 'dt_s': '推进时间', 'input_id': '面板输入件（软键、数字键、C/E键、auto vent键、开关）',
+            'duration_s': '按住时间', 'position': '开关位置', 'display_id': '显示件（数码管或指示灯）'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.ult_freezer_thermal.limitations。'
 CAP_LIMITS = {
     'door.move': ['开门空气交换按门洞浮力流（流量系数按开门60 s后29 min恢复标定，标定假设外门与5扇内门全开60 s；只开外门约6 min、开一扇内门约13 min恢复）；'
                   '每个内室独立与室内交换，内室之间的上下烟囱效应与冷空气从上层经下层溢出不建模；外门开度按线性比例；内门缝隙按比例；'
                   '负压按泄压阀（自动约20 s、按键约10 s、冰堵约2600 s时间常数）与门封漏气（1800 s）并联平衡，负压门力阈值为工程值。'],
     'load.place': ['物品为集总热节点（水/冰相变按纯水，冻存保护剂与过冷不建模；内部导热阻力不计，大块物品冻结快于实际，例如20 kg温水约4.7 h冻透）；对流与隔板接触换热为工程值；库存位置由宿主声明，本机不识别样品。'],
-    'settings.configure': ['设定与报警限按手册范围；软键操作序列（PP、---、EE显示）抽象为一次设定调用。'],
+    'settings.configure': ['设定与报警限按手册范围；直接调用为一次设定（锁定码停用时不要求编程模式）；手册的软键操作序列（lock、软键、数字、E，PP、---、EE显示）由前面板层panel.press实现并调用本能力。'],
     'power.set': ['复叠压缩机抽象为一台比例积分调节制冷量的热泵（真实机组的启停/调速策略未公开）；压缩机延时启动不单独建模。'],
     'log.read': ['监控记录是VisioNize等外部监控的抽象（每60 s一条）；本机自身的温度记录与圆图记录仪（选件）不建模。'],
+    **{k: ['面板层按panel_ui.json（手册页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟；手册未写之处的选择见panel_ui.json的assumptions。']
+       for k in PANEL_CAPS},
 }
 LIMITATIONS = [
     '所选配置：CryoCube F570n，230 V 50 Hz，左侧把手，5个内室（订货号F571300031，2026 brochure版本）；风冷，聚氨酯130 mm墙，无真空隔热板；CO₂/LN₂备份、圆图记录仪与VisioNize硬件未选。',
@@ -1305,7 +1400,7 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if CAPS[k]['visibility'] != 'agent' else []
+    extra = ['ACCESS_DENIED'] if ALL_CAPS[k]['visibility'] != 'agent' else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1367,7 +1462,7 @@ def export_eppendorf_cryocubef570n_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'EppendorfCryocubef570nSession.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',

@@ -27,14 +27,25 @@ Process model (SI; host clock only - step(dt_s) is the only way time advances):
   - wash log (programme, cycles, alarms), waste and buffer bookkeeping, energy ledger; the plate content (unbound / non-specific / specific amounts,
     cells, residual volumes, clogs) is evaluator truth.
 Generic schema / capability / session framework follows the CHEM-162 runtime.
+
+1.1.0 adds the touch-screen software of the 405 TS (Getting Started Guide 1171009 Rev C) as device commands (DEVICE_CAPS): the protocol store and editor,
+protocol runs with Wash / Aspirate / Dispense / Prime / Soak / Delay / Remark / Loop steps, the onboard Maintenance / QC / sample protocols, washer
+settings (manifold, magnet height offset, sensors, vacuum dissipate delay), AutoPrime, the clock, Self-Check and STOP; and the front panel (panel.press /
+panel.touch / panel.capture / panel.frame): the touch screen and the power switch of panel_ui.json beside the contract, run by the generic engine
+_panel_ui.py on top of these commands (no second copy of the logic).
 """
 from __future__ import annotations
 
 import copy
+import datetime
 import functools
 import hashlib
 import json
 import math
+import os
+import re
+import tempfile
+import weakref
 from pathlib import Path
 
 import numpy as np
@@ -400,6 +411,187 @@ slot('truth.idle_s', number('s'), 's', 'process_truth', 'manifold_tubes', '洗�
 MAX_RECORDS, MAX_EVENTS, MAX_PLATES = 200, 400, 20
 
 
+# ---------------------------------------------------------------- 1.1.0: the touch-screen software of the 405 TS (Getting Started Guide 1171009 Rev C,
+# printed page numbers): the protocol store and editor (Define, p.32-33), protocol runs with Wash / Aspirate / Dispense / Prime / Soak / Delay / Remark /
+# Loop steps (p.43-46, 52-54), Maintenance / QC / sample protocols (p.41-43), washer settings (Instrument > Options: manifold, magnet height offset,
+# sensors, vacuum dissipate delay; p.23, 61, 69-70), AutoPrime (p.70-71, 79), the clock (p.23), Self-Check (p.25, 34) and STOP (p.79, 94).  Quick Prime
+# and Quick Wash are prime.run / wash.run.  Each function is a device command (DEVICE_CAPS); the front panel (panel_ui.json) calls them.
+ASSET_VERSION = '1.1.1'
+CLOCK_EPOCH = datetime.datetime(2026, 1, 1, 8, 0, tzinfo=datetime.timezone.utc)   # instrument clock (GMT) at simulation time 0
+MONTHS = ('January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December')
+MAX_PROTOCOLS = 99                          # user protocols (assumption: the limit is not in the guide)
+MAX_STEPS = 50                              # steps of one protocol (assumption)
+MAX_SEGMENTS = 5000                         # steps of one run after the loops are unrolled (assumption)
+NAME_PATTERN = '^[A-Za-z0-9_.-][A-Za-z0-9_. -]{0,31}$'   # protocol (file) names (assumption)
+XY_STEP_M = 0.0457e-3                       # carrier X / Y offset per step (assumption; 45 steps put the tubes at the side of a 96-well well, p.53-54)
+XY_RANGE = (-60, 60)                        # assumption
+TUBE_OUTER_R_M = 0.6e-3                     # aspirate tube outer radius (assumption)
+TROUGH_M3 = 90e-6                           # priming trough content with its drain closed (submerge; assumption: the AutoClean trough takes 93 mL, p.81)
+TROUGH_Z = -PARK_TIP_M + 0.005              # manifold position in the priming trough (as prime.run)
+DELAY_MAX_S = SUBMERGE_MAX_S = 86400.0      # assumption
+LOOP_RANGE = (1, 999)                       # assumption
+MAGNET_OFFSET_MM = (0.0, 10.0)              # assumption
+VAC_DISSIPATE_S = (0.0, 60.0)               # 1 s per litre of waste container (p.23); range assumption
+AUTOPRIME_INTERVAL_MIN = (1, 1440)          # idle interval up to 24 h, in minutes (p.71)
+TIME_ZONE_H = (-12, 14)
+PLATE_STEPS = ('wash', 'aspirate', 'dispense', 'soak')
+PROTOCOL_KINDS = ['maintenance', 'qc', 'sample', 'user']
+ACTION_STEPS = ('wash', 'aspirate', 'dispense', 'soak', 'prime', 'delay')
+TEXT60 = dict(type='string', maxLength=60)
+XY = integer(*XY_RANGE)
+_ASP = dict(travel_rate=TRAVEL_E, aspirate_delay_s=number('s', 0.0, ASP_DELAY_MAX_S), aspirate_z_steps=integer(1, 250), aspirate_x_steps=XY, aspirate_y_steps=XY,
+            secondary_aspirate=BOOL, secondary_z_steps=integer(1, 250), secondary_x_steps=XY, secondary_y_steps=XY)
+_DISP = dict(buffer=enum(BOTTLES), dispense_volume_m3=number('m3', *VOLUME_RANGE_M3), dispense_rate=integer(1, 11), dispense_z_steps=integer(40, 250),
+             dispense_x_steps=XY, dispense_y_steps=XY, vacuum_delay_m3=number('m3', *VAC_DELAY_M3), predispense=BOOL, predispense_rate=integer(3, 11),
+             predispense_volume_m3=number('m3', 50e-9, 3000e-9))
+_SHAKE = dict(shake=BOOL, shake_s=number('s', 1.0, SHAKE_SOAK_MAX_S), shake_intensity=enum(list(SHAKE_TAU)), soak=BOOL, soak_s=number('s', 1.0, SHAKE_SOAK_MAX_S),
+              home_carrier=BOOL)
+STEP_SCHEMAS = {
+    'wash': obj(dict(type=enum(['wash']), cycles=integer(*CYCLES_RANGE), **_DISP, **_ASP, bottom_wash=BOOL, bottom_wash_rate=integer(1, 11),
+                     bottom_wash_volume_m3=number('m3', 25e-9, 3000e-9), predispense_between_cycles=BOOL, **_SHAKE, final_aspirate=BOOL)),
+    'aspirate': obj(dict(type=enum(['aspirate']), **_ASP)),
+    'dispense': obj(dict(type=enum(['dispense']), **_DISP)),
+    'prime': obj(dict(type=enum(['prime']), buffer=enum(BOTTLES), volume_m3=number('m3', 5e-6, 0.5e-3), rate=integer(1, 11), submerge=BOOL,
+                      submerge_s=number('s', 1.0, SUBMERGE_MAX_S))),
+    'soak': obj(dict(type=enum(['soak']), **_SHAKE)),
+    'delay': obj(dict(type=enum(['delay']), duration_s=number('s', 0.0, DELAY_MAX_S), message=TEXT60, wait_for_user=BOOL)),
+    'remark': obj(dict(type=enum(['remark']), text=TEXT60)),
+    'loop': obj(dict(type=enum(['loop']), count=integer(*LOOP_RANGE))),
+    'end_loop': obj(dict(type=enum(['end_loop']))),
+}
+STEP = {'anyOf': list(STEP_SCHEMAS.values())}
+_WASH_DEF = dict(type='wash', cycles=3, buffer='A', dispense_volume_m3=300e-9, dispense_rate=7, dispense_z_steps=DISP_Z_DEFAULT, dispense_x_steps=0, dispense_y_steps=0,
+                 vacuum_delay_m3=10e-9, predispense=False, predispense_rate=9, predispense_volume_m3=50e-9, travel_rate='3', aspirate_delay_s=0.0,
+                 aspirate_z_steps=ASP_Z_DEFAULT, aspirate_x_steps=0, aspirate_y_steps=0, secondary_aspirate=False, secondary_z_steps=ASP_Z_DEFAULT,
+                 secondary_x_steps=0, secondary_y_steps=0, bottom_wash=False, bottom_wash_rate=7, bottom_wash_volume_m3=250e-9, predispense_between_cycles=False,
+                 shake=False, shake_s=5.0, shake_intensity='medium', soak=False, soak_s=30.0, home_carrier=False, final_aspirate=True)
+STEP_DEFAULTS = {   # the defaults of the Wash Step Parameters Table (p.43-46); the other steps take the same values (assumption where the guide is silent)
+    t: {k: _WASH_DEF[k] if k in _WASH_DEF else None for k in s['properties']} for t, s in STEP_SCHEMAS.items()}
+STEP_DEFAULTS['aspirate']['type'], STEP_DEFAULTS['dispense']['type'], STEP_DEFAULTS['soak']['type'] = 'aspirate', 'dispense', 'soak'
+STEP_DEFAULTS['soak']['soak'] = True
+STEP_DEFAULTS['prime'].update(type='prime', buffer='A', volume_m3=300e-6, rate=9, submerge=False, submerge_s=300.0)
+STEP_DEFAULTS['delay'].update(type='delay', duration_s=60.0, message='', wait_for_user=False)
+STEP_DEFAULTS['remark'].update(type='remark', text='')
+STEP_DEFAULTS['loop'].update(type='loop', count=2)
+STEP_DEFAULTS['end_loop'].update(type='end_loop')
+
+
+def _st(kind, **kw):
+    return dict(STEP_DEFAULTS[kind], **kw)
+
+
+def _pr(buffer, ml, soak_s=None):
+    return _st('prime', buffer=buffer, volume_m3=ml * 1e-6, submerge=soak_s is not None, submerge_s=soak_s or 300.0)
+
+
+def _ask(text):
+    return _st('delay', duration_s=0.0, message=text, wait_for_user=True)
+
+
+PREDEFINED = {   # name: (kind, steps): the onboard protocols of p.41-43 that fit this configuration (96-tube manifold, buffer switching, no vacuum filtration /
+    # magnets); contents beyond the guide's description (volumes, rates, the decontamination passes) are assumptions (PREDEFINED_NOTE)
+    'W-DAY_RINSE': ('maintenance', [_pr('A', 500)]),
+    'W-OVERNIGHT_LOOP': ('maintenance', [_st('loop', count=999), _pr('A', 50, soak_s=4 * 3600.0), _st('end_loop')]),
+    'W-RINSE_AND_SOAK': ('maintenance', [_pr('A', 500, soak_s=300.0)]),
+    'W-DECONTAMINATE': ('maintenance', [_ask('Connect the disinfectant to Buffers A-D, then press Continue.'), _pr('A', 100), _pr('B', 100), _pr('C', 100),
+                                        _pr('D', 100, soak_s=1200.0), _ask('Connect a bottle of water to Buffers A-D, then press Continue.'), _pr('A', 100),
+                                        _pr('B', 100), _pr('C', 100), _pr('D', 100, soak_s=1200.0)]),
+    'W-LONG_SHUTDOWN': ('maintenance', [_ask('Connect the disinfectant to Buffer A, then press Continue.'), _pr('A', 300),
+                                        _ask('Connect a bottle of water to Buffer B, then press Continue.'), _pr('B', 300),
+                                        _ask('Remove the bottle from Buffer C (air), then press Continue.'), _pr('C', 300)]),
+    'PRIME_ALL_BUFFRS': ('maintenance', [_pr('D', 300), _pr('C', 300), _pr('B', 300), _pr('A', 300)]),
+    'QC_96_DISP_TEST': ('qc', [_st('dispense', dispense_rate=6)]),
+    'QC_96_EVAC_TEST': ('qc', [_st('wash')]),
+    'W-CELLWASH_96': ('sample', [_st('wash', dispense_rate=1, dispense_volume_m3=200e-9, vacuum_delay_m3=200e-9, travel_rate='6CW', aspirate_z_steps=50)]),
+    'W-Corning_FLAT': ('sample', [_st('wash')]),
+}
+PREDEFINED_NOTE = ('板载程序按说明书p.41-43的描述建模：W-DAY_RINSE（A瓶500 mL）、W-RINSE_AND_SOAK（再浸泡5 min）、W-OVERNIGHT_LOOP（每4 h灌注并浸泡，近似无限循环999次）、'
+                   'W-DECONTAMINATE（提示后A–D各灌消毒液，浸泡20 min；再提示接水，A–D各冲洗并浸泡20 min）、W-LONG_SHUTDOWN（消毒液A、水B、空气C，带提示）、'
+                   'PRIME_ALL_BUFFRS（从D到A依次灌注）、QC_96_DISP_TEST（300 µL/孔、流速6的分配）、QC_96_EVAC_TEST（默认三循环清洗）、W-CELLWASH_96（6CW、'
+                   '流速1、抽吸高度50步）、W-Corning_FLAT（默认清洗）；说明书未写的体积、流速与每段次数为假设；192管、384孔、真空过滤与磁珠程序不在本配置列表中。')
+WASHER_DEFAULT = dict(manifold='96', magnet_in_use=False, magnet_offset_mm=0.0, sensor_fluid=True, sensor_flow=True, sensor_waste=True, sensor_vac_filter=False,
+                      vacuum_dissipate_s=0.0)
+AUTOPRIME_DEFAULT = dict(enabled=False, interval_min=60, submerge_min=0, rate=9, volume_m3=50e-6, buffer='A')
+WASHER = obj(dict(manifold=enum(['96', '192']), magnet_in_use=BOOL, magnet_offset_mm=number('mm', *MAGNET_OFFSET_MM), sensor_fluid=BOOL, sensor_flow=BOOL,
+                  sensor_waste=BOOL, sensor_vac_filter=BOOL, vacuum_dissipate_s=number('s', *VAC_DISSIPATE_S)))
+AUTOPRIME = obj(dict(enabled=BOOL, interval_min=integer(*AUTOPRIME_INTERVAL_MIN), submerge_min=integer(0, 1440), rate=integer(1, 11),
+                     volume_m3=number('m3', 5e-6, 0.5e-3), buffer=enum(BOTTLES)))
+EDITOR = obj(dict(name=TEXT, plate_type=TEXT, steps=array(FREEOBJ, 0, MAX_STEPS), source=nullable(TEXT), clipboard=INT))
+RUN_STATE = obj(dict(operation_id=TEXT, name=TEXT, test=BOOL, status=enum(['running', 'waiting', 'prompt', 'completed', 'failed', 'cancelled']), step=nullable(INT),
+                     step_type=nullable(TEXT), segment=INT, segments=INT, prompt=nullable(TEXT), wait_until_s=nullable(number('s')), error_code=nullable(TEXT),
+                     records=array(TEXT, 0, MAX_RECORDS), started_s=number('s'), finished_s=nullable(number('s'))))
+PROTOCOL_ROW = obj(dict(name=TEXT, kind=enum(PROTOCOL_KINDS), locked=BOOL, plate_type=TEXT, steps=array(FREEOBJ, 0, MAX_STEPS), modified_s=nullable(number('s')),
+                        last_run_s=nullable(number('s'))))
+DEVICE_CAPS = {}
+
+
+def dcap(k, s, o, e, meaning, kind='device_command', c=('touch_screen',)):
+    DEVICE_CAPS[k] = dict(input_schema=s, output_schema=o, example_arguments=e, component_ids=list(c), function_zh=meaning, visibility='agent', kind=kind)
+
+
+dcap('protocol.edit_open', obj(dict(name=nullable(TEXT))), obj(dict(editor=EDITOR)), dict(name=None),
+     'Define：Create（name为null，新程序）或选中程序后Edit：把程序装入编辑缓冲区（锁定程序也可打开，另存为新名即复制，p.32）')
+dcap('protocol.edit_info', obj(dict(name=TEXT, plate_type=TEXT)), obj(dict(editor=EDITOR)), dict(name='MY_WASH', plate_type='costar_3590'),
+     '编辑中的程序名（键盘）与板型（Info / Plate Type，取板模板库中适合96管洗头的板）')
+dcap('protocol.edit_step', obj(dict(action=enum(['insert', 'replace', 'cut', 'paste']), index=integer(1, MAX_STEPS + 1), step=nullable(STEP))),
+     obj(dict(editor=EDITOR)), dict(action='insert', index=1, step=STEP_DEFAULTS['wash']),
+     '编辑步骤：Add（在选中步骤或<end of steps>之前插入；Loop同时插入End Loop）、Edit（替换同类型步骤的参数）、剪切与粘贴步骤（p.32）')
+dcap('protocol.edit_close', obj({}), obj({}), {}, '离开编辑屏（未保存的修改丢弃）')
+dcap('protocol.save', obj({}), obj(dict(name=TEXT, steps=INT)), {}, 'Save：通过Validate检查后把编辑缓冲区存为用户程序（出现在Home列表；锁定程序不能覆盖，p.33）')
+dcap('protocol.validate', obj({}), obj(dict(valid=BOOL, steps=INT)), {}, 'Validate：检查步骤顺序与参数（循环成对、非空、细胞洗涤选件），不通过时以错误代码拒绝（p.33）', 'query')
+dcap('protocol.delete', obj(dict(name=TEXT)), obj(dict(name=TEXT)), dict(name='MY_WASH'), 'Define > Delete：永久删除用户程序（锁定的板载程序不能删，p.33）')
+dcap('protocol.run', obj(dict(name=TEXT)), OPERATION, dict(name='W-DAY_RINSE'),
+     'Home/Maintenance：选中程序后Start：按步骤顺序运行（循环展开；Delay步骤计时或等待Continue；每个洗板/灌注步骤写一条记录）', c=('touch_screen', 'manifold', 'plate_carrier'))
+dcap('protocol.test_run', obj({}), OPERATION, {}, 'Test Run：不保存，直接运行编辑缓冲区中的程序（p.33）', c=('touch_screen', 'manifold', 'plate_carrier'))
+dcap('protocol.resume', obj({}), obj(dict(step=INT)), {}, 'Continue：确认Delay步骤的提示后继续运行（p.83）')
+dcap('run.stop', obj({}), obj(dict(stopped=TEXT)), {}, 'STOP：停止正在进行的运行（程序、Quick Prime/Wash、AutoPrime）；洗头停放、载板回初始位（p.79、94）')
+dcap('washer.configure', WASHER, obj(dict(settings=WASHER)), dict(WASHER_DEFAULT),
+     'Instrument > Options：洗头选择（与实际96管洗头不符时自检报错）、磁铁高度偏移（启用时加到所有抽吸/分配高度）、传感器启用（液体、流量、废液、真空过滤）与Vacuum Dissipate延时（p.23、61、69-70）')
+dcap('autoprime.configure', AUTOPRIME, obj(dict(autoprime=AUTOPRIME)), dict(AUTOPRIME_DEFAULT),
+     'Instrument > AutoPrime：空闲间隔（≤24 h）、浸没时长、流速、体积与缓冲阀；在Home屏空闲达到间隔时自动灌注（任何操作重新计时，p.70-71、79）')
+dcap('clock.set', obj(dict(time_zone_h=integer(*TIME_ZONE_H), date=dict(type='string', pattern=r'^\d{4}-\d{2}-\d{2}$'), time=dict(type='string', pattern=r'^\d{2}:\d{2}$'))),
+     obj(dict(local_time=TEXT)), dict(time_zone_h=1, date='2026-10-19', time='14:05'),
+     'Instrument > Next > Other > Set Time and Date：时区、日期与24小时制时间（程序的Last run / Last modified按此显示，p.23）')
+dcap('instrument.self_check', obj({}), obj(dict(passed=BOOL, error_code=nullable(TEXT))), {},
+     'Instrument > Self-Check：自检（载板与洗头回位、排空灌注槽、洗头设置与实际洗头比对），结果显示为通过或错误代码（p.25、34）', c=('touch_screen', 'manifold', 'prime_trough'))
+slot('protocols.list', array(PROTOCOL_ROW, 0, MAX_PROTOCOLS + len(PREDEFINED)), '1', 'setpoint', 'touch_screen',
+     '仪器存储的程序：板载维护/QC/示例程序（锁定）与用户程序（名称、板型、步骤、最后修改与最后运行时间）')
+slot('protocol.editor', nullable(EDITOR), '1', 'setpoint', 'touch_screen', 'Define编辑屏中的程序（名称、板型、步骤、剪贴板步数）；关机或离开编辑屏后为null')
+slot('protocol.run', nullable(RUN_STATE), '1', 'derived', 'touch_screen', '当前或最近一次程序运行：状态、第几步、提示、等待截止时间、错误代码与写下的记录')
+slot('washer.settings', WASHER, '1', 'setpoint', 'touch_screen', 'Instrument > Options中的洗板机设置')
+slot('autoprime.settings', AUTOPRIME, '1', 'setpoint', 'touch_screen', 'AutoPrime设置（默认关闭）')
+slot('clock.settings', obj(dict(time_zone_h=integer(*TIME_ZONE_H), offset_s=number('s'))), '1', 'setpoint', 'touch_screen',
+     '仪器时钟：时区与相对仿真时钟的偏移（本地时间 = 2026-01-01 08:00 GMT + 仿真时间 + 偏移 + 时区）')
+slot('selfcheck.last', nullable(obj(dict(passed=BOOL, error_code=nullable(TEXT), time_s=number('s')))), '1', 'derived', 'touch_screen', '最近一次自检的结果')
+slot('manifold.submerged', BOOL, '1', 'derived', 'manifold', '洗头管尖浸没在灌注槽液体中（浸没时管尖不会干涸堵塞）')
+slot('truth.trough_m3', number('m3'), 'm3', 'process_truth', 'prime_trough', '灌注槽中留存的液体（浸没时关闭排液；下次灌注或自检时排到废液）', 'evaluator',
+     reference='液体实际体积（室温）')
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as (scripts.)asset_runtime.biotek_405ts (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_PATH = ASSET_DIR / 'panel_ui.json'
+_PANEL_BUILD = os.environ.get('BIOTEK405_PANEL_BUILD') == '1' or not PANEL_PATH.is_file()   # the spec builder imports the runtime without the spec
+PANEL_SPEC = None if _PANEL_BUILD else _panel_ui.load_spec(PANEL_PATH, capabilities=set(CAPS) | set(DEVICE_CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}   # panel.press / touch / capture / frame (kept out of CAPS)
+ALL_CAPS = dict(CAPS, **DEVICE_CAPS, **PANEL_CAPS)                                 # (CAPS stays the 1.0.0 command set)
+_PANELS = weakref.WeakKeyDictionary()                                              # instance -> PanelUI (outside the instance dict)
+
+
+
 class _Sum:
     def __init__(self):
         self.s = 0.0
@@ -417,7 +609,786 @@ class _Sum:
         return self.s + self.c
 
 
-class Biotek405tsRuntime:
+class _TouchSoftware:
+    """1.1.0 device layer of Biotek405tsRuntime: what the 405 TS touch-screen software stores and does besides the 1.0.0 commands (block comment above
+    DEVICE_CAPS); also the host side of the front panel (panel_read / panel_invoke / panel_time, the panel.* commands)."""
+
+    def _init_device(self):
+        self.protocols = {n: dict(name=n, kind=k, locked=True, plate_type='costar_3590', steps=copy.deepcopy(s), modified_s=None, last_run_s=None)
+                          for n, (k, s) in PREDEFINED.items()}
+        self.editor = None
+        self.proto = None
+        self.washer = dict(WASHER_DEFAULT)
+        self.autoprime = dict(AUTOPRIME_DEFAULT)
+        self.clock = dict(time_zone_h=0, offset_s=0.0)
+        self.selfcheck = None
+        self.trough = 0.0
+        self.last_activity_s = 0.0          # AutoPrime counts idle time from the last touch / command / run (p.79)
+        self.last_run = None                # what the run screen shows after a run that is not a protocol
+        self.power_epoch = 0
+        self.panel_capture_dir = None
+        self._caller = None                 # principal of the session call in progress (a panel gesture acts as that caller)
+
+    # ---- values
+    def _device_values(self):
+        P, e = self.proto, self.editor
+        return {
+            'protocols.list': [dict(name=p['name'], kind=p['kind'], locked=p['locked'], plate_type=p['plate_type'], steps=copy.deepcopy(p['steps']),
+                                    modified_s=p['modified_s'], last_run_s=p['last_run_s']) for p in self.protocols.values()],
+            'protocol.editor': None if e is None else dict(name=e['name'], plate_type=e['plate_type'], steps=copy.deepcopy(e['steps']), source=e['source'],
+                                                           clipboard=len(e['clipboard'])),
+            'protocol.run': None if P is None else dict(operation_id=P['op'], name=P['name'], test=P['test'], status=P['status'], step=P['step'],
+                                                        step_type=P['step_type'], segment=P['i'], segments=len(P['segments']), prompt=P['prompt'],
+                                                        wait_until_s=P['wait_until'], error_code=P['code'], records=list(P['records']),
+                                                        started_s=P['started_s'], finished_s=P['finished_s']),
+            'washer.settings': dict(self.washer), 'autoprime.settings': dict(self.autoprime), 'clock.settings': dict(self.clock),
+            'selfcheck.last': None if self.selfcheck is None else dict(self.selfcheck), 'manifold.submerged': self._submerged(), 'truth.trough_m3': self.trough}
+
+    def _submerged(self):
+        return self.trough > 1e-12 and self.manifold <= TROUGH_Z + 1e-9
+
+    def _z_offset(self):
+        return self.washer['magnet_offset_mm'] * 1e-3 if self.washer['magnet_in_use'] else 0.0
+
+    def _proto_active(self):
+        return self.proto is not None and self.proto['status'] in ('running', 'waiting', 'prompt')
+
+    def _need_device(self):
+        self._need_plant()
+        self._need_power()
+
+    def _need_editor(self):
+        if self.editor is None:
+            raise ActionRejected('EDITOR_CLOSED')
+
+    @staticmethod
+    def _check_plate_type(plate_type):
+        e = plate_lib()['plates'].get(plate_type)
+        if e is None:
+            raise ActionRejected('UNKNOWN_PLATE_TYPE')
+        if not e['compatible_with_96_tube_single_manifold']:
+            raise ActionRejected('PLATE_INCOMPATIBLE')
+
+    # ---- dispatch (device commands and panel gestures; the 1.0.0 commands keep their own invoke)
+    def _invoke_any(self, capability_id, **a):
+        if capability_id in CAPS:
+            return self.invoke(capability_id, **a)
+        if capability_id in PANEL_CAPS:
+            validate(PANEL_CAPS[capability_id]['input_schema'], a)
+            return self._panel_command(capability_id, a)
+        d = DEVICE_CAPS.get(capability_id)
+        if d is None:
+            raise ActionRejected('UNKNOWN_CAPABILITY')
+        validate(d['input_schema'], a)
+        a = _ints(d['input_schema'], a)
+        out = getattr(self, '_dev_' + capability_id.replace('.', '_'))(**a)
+        if d['kind'] != 'query':
+            self.revision += 1
+            self.last_activity_s = self.t
+        return out
+
+    # ---- protocol store and editor (Define, p.32-33)
+    def _dev_protocol_edit_open(self, name):
+        self._need_device()
+        if name is None:
+            self.editor = dict(name='', plate_type='costar_3590', steps=[], source=None, clipboard=[])
+        else:
+            p = self.protocols.get(name)
+            if p is None:
+                raise ActionRejected('UNKNOWN_PROTOCOL')
+            self.editor = dict(name=name, plate_type=p['plate_type'], steps=copy.deepcopy(p['steps']), source=name, clipboard=[])
+        return dict(editor=self._device_values()['protocol.editor'])
+
+    def _dev_protocol_edit_info(self, name, plate_type):
+        self._need_device()
+        self._need_editor()
+        if name and not re.fullmatch(NAME_PATTERN, name):
+            raise ActionRejected('INVALID_NAME')
+        self._check_plate_type(plate_type)
+        self.editor.update(name=name, plate_type=plate_type)
+        return dict(editor=self._device_values()['protocol.editor'])
+
+    @staticmethod
+    def _block(steps, i):
+        """Indices [lo, hi) of the step at i, a whole Loop ... End Loop block when i is either end of a loop."""
+        t = steps[i]['type']
+        if t not in ('loop', 'end_loop'):
+            return i, i + 1
+        d, j = 0, i
+        step = 1 if t == 'loop' else -1
+        while 0 <= j < len(steps):
+            d += {'loop': 1, 'end_loop': -1}.get(steps[j]['type'], 0) * step
+            if d == 0:
+                break
+            j += step
+        return (i, j + 1) if t == 'loop' else (j, i + 1)
+
+    def _dev_protocol_edit_step(self, action, index, step):
+        self._need_device()
+        self._need_editor()
+        steps = self.editor['steps']
+        n = len(steps)
+        if action in ('insert', 'paste'):
+            if not 1 <= index <= n + 1:
+                raise ActionRejected('INVALID_ARGUMENT')
+            if action == 'insert':
+                if step is None or step['type'] == 'end_loop':
+                    raise ActionRejected('INVALID_ARGUMENT')
+                new = [step] + ([dict(type='end_loop')] if step['type'] == 'loop' else [])
+            else:
+                new = self.editor['clipboard']
+                if not new:
+                    raise ActionRejected('CLIPBOARD_EMPTY')
+            if n + len(new) > MAX_STEPS:
+                raise ActionRejected('TOO_MANY_STEPS')
+            steps[index - 1:index - 1] = copy.deepcopy(new)
+        else:
+            if not 1 <= index <= n:
+                raise ActionRejected('INVALID_ARGUMENT')
+            if action == 'replace':
+                if step is None or step['type'] != steps[index - 1]['type'] or step['type'] == 'end_loop':
+                    raise ActionRejected('INVALID_ARGUMENT')
+                steps[index - 1] = copy.deepcopy(step)
+            else:
+                lo, hi = self._block(steps, index - 1)
+                self.editor['clipboard'] = copy.deepcopy(steps[lo:hi])
+                del steps[lo:hi]
+        return dict(editor=self._device_values()['protocol.editor'])
+
+    def _dev_protocol_edit_close(self):
+        self._need_device()
+        self._need_editor()
+        self.editor = None
+        return {}
+
+    def _segments(self, steps, limit=MAX_SEGMENTS + 1):
+        """The run order of a (balanced) step list: loops unrolled, End Loop markers dropped; stops after limit entries."""
+        out = []
+
+        def walk(lo, hi):
+            i = lo
+            while i < hi and len(out) < limit:
+                s = steps[i]
+                if s['type'] == 'loop':
+                    _, j = self._block(steps, i)
+                    for _ in range(s['count']):
+                        walk(i + 1, j - 1)
+                        if len(out) >= limit:
+                            break
+                    i = j
+                else:
+                    if s['type'] != 'end_loop':
+                        out.append(dict(index=i + 1, step=s))
+                    i += 1
+        walk(0, len(steps))
+        return out
+
+    def _needs_cell_wash(self, s):
+        t = s['type']
+        return ((t in ('wash', 'dispense') and s['dispense_rate'] <= 2) or (t in ('wash', 'aspirate') and s['travel_rate'].endswith('CW'))
+                or (t == 'wash' and s['bottom_wash'] and s['bottom_wash_rate'] <= 2) or (t == 'prime' and s['rate'] <= 2))
+
+    def _validate_steps(self, steps):
+        """The Validate check (p.33): None, or the code of the first problem."""
+        if not any(s['type'] in ACTION_STEPS for s in steps):
+            return 'PROTOCOL_EMPTY'
+        open_ = []
+        for i, s in enumerate(steps):
+            t = s['type']
+            if t == 'loop':
+                open_.append(i)
+            elif t == 'end_loop':
+                if not open_:
+                    return 'LOOP_NOT_OPEN'
+                if not any(x['type'] in ACTION_STEPS for x in steps[open_.pop() + 1:i]):
+                    return 'LOOP_EMPTY'
+            elif t == 'soak' and not (s['shake'] or s['soak']):
+                return 'SOAK_STEP_EMPTY'
+            if t in ('wash', 'dispense'):
+                if abs(s['dispense_volume_m3'] / VOLUME_STEP_M3 - round(s['dispense_volume_m3'] / VOLUME_STEP_M3)) > 1e-6:
+                    return 'VOLUME_NOT_IN_1UL_STEPS'
+                if s['vacuum_delay_m3'] > s['dispense_volume_m3'] + 1e-15:
+                    return 'VACUUM_DELAY_EXCEEDS_VOLUME'
+            if t in ACTION_STEPS and t != 'delay' and self._needs_cell_wash(s) and not self.plant['cell_wash_installed']:
+                return 'CELL_WASH_OPTION_ABSENT'
+        if open_:
+            return 'LOOP_NOT_CLOSED'
+        if len(self._segments(steps)) > MAX_SEGMENTS:
+            return 'PROTOCOL_TOO_LONG'
+        return None
+
+    def _dev_protocol_validate(self):
+        self._need_device()
+        self._need_editor()
+        code = self._validate_steps(self.editor['steps'])
+        if code:
+            raise ActionRejected(code)
+        return dict(valid=True, steps=len(self._segments(self.editor['steps'])))
+
+    def _dev_protocol_save(self):
+        self._need_device()
+        self._need_editor()
+        e = self.editor
+        if not e['name']:
+            raise ActionRejected('NAME_REQUIRED')
+        old = self.protocols.get(e['name'])
+        if old is not None and old['locked']:
+            raise ActionRejected('PROTOCOL_LOCKED')
+        if old is None and sum(p['kind'] == 'user' for p in self.protocols.values()) >= MAX_PROTOCOLS:
+            raise ActionRejected('PROTOCOL_STORE_FULL')
+        code = self._validate_steps(e['steps'])
+        if code:
+            raise ActionRejected(code)
+        self.protocols[e['name']] = dict(name=e['name'], kind='user', locked=False, plate_type=e['plate_type'], steps=copy.deepcopy(e['steps']), modified_s=self.t,
+                                         last_run_s=old['last_run_s'] if old else None)
+        e['source'] = e['name']
+        self._event('program', 'PROTOCOL_SAVED', f'程序{e["name"]}已保存（{len(e["steps"])}步）')
+        return dict(name=e['name'], steps=len(e['steps']))
+
+    def _dev_protocol_delete(self, name):
+        self._need_device()
+        p = self.protocols.get(name)
+        if p is None:
+            raise ActionRejected('UNKNOWN_PROTOCOL')
+        if p['locked']:
+            raise ActionRejected('PROTOCOL_LOCKED')
+        if self._proto_active() and self.proto['name'] == name and not self.proto['test']:
+            raise ActionRejected('OPERATION_RUNNING')
+        del self.protocols[name]
+        self._event('program', 'PROTOCOL_DELETED', f'程序{name}已删除')
+        return dict(name=name)
+
+    # ---- protocol runs
+    def _seg_check(self, s):
+        """What the washer checks before a step starts (sensors as enabled; plate on the carrier for plate steps)."""
+        t = s['type']
+        if t in PLATE_STEPS and self.on_carrier is None:
+            raise ActionRejected('NO_PLATE')
+        if t in ('wash', 'dispense', 'prime'):
+            self._check_supply(s['buffer'])
+        elif t == 'aspirate' and self.washer['sensor_waste'] and self._waste_full():
+            raise ActionRejected('WASTE_FULL')
+        if t in ('wash', 'aspirate', 'dispense', 'prime') and not self._vacuum_ok():
+            raise ActionRejected('VACUUM_LOW')
+        if t in ('wash', 'aspirate', 'dispense', 'prime', 'soak') and len(self.records) >= MAX_RECORDS:
+            raise ActionRejected('RECORDS_FULL')
+
+    def _proto_launch(self, name, plate_type, steps, test):
+        code = self._validate_steps(steps)
+        if code:
+            raise ActionRejected(code)
+        segs = self._segments(steps)
+        if self.on_carrier is None and any(g['step']['type'] in PLATE_STEPS for g in segs):
+            raise ActionRejected('NO_PLATE')
+        first = next((g for g in segs if g['step']['type'] != 'remark'), None)
+        if first is not None and first['step']['type'] != 'delay':
+            self._seg_check(first['step'])
+        self.seq['op'] += 1
+        oid = f'op_{self.seq["op"]:04d}'
+        self.proto = dict(op=oid, name=name, test=test, plate_type=plate_type, segments=segs, i=0, status='running', code=None, records=[], prompt=None,
+                          wait_until=None, started_s=self.t, finished_s=None, step=None, step_type=None)
+        self.operations[oid] = dict(phase='running', kind='protocol', record_id=None, op=oid)
+        self.view = 'protocol'
+        if not test:
+            self.protocols[name]['last_run_s'] = self.t
+        self._event('program', 'PROTOCOL_START', f'程序{name}开始（{len(segs)}步）')
+        self._proto_next()
+        return dict(operation_id=oid)
+
+    def _dev_protocol_run(self, name):
+        self._need_device()
+        self._need_idle()
+        p = self.protocols.get(name)
+        if p is None:
+            raise ActionRejected('UNKNOWN_PROTOCOL')
+        return self._proto_launch(name, p['plate_type'], copy.deepcopy(p['steps']), test=False)
+
+    def _dev_protocol_test_run(self):
+        self._need_device()
+        self._need_idle()
+        self._need_editor()
+        e = self.editor
+        return self._proto_launch(e['name'] or '<new protocol>', e['plate_type'], copy.deepcopy(e['steps']), test=True)
+
+    def _proto_next(self):
+        """Start the next step of the protocol run (after the previous one ended normally)."""
+        P = self.proto
+        while P['i'] < len(P['segments']):
+            seg = P['segments'][P['i']]
+            P['i'] += 1
+            s = seg['step']
+            P.update(step=seg['index'], step_type=s['type'], prompt=None, wait_until=None)
+            if s['type'] == 'remark':
+                continue
+            if s['type'] == 'delay':
+                P['prompt'] = s['message'] or None
+                if s['wait_for_user']:
+                    P['status'] = 'prompt'
+                    return
+                if s['duration_s'] > 0:
+                    P.update(status='waiting', wait_until=self.t + s['duration_s'])
+                    return
+                continue
+            try:
+                self._seg_check(s)
+            except ActionRejected as exc:
+                self._proto_end('failed', str(exc))
+                return
+            P['status'] = 'running'
+            self._seg_start(seg)
+            return
+        self._proto_end('completed', None)
+
+    def _seg_start(self, seg):
+        P, s = self.proto, seg['step']
+        settings = dict(copy.deepcopy(s), protocol=P['name'], step_number=seg['index'])
+        if s['type'] == 'prime':
+            phases = self._plan_prime(s['buffer'], s['volume_m3'], s['rate'], s['submerge_s'] if s['submerge'] else 0.0)
+            rid = self._new_record('prime', 'PR', 'pr', settings, [x for x in [self.bottles[s['buffer']]['liquid']] if x])
+            out = self._start('prime', phases, rid, buffer=s['buffer'], proto=P['op'])
+        else:
+            w = self._wash_like(s)
+            phases = self._plan_wash(w, s['type'])
+            liquids = [x for x in [self.bottles[w['buffer']]['liquid']] if x and s['type'] in ('wash', 'dispense')] + list(self.line)
+            rid = self._new_record('wash', 'WS', 'ws', settings, liquids)
+            if self.plates[self.on_carrier]['type'] != P['plate_type']:
+                self.records[rid]['warnings'].append('plate_type_differs_from_protocol')
+            out = self._start('wash', phases, rid, buffer=w['buffer'], protocol=w, proto=P['op'])
+        P['records'].append(rid)
+        owner = self._owners.get(P['op'])
+        if owner is not None:
+            self._owners[out['operation_id']] = owner
+            self._owners[rid] = owner
+
+    def _adopt(self, oid):
+        """The owner of a protocol run also owns the step it started at once (sessions register the owner after the call)."""
+        P = self.proto
+        if P is None or P['op'] != oid or oid not in self._owners:
+            return
+        for rid in P['records']:
+            self._owners[rid] = self._owners[oid]
+        if self.op is not None and self.op.get('proto') == oid:
+            self._owners[self.op['op']] = self._owners[oid]
+
+    def _proto_end(self, status, code):
+        P = self.proto
+        P.update(status=status, code=code, finished_s=self.t, prompt=None, wait_until=None)
+        self.operations[P['op']]['phase'] = status
+        self.last_activity_s = self.t
+        self._event('program', 'PROTOCOL_' + status.upper(), f'程序{P["name"]}{ {"completed": "完成", "failed": "失败", "cancelled": "已停止"}[status]}'
+                    + (f'（{code}）' if code else ''))
+
+    def _after_op(self, o, outcome, code=None):
+        """A run ended: a protocol goes on with its next step (or ends with this one); other runs leave their result for the run screen."""
+        self.last_activity_s = self.t
+        P = self.proto
+        if P is not None and o.get('proto') == P['op'] and P['status'] in ('running', 'waiting', 'prompt'):
+            if outcome == 'completed':
+                self._proto_next()
+            else:
+                self._proto_end(outcome, code)
+            return
+        self.last_run = dict(kind='autoprime' if o.get('autoprime') else o['kind'], status=outcome, code=code, finished_s=self.t, record_id=o['record_id'],
+                             op=o['op'])
+
+    def _dev_protocol_resume(self):
+        self._need_plant()
+        P = self.proto
+        if P is None or P['status'] != 'prompt':
+            raise ActionRejected('NOT_WAITING')
+        nxt = next((g for g in P['segments'][P['i']:] if g['step']['type'] != 'remark'), None)
+        if nxt is not None and nxt['step']['type'] != 'delay':
+            self._need_power()
+            self._seg_check(nxt['step'])                                      # e.g. the bottle the prompt asked for is still empty: stay at the prompt
+        P['status'] = 'running'
+        step = P['step']
+        self._proto_next()
+        return dict(step=step)
+
+    def _dev_run_stop(self):
+        self._need_plant()
+        if self.op is not None:
+            kind = 'protocol' if self._proto_active() else ('autoprime' if self.op.get('autoprime') else self.op['kind'])
+            self._cancel_op(self.operations[self.op['op']])
+            return dict(stopped=kind)
+        if self._proto_active():
+            self._proto_end('cancelled', None)
+            return dict(stopped='protocol')
+        raise ActionRejected('NOT_RUNNING')
+
+    # ---- run plans (the 1.0.0 wash.run plan with the 1.1.0 step options; unset options keep the 1.0.0 plan)
+    def _wash_like(self, s):
+        """A protocol step as the wash dict the planner and the well physics use (op['protocol'])."""
+        d = dict(_WASH_DEF, **{k: v for k, v in s.items() if k != 'type'})
+        return dict(buffer=d['buffer'], cycles=d['cycles'] if s['type'] == 'wash' else 0, dispense_volume_m3=d['dispense_volume_m3'], dispense_rate=d['dispense_rate'],
+                    dispense_z_steps=d['dispense_z_steps'], aspirate_z_steps=d['aspirate_z_steps'], travel_rate=d['travel_rate'],
+                    aspirate_delay_s=d['aspirate_delay_s'], secondary_aspirate_z_steps=d['secondary_z_steps'] if d['secondary_aspirate'] else None,
+                    vacuum_delay_m3=d['vacuum_delay_m3'], soak_s=d['soak_s'] if d['soak'] else 0.0, shake_s=d['shake_s'] if d['shake'] else 0.0,
+                    shake_intensity=d['shake_intensity'], bottom_wash=d['bottom_wash'], final_aspirate=d['final_aspirate'] if s['type'] == 'wash' else False,
+                    bottom_wash_rate=d['bottom_wash_rate'], bottom_wash_volume_m3=d['bottom_wash_volume_m3'], predispense=d['predispense'],
+                    predispense_rate=d['predispense_rate'], predispense_volume_m3=d['predispense_volume_m3'],
+                    predispense_between_cycles=d['predispense_between_cycles'], home_carrier=d['home_carrier'],
+                    **{f'{p}_{a}_steps': d[f'{p}_{a}_steps'] for p in ('aspirate', 'secondary', 'dispense') for a in 'xy'})
+
+    def _plan_prime(self, buffer, volume_m3, rate, submerge_s=0.0):
+        phases = [dict(name='valve', duration=VALVE_S, z=0.0, x=0.0), dict(name='prime', duration=volume_m3 / (96 * FLOW_RATE_M3_S[rate]), z=TROUGH_Z, x=0.0,
+                                                                         volume=volume_m3, buffer=buffer)]
+        if submerge_s > 0:                                                    # the trough fills (drain closed) and the tubes stay in it
+            phases[-1]['fill_trough'] = True
+            phases.append(dict(name='submerge', duration=submerge_s, z=TROUGH_Z, x=0.0))
+        return phases + [dict(name='park', duration=0.5, z=0.0, x=0.0)]
+
+    def _plan_wash(self, p, kind='wash'):
+        """Phases of a wash (wash.run: the 1.0.0 plan) or of an Aspirate / Dispense / Soak step.  The 1.1.0 options - pre-dispense (also between cycles),
+        bottom-wash rate and volume, X / Y positions, carrier home for shake / soak, magnet height offset, vacuum dissipate delay - change nothing when unset."""
+        speed = TRAVEL[p['travel_rate']][0]
+        zo = self._z_offset()
+        z_disp, z_asp = p['dispense_z_steps'] * Z_STEP_M + zo, p['aspirate_z_steps'] * Z_STEP_M + zo
+        z_sec = None if p['secondary_aspirate_z_steps'] is None else p['secondary_aspirate_z_steps'] * Z_STEP_M + zo
+        Q = FLOW_RATE_M3_S[p['dispense_rate']]
+        t_disp = p['dispense_volume_m3'] / Q
+        down = max(0.0, z_disp - z_asp) / speed
+
+        def xy(part):
+            return math.hypot(p.get(f'{part}_x_steps', 0), p.get(f'{part}_y_steps', 0)) * XY_STEP_M
+
+        aspirate = [dict(name='aspirate', duration=down + p['aspirate_delay_s'] + 0.3, z=z_asp - PARK_TIP_M, speed=speed, height=z_asp, secondary=z_sec)]
+        if xy('aspirate'):
+            aspirate[0]['xy_m'] = xy('aspirate')
+        if z_sec is not None:
+            aspirate.append(dict(name='aspirate_secondary', duration=abs(z_asp - z_sec) / speed + 0.6, z=z_sec - PARK_TIP_M, speed=speed, height=z_sec))
+            if xy('secondary'):
+                aspirate[-1]['xy_m'] = xy('secondary')
+        dispense = dict(name='dispense', duration=VALVE_S + (z_disp - min(z_asp, z_sec or z_asp)) / LIFT_SPEED_M_S + t_disp, z=z_disp - PARK_TIP_M,
+                        rate=p['dispense_rate'], volume=p['dispense_volume_m3'], height=z_disp, vac_delay=p['vacuum_delay_m3'], buffer=p['buffer'])
+        if xy('dispense'):
+            dispense['xy_m'] = xy('dispense')
+        pre = []
+        if p.get('predispense') or p.get('predispense_between_cycles'):      # a small prime into the trough with the carrier home (p.45)
+            pre = [dict(name='prime', duration=p['predispense_volume_m3'] / FLOW_RATE_M3_S[p['predispense_rate']], z=TROUGH_Z, x=0.0,
+                        volume=96 * p['predispense_volume_m3'], buffer=p['buffer'], predispense=True), dict(name='park', duration=0.5, z=0.0, x=0.0)]
+        to_plate = dict(name='move_to_manifold', duration=CARRIER_MOVE_S, z=0.0, x=-CARRIER_TRAVEL_M)
+        home = bool(p.get('home_carrier')) or (p['soak_s'] + p['shake_s']) > HOME_AFTER_S
+        phases = [dict(ph) for ph in pre] if p.get('predispense') else []
+        if kind == 'aspirate':
+            phases += [to_plate] + aspirate
+        elif kind == 'dispense':
+            phases += [to_plate, dict(dispense, name='dispense_only', duration=VALVE_S + max(0.0, PARK_TIP_M - z_disp) / LIFT_SPEED_M_S + t_disp)]
+        elif kind == 'soak':
+            x = 0.0 if home else -CARRIER_TRAVEL_M
+            if not home:
+                phases.append(to_plate)
+            if p['shake_s'] > 0:
+                phases.append(dict(name='shake', duration=p['shake_s'], z=0.0, x=x, intensity=p['shake_intensity'], home=home))
+            if p['soak_s'] > 0:
+                phases.append(dict(name='soak', duration=p['soak_s'], z=0.0, x=x, home=home))
+        else:
+            phases.append(to_plate)
+            if p['bottom_wash']:
+                if p.get('bottom_wash_rate') is None:                         # wash.run (1.0.0): the dispense volume at rate >= 3
+                    bw_rate, bw_vol, Qb = max(3, p['dispense_rate']), p['dispense_volume_m3'], Q
+                else:
+                    bw_rate, bw_vol = p['bottom_wash_rate'], p['bottom_wash_volume_m3']
+                    Qb = FLOW_RATE_M3_S[bw_rate]
+                phases.append(dict(name='bottom_wash', duration=VALVE_S + (z_disp - z_asp) / LIFT_SPEED_M_S + 2 * bw_vol / Qb + 0.5, z=z_asp - PARK_TIP_M,
+                                   rate=bw_rate, volume=bw_vol, height=z_asp, buffer=p['buffer'], speed=speed))
+            for c in range(p['cycles']):
+                if c > 0 and p.get('predispense_between_cycles'):
+                    phases += [dict(name='move_home', duration=CARRIER_MOVE_S, z=0.0, x=0.0)] + [dict(ph) for ph in pre] + [dict(to_plate)]
+                phases += [dict(ph, cycle=c) for ph in aspirate] + [dict(dispense, cycle=c)]
+                if p['shake_s'] > 0:
+                    phases.append(dict(name='shake', duration=p['shake_s'] + (2 * CARRIER_MOVE_S if home else 0.0), z=0.0, x=0.0 if home else -CARRIER_TRAVEL_M,
+                                       intensity=p['shake_intensity'], cycle=c, home=home))
+                if p['soak_s'] > 0:
+                    phases.append(dict(name='soak', duration=p['soak_s'], z=0.0, x=0.0 if home else -CARRIER_TRAVEL_M, cycle=c, home=home))
+                if home and (p['soak_s'] > 0 or p['shake_s'] > 0):
+                    phases.append(dict(name='move_to_manifold', duration=CARRIER_MOVE_S, z=0.0, x=-CARRIER_TRAVEL_M))
+            if p['final_aspirate']:
+                phases += [dict(ph, cycle=p['cycles'], final=True) for ph in aspirate]
+        phases.append(dict(name='move_home', duration=CARRIER_MOVE_S + self.washer['vacuum_dissipate_s'], z=0.0, x=0.0))
+        return phases
+
+    # ---- trough, settings, clock, self-check, AutoPrime
+    def _drain_trough(self):
+        if self.trough > 0:
+            self._to_waste(self.trough)
+            self.trough = 0.0
+
+    def _dev_washer_configure(self, **a):
+        self._need_device()
+        if self.op is not None or self._proto_active():
+            raise ActionRejected('OPERATION_RUNNING')
+        self.washer = dict(a, magnet_offset_mm=float(a['magnet_offset_mm']), vacuum_dissipate_s=float(a['vacuum_dissipate_s']))
+        return dict(settings=dict(self.washer))
+
+    def _dev_autoprime_configure(self, **a):
+        self._need_device()
+        if self.op is not None or self._proto_active():
+            raise ActionRejected('OPERATION_RUNNING')
+        if a['rate'] <= 2 and not self.plant['cell_wash_installed']:
+            raise ActionRejected('CELL_WASH_OPTION_ABSENT')
+        self.autoprime = dict(a, volume_m3=float(a['volume_m3']))
+        return dict(autoprime=dict(self.autoprime))
+
+    def _local(self, t_s=None):
+        """Instrument clock: local date and time of simulation time t_s (now when None)."""
+        t = self.t if t_s is None else t_s
+        return CLOCK_EPOCH + datetime.timedelta(seconds=t + self.clock['offset_s'] + 3600 * self.clock['time_zone_h'])
+
+    def _dev_clock_set(self, time_zone_h, date, time):
+        self._need_device()
+        try:
+            local = datetime.datetime.strptime(f'{date} {time}', '%Y-%m-%d %H:%M').replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        self.clock = dict(time_zone_h=time_zone_h, offset_s=round((local - CLOCK_EPOCH).total_seconds() - 3600 * time_zone_h - self.t, 6))
+        return dict(local_time=local.strftime('%Y-%m-%dT%H:%M'))
+
+    def _dev_instrument_self_check(self):
+        self._need_device()
+        self._need_idle()
+        self.led['carrier_travel_m'].add(abs(self.carrier))
+        self.led['manifold_travel_m'].add(abs(self.manifold))
+        self.carrier, self.manifold = 0.0, 0.0
+        self._drain_trough()
+        code = 'MANIFOLD_SETTING_MISMATCH' if self.washer['manifold'] != '96' else None
+        self.selfcheck = dict(passed=code is None, error_code=code, time_s=self.t)
+        self._event('program', 'SELF_CHECK', '自检通过' if code is None else f'自检失败（{code}）')
+        return dict(passed=code is None, error_code=code)
+
+    def _at_home_screen(self):
+        p = _PANELS.get(self)
+        if p is None:                                                         # nobody has used the screen: it shows Home
+            return True
+        ui = p.ui
+        return ui.get('screen') == 'main' and ui.get('page') == 'home' and ui.get('overlay') is None
+
+    def _device_due(self):
+        """The next device event when no operation runs: the end of a timed Delay step, or the AutoPrime time."""
+        P = self.proto
+        if P is not None and P['status'] == 'waiting':
+            return P['wait_until']
+        a = self.autoprime
+        if a['enabled'] and self.power and self.plant is not None and not self._proto_active():
+            return max(self.t, self.last_activity_s + 60.0 * a['interval_min'])
+        return None
+
+    def _device_event(self):
+        P = self.proto
+        if P is not None and P['status'] == 'waiting':
+            P.update(status='running', wait_until=None)
+            self._proto_next()
+            return
+        self.last_activity_s = self.t                                         # the interval restarts (also after a skipped attempt)
+        if not self._at_home_screen():
+            return
+        a = self.autoprime
+        try:
+            self._seg_check(dict(type='prime', buffer=a['buffer']))
+        except ActionRejected as exc:
+            self._event('program', 'AUTOPRIME_SKIPPED', f'AutoPrime未执行（{exc}）')
+            return
+        settings = dict(buffer=a['buffer'], volume_m3=a['volume_m3'], rate=a['rate'], autoprime=True, submerge_s=60.0 * a['submerge_min'])
+        rid = self._new_record('prime', 'PR', 'pr', settings, [x for x in [self.bottles[a['buffer']]['liquid']] if x])
+        self._start('prime', self._plan_prime(a['buffer'], a['volume_m3'], a['rate'], 60.0 * a['submerge_min']), rid, buffer=a['buffer'], autoprime=True)
+        self._event('program', 'AUTOPRIME', 'AutoPrime开始（Home屏空闲达到间隔）')
+
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    @property
+    def panel(self):
+        """The front panel of this instance (kept outside the instance dict: a deep copy of the runtime starts with a fresh screen)."""
+        if PANEL_SPEC is None:
+            return None
+        if self not in _PANELS:
+            _PANELS[self] = _panel_ui.PanelUI(PANEL_SPEC, self)
+        return _PANELS[self]
+
+    def _when(self, t_s):
+        if t_s is None:
+            return '<n/a>'
+        d = self._local(t_s)
+        return f'{_date_text(d)} {d:%H:%M}'
+
+    def _run_view(self):
+        """What the run screen shows: the protocol run, a Quick / AutoPrime run, or the result of the last run."""
+        P, o = self.proto, self.op
+        busy = o is not None or self._proto_active()
+        phase = self.phase if o is not None else None
+        left = max(0.0, o['t_end'] - self.t) if o is not None else 0.0
+        cycles = self._remaining()[0] if o is not None else 0
+        if self.view == 'protocol' and P is not None:
+            if P['status'] == 'waiting':
+                left = max(0.0, P['wait_until'] - self.t)
+            return dict(busy=busy, kind='protocol', title=P['name'] + (' (Test Run)' if P['test'] else ''), status=P['status'], code=P['code'],
+                        step=f'Step {P["step"]} ({P["i"]} of {len(P["segments"])}): {STEP_NAMES.get(P["step_type"], "")}' if P['step'] else '',
+                        phase=phase, cycles=cycles, left_s=left, prompt=P['prompt'], auto=False, test=P['test'], id=P['op'])
+        if o is not None:
+            kind = 'autoprime' if o.get('autoprime') else o['kind']
+            return dict(busy=True, kind=kind, title=RUN_TITLES[kind], status='running', code=None, step='', phase=phase, cycles=cycles, left_s=left, prompt=None,
+                        auto=False, test=False, id=o['op'])
+        r = self.last_run
+        if r is None:
+            return dict(busy=False, kind=None, title='', status='idle', code=None, step='', phase=None, cycles=0, left_s=0.0, prompt=None, auto=False, test=False,
+                        id=None)
+        return dict(busy=False, kind=r['kind'], title=RUN_TITLES[r['kind']], status=r['status'], code=r['code'], step='', phase=None, cycles=0, left_s=0.0,
+                    prompt=None, auto=r['kind'] == 'autoprime', test=False, id=r['op'])
+
+    def panel_read(self):
+        """What the touch-screen software sees: the agent slots plus host values (power-up count, clock texts, the protocol lists and the protocol being
+        edited as the screens show them, the run screen, the configuration)."""
+        out = self.read('agent')
+        loc = self._local()
+        plates = plate_lib()['plates']
+        rows = {}
+        for p in self.protocols.values():
+            depth, lines = 0, []
+            for i, st_ in enumerate(p['steps']):
+                depth -= st_['type'] == 'end_loop'
+                lines.append(dict(line=f'{i + 1}. ' + '  ' * depth + _step_text(st_)))
+                depth += st_['type'] == 'loop'
+            rows[p['name']] = dict(name=p['name'], kind=p['kind'], locked=p['locked'], plate=_plate_text(plates.get(p['plate_type'])), last_run=self._when(p['last_run_s']),
+                                   modified=self._when(p['modified_s']), lines=lines, n=len(p['steps']))
+        e = self.editor
+        editor = None
+        if e is not None:
+            depth, erows = 0, []
+            for i, st_ in enumerate(e['steps']):
+                depth -= st_['type'] == 'end_loop'
+                erows.append(dict(st_, index=i + 1, line=f'{i + 1}. ' + '  ' * depth + _step_text(st_)))
+                depth += st_['type'] == 'loop'
+            erows.append(dict(type='end', index=len(e['steps']) + 1, line='<end of steps>'))
+            editor = dict(name=e['name'] or '<new protocol>', raw_name=e['name'], plate_type=e['plate_type'], plate=_plate_text(plates.get(e['plate_type'])),
+                          rows=erows, n=len(e['steps']), clipboard=len(e['clipboard']), locked=bool(e['source'] and self.protocols.get(e['source'], {}).get('locked')))
+        sc = self.selfcheck
+        out.update({
+            'host.powered': self.power, 'host.power_epoch': self.power_epoch, 'host.instance_id': self.instance_id,
+            'host.clock': dict(date=_date_text(loc), time=f'{loc:%H:%M}', iso_date=f'{loc:%Y-%m-%d}', iso_time=f'{loc:%H:%M}',
+                               tz=f'GMT{self.clock["time_zone_h"]:+03d}:00', tz_h=self.clock['time_zone_h']),
+            'host.protocols': rows, 'host.home_list': [r for r in rows.values() if r['kind'] in ('sample', 'user')],
+            'host.maint_list': [r for r in rows.values() if r['kind'] in ('maintenance', 'qc')], 'host.define_list': list(rows.values()),
+            'host.editor': editor, 'host.run': self._run_view(),
+            'host.plate_types': [dict(value=k, text=_plate_text(v)) for k, v in plates.items() if v['compatible_with_96_tube_single_manifold']],
+            'host.config': dict(cell_wash='Installed' if self.plant and self.plant['cell_wash_installed'] else 'Not installed',
+                                selfcheck='Not run' if sc is None else ('Passed' if sc['passed'] else f'Failed: {sc["error_code"]}'),
+                                selfcheck_time='' if sc is None else self._when(sc['time_s']),
+                                manifold_setting={'96': '96-tube', '192': '192-tube'}[self.washer['manifold']])})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (each command checks before it changes anything).  A gesture made through a
+        session acts as that session's caller: the same ownership rule as a direct call (another agent's run can be viewed, not stopped or changed),
+        and a run it starts belongs to that caller."""
+        try:
+            caller = self._caller
+            if caller is not None:
+                validate(ALL_CAPS[capability_id]['input_schema'], arguments)
+                Biotek405tsSession(self, caller)._guard(capability_id, arguments)
+            out = self._invoke_any(capability_id, **arguments)
+            op = out.get('operation_id') if caller is not None and capability_id in ASYNC and isinstance(out, dict) else None
+            if op:
+                self._owners[op] = caller
+                if self.operations[op].get('record_id'):
+                    self._owners[self.operations[op]['record_id']] = caller
+                self._adopt(op)
+            return out
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel_command(self, k, a):
+        self._need_plant()
+        if k == 'panel.frame':
+            return dict(frame=self.panel.frame())
+        if k == 'panel.capture':
+            data, w, h = self.panel.png_bytes(a['display_id'])
+            sha = hashlib.sha256(data).hexdigest()
+            d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+            d.mkdir(parents=True, exist_ok=True)
+            path = d / f'{a["display_id"]}_{sha[:16]}.png'
+            if not path.exists():
+                path.write_bytes(data)
+            return dict(display_id=a['display_id'], time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+        try:
+            if k == 'panel.press':
+                ok = self.panel.press(a['input_id'], float(a.get('duration_s', 0.1)))
+            else:
+                to = (a['to_x'], a['to_y']) if 'to_x' in a and 'to_y' in a else None
+                ok = self.panel.touch(a['display_id'], a['x'], a['y'], float(a.get('duration_s', 0.1)), to)
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        self.revision += 1
+        self.last_activity_s = self.t                                         # a touch restarts the AutoPrime interval (p.79)
+        return dict(accepted=bool(ok))
+
+
+def _ints(schema, v):
+    """Integer fields as int (a panel number field may send 3.0): top level, objects, arrays and the step union."""
+    if isinstance(v, dict) and 'anyOf' in schema:
+        for s in schema['anyOf']:
+            if s.get('type') == 'object' and v.get('type') in (s['properties'].get('type') or {}).get('enum', [None]):
+                return _ints(s, v)
+        return v
+    if isinstance(v, dict) and schema.get('type') == 'object':
+        props = schema.get('properties', {})
+        return {k: _ints(props[k], x) if k in props else x for k, x in v.items()}
+    if isinstance(v, list) and schema.get('type') == 'array':
+        return [_ints(schema['items'], x) for x in v]
+    if schema.get('type') == 'integer' and isinstance(v, float):
+        return int(v)
+    return v
+
+
+STEP_NAMES = {'wash': 'Wash', 'aspirate': 'Aspirate', 'dispense': 'Dispense', 'prime': 'Prime', 'soak': 'Shake/Soak', 'delay': 'Delay', 'remark': 'Remark',
+              'loop': 'Loop', 'end_loop': 'End Loop'}
+RUN_TITLES = {'protocol': 'Protocol', 'wash': 'Wash', 'prime': 'Prime', 'autoprime': 'AutoPrime', 'clean': 'Clean tubes'}
+
+
+def _date_text(d):
+    """The only date format of the 405 TS: DD Month YY (p.23)."""
+    return f'{d.day:02d} {MONTHS[d.month - 1]} {d.year % 100:02d}'
+
+
+def _plate_text(p):
+    return '---' if p is None else f'Costar {p["costar_number"]} {p["description"]}'[:40]
+
+
+def _dur(s):
+    s = float(s)
+    if s < 60:
+        return f'{s:g} s'
+    if s < 3600:
+        return f'{s / 60:g} min'
+    return f'{int(s // 3600)}:{int(s % 3600 // 60):02d} h'
+
+
+def _step_text(s):
+    """One line of a protocol's step list."""
+    t = s['type']
+    ul = lambda v: f'{v * 1e9:g} uL'  # noqa: E731
+    if t == 'wash':
+        extra = [x for x, on in (('bottom wash', s['bottom_wash']), ('shake', s['shake']), ('soak', s['soak'])) if on]
+        return f'Wash: {s["cycles"]} cycles, {ul(s["dispense_volume_m3"])}, buffer {s["buffer"]}' + ''.join(', ' + x for x in extra)
+    if t == 'aspirate':
+        return f'Aspirate: Z {s["aspirate_z_steps"]}, rate {s["travel_rate"]}' + (f', secondary Z {s["secondary_z_steps"]}' if s['secondary_aspirate'] else '')
+    if t == 'dispense':
+        return f'Dispense: {ul(s["dispense_volume_m3"])}, rate {s["dispense_rate"]}, buffer {s["buffer"]}'
+    if t == 'prime':
+        return f'Prime: {s["volume_m3"] * 1e6:g} mL, buffer {s["buffer"]}, rate {s["rate"]}' + (f', submerge {_dur(s["submerge_s"])}' if s['submerge'] else '')
+    if t == 'soak':
+        parts = ([f'Shake {_dur(s["shake_s"])} {s["shake_intensity"].capitalize()}'] if s['shake'] else []) + ([f'Soak {_dur(s["soak_s"])}'] if s['soak'] else [])
+        return ' / '.join(parts) or 'Shake/Soak: off'
+    if t == 'delay':
+        return 'Delay: ' + ('wait for Continue' if s['wait_for_user'] else _dur(s['duration_s'])) + (f' - {s["message"]}' if s['message'] else '')
+    if t == 'remark':
+        return f'Remark: {s["text"]}'
+    if t == 'loop':
+        return f'Loop {s["count"]} times'
+    return 'End Loop'
+
+
+class Biotek405tsRuntime(_TouchSoftware):
     """405 TS microplate washer: power, buffer bottles and valves, prime, wash step (aspirate / dispense / soak / shake), plate carrier and manifold
     positions, sensors, wash log; plates with per-well liquid, soluble / adsorbed / bound species and adherent cells (SI units)."""
 
@@ -453,6 +1424,9 @@ class Biotek405tsRuntime:
         self.led = {k: _Sum() for k in LEDGER_KEYS}
         self._tube_bias = None
         self._principals, self._requests, self._owners = {}, {}, {}
+        self.view = None                                   # what the run screen follows: 'protocol' or 'op'
+        self._air = False
+        self._init_device()
 
     # ---------------------------------------------------------------- basics
     @property
@@ -524,6 +1498,7 @@ class Biotek405tsRuntime:
             'truth.residual_m3': None if p is None else [float(v) for v in p['V']], 'truth.clogged_dispense': sorted(self.clog_d),
             'truth.clogged_aspirate': sorted(self.clog_a), 'truth.faults': sorted(self.faults), 'truth.idle_s': self.idle_s,
         }
+        values.update(self._device_values())
         return {k: v for k, v in values.items() if SLOTS[k]['visibility'] == 'agent' or visibility == 'evaluator'}
 
     def _last_record(self, keep=None):
@@ -542,6 +1517,8 @@ class Biotek405tsRuntime:
         out = getattr(self, '_cmd_' + capability_id.replace('.', '_'))(**a)
         if CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation'):
             self.revision += 1
+        if CAPS[capability_id]['kind'] == 'device_command':
+            self.last_activity_s = self.t                                     # an interaction restarts the AutoPrime interval (p.79)
         return out
 
     def _need_plant(self):
@@ -550,7 +1527,7 @@ class Biotek405tsRuntime:
 
     def _need_idle(self):
         self._need_plant()
-        if self.op is not None:
+        if self.op is not None or self._proto_active():                      # (a protocol run between two steps is running too)
             raise ActionRejected('OPERATION_RUNNING')
 
     def _need_power(self):
@@ -574,6 +1551,9 @@ class Biotek405tsRuntime:
         self.power = False
         if self.op is not None:
             self._fail_op('POWER_LOST')
+        elif self._proto_active():
+            self._proto_end('failed', 'POWER_LOST')
+        self.editor = None                                                    # the protocol being edited is lost (assumption)
         self._event('power', code, msg)
 
     def _set_power(self, enabled):
@@ -582,6 +1562,9 @@ class Biotek405tsRuntime:
             if not (100.0 * 0.9 <= self.plant['mains_voltage_v'] <= 240.0 * 1.1):
                 raise ActionRejected('MAINS_OUT_OF_RANGE')
             self.power = True
+            self.power_epoch += 1
+            self.view, self.last_run = None, None                             # after a power-up the screen starts at Home
+            self.last_activity_s = self.t
             self._event('power', 'POWER_ON', '通电（自检后载板回初始位、洗头停放）')
             self.led['carrier_travel_m'].add(abs(self.carrier))
             self.led['manifold_travel_m'].add(abs(self.manifold))
@@ -690,13 +1673,14 @@ class Biotek405tsRuntime:
             t += ph['duration']
         self.op = dict(op=oid, kind=kind, t0=self.t, t_end=t, phases=phases, i=0, record_id=rid, **extra)
         self.operations[oid] = dict(phase='running', kind=kind, record_id=rid, op=oid)
+        self.view = 'protocol' if extra.get('proto') else 'op'
         self._begin_phase()
         return dict(operation_id=oid)
 
     def _check_supply(self, bottle):
-        if self._waste_full():
+        if self.washer['sensor_waste'] and self._waste_full():                # sensors as enabled on Instrument > Options (p.69-70)
             raise ActionRejected('WASTE_FULL')
-        if not self._fluid_ok(bottle):
+        if self.washer['sensor_fluid'] and not self._fluid_ok(bottle):
             raise ActionRejected('BUFFER_EMPTY')
 
     def _cmd_prime_run(self, buffer, volume_m3, rate):
@@ -734,35 +1718,7 @@ class Biotek405tsRuntime:
         if not self._vacuum_ok():
             raise ActionRejected('VACUUM_LOW')
         pt = plate_lib()['plates'][self.plates[self.on_carrier]['type']]
-        speed = TRAVEL[p['travel_rate']][0]
-        z_disp, z_asp = p['dispense_z_steps'] * Z_STEP_M, p['aspirate_z_steps'] * Z_STEP_M
-        z_sec = None if p['secondary_aspirate_z_steps'] is None else p['secondary_aspirate_z_steps'] * Z_STEP_M
-        Q = FLOW_RATE_M3_S[p['dispense_rate']]
-        t_disp = p['dispense_volume_m3'] / Q
-        down = max(0.0, z_disp - z_asp) / speed
-        aspirate = [dict(name='aspirate', duration=down + p['aspirate_delay_s'] + 0.3, z=z_asp - PARK_TIP_M,
-                         speed=speed, height=z_asp, secondary=z_sec)]
-        if z_sec is not None:
-            aspirate.append(dict(name='aspirate_secondary', duration=abs(z_asp - z_sec) / speed + 0.6, z=z_sec - PARK_TIP_M, speed=speed, height=z_sec))
-        dispense = dict(name='dispense', duration=VALVE_S + (z_disp - min(z_asp, z_sec or z_asp)) / LIFT_SPEED_M_S + t_disp, z=z_disp - PARK_TIP_M, rate=p['dispense_rate'],
-                        volume=p['dispense_volume_m3'], height=z_disp, vac_delay=p['vacuum_delay_m3'], buffer=p['buffer'])
-        phases = [dict(name='move_to_manifold', duration=CARRIER_MOVE_S, z=0.0, x=-CARRIER_TRAVEL_M)]
-        if p['bottom_wash']:
-            phases.append(dict(name='bottom_wash', duration=VALVE_S + (z_disp - z_asp) / LIFT_SPEED_M_S + 2 * p['dispense_volume_m3'] / Q + 0.5, z=z_asp - PARK_TIP_M,
-                               rate=max(3, p['dispense_rate']), volume=p['dispense_volume_m3'], height=z_asp, buffer=p['buffer'], speed=speed))
-        for c in range(p['cycles']):
-            phases += [dict(ph, cycle=c) for ph in aspirate] + [dict(dispense, cycle=c)]
-            home = (p['soak_s'] + p['shake_s']) > HOME_AFTER_S
-            if p['shake_s'] > 0:
-                phases.append(dict(name='shake', duration=p['shake_s'] + (2 * CARRIER_MOVE_S if home else 0.0), z=0.0, x=0.0 if home else -CARRIER_TRAVEL_M,
-                                   intensity=p['shake_intensity'], cycle=c, home=home))
-            if p['soak_s'] > 0:
-                phases.append(dict(name='soak', duration=p['soak_s'], z=0.0, x=0.0 if home else -CARRIER_TRAVEL_M, cycle=c, home=home))
-            if home and (p['soak_s'] > 0 or p['shake_s'] > 0):
-                phases.append(dict(name='move_to_manifold', duration=CARRIER_MOVE_S, z=0.0, x=-CARRIER_TRAVEL_M))
-        if p['final_aspirate']:
-            phases += [dict(ph, cycle=p['cycles'], final=True) for ph in aspirate]
-        phases.append(dict(name='move_home', duration=CARRIER_MOVE_S, z=0.0, x=0.0))
+        phases = self._plan_wash(p)
         liquids = [self.bottles[p['buffer']]['liquid']] + list(self.line)
         rid = self._new_record('wash', 'WS', 'ws', p, liquids)
         if pt['well_volume_m3'] < p['dispense_volume_m3']:
@@ -785,13 +1741,13 @@ class Biotek405tsRuntime:
         self.led['manifold_travel_m'].add(abs(ph.get('z', self.manifold) - self.manifold))
         self.carrier = ph.get('x', self.carrier)
         self.manifold = ph.get('z', self.manifold)
-        if ph['name'] == 'valve' or ph['name'] in ('dispense', 'bottom_wash', 'prime'):
+        if ph['name'] == 'valve' or ph['name'] in ('dispense', 'dispense_only', 'bottom_wash', 'prime'):
             self.valve = ph.get('buffer', self.valve)
 
     def _next_event_t(self):
         o = self.op
         if o is None:
-            return None
+            return self._device_due()                                         # a timed Delay step ending, or AutoPrime
         ph = o['phases'][o['i']]
         return ph['t_start'] + ph['duration']
 
@@ -805,7 +1761,10 @@ class Biotek405tsRuntime:
                 self._advance(t_end - self.t)
                 break
             self._advance(max(0.0, nxt - self.t))
-            self._finish_phase()
+            if self.op is not None:
+                self._finish_phase()
+            else:
+                self._device_event()
         return dict(time_s=self.t)
 
     def _advance(self, h):
@@ -831,6 +1790,8 @@ class Biotek405tsRuntime:
         salt) / salt fraction of the liquid left in the tubes.  The thresholds are drawn once per idle period, so the result does not depend on how the
         idle time is split into steps."""
         self.idle_s += h
+        if self._submerged():                                                 # tips in the filled priming trough do not dry (p.82)
+            return
         s = salt_fraction(self.tip_liquid)
         if s <= 0 or self.plant is None:
             return
@@ -921,6 +1882,11 @@ class Biotek405tsRuntime:
             return self._do_aspirate(ph, rec)
         if n == 'dispense':
             return self._do_dispense(ph, rec)
+        if n == 'dispense_only':                                              # Dispense step (no wash cycle)
+            return self._do_dispense(ph, rec, count=False)
+        if n == 'submerge':                                                   # end of the submerge: the trough drains, the manifold parks
+            self._drain_trough()
+            return True
         if n == 'bottom_wash':
             return self._do_bottom_wash(ph, rec) and self._do_aspirate(ph, rec) and self._do_dispense(dict(ph, vac_delay=ph['volume']), rec, count=False)
         if n == 'shake':
@@ -948,6 +1914,9 @@ class Biotek405tsRuntime:
         BUFFER_EMPTY (fluid sensor); (None, 0) when it is empty from the start."""
         b = self.bottles[bottle]
         if not self._fluid_ok(bottle):
+            if not self.washer['sensor_fluid']:                              # fluid sensor off: the pump draws air, nothing is delivered (p.70)
+                self._air = True
+                return dict(self.line), 0.0
             self._alarm(rec, 'BUFFER_EMPTY')
             return None, 0.0
         V_take = min(V, b['volume'])
@@ -968,7 +1937,10 @@ class Biotek405tsRuntime:
         self.tanks = [{k: x / sum(t.values()) for k, x in t.items() if x > 1e-12} for t in self.tanks]
         b['volume'] -= V_take
         if V_take < V * (1 - 1e-12):
-            self._alarm(rec, 'BUFFER_EMPTY')
+            if self.washer['sensor_fluid']:
+                self._alarm(rec, 'BUFFER_EMPTY')
+            else:
+                self._air = True
         tot = sum(out.values()) or 1.0
         return {k: x / tot for k, x in out.items() if x / tot > 1e-12}, V_take
 
@@ -981,19 +1953,25 @@ class Biotek405tsRuntime:
             self._fail_op(code)
 
     def _do_prime(self, ph, rec):
-        if self._waste_full() or self.waste + ph['volume'] > self.plant['waste_capacity_m3']:   # the prime volume must fit into the bottles (C4)
-            self._alarm(rec, 'WASTE_FULL')
+        self._drain_trough()                                                  # liquid left in the trough by a submerge goes first
+        over = self.waste + ph['volume'] > self.plant['waste_capacity_m3']   # the prime volume must fit into the bottles (C4)
+        if (self.washer['sensor_waste'] and self._waste_full()) or over:
+            self._alarm(rec, 'WASTE_FULL' if self.washer['sensor_waste'] else 'VACUUM_LOW')   # sensor off: the waste backs up into the pump (p.37)
             return False
+        self._air = False
         comp, got = self._draw(ph['buffer'], ph['volume'], rec)
         if comp is None:
             return False
         rec['_dispensed_m3'] += got
         rec['programmed_dispense_m3'] += ph['volume']
         self.led['primed_m3'].add(got)
-        self._to_waste(got)
-        self.tip_liquid = dict(self.line)
-        self._reset_idle()
-        return got >= ph['volume'] * (1 - 1e-12)
+        keep = min(TROUGH_M3 - self.trough, got) if ph.get('fill_trough') else 0.0   # submerge: the trough drain stays closed
+        self._to_waste(got - keep)
+        self.trough += keep
+        if got > 0 or not self._air:
+            self.tip_liquid = dict(self.line)
+            self._reset_idle()
+        return got >= ph['volume'] * (1 - 1e-12) or self._air
 
     def _to_waste(self, V):
         self.waste += V
@@ -1009,10 +1987,13 @@ class Biotek405tsRuntime:
             self._alarm(rec, 'VACUUM_LOW')
             return False
         p = self.plates[self.on_carrier]
-        if self._waste_full() or self.waste + float(np.sum(p['V'])) > self.plant['waste_capacity_m3']:   # the plate's liquid must fit (C4)
-            self._alarm(rec, 'WASTE_FULL')
+        over = self.waste + float(np.sum(p['V'])) > self.plant['waste_capacity_m3']   # the plate's liquid must fit (C4)
+        if (self.washer['sensor_waste'] and self._waste_full()) or over:
+            self._alarm(rec, 'WASTE_FULL' if self.washer['sensor_waste'] else 'VACUUM_LOW')
             return False
         pt = plate_lib()['plates'][p['type']]
+        if ph.get('xy_m', 0.0) + TUBE_OUTER_R_M > pt['mean_well_radius_m'] and 'tubes_touch_well_wall' not in rec['warnings']:
+            rec['warnings'].append('tubes_touch_well_wall')                   # X / Y offset beyond the well (no limit on the instrument either)
         A = math.pi * pt['mean_well_radius_m'] ** 2
         speed = ph['speed']
         delay = self.op['protocol'].get('aspirate_delay_s', 0.0) if self.op else 0.0
@@ -1065,9 +2046,12 @@ class Biotek405tsRuntime:
         rng = self._rng(f'disp:{rec["record_id"]}:{self.op["i"]}')
         cv = math.sqrt(CV_REPEAT ** 2 + (CV_ABS_M3 / ph['volume']) ** 2)
         want = np.array([max(0.0, ph['volume'] * self.clog_d.get(i, 1.0) * (1 + self._tube_bias[i] + rng.normal(0.0, cv))) for i in range(96)])
+        self._air = False
         comp, got = self._draw(ph['buffer'], float(want.sum()), rec)       # the bottle gives what the tubes actually deliver (C1)
         if comp is None:
             return False
+        air = self._air
+        xyf = max(0.0, 1.0 - ph.get('xy_m', 0.0) / pt['mean_well_radius_m']) ** 2   # a jet aimed at the well wall shears the bottom less (p.53)
         vols = want * (got / want.sum()) if want.sum() > 0 else want       # a bottle running dry shares its rest over the tubes
         rho, mu, sig = mixture_props(comp, self._T())
         m_jet = 1 - (1 - MIX_MIN) * math.exp(-jet_speed(rate) / MIX_JET_M_S)
@@ -1113,7 +2097,7 @@ class Biotek405tsRuntime:
             p['V'][i] = V1
             p['comp'][i] = self._mix_comp(p['comp'][i], V0, comp, v)
             if p['cells'][i] > 0:
-                tau = wall_shear(rate, V0 / A, rho)
+                tau = wall_shear(rate, V0 / A, rho) * xyf
                 strong = 4.0 if p['adhesion'] == 'strong' else 1.0
                 p['cells'][i] *= math.exp(-(tau / (TAU_CELL_PA * strong)) ** 2)
         if spilled.any():
@@ -1125,15 +2109,16 @@ class Biotek405tsRuntime:
         rec['programmed_dispense_m3'] += 96 * ph['volume']
         full = got >= float(want.sum()) * (1 - 1e-12)
         self.flow_ok = bool(got >= 0.9 * 96 * ph['volume'])
-        if not self.flow_ok and full:
+        if not self.flow_ok and (full or air) and self.washer['sensor_flow']:
             self._alarm(rec, 'FLOW_ERROR')
-        self.tip_liquid = comp
-        self._reset_idle()
+        if got > 0 or not air:
+            self.tip_liquid = comp
+            self._reset_idle()
         self._desorb(p, contact=ph.get('duration', 3.0), surf=is_surfactant(comp))
         if count and full:
             rec['cycles_done'] = max(rec['cycles_done'], ph.get('cycle', 0) + 1)
             self.led['cycles'].add(1)
-        return full
+        return full or air
 
     def _do_bottom_wash(self, ph, rec):
         """Bottom wash (guide p.45): fluid dispensed and aspirated at the same time at the aspirate height - a flow-through of the volume v through the
@@ -1145,9 +2130,11 @@ class Biotek405tsRuntime:
         pt = plate_lib()['plates'][p['type']]
         A = math.pi * pt['mean_well_radius_m'] ** 2
         want = np.array([ph['volume'] * self.clog_d.get(i, 1.0) for i in range(96)])
+        self._air = False
         comp, got = self._draw(ph['buffer'], float(want.sum()), rec)
         if comp is None:
             return False
+        air = self._air
         vols = want * (got / want.sum()) if want.sum() > 0 else want
         rho, mu, sig = mixture_props(comp, self._T())
         m_jet = 1 - (1 - MIX_MIN) * math.exp(-jet_speed(ph['rate']) / MIX_JET_M_S)
@@ -1184,9 +2171,10 @@ class Biotek405tsRuntime:
         rec['programmed_dispense_m3'] += 96 * ph['volume']
         self.led['dispensed_m3'].add(got)
         self._aspirated(rec, removed)
-        self.tip_liquid = comp
-        self._reset_idle()
-        return got >= float(want.sum()) * (1 - 1e-12)
+        if got > 0 or not air:
+            self.tip_liquid = comp
+            self._reset_idle()
+        return got >= float(want.sum()) * (1 - 1e-12) or air
 
     @staticmethod
     def _mix_comp(c0, V0, c1, v):
@@ -1245,6 +2233,7 @@ class Biotek405tsRuntime:
         self.carrier, self.manifold = 0.0, 0.0
         self._event('program', 'RUN_DONE', f'{rec["kind"]}记录{rec["record_id"]}完成', rid=rec['record_id'])
         self.op = None
+        self._after_op(o, 'completed')
 
     def _fail_op(self, code):
         o = self.op
@@ -1262,11 +2251,21 @@ class Biotek405tsRuntime:
             self.led['carrier_travel_m'].add(abs(self.carrier))
             self.led['manifold_travel_m'].add(abs(self.manifold))
             self.carrier, self.manifold = 0.0, 0.0
+        self._after_op(o, 'failed', code)
 
     def _cancel_op(self, op):
-        o = self.op
+        o, P = self.op, self.proto
+        if P is not None and P['status'] in ('running', 'waiting', 'prompt') and self.operations.get(P['op']) is op:   # a protocol run: its step stops too
+            if o is not None and o.get('proto') == P['op']:
+                self._cancel_step(o)
+            self._proto_end('cancelled', None)
+            return
         if o is None or self.operations.get(o['op']) is not op:
             raise ActionRejected('NOT_RUNNING')
+        self._cancel_step(o)
+        self._after_op(o, 'cancelled')
+
+    def _cancel_step(self, o):
         rec = self.records[o['record_id']]
         rec['status'] = 'cancelled'
         rec['finished_s'] = self.t
@@ -1343,10 +2342,13 @@ class Biotek405tsRuntime:
 
 
 # ---------------------------------------------------------------- sessions (instance, identity, idempotent requests) - as CHEM-162
-ASYNC = {'prime.run', 'wash.run', 'maintenance.clean_tubes'}
+ASYNC = {'prime.run', 'wash.run', 'maintenance.clean_tubes', 'protocol.run', 'protocol.test_run'}
 _DATA_GUARDED = {'measurement.result'}
 _RECORD_ARG = {'measurement.result': 'record_id'}
-_CONTROL_GUARDED = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] in ('device_command', 'robot_skill') and k not in UNSUPPORTED}
+_CONTROL_GUARDED = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] == 'device_command' and k not in UNSUPPORTED
+                    and k not in ('power.set', 'power.press_switch')}       # lead 10-19: the rear power switch (hard switch) and the hand / robot
+# skills (bottles, waste, plates, tube cleaning) are physical acts: not owner-guarded; the device's own rules (no plate move, waste emptying or
+# tube cleaning during a run, no change of the bottle in use) still refuse them with the device's reason
 
 
 class Biotek405tsSession:
@@ -1370,6 +2372,8 @@ class Biotek405tsSession:
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID:
             raise ActionRejected('UNKNOWN_INSTANCE')
         meta = copy.deepcopy(export_biotek_405ts_contract_metadata())
+        meta['capabilities'].update(export_device_contract_metadata())
+        meta['capabilities'].update(export_panel_contract_metadata())
         caps = {k: v for k, v in meta['capabilities'].items() if v['visibility'] == 'agent' or self._role != 'agent'}
         slots = {k: v for k, v in meta['state_slots'].items() if v['visibility'] == 'agent' or self._role != 'agent'}
         if self._role == 'agent':
@@ -1381,7 +2385,7 @@ class Biotek405tsSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -1389,7 +2393,7 @@ class Biotek405tsSession:
 
     def _foreign_op(self):
         h = self._host
-        return h.op is not None and self._foreign(h.op['op'])
+        return (h.op is not None and self._foreign(h.op['op'])) or (h._proto_active() and self._foreign(h.proto['op']))
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -1412,10 +2416,8 @@ class Biotek405tsSession:
         if self._role != 'agent':
             return
         h = self._host
-        if capability_id in _CONTROL_GUARDED and self._foreign_op():
-            if capability_id in ('power.set', 'power.press_switch') and not h.power:
-                return
-            raise ActionRejected('ACCESS_DENIED')
+        if (capability_id in _CONTROL_GUARDED or capability_id in _DEVICE_GUARDED) and self._foreign_op():
+            raise ActionRejected('ACCESS_DENIED')                            # (the power switch is not guarded: a power loss ends the run)
         if capability_id in _DATA_GUARDED and self._foreign(arguments.get(_RECORD_ARG[capability_id])):
             raise ActionRejected('ACCESS_DENIED')
 
@@ -1436,15 +2438,19 @@ class Biotek405tsSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             self._guard(capability_id, arguments)
-            result = h.invoke(capability_id, **arguments)
+            h._caller = self._principal                                       # panel gestures in this call act as this principal
+            try:
+                result = h._invoke_any(capability_id, **arguments)
+            finally:
+                h._caller = None
             if self._role == 'agent':
                 if capability_id == 'records.list':
                     result = dict(records=[r for r in result['records'] if not self._foreign(r)])
@@ -1459,6 +2465,7 @@ class Biotek405tsSession:
                 rid = h.operations[operation].get('record_id')
                 if rid:
                     h._owners[rid] = self._principal
+                h._adopt(operation)
             response = dict(protocol_version=PROTOCOL_VERSION, instance_id=instance_id, request_id=request_id, operation_id=operation,
                             status='accepted' if operation else 'succeeded', state_revision=h.revision, clock={'domain': 'simulation', 'time_s': h.time_s},
                             result=copy.deepcopy(result), observations={}, error=None)
@@ -1767,3 +2774,159 @@ def export_biotek_405ts_contract_metadata():
         if v['reference']:
             slots[k]['reference_conditions'] = v['reference']
     return dict(asset_type_id=ASSET_TYPE_ID, catalog_id=CATALOG_ID, capabilities=caps, state_slots=slots, mechanisms={'washer_405ts': mechanism})
+
+
+# ---------------------------------------------------------------- 1.1.0 device commands and the front panel: effects, errors, contract entries
+ERROR_ZH.update({
+    'EDITOR_CLOSED': '没有打开的程序编辑屏（先Create或Edit）', 'UNKNOWN_PROTOCOL': '程序不存在', 'INVALID_NAME': '程序名只能用字母、数字、空格与 _ . -（≤32字符）',
+    'NAME_REQUIRED': '保存前须输入程序名', 'PROTOCOL_LOCKED': '锁定的程序不能覆盖或删除（另存为新名即复制）', 'PROTOCOL_STORE_FULL': '用户程序已达上限（99）',
+    'TOO_MANY_STEPS': '程序步骤已达上限（50）', 'CLIPBOARD_EMPTY': '剪贴板中没有步骤', 'PROTOCOL_EMPTY': '程序没有可执行的步骤',
+    'LOOP_NOT_OPEN': 'End Loop之前没有Loop', 'LOOP_NOT_CLOSED': 'Loop没有对应的End Loop', 'LOOP_EMPTY': '循环内没有可执行的步骤',
+    'SOAK_STEP_EMPTY': 'Shake/Soak步骤既未启用摇动也未启用浸泡', 'VACUUM_DELAY_EXCEEDS_VOLUME': '真空延迟体积大于分配体积',
+    'PROTOCOL_TOO_LONG': '循环展开后步骤超过5000', 'NOT_WAITING': '程序没有在等待Continue', 'MANIFOLD_SETTING_MISMATCH': '洗头设置与实际安装的96管洗头不符',
+})
+_DEV_RUN = _OPS + _MOVE + ['buffer.selected', 'protocol.run']
+DEVICE_EFFECTS = {
+    'protocol.edit_open': ['protocol.editor'], 'protocol.edit_info': ['protocol.editor'], 'protocol.edit_step': ['protocol.editor'],
+    'protocol.edit_close': ['protocol.editor'], 'protocol.save': ['protocols.list', 'protocol.editor'], 'protocol.validate': [], 'protocol.delete': ['protocols.list'],
+    'protocol.run': ['protocols.list'] + _DEV_RUN, 'protocol.test_run': list(_DEV_RUN), 'protocol.resume': list(_DEV_RUN), 'run.stop': _OPS + _MOVE + ['protocol.run'],
+    'washer.configure': ['washer.settings'], 'autoprime.configure': ['autoprime.settings'], 'clock.set': ['clock.settings'],
+    'instrument.self_check': ['selfcheck.last', 'truth.trough_m3', 'manifold.submerged', 'truth.waste_volume_m3', 'sensor.waste_full'] + _MOVE,
+}
+_DEVICE_SLOTS = ['protocol.run', 'manifold.submerged', 'truth.trough_m3']
+_RUN_STEP += _DEVICE_SLOTS                                                    # (in place: the 1.0.0 on_step lists of the runs and of sim.step)
+for _k in ('power.set', 'power.press_switch'):
+    EFFECTS[_k] += ['protocol.run', 'protocol.editor', 'manifold.submerged']   # power off ends a protocol run and drops the edit; power on homes the manifold
+for _k in ('plant.configure', 'fault.inject'):
+    EFFECTS[_k] += ['protocol.run', 'protocol.editor']                        # a mains fault or a power loss does the same
+DEVICE_ON_STEP = {'protocol.run': _RUN_STEP, 'protocol.test_run': _RUN_STEP, 'protocol.resume': _RUN_STEP, 'autoprime.configure': _RUN_STEP}
+DEVICE_ON_STEP_ZH = {'protocol.run': '按步骤推进：每个洗板/灌注步骤按阶段完成并写记录，Delay步骤计时或等待Continue，最后一步结束时程序完成；故障、断电或STOP使程序结束',
+                     'protocol.test_run': '同protocol.run（不更新Last run）', 'protocol.resume': '继续后的步骤按阶段推进',
+                     'autoprime.configure': '启用后，Home屏空闲达到间隔时自动灌注（PR记录，可浸没），任何操作重新计时'}
+_START = ['NO_PLATE', 'WASTE_FULL', 'BUFFER_EMPTY', 'VACUUM_LOW', 'RECORDS_FULL']
+_VALID = ['PROTOCOL_EMPTY', 'LOOP_NOT_OPEN', 'LOOP_NOT_CLOSED', 'LOOP_EMPTY', 'SOAK_STEP_EMPTY', 'VOLUME_NOT_IN_1UL_STEPS', 'VACUUM_DELAY_EXCEEDS_VOLUME',
+          'CELL_WASH_OPTION_ABSENT', 'PROTOCOL_TOO_LONG']
+_DEV = ['PLANT_REQUIRED', 'POWER_OFF']
+DEVICE_CAP_ERRORS = {
+    'protocol.edit_open': _DEV + ['UNKNOWN_PROTOCOL'], 'protocol.edit_info': _DEV + ['EDITOR_CLOSED', 'INVALID_NAME', 'UNKNOWN_PLATE_TYPE', 'PLATE_INCOMPATIBLE'],
+    'protocol.edit_step': _DEV + ['EDITOR_CLOSED', 'TOO_MANY_STEPS', 'CLIPBOARD_EMPTY'], 'protocol.edit_close': _DEV + ['EDITOR_CLOSED'],
+    'protocol.save': _DEV + ['EDITOR_CLOSED', 'NAME_REQUIRED', 'PROTOCOL_LOCKED', 'PROTOCOL_STORE_FULL'] + _VALID, 'protocol.validate': _DEV + ['EDITOR_CLOSED'] + _VALID,
+    'protocol.delete': _DEV + ['UNKNOWN_PROTOCOL', 'PROTOCOL_LOCKED', 'OPERATION_RUNNING'],
+    'protocol.run': _DEV + ['OPERATION_RUNNING', 'UNKNOWN_PROTOCOL'] + _VALID + _START,
+    'protocol.test_run': _DEV + ['OPERATION_RUNNING', 'EDITOR_CLOSED'] + _VALID + _START, 'protocol.resume': ['PLANT_REQUIRED', 'NOT_WAITING', 'POWER_OFF'] + _START,
+    'run.stop': ['PLANT_REQUIRED', 'NOT_RUNNING'], 'washer.configure': _DEV + ['OPERATION_RUNNING'],
+    'autoprime.configure': _DEV + ['OPERATION_RUNNING', 'CELL_WASH_OPTION_ABSENT'], 'clock.set': list(_DEV), 'instrument.self_check': _DEV + ['OPERATION_RUNNING'],
+}
+_DEVICE_GUARDED = {k for k, v in DEVICE_CAPS.items() if v['kind'] == 'device_command'}
+_GSG_PAGES = {'protocol.edit_open': 'p.32', 'protocol.edit_info': 'p.32-33', 'protocol.edit_step': 'p.32, 43-46', 'protocol.edit_close': 'p.31',
+              'protocol.save': 'p.33', 'protocol.validate': 'p.33', 'protocol.delete': 'p.33', 'protocol.run': 'p.39, 41-43', 'protocol.test_run': 'p.33',
+              'protocol.resume': 'p.83', 'run.stop': 'p.79, 94', 'washer.configure': 'p.23, 61, 69-70', 'autoprime.configure': 'p.70-71, 79', 'clock.set': 'p.23',
+              'instrument.self_check': 'p.25, 34, 82'}
+DEVICE_LIMITS = [
+    '1.1.0设备层（触摸屏软件）：程序存储与编辑（Create/Edit/Delete、名称与板型、Add/Edit/剪切/粘贴步骤、Validate、Test Run、Save）、按步骤运行程序（Wash、Aspirate、Dispense、'
+    'Prime（可浸没）、Shake/Soak、Delay（计时或等待Continue）、Remark、Loop）、Quick Prime/Quick Wash（即prime.run / wash.run）、Maintenance/QC/示例板载程序、'
+    'Instrument > Options（洗头选择、磁铁高度偏移、液体/流量/废液/真空过滤传感器、Vacuum Dissipate延时）、AutoPrime、时钟、Self-Check与STOP，均为运行层设备命令。',
+    PREDEFINED_NOTE,
+    '程序与步骤上限（99个用户程序、50步、展开后5000步）、程序名字符集、X/Y步长（0.0457 mm/步，±60步）、灌注槽浸没液量（90 mL）、磁铁偏移与Vacuum Dissipate的范围、'
+    'Delay与浸没时长上限（24 h）、Loop次数（1–999）为假设（说明书未写）；X/Y偏移只按“分配射流打在孔壁上时孔底剪切减小”（(1-d/r)²）与“管外缘碰孔壁”警告建模，'
+    '对抽吸残余无影响；Wash format（Plate/Sector）只对大板型有意义，96孔板只有一个扇区，未提供。',
+    '传感器关闭的效果：液体传感器关闭时启动不查瓶，瓶空后泵抽空气、不再分配（管路液体不被空气排空，属简化）；流量传感器关闭时不报FLOW_ERROR；废液传感器关闭时不在90 %报满，'
+    '废液超过瓶总容量即倒灌真空泵（VACUUM_LOW，说明书p.37）；真空过滤传感器无对应硬件（模块未装）。',
+    '协议中的Prime步骤与AutoPrime在载板上有板时照常灌注（载板在初始位，灌注槽在停放的洗头下；说明书p.52的细胞洗涤程序先Prime再Wash），而1.0.0的prime.run（Quick Prime）'
+    '保留其“载板上有板时拒绝”（PLATE_ON_CARRIER）的规则。',
+    '仪器时钟从2026-01-01 08:00 GMT起随仿真时钟走，Set Time and Date只改偏移与时区；日期只有DD Month YY一种格式（说明书p.23）。',
+    'Self-Check只比对洗头设置与实际洗头、回位并排空灌注槽，不模拟其他硬件自检；序列号、Basecode版本与帮助文字不在已保存的文档中。',
+]
+PANEL_LIMITS = [
+    '前面板层（panel.*）：按panel_ui.json（405 TS Getting Started Guide 1171009 Rev C页码证据）实现触摸屏（Home程序列表与Quick/Define/Maintenance/Instrument、程序运行屏、'
+    'Define编辑屏与12种步骤按钮、各步骤参数页、Instrument的Current Config/Options/AutoPrime/Next/Other/BioStack/Set Time and Date、帮助）与后面板电源开关；'
+    '每个屏幕操作都调用本运行层的同名能力（没有第二份仪器逻辑）；手势不推进仿真时钟。',
+    '说明书只有入门指南（完整操作手册在仪器U盘上，未保存）：屏幕版式、帮助文字、错误代码的具体编号与文字、部分字段的默认值来自入门指南的描述或为假设（spec标approximate）；'
+    '真空过滤、AutoClean（超声）、Verify堵针检测、BioStack、U盘程序传输与视频播放需要本配置没有的硬件，屏幕显示相应提示（unsupported）。',
+    '面板不含3D联动：屏幕纹理（render()）与电源键关节触发手势属于后续Matterix步骤；本版本只在过程层验证（panel_ui_validation）。',
+    '后面板电源开关是硬开关（负责人澄清10-19）：物理动作，不受所有权限制（power.set、power.press_switch不再因另一agent的运行被拒）；另一agent关断时进行中的运行按断电失败。',
+    '手动/机器人操作（buffer.load、plate.provide、plate.load、plate.unload、waste.empty、maintenance.clean_tubes）是物理动作（负责人澄清10-19），不受所有权限制；仪器自己的规则仍然适用：运行中（含程序两步之间）不能装卸板或疏通管路、运行中不能倒废液、不能更换正在使用的供液瓶（OPERATION_RUNNING）。',
+    '入门指南p.94只给出两个错误代码：6045（Serial write error，LHC协议中的COM口设置错误）与810D（仪器须在主菜单/Home屏才能与LHC通讯）；二者都属于LHC（Liquid Handling Control）PC软件经USB/RS232的通讯，本配置没有该PC软件，保留为unsupported（需要缺失的硬件/软件）；其余系统错误代码（0000-A500）与软件错误代码（6000-6100）的编号与文字在未保存的操作手册中，屏幕错误对话框显示运行层错误代码与英文文字（假设）。',
+]
+
+
+def _dev_errors(k):
+    extra = ['ACCESS_DENIED'] if k in _DEVICE_GUARDED else []
+    return list(dict.fromkeys(DEVICE_CAP_ERRORS[k] + _COMMON_ERRORS + extra))
+
+
+def export_device_contract_metadata():
+    """Contract entries of the 1.1.0 device commands (DEVICE_CAPS), in the form of export_biotek_405ts_contract_metadata()."""
+    caps = {}
+    for k, v in DEVICE_CAPS.items():
+        async_ = k in ASYNC
+        c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
+        c.update(availability='implemented',
+                 implementation={layer: 'implemented' if layer in ('process', 'host') else 'absent' for layer in ['process', 'scene', 'robot', 'hardware', 'host']},
+                 binding=dict(backend='host', artifact_id='runtime', entrypoint='asset_runtime.biotek_405ts.Biotek405tsSession.invoke',
+                              invocation=f'session.invoke(instance_id="washer_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),
+                 preconditions=[dict(description_zh='已声明实验室条件且通电（触摸屏软件只在通电时工作）；' + {
+                     'protocol.run': '无运行；程序通过Validate；含洗板类步骤时载板上有板；第一步的瓶、废液、真空与记录数检查（按启用的传感器）',
+                     'protocol.test_run': '无运行；编辑屏已打开；其余同protocol.run', 'protocol.resume': '程序在等待Continue；下一步的检查通过（不通过时仍停在提示）',
+                     'run.stop': '有运行中的操作或程序', 'protocol.save': '编辑屏已打开、已输入名称、不是锁定程序、通过Validate',
+                     'protocol.delete': '程序存在且未锁定、不在运行', 'washer.configure': '无运行', 'autoprime.configure': '无运行；流速1–2需细胞洗涤选件',
+                     'instrument.self_check': '无运行'}.get(k, '编辑类命令需已打开编辑屏' if k.startswith('protocol.edit') and k != 'protocol.edit_open' else '无其他条件')
+                     + _foreign_text(k) + '；被拒时状态不变。', state_ids=['plant.configured', 'power.enabled', 'operation.kind', 'protocol.run', 'protocol.editor']
+                     + (['operation.started_by_other_agent'] if k in _DEVICE_GUARDED else []), enforced_by='runtime',
+                     check='Biotek405tsRuntime._invoke_any / Biotek405tsSession._guard')],
+                 state_effects=[dict(state_id=s, timing='immediate', description_zh='命令立即写入或改变的状态') for s in dict.fromkeys(DEVICE_EFFECTS[k])]
+                 + [dict(state_id=s, timing='on_step', description_zh=DEVICE_ON_STEP_ZH[k]) for s in dict.fromkeys(DEVICE_ON_STEP.get(k, []))],
+                 observes=['protocol.run', 'operation.kind', 'result.last_record_id'] if k in ('protocol.run', 'protocol.test_run', 'protocol.resume', 'run.stop')
+                 else [x for x in dict.fromkeys(DEVICE_EFFECTS[k]) if SLOTS[x]['visibility'] == 'agent'][:3],
+                 model_effects=_model_effects_device(k),
+                 execution=dict(mode='asynchronous' if async_ else 'synchronous', time_domain='simulation',
+                                completion_criterion='程序全部步骤完成（protocol.run状态completed）' if async_ else '原子设定、编辑或查询',
+                                completion_state_ids=['protocol.run'] if async_ else [], timeout_s=None, cancellation='supported' if async_ else 'unsupported',
+                                retry='same_request_id', resources=['manifold', 'plate_carrier', 'buffer_valves', 'vacuum', 'host_clock'] if async_ else ['touch_screen'],
+                                partial_failure_zh='某一步失败或被停止时程序结束（protocol.run为failed/cancelled，该步记录为failed/cancelled，已完成步骤的效果保留）'
+                                if async_ else '同步原子操作：成功时一次写入全部效果，被拒时状态不变'),
+                 errors=[dict(code=e, meaning_zh=ERROR_ZH.get(e, e), side_effects='none') for e in _dev_errors(k)],
+                 verification=[], limitations=list(DEVICE_LIMITS), source_ids=[_GSG, _SIM])
+        c['function_zh'] += f'（入门指南{_GSG_PAGES[k]}）'
+        caps[k] = c
+    return caps
+
+
+def _model_effects_device(k):
+    seen = sorted((set(DEVICE_EFFECTS.get(k, [])) | set(DEVICE_ON_STEP.get(k, []))) & SCENE_MIRRORED)
+    if seen:
+        return dict(mode='host_required', binding_ids=[], description_zh='状态经宿主桥（Matterix）镜像到场景关节或屏幕数字（' + '、'.join(seen) + '），运行层本身不驱动模型')
+    return dict(mode='none', description_zh='触摸屏软件的设置与存储，没有可见模型变化', binding_ids=[])
+
+
+def export_panel_contract_metadata():
+    """Contract entries of the panel capabilities (panel.press / touch / capture / frame): a gesture changes what the commands it calls change."""
+    if not PANEL_SPEC:
+        return {}
+    called = _panel_ui.spec_capabilities(PANEL_SPEC)
+    effects = list(dict.fromkeys(x for c in called for x in (EFFECTS.get(c, []) if c in CAPS else DEVICE_EFFECTS.get(c, []))))
+    out = {}
+    for k, d in PANEL_CAPS.items():
+        query = k in ('panel.capture', 'panel.frame')
+        c = {key: copy.deepcopy(d[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
+        errors = ['PLANT_REQUIRED', 'INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE'] + (['ACCESS_DENIED'] if d['visibility'] != 'agent' or not query else [])
+        c.update(availability='implemented',
+                 implementation={layer: 'implemented' if layer in ('process', 'host') else 'absent' for layer in ['process', 'scene', 'robot', 'hardware', 'host']},
+                 binding=dict(backend='host', artifact_id='runtime', entrypoint='asset_runtime.biotek_405ts.Biotek405tsSession.invoke',
+                              invocation=f'session.invoke(instance_id="washer_01",capability_id={k!r},arguments={d["example_arguments"]!r},request_id="unique")'),
+                 preconditions=[dict(description_zh='须已声明实验室条件；断电时屏幕暗、触摸无反应（只有电源开关起作用）；被调用能力的前提同样适用（被拒时屏幕显示仪器的提示，手势不被接受）；'
+                                                    '经会话的手势以该会话的调用者身份执行：另一个agent的运行只能查看，不能STOP或修改（ACCESS_DENIED，屏幕显示错误提示，状态不变），'
+                                                    '由面板启动的运行归该调用者' if not query else '须已声明实验室条件（关机时为暗屏）',
+                                     state_ids=['plant.configured', 'power.enabled'], enforced_by='runtime', check='Biotek405tsRuntime._panel_command')],
+                 state_effects=[] if query else [dict(state_id=x, timing='immediate', description_zh='手势调用的能力所写的状态（屏幕导航本身不改状态槽）') for x in effects],
+                 observes=['power.enabled', 'operation.kind', 'protocol.run'] if not query else [],
+                 model_effects=dict(mode='none', description_zh='面板层只改界面状态与被调用能力的状态，屏幕画面由panel.capture渲染', binding_ids=[]),
+                 execution=dict(mode='synchronous', time_domain='simulation',
+                                completion_criterion='手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看'
+                                if not query else '立即返回当前画面', completion_state_ids=[], timeout_s=None, cancellation='unsupported', retry='same_request_id',
+                                resources=['host_clock'], partial_failure_zh='被拒的手势不改变运行层状态（只显示仪器的提示）'),
+                 errors=[dict(code=e, meaning_zh=ERROR_ZH.get(e, {'INVALID_ARGUMENT': '未知输入件/显示件、手势与输入件不符或坐标在屏外'}.get(e, e)), side_effects='none')
+                         for e in errors],
+                 verification=[], limitations=list(PANEL_LIMITS), source_ids=[_GSG, _SIM])
+        out[k] = c
+    return out

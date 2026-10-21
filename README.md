@@ -5,7 +5,7 @@
 # ChemLab-Assets
 
 **203 simulation-ready chemistry laboratory instruments**<br>
-part-level geometry · working joints · executable behaviour models · machine-readable contracts
+part-level geometry · working joints · front-panel menus · executable behaviour models · machine-readable contracts
 
 <a href="https://mbzuai-nlp.github.io/ChemLab-Assets/"><img alt="Website" src="https://img.shields.io/badge/website-project%20page-0a6bc2"></a>
 <a href="https://huggingface.co/datasets/MBZUAI/ChemLab-Assets"><img alt="Hugging Face dataset" src="https://img.shields.io/badge/%F0%9F%A4%97%20dataset-ChemLab--Assets-ffcc4d"></a>
@@ -23,6 +23,7 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 ## News
 
+- **[2026-10-21] v1.4.0:** working front-panel menus for 106 instruments; step through a menu and preview the screen after each step.
 - **[2026-10-17] v1.3.0:** 5 new instruments (203 in total); 44 instruments rebuilt with more realistic 3D models.
 - **[2026-10-16] v1.2:** 103 built-in reactions, now including light- and current-driven ones; richer reference data; instrument request form.
 - **[2026-10-15] v1.1:** real reference data for 17 more instruments, a shared table of 200 compounds, 38 built-in reactions.
@@ -38,19 +39,20 @@ Each asset is one specific commercial instrument, chosen from a survey of 200 in
 chemistry teaching and research, and built from published brochures, manuals and papers. The models reproduce documented
 behaviour; they are not manufacturer CAD and have not been calibrated against physical units.
 
-This repository holds the code (runtimes, tests, examples, contract validator), the catalog, the project website (`docs/`) and the 3D explorer (`explorer/`). The models and data (about 1.5 GB) live in the [Hugging Face dataset](https://huggingface.co/datasets/MBZUAI/ChemLab-Assets); `python tools/download_assets.py` fetches them into `assets/`.
+This repository holds the code (runtimes, tests, examples, contract validator), the catalog, the project website (`docs/`) and the 3D explorer (`explorer/`). The models and data (about 1.9 GB) live in the [Hugging Face dataset](https://huggingface.co/datasets/MBZUAI/ChemLab-Assets); `python tools/download_assets.py` fetches them into `assets/`.
 
 ## At a glance
 
 | | |
 |---|---|
 | **Instruments** | 203 commercial models from 119 manufacturers, in 16 capability domains |
-| **Geometry** | GLB, URDF with primitive collision proxies, 15,258 per-part OBJ meshes, Blender sources |
-| **Articulation** | 1,360 joints (936 prismatic, 393 revolute, 31 continuous): doors, sashes, lids, keys and knobs |
-| **Contracts** | 15,054 components, 6,479 typed state slots, 4,822 capabilities with JSON-Schema arguments and declared errors |
-| **Interfaces** | 667 readouts (displays, LEDs) and 2,547 interface points (place, grasp, ports) |
+| **Geometry** | GLB, URDF with primitive collision proxies, 15,323 per-part OBJ meshes, Blender sources |
+| **Articulation** | 1,327 joints (891 prismatic, 405 revolute, 31 continuous): doors, sashes, lids, keys and knobs |
+| **Contracts** | 15,299 components, 7,769 typed state slots, 6,823 capabilities with JSON-Schema arguments and declared errors |
+| **Interfaces** | 663 readouts (displays, LEDs) and 2,547 interface points (place, grasp, ports) |
 | **Behaviour** | a Python runtime per instrument: time-stepped process models behind `describe` / `read` / `invoke` / `poll`, agent and evaluator views, seeded noise |
-| **Provenance** | 3,501 cited sources; raw third-party documents are not redistributed |
+| **Front panels** | 106 instruments with working keys, knobs, touchscreens and menus; `examples/preview_menu.py` shows the screen after each step |
+| **Provenance** | 3,615 cited sources; raw third-party documents are not redistributed |
 | **Simulation** | all 203 converted to USD and stepped in NVIDIA Isaac Lab through the Matterix framework |
 
 ## Gallery
@@ -62,6 +64,43 @@ This repository holds the code (runtimes, tests, examples, contract validator), 
 </table>
 
 Browse all 203 in 3D, with joint sliders and part-by-part annotations, in the [3D explorer](https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer).
+
+## Front-panel menus
+
+106 of the 203 instruments have a working front panel: the keys, knobs, switches and touchscreens of the
+real instrument, and the screens and menus its manual describes (58 touchscreens, 28 text-menu displays and
+20 simple displays that step through settings). A menu runs on the instrument's own behaviour model, so a setting
+changed in the menu changes the simulated instrument, and the screen shows the result.
+
+<p align="center"><img src="docs/media/figs/menu_preview_aqualab.webp" width="760" alt="Six screens of the AquaLab 4TE: the measurement screen, the configuration menu, the temperature item selected, the temperature editor at 25.0 and 25.1 °C, and the menu with the saved value"></p>
+<p align="center"><sub>Changing the measuring temperature of the AquaLab 4TE water-activity meter in its menu: MENU, down, ENTER, up, SAVE.</sub></p>
+
+**Preview menu steps.** Name an instrument and a list of steps. The script presses, turns or touches as told, saves the
+screen after each step and puts the frames into one strip image:
+
+```bash
+python examples/preview_menu.py aqualab_4te btn3=MENU down btn2=ENTER up btn2=SAVE
+python examples/preview_menu.py mt_xpr204e --list       # keys, knobs, displays and the buttons on screen
+python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close
+```
+
+A step is a key (`menu_key`, or `press:menu_key:2` to hold it for 2 s), `turn:knob_speed:+3`, `switch:power_switch:on`,
+`touch:terminal:400,240` or `tap:Methods` on a touchscreen, or `wait:5`. The frames go to `menu_preview/<instrument>/`.
+
+**For agents.** The same gestures are capabilities in each contract. `panel.press`, `panel.turn`, `panel.switch` and
+`panel.touch` perform one gesture and only report whether the instrument accepted it, so an agent has to read the screen
+to see what happened. `panel.capture` returns the image of a display, as a camera pointed at it would see it.
+`panel.frame` returns the structured screen (page, menu position, values) and is for evaluators only. Each instrument's
+`panel_ui.json` describes its screens and menus and cites the manufacturer's documents for each of them.
+
+**Checked in Isaac Sim.** All 106 front panels were checked in Isaac Sim through the Matterix framework: the rendered
+screen matches the menu engine; keys, knobs and touchscreens drive the menu in each simulated copy separately; and a robot
+arm pressed a key or tapped the screen on 97 of them.
+
+<table>
+<tr><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_aqualab_screen.webp" width="380" alt="The AquaLab 4TE screen rendered in Isaac Sim, rectified, and drawn by the menu engine"><br><sub>AquaLab 4TE: the screen rendered in Isaac Sim (top), rectified (bottom left) and drawn by the menu engine (bottom right).</sub></td><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_xpr204e_screen.webp" width="380" alt="The XPR204E terminal rendered in Isaac Sim next to the menu engine's image"><br><sub>Mettler Toledo XPR204E terminal: the same comparison on a touchscreen.</sub></td></tr>
+<tr><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_julabo_press.webp" width="380" alt="A robot arm pressing a key of the JULABO CORIO CD-200F in Isaac Sim"><br><sub>A robot arm presses a key on the JULABO CORIO CD-200F.</sub></td><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_xpr204e_touch.webp" width="380" alt="A robot arm tapping the XPR204E touchscreen in Isaac Sim"><br><sub>A robot arm taps the XPR204E touchscreen.</sub></td></tr>
+</table>
 
 ## Instruments by domain
 
@@ -89,77 +128,77 @@ Browse all 203 in 3D, with joint sliders and part-by-part annotations, in the [3
 
 | CHEM ID | Instrument | Maker | Model | Domain | Joints | State slots | Capabilities |
 |---|---|---|---|---|---:|---:|---:|
-| CHEM-001 | Analytical balance | METTLER TOLEDO | XPR204E | Basic Metrology & Sample Handling | 16 | 22 | 9 |
-| CHEM-002 | Halogen moisture analyzer | METTLER TOLEDO | HX204 | Basic Metrology & Sample Handling | 5 | 14 | 8 |
-| CHEM-003 | Oscillating U-tube density meter | Anton Paar | DMA 5002 | Basic Metrology & Sample Handling | 4 | 17 | 9 |
-| CHEM-004 | Digital refractometer | Anton Paar | Abbemat Advanced 5201 | Basic Metrology & Sample Handling | 5 | 19 | 10 |
-| CHEM-005 | pH / DO / conductivity meter | Metrohm | 914 pH/DO/Conductometer | Basic Metrology & Sample Handling | 3 | 44 | 14 |
-| CHEM-006 | Automatic melting-point system | METTLER TOLEDO | MP70 | Basic Metrology & Sample Handling | 4 | 26 | 10 |
-| CHEM-007 | Water-activity meter | AQUALAB | 4TE | Basic Metrology & Sample Handling | 10 | 27 | 13 |
-| CHEM-008 | Magnetic hotplate stirrer | IKA | Plate RCT digital | Basic Metrology & Sample Handling | 8 | 33 | 33 |
+| CHEM-001 | Analytical balance | METTLER TOLEDO | XPR204E | Basic Metrology & Sample Handling | 12 | 54 | 66 |
+| CHEM-002 | Halogen moisture analyzer | METTLER TOLEDO | HX204 | Basic Metrology & Sample Handling | 5 | 38 | 74 |
+| CHEM-003 | Oscillating U-tube density meter | Anton Paar | DMA 5002 | Basic Metrology & Sample Handling | 4 | 50 | 52 |
+| CHEM-004 | Digital refractometer | Anton Paar | Abbemat Advanced 5201 | Basic Metrology & Sample Handling | 5 | 50 | 50 |
+| CHEM-005 | pH / DO / conductivity meter | Metrohm | 914 pH/DO/Conductometer | Basic Metrology & Sample Handling | 3 | 61 | 33 |
+| CHEM-006 | Automatic melting-point system | METTLER TOLEDO | MP70 | Basic Metrology & Sample Handling | 4 | 41 | 49 |
+| CHEM-007 | Water-activity meter | AQUALAB | 4TE | Basic Metrology & Sample Handling | 10 | 37 | 36 |
+| CHEM-008 | Magnetic hotplate stirrer | IKA | Plate RCT digital | Basic Metrology & Sample Handling | 8 | 35 | 41 |
 | CHEM-009 | Incubated orbital shaker | IKA | KS 4000 i control | Basic Metrology & Sample Handling | 14 | 33 | 14 |
-| CHEM-010 | Refrigerated multipurpose centrifuge | Eppendorf | 5910 Ri | Basic Metrology & Sample Handling | 2 | 23 | 15 |
-| CHEM-011 | Forced-convection drying oven | BINDER | FD 56 | Basic Metrology & Sample Handling | 7 | 25 | 32 |
-| CHEM-012 | Vacuum drying oven | BINDER | VD 56 | Basic Metrology & Sample Handling | 7 | 10 | 6 |
+| CHEM-010 | Refrigerated multipurpose centrifuge | Eppendorf | 5910 Ri | Basic Metrology & Sample Handling | 2 | 36 | 36 |
+| CHEM-011 | Forced-convection drying oven | BINDER | FD 56 | Basic Metrology & Sample Handling | 7 | 28 | 38 |
+| CHEM-012 | Vacuum drying oven | BINDER | VD 56 | Basic Metrology & Sample Handling | 7 | 58 | 33 |
 | CHEM-013 | Ultrasonic cleaning bath | Elma | Elmasonic S60H | Basic Metrology & Sample Handling | 8 | 56 | 15 |
-| CHEM-014 | Benchtop turbidimeter | Hach | TL2300 EPA | Basic Metrology & Sample Handling | 2 | 26 | 11 |
-| CHEM-015 | Microwave synthesis reactor | Anton Paar | Monowave 400 | Reaction & Molecular Synthesis | 3 | 32 | 13 |
-| CHEM-016 | Electro-organic synthesis system | IKA | ElectraSyn 2.0 | Reaction & Molecular Synthesis | 2 | 40 | 12 |
-| CHEM-017 | Photochemical reactor | HepatoChem | PhotoRedOx Box UV-Vis | Reaction & Molecular Synthesis | 3 | 36 | 15 |
-| CHEM-018 | Micro high-pressure stirred reactor | Parr Instrument | 4591 | Reaction & Molecular Synthesis | 9 | 22 | 10 |
-| CHEM-019 | Continuous-flow chemistry system | Syrris | Asia Discovery | Reaction & Molecular Synthesis | 4 | 38 | 13 |
-| CHEM-020 | Continuous-flow hydrogenation reactor | ThalesNano | H-Cube Pro | Reaction & Molecular Synthesis | 5 | 41 | 17 |
-| CHEM-021 | Parallel reaction station (4 independent zones) | Radleys | Mya 4 | Reaction & Molecular Synthesis | 4 | 92 | 15 |
+| CHEM-014 | Benchtop turbidimeter | Hach | TL2300 EPA | Basic Metrology & Sample Handling | 2 | 43 | 40 |
+| CHEM-015 | Microwave synthesis reactor | Anton Paar | Monowave 400 | Reaction & Molecular Synthesis | 3 | 36 | 24 |
+| CHEM-016 | Electro-organic synthesis system | IKA | ElectraSyn 2.0 | Reaction & Molecular Synthesis | 2 | 45 | 22 |
+| CHEM-017 | Photochemical reactor | HepatoChem | PhotoRedOx Box UV-Vis | Reaction & Molecular Synthesis | 3 | 36 | 20 |
+| CHEM-018 | Micro high-pressure stirred reactor | Parr Instrument | 4591 | Reaction & Molecular Synthesis | 15 | 23 | 16 |
+| CHEM-019 | Continuous-flow chemistry system | Syrris | Asia Discovery | Reaction & Molecular Synthesis | 4 | 52 | 28 |
+| CHEM-020 | Continuous-flow hydrogenation reactor | ThalesNano | H-Cube Pro | Reaction & Molecular Synthesis | 5 | 42 | 23 |
+| CHEM-021 | Parallel reaction station (4 independent zones) | Radleys | Mya 4 | Reaction & Molecular Synthesis | 4 | 118 | 47 |
 | CHEM-022 | Automated microwave peptide synthesizer | CEM | Liberty Blue 2.0 | Reaction & Molecular Synthesis | 2 | 34 | 13 |
 | CHEM-023 | Oligonucleotide synthesizer | Cytiva | ÄKTA oligosynt | Reaction & Molecular Synthesis | 3 | 31 | 12 |
-| CHEM-024 | Rotary evaporator | IKA | RV 10 digital V | Extraction, Purification & Drying | 5 | 26 | 12 |
-| CHEM-025 | Freeze dryer | BUCHI | Lyovapor L-250 Pro | Extraction, Purification & Drying | 3 | 34 | 15 |
-| CHEM-026 | Lab spray dryer | BUCHI | Mini Spray Dryer S-300 | Extraction, Purification & Drying | 2 | 26 | 16 |
+| CHEM-024 | Rotary evaporator | IKA | RV 10 digital V | Extraction, Purification & Drying | 5 | 35 | 22 |
+| CHEM-025 | Freeze dryer | BUCHI | Lyovapor L-250 Pro | Extraction, Purification & Drying | 3 | 51 | 45 |
+| CHEM-026 | Lab spray dryer | BUCHI | Mini Spray Dryer S-300 | Extraction, Purification & Drying | 2 | 38 | 35 |
 | CHEM-027 | Critical point dryer | Tousimis | Autosamdri-815 Series B | Extraction, Purification & Drying | 2 | 30 | 13 |
-| CHEM-028 | Pressurized solvent extractor | BUCHI | SpeedExtractor E-916 | Extraction, Purification & Drying | 4 | 33 | 14 |
-| CHEM-029 | Centrifugal partition chromatograph | Gilson | CPC 250 | Extraction, Purification & Drying | 3 | 28 | 10 |
+| CHEM-028 | Pressurized solvent extractor | BUCHI | SpeedExtractor E-916 | Extraction, Purification & Drying | 4 | 56 | 50 |
+| CHEM-029 | Centrifugal partition chromatograph | Gilson | CPC 250 | Extraction, Purification & Drying | 3 | 37 | 22 |
 | CHEM-030 | Tangential-flow ultrafiltration module | Sartorius | Vivaflow 200 | Extraction, Purification & Drying | 1 | 33 | 10 |
-| CHEM-031 | Automated solid-phase extraction workstation | Biotage | Extrahera Classic | Extraction, Purification & Drying | 0 | 30 | 12 |
-| CHEM-032 | Supercritical fluid extractor | Supercritical Fluid Technologies | SFT-110 | Extraction, Purification & Drying | 3 | 30 | 13 |
-| CHEM-033 | Flow liquid–liquid extraction module | Syrris | Asia FLLEX | Extraction, Purification & Drying | 2 | 42 | 15 |
-| CHEM-034 | Automated flash chromatography system | Biotage | Selekt (UV, single bed) | Extraction, Purification & Drying | 3 | 55 | 15 |
+| CHEM-031 | Automated solid-phase extraction workstation | Biotage | Extrahera Classic | Extraction, Purification & Drying | 1 | 45 | 39 |
+| CHEM-032 | Supercritical fluid extractor | Supercritical Fluid Technologies | SFT-110 | Extraction, Purification & Drying | 3 | 32 | 19 |
+| CHEM-033 | Flow liquid–liquid extraction module | Syrris | Asia FLLEX | Extraction, Purification & Drying | 2 | 42 | 21 |
+| CHEM-034 | Automated flash chromatography system | Biotage | Selekt (UV, single bed) | Extraction, Purification & Drying | 3 | 85 | 59 |
 | CHEM-035 | Lab electrodialysis stack | PCCell | ED 64002 + BED1-2 Basic | Extraction, Purification & Drying | 3 | 28 | 14 |
-| CHEM-036 | Centrifugal vacuum concentrator | Genevac / SP Industries | miVac 2 Duo | Extraction, Purification & Drying | 9 | 22 | 13 |
+| CHEM-036 | Centrifugal vacuum concentrator | Genevac / SP Industries | miVac 2 Duo | Extraction, Purification & Drying | 9 | 25 | 23 |
 | CHEM-037 | High-efficiency lab fractional distillation unit | PILODIST | PILODIST 104 | Extraction, Purification & Drying | 4 | 24 | 15 |
 | CHEM-038 | Short-path wiped-film molecular still | UIC | KDL1 Basic | Extraction, Purification & Drying | 5 | 30 | 17 |
 | CHEM-039 | Graphite block digestion system | SCP SCIENCE | DigiPREP MS | Digestion & Solid Sample Prep | 2 | 24 | 13 |
-| CHEM-040 | Planetary ball mill | RETSCH | PM 100 | Digestion & Solid Sample Prep | 8 | 24 | 13 |
-| CHEM-041 | Vibratory sieve shaker | RETSCH | AS 200 control | Digestion & Solid Sample Prep | 16 | 24 | 20 |
+| CHEM-040 | Planetary ball mill | RETSCH | PM 100 | Digestion & Solid Sample Prep | 8 | 33 | 28 |
+| CHEM-041 | Vibratory sieve shaker | RETSCH | AS 200 control | Digestion & Solid Sample Prep | 16 | 36 | 35 |
 | CHEM-042 | Rotary sample divider | RETSCH | PT 100 | Digestion & Solid Sample Prep | 15 | 25 | 21 |
 | CHEM-043 | Rotor–stator disperser | IKA | T 25 digital ULTRA-TURRAX | Digestion & Solid Sample Prep | 4 | 30 | 16 |
-| CHEM-044 | Probe ultrasonic processor | Sonics | VCX 750 | Digestion & Solid Sample Prep | 25 | 34 | 19 |
-| CHEM-045 | Planetary centrifugal mixer | THINKY | ARE-310 | Digestion & Solid Sample Prep | 10 | 33 | 14 |
-| CHEM-046 | UV digester | Metrohm | 909 UV Digester | Digestion & Solid Sample Prep | 10 | 31 | 17 |
-| CHEM-047 | Microwave acid digestion system | Anton Paar | Multiwave 7101 | Digestion & Solid Sample Prep | 1 | 16 | 14 |
-| CHEM-048 | Automatic Kjeldahl distillation & titration unit | VELP | UDK 159 | Digestion & Solid Sample Prep | 6 | 34 | 18 |
+| CHEM-044 | Probe ultrasonic processor | Sonics | VCX 750 | Digestion & Solid Sample Prep | 25 | 39 | 27 |
+| CHEM-045 | Planetary centrifugal mixer | THINKY | ARE-310 | Digestion & Solid Sample Prep | 10 | 40 | 26 |
+| CHEM-046 | UV digester | Metrohm | 909 UV Digester | Digestion & Solid Sample Prep | 10 | 35 | 26 |
+| CHEM-047 | Microwave acid digestion system | Anton Paar | Multiwave 7101 | Digestion & Solid Sample Prep | 1 | 39 | 41 |
+| CHEM-048 | Automatic Kjeldahl distillation & titration unit | VELP | UDK 159 | Digestion & Solid Sample Prep | 6 | 41 | 27 |
 | CHEM-049 | Acid hydrolysis unit | BUCHI | HydrolEx H-506 | Digestion & Solid Sample Prep | 10 | 25 | 19 |
-| CHEM-050 | Automated fusion bead maker | Malvern Panalytical / Claisse | LeNeo | Digestion & Solid Sample Prep | 6 | 20 | 15 |
+| CHEM-050 | Automated fusion bead maker | Malvern Panalytical / Claisse | LeNeo | Digestion & Solid Sample Prep | 6 | 28 | 26 |
 | CHEM-051 | Hydraulic pellet press | Specac | Atlas Manual 15T | Digestion & Solid Sample Prep | 9 | 27 | 16 |
-| CHEM-052 | Vibrating-nozzle encapsulator | BUCHI | Encapsulator B-390 | Thin-Film & Functional Materials | 8 | 30 | 23 |
-| CHEM-053 | Spin coater | Ossila | Spin Coater V3 | Thin-Film & Functional Materials | 15 | 13 | 14 |
-| CHEM-054 | Dip coater | Ossila | Dip Coater V2 | Thin-Film & Functional Materials | 15 | 18 | 19 |
-| CHEM-055 | Automated doctor-blade coater | Ossila | Doctor Blade Coater | Thin-Film & Functional Materials | 16 | 21 | 20 |
-| CHEM-056 | Slot-die coater | Ossila | Slot-Die Coater V2 | Thin-Film & Functional Materials | 17 | 29 | 24 |
-| CHEM-057 | Lab twin-screw extruder | Thermo Fisher Scientific | Process 11 | Thin-Film & Functional Materials | 5 | 32 | 24 |
+| CHEM-052 | Vibrating-nozzle encapsulator | BUCHI | Encapsulator B-390 | Thin-Film & Functional Materials | 8 | 35 | 30 |
+| CHEM-053 | Spin coater | Ossila | Spin Coater V3 | Thin-Film & Functional Materials | 15 | 14 | 21 |
+| CHEM-054 | Dip coater | Ossila | Dip Coater V2 | Thin-Film & Functional Materials | 15 | 22 | 29 |
+| CHEM-055 | Automated doctor-blade coater | Ossila | Doctor Blade Coater | Thin-Film & Functional Materials | 16 | 26 | 33 |
+| CHEM-056 | Slot-die coater | Ossila | Slot-Die Coater V2 | Thin-Film & Functional Materials | 17 | 35 | 39 |
+| CHEM-057 | Lab twin-screw extruder | Thermo Fisher Scientific | Process 11 | Thin-Film & Functional Materials | 5 | 50 | 45 |
 | CHEM-058 | Materials inkjet printer | FUJIFILM Dimatix | DMP-2850 | Thin-Film & Functional Materials | 4 | 28 | 23 |
-| CHEM-059 | Electrospinning system | Linari Nanotech | RT Advanced | Thin-Film & Functional Materials | 14 | 33 | 21 |
-| CHEM-060 | Microfluidic nanoparticle formulation system | Cytiva / Precision NanoSystems | NanoAssemblr Ignite | Thin-Film & Functional Materials | 9 | 35 | 20 |
+| CHEM-059 | Electrospinning system | Linari Nanotech | RT Advanced | Thin-Film & Functional Materials | 14 | 38 | 34 |
+| CHEM-060 | Microfluidic nanoparticle formulation system | Cytiva / Precision NanoSystems | NanoAssemblr Ignite | Thin-Film & Functional Materials | 9 | 42 | 29 |
 | CHEM-061 | Fluid-bed granulator / coater | Glatt | Mini-Glatt | Thin-Film & Functional Materials | 12 | 33 | 25 |
-| CHEM-062 | Sputter & carbon coater | Quorum Technologies | Q150T ES Plus | Thin-Film & Functional Materials | 7 | 28 | 18 |
-| CHEM-063 | Chemical vapour deposition system | LABOAO | CVD-LTF12P50 | Thin-Film & Functional Materials | 10 | 34 | 16 |
+| CHEM-062 | Sputter & carbon coater | Quorum Technologies | Q150T ES Plus | Thin-Film & Functional Materials | 7 | 40 | 40 |
+| CHEM-063 | Chemical vapour deposition system | LABOAO | CVD-LTF12P50 | Thin-Film & Functional Materials | 10 | 36 | 27 |
 | CHEM-064 | Atomic layer deposition system | Arradiance | GEMStar XT-SP (PEALD / thermal ALD) | Thin-Film & Functional Materials | 8 | 31 | 21 |
 | CHEM-065 | Circular dichroism spectrometer | JASCO | J-1500 | Molecular Spectroscopy & Structure | 2 | 25 | 18 |
 | CHEM-066 | Time-domain NMR relaxometer | Bruker | minispec mq20 | Molecular Spectroscopy & Structure | 1 | 21 | 17 |
 | CHEM-067 | Spectrofluorometer | JASCO | FP-8350 | Molecular Spectroscopy & Structure | 2 | 25 | 19 |
 | CHEM-068 | Benchtop NMR spectrometer | Magritek | Spinsolve 80 Carbon | Molecular Spectroscopy & Structure | 1 | 24 | 17 |
 | CHEM-069 | Benchtop EPR spectrometer | Bruker | Magnettech ESR5000 | Molecular Spectroscopy & Structure | 1 | 21 | 19 |
-| CHEM-070 | Digital polarimeter | JASCO | P-4200 | Molecular Spectroscopy & Structure | 2 | 23 | 20 |
-| CHEM-071 | UV-Vis spectrophotometer | Hach | DR6000 | Molecular Spectroscopy & Structure | 1 | 14 | 14 |
+| CHEM-070 | Digital polarimeter | JASCO | P-4200 | Molecular Spectroscopy & Structure | 2 | 27 | 43 |
+| CHEM-071 | UV-Vis spectrophotometer | Hach | DR6000 | Molecular Spectroscopy & Structure | 1 | 42 | 55 |
 | CHEM-072 | FT-IR spectrometer | JASCO | FT/IR-4700 | Molecular Spectroscopy & Structure | 1 | 18 | 13 |
 | CHEM-073 | Raman microscope | JASCO | NRS-5500 | Molecular Spectroscopy & Structure | 4 | 26 | 23 |
 | CHEM-074 | Stopped-flow kinetics spectrometer | Applied Photophysics | SX20 | Molecular Spectroscopy & Structure | 6 | 30 | 19 |
@@ -168,41 +207,41 @@ Browse all 203 in 3D, with joint sliders and part-by-part annotations, in the [3
 | CHEM-077 | Vibrational circular dichroism spectrometer | JASCO | FVS-6000 | Molecular Spectroscopy & Structure | 4 | 32 | 22 |
 | CHEM-078 | Circularly polarized luminescence spectrometer | JASCO | CPL-300 | Molecular Spectroscopy & Structure | 5 | 29 | 22 |
 | CHEM-079 | Organic elemental (CHNS) analyzer | Elementar | vario EL cube | Elemental & Mass Spectrometry | 5 | 31 | 23 |
-| CHEM-080 | Total organic carbon analyzer | Shimadzu | TOC-L CSH | Elemental & Mass Spectrometry | 40 | 32 | 29 |
+| CHEM-080 | Total organic carbon analyzer | Shimadzu | TOC-L CSH | Elemental & Mass Spectrometry | 40 | 53 | 47 |
 | CHEM-081 | Atomic absorption spectrometer | Analytik Jena | contrAA 800 D | Elemental & Mass Spectrometry | 10 | 41 | 33 |
 | CHEM-082 | ICP optical emission spectrometer | Shimadzu | ICPE-9800 | Elemental & Mass Spectrometry | 3 | 36 | 33 |
 | CHEM-083 | ICP mass spectrometer | Shimadzu | ICPMS-2030 | Elemental & Mass Spectrometry | 5 | 37 | 30 |
 | CHEM-084 | Energy-dispersive XRF spectrometer | Shimadzu | EDX-7200 | Elemental & Mass Spectrometry | 3 | 33 | 29 |
 | CHEM-085 | Total organic halogen (AOX/TOX) analyzer | Analytik Jena | multi X 2500 | Elemental & Mass Spectrometry | 8 | 38 | 37 |
-| CHEM-086 | Direct mercury analyzer | Milestone | DMA-80 evo | Elemental & Mass Spectrometry | 5 | 38 | 34 |
+| CHEM-086 | Direct mercury analyzer | Milestone | DMA-80 evo | Elemental & Mass Spectrometry | 6 | 39 | 40 |
 | CHEM-087 | Residual gas analyzer | Stanford Research Systems | RGA100 | Elemental & Mass Spectrometry | 2 | 40 | 34 |
 | CHEM-088 | High-resolution Orbitrap mass spectrometer | Thermo Fisher Scientific | Orbitrap Exploris 120 | Elemental & Mass Spectrometry | 4 | 37 | 37 |
 | CHEM-089 | Inert-gas fusion O/N/H analyzer | LECO | ONH836 | Elemental & Mass Spectrometry | 4 | 36 | 35 |
 | CHEM-090 | Stable isotope-ratio mass spectrometer | Elementar | isoprime precisION | Elemental & Mass Spectrometry | 2 | 21 | 30 |
-| CHEM-091 | Chemiluminescence NO/NOx analyzer | ECO PHYSICS | nCLD 822 M | Elemental & Mass Spectrometry | 4 | 34 | 20 |
+| CHEM-091 | Chemiluminescence NO/NOx analyzer | ECO PHYSICS | nCLD 822 M | Elemental & Mass Spectrometry | 1 | 34 | 24 |
 | CHEM-092 | TLC scanner (densitometer) | CAMAG | TLC Scanner 4 | Chromatography & Electrophoresis | 11 | 33 | 28 |
 | CHEM-093 | Capillary electrophoresis system | SCIEX | PA 800 Plus | Chromatography & Electrophoresis | 4 | 48 | 18 |
 | CHEM-094 | Supercritical fluid chromatograph (SFC) | Agilent | 1260 Infinity III SFC | Chromatography & Electrophoresis | 11 | 57 | 25 |
 | CHEM-095 | Asymmetric-flow field-flow fractionation (AF4) system | Wyatt Technology | Eclipse AF4 | Chromatography & Electrophoresis | 2 | 25 | 30 |
-| CHEM-096 | Gas chromatograph | Agilent | 8890B GC | Chromatography & Electrophoresis | 50 | 22 | 56 |
+| CHEM-096 | Gas chromatograph | Agilent | 8890B GC | Chromatography & Electrophoresis | 4 | 42 | 88 |
 | CHEM-097 | HPLC system | Agilent | 1260 Infinity III LC | Chromatography & Electrophoresis | 1 | 24 | 15 |
-| CHEM-098 | Ion chromatograph | Thermo Fisher Scientific | Dionex Integrion HPIC | Chromatography & Electrophoresis | 2 | 21 | 16 |
+| CHEM-098 | Ion chromatograph | Thermo Fisher Scientific | Dionex Integrion HPIC | Chromatography & Electrophoresis | 3 | 52 | 48 |
 | CHEM-099 | GPC/SEC system | Agilent | 1290 Infinity II GPC/SEC | Chromatography & Electrophoresis | 3 | 25 | 18 |
-| CHEM-100 | GC–ion mobility spectrometer | G.A.S. | FlavourSpec25 GC-IMS | Chromatography & Electrophoresis | 4 | 29 | 20 |
+| CHEM-100 | GC–ion mobility spectrometer | G.A.S. | FlavourSpec25 GC-IMS | Chromatography & Electrophoresis | 4 | 44 | 41 |
 | CHEM-101 | Automatic potentiometric titrator | Metrohm | OMNIS Professional Titrator | Electrochemistry & Titration | 2 | 34 | 15 |
-| CHEM-102 | Karl Fischer coulometer | Metrohm | 899 Coulometer | Electrochemistry & Titration | 11 | 26 | 10 |
+| CHEM-102 | Karl Fischer coulometer | Metrohm | 899 Coulometer | Electrochemistry & Titration | 11 | 51 | 37 |
 | CHEM-103 | Potentiostat / electrochemical workstation | Gamry | Reference 620 | Electrochemistry & Titration | 0 | 21 | 10 |
 | CHEM-104 | Scanning electrochemical microscope | CH Instruments | CHI920D | Electrochemistry & Titration | 3 | 29 | 16 |
 | CHEM-105 | Electrochemical quartz crystal microbalance | CH Instruments | CHI440C | Electrochemistry & Titration | 1 | 19 | 17 |
-| CHEM-106 | Freezing-point osmometer | KNAUER | K-7400S | Electrochemistry & Titration | 2 | 24 | 17 |
+| CHEM-106 | Freezing-point osmometer | KNAUER | K-7400S | Electrochemistry & Titration | 2 | 36 | 27 |
 | CHEM-107 | Rotating ring-disk electrode rotator | Pine Research | WaveVortex 10 | Electrochemistry & Titration | 4 | 30 | 22 |
-| CHEM-108 | Headspace autosampler (48-vial tray) | Agilent | 8697 | Analytical Sampling & Interfaces | 1 | 24 | 14 |
+| CHEM-108 | Headspace autosampler (48-vial tray) | Agilent | 8697 | Analytical Sampling & Interfaces | 3 | 40 | 37 |
 | CHEM-109 | Purge-and-trap autosampler | Teledyne Tekmar | Atomx XYZ | Analytical Sampling & Interfaces | 7 | 25 | 20 |
 | CHEM-110 | Laser ablation sampling system | Teledyne CETAC | Analyte Excite+ | Analytical Sampling & Interfaces | 6 | 22 | 23 |
 | CHEM-111 | Multi-shot pyrolyzer (GC inlet) | Frontier Laboratories | EGA/PY-3030D | Analytical Sampling & Interfaces | 4 | 22 | 22 |
 | CHEM-112 | Thermal desorber | Markes International | UNITY-xr | Analytical Sampling & Interfaces | 6 | 27 | 26 |
 | CHEM-113 | Solid-surface streaming-potential analyzer | Anton Paar | SurPASS 3 | Particles, Pores & Interfaces | 7 | 29 | 26 |
-| CHEM-114 | Gas pycnometer (true density) | Anton Paar | Ultrapyc 5000 | Particles, Pores & Interfaces | 6 | 33 | 25 |
+| CHEM-114 | Gas pycnometer (true density) | Anton Paar | Ultrapyc 5000 | Particles, Pores & Interfaces | 6 | 39 | 39 |
 | CHEM-115 | Gas physisorption surface-area & pore analyzer | Anton Paar | Autosorb 6100 | Particles, Pores & Interfaces | 8 | 49 | 33 |
 | CHEM-116 | Mercury intrusion porosimeter | Anton Paar | PoreMaster 60 | Particles, Pores & Interfaces | 7 | 27 | 28 |
 | CHEM-117 | DLS & zeta-potential analyzer | Anton Paar | Litesizer DLS 701 | Particles, Pores & Interfaces | 6 | 31 | 29 |
@@ -219,79 +258,79 @@ Browse all 203 in 3D, with joint sliders and part-by-part annotations, in the [3
 | CHEM-128 | Pin-on-disk tribometer | Anton Paar | TRB³ | Thermal, Mechanical & Transport | 6 | 42 | 39 |
 | CHEM-129 | Coating scratch tester | Anton Paar | RST 300 | Thermal, Mechanical & Transport | 6 | 44 | 39 |
 | CHEM-130 | Nanoindentation tester | Anton Paar | HIT 300 | Thermal, Mechanical & Transport | 6 | 38 | 33 |
-| CHEM-131 | Differential scanning calorimeter | TA Instruments | DSC 2500 | Thermal, Mechanical & Transport | 5 | 43 | 36 |
-| CHEM-132 | Thermogravimetric analyzer | TA Instruments | TGA 5500 | Thermal, Mechanical & Transport | 4 | 48 | 40 |
-| CHEM-133 | Dynamic mechanical analyzer | TA Instruments | DMA 850 | Thermal, Mechanical & Transport | 5 | 43 | 41 |
-| CHEM-134 | Thermomechanical analyzer | TA Instruments | TMA 450 | Thermal, Mechanical & Transport | 3 | 50 | 47 |
+| CHEM-131 | Differential scanning calorimeter | TA Instruments | DSC 2500 | Thermal, Mechanical & Transport | 5 | 49 | 47 |
+| CHEM-132 | Thermogravimetric analyzer | TA Instruments | TGA 5500 | Thermal, Mechanical & Transport | 4 | 51 | 49 |
+| CHEM-133 | Dynamic mechanical analyzer | TA Instruments | DMA 850 | Thermal, Mechanical & Transport | 5 | 43 | 46 |
+| CHEM-134 | Thermomechanical analyzer | TA Instruments | TMA 450 | Thermal, Mechanical & Transport | 3 | 52 | 56 |
 | CHEM-135 | Laser/light flash thermal diffusivity analyzer | NETZSCH | LFA 467 HyperFlash | Thermal, Mechanical & Transport | 4 | 54 | 47 |
 | CHEM-136 | Transient plane source thermal-conductivity analyzer | Hot Disk | TPS 2500 S | Thermal, Mechanical & Transport | 4 | 25 | 25 |
-| CHEM-137 | Rotational & oscillatory rheometer | Anton Paar | MCR 503 | Thermal, Mechanical & Transport | 3 | 26 | 28 |
+| CHEM-137 | Rotational & oscillatory rheometer | Anton Paar | MCR 503 | Thermal, Mechanical & Transport | 3 | 33 | 43 |
 | CHEM-138 | Isothermal microcalorimeter | TA Instruments | TAM IV | Thermal, Mechanical & Transport | 2 | 25 | 31 |
 | CHEM-139 | Thermoelectric (Seebeck) tester | Linseis | LSR-3 | Thermal, Mechanical & Transport | 5 | 32 | 31 |
 | CHEM-140 | Broadband dielectric spectrometer | Novocontrol Technologies | Alpha-T | Thermal, Mechanical & Transport | 3 | 27 | 30 |
-| CHEM-141 | Hall-effect measurement system | Lake Shore Cryotronics | MeasureReady M91 FastHall | Thermal, Mechanical & Transport | 4 | 36 | 31 |
-| CHEM-142 | Automated four-point-probe sheet-resistance mapper | Signatone | QuadPro2 | Thermal, Mechanical & Transport | 5 | 34 | 29 |
+| CHEM-141 | Hall-effect measurement system | Lake Shore Cryotronics | MeasureReady M91 FastHall | Thermal, Mechanical & Transport | 4 | 45 | 51 |
+| CHEM-142 | Automated four-point-probe sheet-resistance mapper | Signatone | QuadPro2 | Thermal, Mechanical & Transport | 5 | 43 | 49 |
 | CHEM-143 | Vibrating sample magnetometer | Lake Shore Cryotronics | 8604 VSM | Thermal, Mechanical & Transport | 5 | 34 | 32 |
-| CHEM-144 | Universal testing machine | Shimadzu | AGS-10kNXD | Thermal, Mechanical & Transport | 6 | 35 | 28 |
-| CHEM-145 | Pendulum impact tester | ZwickRoell | HIT5P | Thermal, Mechanical & Transport | 4 | 31 | 27 |
-| CHEM-146 | Melt flow indexer | ZwickRoell | Mflow | Thermal, Mechanical & Transport | 9 | 43 | 36 |
-| CHEM-147 | Oxygen transmission-rate analyzer | AMETEK MOCON | OX-TRAN 2/22 L | Thermal, Mechanical & Transport | 8 | 55 | 31 |
+| CHEM-144 | Universal testing machine | Shimadzu | AGS-10kNXD | Thermal, Mechanical & Transport | 6 | 40 | 35 |
+| CHEM-145 | Pendulum impact tester | ZwickRoell | HIT5P | Thermal, Mechanical & Transport | 4 | 34 | 35 |
+| CHEM-146 | Melt flow indexer | ZwickRoell | Mflow | Thermal, Mechanical & Transport | 9 | 49 | 46 |
+| CHEM-147 | Oxygen transmission-rate analyzer | AMETEK MOCON | OX-TRAN 2/22 L | Thermal, Mechanical & Transport | 8 | 69 | 48 |
 | CHEM-148 | Adiabatic (ARC) reaction calorimeter | NETZSCH | MMC 315 Nexus | Thermal, Mechanical & Transport | 3 | 30 | 24 |
-| CHEM-149 | Heat-flow reaction calorimeter | METTLER TOLEDO | RC1mx + HFCal | Thermal, Mechanical & Transport | 5 | 57 | 37 |
-| CHEM-150 | Oxygen bomb calorimeter | IKA | C 6000 isoperibol | Thermal, Mechanical & Transport | 3 | 43 | 44 |
-| CHEM-151 | Scanning electron microscope | JEOL | JSM-IT200 LA | Microscopy, Imaging & Diffraction | 12 | 64 | 48 |
-| CHEM-152 | Transmission electron microscope | JEOL | JEM-1400Flash | Microscopy, Imaging & Diffraction | 21 | 77 | 59 |
+| CHEM-149 | Heat-flow reaction calorimeter | METTLER TOLEDO | RC1mx + HFCal | Thermal, Mechanical & Transport | 5 | 59 | 46 |
+| CHEM-150 | Oxygen bomb calorimeter | IKA | C 6000 isoperibol | Thermal, Mechanical & Transport | 3 | 54 | 66 |
+| CHEM-151 | Scanning electron microscope | JEOL | JSM-IT200 LA | Microscopy, Imaging & Diffraction | 12 | 79 | 92 |
+| CHEM-152 | Transmission electron microscope | JEOL | JEM-1400Flash | Microscopy, Imaging & Diffraction | 36 | 83 | 77 |
 | CHEM-153 | Small-angle X-ray scattering system | Anton Paar | SAXSpace | Microscopy, Imaging & Diffraction | 13 | 76 | 54 |
 | CHEM-154 | X-ray photoelectron spectrometer | Kratos / Shimadzu | AXIS Supra+ | Microscopy, Imaging & Diffraction | 10 | 67 | 49 |
 | CHEM-155 | 3D laser-scanning profilometer microscope | KEYENCE | VK-X3000 / VK-X3100 | Microscopy, Imaging & Diffraction | 7 | 51 | 38 |
-| CHEM-156 | Micro X-ray computed tomography | Bruker | X4 POSEIDON | Microscopy, Imaging & Diffraction | 7 | 60 | 46 |
+| CHEM-156 | Micro X-ray computed tomography | Bruker | X4 POSEIDON | Microscopy, Imaging & Diffraction | 7 | 60 | 51 |
 | CHEM-157 | Spectroscopic ellipsometer | J.A. Woollam | alpha-SE | Microscopy, Imaging & Diffraction | 5 | 39 | 37 |
 | CHEM-158 | Atomic force microscope | Park Systems | NX10 | Microscopy, Imaging & Diffraction | 12 | 54 | 56 |
 | CHEM-159 | Scanning tunneling microscope | Nanosurf | NaioSTM | Microscopy, Imaging & Diffraction | 3 | 36 | 52 |
 | CHEM-160 | Powder X-ray diffractometer | Rigaku | MiniFlex600 | Microscopy, Imaging & Diffraction | 3 | 25 | 14 |
 | CHEM-161 | Single-crystal X-ray diffractometer | Rigaku Oxford Diffraction | XtaLAB Synergy-R | Microscopy, Imaging & Diffraction | 11 | 44 | 55 |
 | CHEM-162 | Polarizing microscope | Evident / Olympus | BX53-P | Microscopy, Imaging & Diffraction | 14 | 47 | 34 |
-| CHEM-163 | Microplate washer | Agilent BioTek | 405 TS (96-tube manifold) | Biochemical & Wet-Chemistry Assays | 3 | 36 | 26 |
-| CHEM-164 | Gel electrophoresis system | Bio-Rad | Mini-PROTEAN Tetra + power supply | Biochemical & Wet-Chemistry Assays | 8 | 36 | 37 |
-| CHEM-165 | Gel & blot imager | Thermo Fisher Scientific | iBright FL1500 | Biochemical & Wet-Chemistry Assays | 3 | 24 | 32 |
-| CHEM-166 | CO₂ cell-culture incubator | Eppendorf | CellXpert C170i | Biochemical & Wet-Chemistry Assays | 5 | 57 | 46 |
-| CHEM-167 | Real-time qPCR system | Bio-Rad | CFX Opus 96 | Biochemical & Wet-Chemistry Assays | 3 | 40 | 35 |
+| CHEM-163 | Microplate washer | Agilent BioTek | 405 TS (96-tube manifold) | Biochemical & Wet-Chemistry Assays | 3 | 45 | 45 |
+| CHEM-164 | Gel electrophoresis system | Bio-Rad | Mini-PROTEAN Tetra + power supply | Biochemical & Wet-Chemistry Assays | 8 | 38 | 42 |
+| CHEM-165 | Gel & blot imager | Thermo Fisher Scientific | iBright FL1500 | Biochemical & Wet-Chemistry Assays | 3 | 41 | 57 |
+| CHEM-166 | CO₂ cell-culture incubator | Eppendorf | CellXpert C170i | Biochemical & Wet-Chemistry Assays | 5 | 63 | 70 |
+| CHEM-167 | Real-time qPCR system | Bio-Rad | CFX Opus 96 | Biochemical & Wet-Chemistry Assays | 3 | 53 | 62 |
 | CHEM-168 | Flow cytometer & cell sorter | BD Biosciences | FACSAria III | Biochemical & Wet-Chemistry Assays | 10 | 105 | 69 |
 | CHEM-169 | Isothermal titration calorimeter | Malvern Panalytical | MicroCal PEAQ-ITC | Biochemical & Wet-Chemistry Assays | 5 | 58 | 45 |
 | CHEM-170 | Surface plasmon resonance system | Cytiva | Biacore T200 | Biochemical & Wet-Chemistry Assays | 7 | 66 | 64 |
-| CHEM-171 | Respirometric BOD system | WTW (Xylem) | OxiTop-i | Biochemical & Wet-Chemistry Assays | 30 | 45 | 33 |
+| CHEM-171 | Respirometric BOD system | WTW (Xylem) | OxiTop-i | Biochemical & Wet-Chemistry Assays | 30 | 46 | 39 |
 | CHEM-172 | Segmented continuous-flow analyzer | SEAL Analytical | AA500 | Biochemical & Wet-Chemistry Assays | 11 | 29 | 40 |
 | CHEM-173 | Multi-mode microplate reader | BMG LABTECH | CLARIOstar Plus | Biochemical & Wet-Chemistry Assays | 5 | 22 | 37 |
-| CHEM-174 | Automated powder dosing system | METTLER TOLEDO | Quantos Q2 + XPE206DR | Automation & Gas/Liquid Supply | 3 | 20 | 12 |
-| CHEM-175 | Automated liquid-handling robot | Opentrons | Flex (1-channel 5–1000 µL) | Automation & Gas/Liquid Supply | 4 | 15 | 10 |
-| CHEM-176 | Automated microplate heat sealer | Azenta Life Sciences | Automated Roll Heat Sealer (a4S) | Automation & Gas/Liquid Supply | 1 | 22 | 9 |
-| CHEM-177 | Automated tube decapper/recapper | Azenta Life Sciences | IntelliXcap S1 46-0001 | Automation & Gas/Liquid Supply | 8 | 13 | 6 |
+| CHEM-174 | Automated powder dosing system | METTLER TOLEDO | Quantos Q2 + XPE206DR | Automation & Gas/Liquid Supply | 3 | 51 | 43 |
+| CHEM-175 | Automated liquid-handling robot | Opentrons | Flex (1-channel 5–1000 µL) | Automation & Gas/Liquid Supply | 4 | 33 | 41 |
+| CHEM-176 | Automated microplate heat sealer | Azenta Life Sciences | Automated Roll Heat Sealer (a4S) | Automation & Gas/Liquid Supply | 1 | 35 | 29 |
+| CHEM-177 | Automated tube decapper/recapper | Azenta Life Sciences | IntelliXcap S1 46-0001 | Automation & Gas/Liquid Supply | 5 | 16 | 11 |
 | CHEM-178 | Lab sample-transfer robot arm | Brooks Automation | PreciseFlex 400 | Automation & Gas/Liquid Supply | 4 | 15 | 9 |
 | CHEM-179 | 2D-barcode rack reader | Azenta Ziath | DP5 Mirage | Automation & Gas/Liquid Supply | 1 | 16 | 7 |
-| CHEM-180 | Gas mass-flow controller | Alicat Scientific | MC, 1 SLPM full scale, Rev6 | Automation & Gas/Liquid Supply | 7 | 25 | 11 |
-| CHEM-181 | Electronic back-pressure controller | Bronkhorst | EL-PRESS P-702CV | Automation & Gas/Liquid Supply | 1 | 18 | 9 |
-| CHEM-182 | Multi-position gas stream-selection valve | VICI Valco | EUTA-2SD6MWE | Automation & Gas/Liquid Supply | 1 | 8 | 3 |
+| CHEM-180 | Gas mass-flow controller | Alicat Scientific | MC, 1 SLPM full scale, Rev6 | Automation & Gas/Liquid Supply | 7 | 40 | 24 |
+| CHEM-181 | Electronic back-pressure controller | Bronkhorst | EL-PRESS P-702CV | Automation & Gas/Liquid Supply | 2 | 38 | 25 |
+| CHEM-182 | Multi-position gas stream-selection valve | VICI Valco | EUTA-2SD6MWE | Automation & Gas/Liquid Supply | 4 | 20 | 10 |
 | CHEM-183 | Controlled evaporator & mixer | Bronkhorst | CEM W-202A | Automation & Gas/Liquid Supply | 1 | 20 | 21 |
-| CHEM-184 | Programmable syringe pump | New Era Pump Systems | NE-1000 Multi-Phaser | Automation & Gas/Liquid Supply | 12 | 31 | 35 |
-| CHEM-185 | Muffle furnace | Nabertherm | L 9/11/SKM | Lab Environment & Utilities | 7 | 12 | 10 |
-| CHEM-186 | Tube furnace (controlled atmosphere) | Carbolite Gero | TF1 12/60/300 | Lab Environment & Utilities | 6 | 14 | 5 |
-| CHEM-187 | Heating/refrigerated circulator | JULABO | CORIO CD-200F | Lab Environment & Utilities | 6 | 15 | 4 |
-| CHEM-188 | Chemistry vacuum pumping unit | VACUUBRAND | PC 3001 VARIO select | Lab Environment & Utilities | 3 | 12 | 7 |
-| CHEM-189 | Inert-atmosphere glovebox | Inert | PureLab HE 2GB | Lab Environment & Utilities | 2 | 27 | 10 |
-| CHEM-190 | Lab ultrapure water system | ELGA LabWater | PURELAB flex 3 | Lab Environment & Utilities | 6 | 26 | 8 |
-| CHEM-191 | Laboratory glassware washer | Miele | PLW 6111 | Lab Environment & Utilities | 7 | 20 | 8 |
-| CHEM-192 | Steam autoclave | Tuttnauer | 3870ELV-D | Lab Environment & Utilities | 5 | 19 | 24 |
-| CHEM-193 | Biological safety cabinet | Esco Lifesciences | AC2-4S8-TU | Lab Environment & Utilities | 9 | 30 | 24 |
-| CHEM-194 | Helium leak detector | INFICON | UL1000 Fab | Lab Environment & Utilities | 6 | 28 | 26 |
+| CHEM-184 | Programmable syringe pump | New Era Pump Systems | NE-1000 Multi-Phaser | Automation & Gas/Liquid Supply | 12 | 32 | 47 |
+| CHEM-185 | Muffle furnace | Nabertherm | L 9/11/SKM | Lab Environment & Utilities | 2 | 40 | 54 |
+| CHEM-186 | Tube furnace (controlled atmosphere) | Carbolite Gero | TF1 12/60/300 | Lab Environment & Utilities | 6 | 29 | 23 |
+| CHEM-187 | Heating/refrigerated circulator | JULABO | CORIO CD-200F | Lab Environment & Utilities | 6 | 34 | 24 |
+| CHEM-188 | Chemistry vacuum pumping unit | VACUUBRAND | PC 3001 VARIO select | Lab Environment & Utilities | 3 | 26 | 34 |
+| CHEM-189 | Inert-atmosphere glovebox | Inert | PureLab HE 2GB | Lab Environment & Utilities | 2 | 39 | 34 |
+| CHEM-190 | Lab ultrapure water system | ELGA LabWater | PURELAB flex 3 | Lab Environment & Utilities | 6 | 32 | 24 |
+| CHEM-191 | Laboratory glassware washer | Miele | PLW 6111 | Lab Environment & Utilities | 5 | 44 | 31 |
+| CHEM-192 | Steam autoclave | Tuttnauer | 3870ELV-D | Lab Environment & Utilities | 5 | 27 | 35 |
+| CHEM-193 | Biological safety cabinet | Esco Lifesciences | AC2-4S8-TU | Lab Environment & Utilities | 9 | 32 | 38 |
+| CHEM-194 | Helium leak detector | INFICON | UL1000 Fab | Lab Environment & Utilities | 6 | 41 | 40 |
 | CHEM-195 | Trace-moisture dew-point transmitter | Vaisala | DMT152 | Lab Environment & Utilities | 1 | 25 | 21 |
-| CHEM-196 | Laboratory hydrogen generator | PEAK Scientific | Precision Hydrogen Trace 500 | Lab Environment & Utilities | 2 | 23 | 21 |
-| CHEM-197 | Ultra-low temperature freezer | Eppendorf | CryoCube F570n | Lab Environment & Utilities | 12 | 35 | 34 |
-| CHEM-198 | Constant climate (T/RH) chamber | BINDER | KBF 115 | Lab Environment & Utilities | 3 | 33 | 33 |
-| CHEM-199 | Chemical fume hood | Esco Lifesciences | Frontier Acela EFA-5UDUVW-9 | Lab Environment & Utilities | 11 | 32 | 32 |
+| CHEM-196 | Laboratory hydrogen generator | PEAK Scientific | Precision Hydrogen Trace 500 | Lab Environment & Utilities | 2 | 25 | 28 |
+| CHEM-197 | Ultra-low temperature freezer | Eppendorf | CryoCube F570n | Lab Environment & Utilities | 12 | 35 | 38 |
+| CHEM-198 | Constant climate (T/RH) chamber | BINDER | KBF 115 | Lab Environment & Utilities | 3 | 37 | 51 |
+| CHEM-199 | Chemical fume hood | Esco Lifesciences | Frontier Acela EFA-5UDUVW-9 | Lab Environment & Utilities | 11 | 32 | 36 |
 | CHEM-200 | Solvent purification system | Inert | PureSolv MD 7 | Lab Environment & Utilities | 27 | 67 | 23 |
-| — | Gas chromatograph (S/SL inlet + FID) | Agilent | 7890B | Chromatography & Electrophoresis | 50 | 0 | 16 |
-| — | Analytical balance | OHAUS | Pioneer PX224/E | Basic Metrology & Sample Handling | 16 | 0 | 7 |
-| — | Portable precision balance | OHAUS | Scout SPX2201 | Basic Metrology & Sample Handling | 15 | 0 | 7 |
+| — | Gas chromatograph (S/SL inlet + FID) | Agilent | 7890B | Chromatography & Electrophoresis | 50 | 66 | 80 |
+| — | Analytical balance | OHAUS | Pioneer PX224/E | Basic Metrology & Sample Handling | 16 | 43 | 47 |
+| — | Portable precision balance | OHAUS | Scout SPX2201 | Basic Metrology & Sample Handling | 15 | 40 | 42 |
 
 </details>
 
@@ -303,7 +342,7 @@ Please only attach files you are allowed to share; for the manufacturer's public
 
 ## Quick start
 
-**1. Get the data.** Everything (about 1.5 GB), or one instrument plus the code:
+**1. Get the data.** Everything (about 1.9 GB), or one instrument plus the code:
 
 ```bash
 pip install -U huggingface_hub
@@ -375,10 +414,12 @@ assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/
 ├── collision_proxies.json   # primitive colliders per part
 ├── instrument_model.json    # runtime parameters (this instrument)
 ├── vapour_templates.json    # reference data used by the runtime (53 vapour sources)
+├── panel_ui.json            # front panel: keys, displays, screens and menus
 └── 说明.md                  # notes on the model and its data (Chinese)
 
 scripts/asset_runtime/esco_efa5uduvw.py   # the behaviour runtime
-tests/test_asset_esco_efa5uduvw.py        # its tests
+scripts/asset_runtime/_panel_ui.py        # the shared front-panel engine
+tests/test_asset_esco_efa5uduvw.py        # its tests (and tests/test_panel_ui_esco_efa5uduvw.py)
 ```
 
 The contract is the centre of each asset. It names every functional **component** and binds it to meshes and colliders;
@@ -400,8 +441,8 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
   rights reserved by the publisher); [`NOTICE.md`](NOTICE.md) lists every one with its source.
 * **Trademarks.** Product and company names identify the modelled instrument only. This project is not affiliated
   with or endorsed by any manufacturer.
-* **Limits.** 804 capabilities are declared but marked unsupported. No capability claims robot-contact or
-  real-hardware validation. Treat the assets as documented, testable behaviour models for embodied-AI research, not
+* **Limits.** 787 capabilities are declared but marked unsupported. Contracts do not claim robot-contact or
+  real-hardware validation for any capability; the robot presses shown above were made in simulation. Treat the assets as documented, testable behaviour models for embodied-AI research, not
   as certified digital twins.
 * **Build records.** Contracts list the files of the original build (validation logs, review records, cached source
   documents). Those are not part of the release; `release_manifest.json` says which artifacts ship.
@@ -411,6 +452,7 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
 - [x] Real reference data for every instrument that measures samples (v1.1)
 - [x] Shared compound table linked to the instruments (v1.1)
 - [x] About 100 built-in chemical reactions, including light- and current-driven ones (v1.2)
+- [x] Working front-panel menus for the 106 instruments that have a menu on the device (v1.4.0)
 - [ ] At least 50 reference compounds for the FVS-6000 VCD spectrometer (40 now)
 - [ ] Calibrated reaction rates
 - [ ] Data recorded on the exact instrument models
@@ -426,6 +468,6 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.3.0}
+  note         = {Dataset, release 1.4.0}
 }
 ```

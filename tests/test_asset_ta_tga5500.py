@@ -136,6 +136,34 @@ class TestTGA5500(unittest.TestCase):
   for k in rt.UNSUPPORTED:self.rejected(h,k,'UNSUPPORTED')
  def test_40_precise_source_upper_domain_and_sampling_grid(self):
   h=setup();self.rejected(h,'method.configure','REFERENCE_TEMPERATURE',**dict(h.method,segments=[dict(target_k=h.model['temperature'][-1]+.01,rate_k_s=1.,hold_s=0.,gas='N2')]));self.rejected(h,'method.configure','SAMPLING_GRID',**dict(h.method,sample_interval_s=.19));self.rejected(h,'sample.load','ALREADY_LOADED',**rt.SAMPLE_EXAMPLE)
+ def test_40b_touch_screen_advance_method_segment(self):
+  two=dict(rt.METHOD_EXAMPLE,segments=[dict(target_k=300.15,rate_k_s=.01,hold_s=50.,gas='N2'),dict(target_k=301.15,rate_k_s=.5,hold_s=1.,gas='N2')])
+  h=setup(method=two);self.rejected(h,'method.advance','NOT_RUNNING');call(h,'acquisition.start');step(h,5.);t=h.target
+  self.assertEqual(call(h,'method.advance'),{'segment_index':1});self.assertEqual(h.read()['acquisition.stage'],'ramp');step(h,.1);self.assertGreater(h.target,t);self.assertAlmostEqual(h.duration,5.+(301.15-t)/.5+1.,places=6)
+  self.assertEqual(call(h,'method.advance'),{'segment_index':1});self.assertEqual(h.phase,'succeeded');cleanup(h);self.ledger(h)
+ def test_40c_autosampler_pan_transfer_carousel_balance(self):
+  h=rt.TaTga5500Runtime('tray');call(h,'plant.configure',**rt.PLANT_EXAMPLE);call(h,'power.set',enabled=True);call(h,'sensor.calibrate',**rt.CALIBRATION_EXAMPLE);call(h,'balance.tare')
+  call(h,'tray.place',position=4,sample=rt.SAMPLE_EXAMPLE);self.assertTrue(h.read()['autosampler.tray_occupied'][3]);self.rejected(h,'tray.place','TRAY_POSITION_OCCUPIED',position=4,sample=rt.SAMPLE_EXAMPLE)
+  self.rejected(h,'autosampler.load','TRAY_POSITION_EMPTY',position=5);self.rejected(h,'autosampler.unload','BALANCE_EMPTY',position=5)
+  call(h,'autosampler.load',position=4);self.assertEqual(h.read()['autosampler.transfer'],'load');self.assertEqual(h.read()['carousel.target_index'],4);self.assertFalse(h.read()['sample.present']);self.rejected(h,'carousel.index','MECHANISM_MOVING',position=9)
+  for _ in range(200):
+   step(h,.1)
+   if h.transfer is None:break
+  r=h.read();self.assertTrue(r['sample.present']);self.assertEqual(r['autosampler.balance_origin'],4);self.assertFalse(r['autosampler.tray_occupied'][3]);self.assertEqual(h.mass_loaded,rt.SAMPLE_EXAMPLE['mass_kg'])
+  call(h,'tray.place',position=6,sample=rt.SAMPLE_EXAMPLE);self.rejected(h,'autosampler.load','BALANCE_OCCUPIED',position=6);self.rejected(h,'autosampler.unload','TRAY_POSITION_OCCUPIED',position=6)
+  call(h,'autosampler.unload',position=8)
+  for _ in range(200):
+   step(h,.1)
+   if h.transfer is None:break
+  r=h.read();self.assertFalse(r['sample.present']);self.assertTrue(r['autosampler.tray_occupied'][7]);self.assertFalse(h.tray[7]['run']);call(h,'autosampler.load',position=8)   # never heated: reloadable
+  for _ in range(200):
+   step(h,.1)
+   if h.transfer is None:break
+  self.assertTrue(h.read()['sample.present']);h.pan_run=True;call(h,'autosampler.unload',position=8)
+  for _ in range(200):
+   step(h,.1)
+   if h.transfer is None:break
+  self.assertTrue(h.tray[7]['run']);self.rejected(h,'autosampler.load','PAN_ALREADY_RUN',position=8);call(h,'tray.remove',position=8);self.rejected(h,'tray.remove','TRAY_POSITION_EMPTY',position=8);self.ledger(h)
  def test_41_successful_actual_apis_state_schema_and_json_independent(self):
   h=setup();run(h);cleanup(h);meta=h.describe();spec=importlib.util.spec_from_file_location('tga_official_tool',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);errors=[]
   for k,c in meta['capabilities'].items():
@@ -147,6 +175,26 @@ class TestTGA5500(unittest.TestCase):
   self.assertEqual(errors,[]);SCHEMA_REPORT['actual_calls']=len(OBSERVED)
  def test_42_agent_protocol_result_serialization_and_cross_instance_rejection(self):
   h=setup();a=h.session();r=a.invoke(instance_id='wrong',capability_id='acquisition.start',arguments={},request_id='a');self.assertEqual(r['error']['code'],'UNKNOWN_INSTANCE');r=a.invoke(instance_id=h.instance_id,capability_id='acquisition.start',arguments={},request_id='b');step(h,.2);q=a.poll(r['operation_id']);json.dumps(q,allow_nan=False);self.assertFalse(any('truth' in key for row in q['result']['rows'] for key in row));self.assertAlmostEqual(q['result']['rows'][-1]['elapsed_s'],.2);a.cancel(r['operation_id'],'c');self.assertEqual(a.poll(r['operation_id'])['status'],'cancelled')
+ def test_47_controller_holds_the_device_reading_sensor_error_and_calibration_move_the_furnace(self):
+  # One error model: the furnace controller acts on the device's own reading (evaluator sensor error + stored temperature calibration)
+  ideal=setup();call(ideal,'thermal.set_temperature',temperature_k=330.,rate_k_s=1.);step(ideal,900.);shown=ideal.read()['furnace.indicated_k'];self.assertAlmostEqual(ideal.furnace,shown,places=9)
+  for plant,cal,shift in [({'temperature_offset_k':2.},{},-2.),({},{'temperature_zero_k':2.},2.),({'temperature_gain':1.01},{},330./1.01-330.)]:
+   h=setup(plant=plant);call(h,'sensor.calibrate',**dict(h.calibration,**cal));call(h,'thermal.set_temperature',temperature_k=330.,rate_k_s=1.);step(h,900.)
+   self.assertAlmostEqual(h.read()['furnace.indicated_k'],shown,delta=.01);self.assertAlmostEqual(h.furnace-ideal.furnace,shift,delta=.02)
+  # a user temperature calibration does not block a run started at the set temperature
+  h=setup();call(h,'sensor.calibrate',**dict(h.calibration,temperature_zero_k=2.));self.rejected(h,'acquisition.start','START_NOT_EQUILIBRATED');call(h,'thermal.set_temperature',temperature_k=298.15,rate_k_s=1.)
+  for _ in range(3000):
+   step(h,.1)
+   if max(abs(h.read()[k]-298.15) for k in ['furnace.indicated_k','sample.indicated_k'])<h.method['start_tolerance_k']/2:break
+  else:raise AssertionError('preconditioning did not settle')
+  self.assertAlmostEqual(h.furnace-298.15,2.,delta=.3);self.assertEqual(run(h)['phase'],'succeeded')
+ def test_48_only_the_run_owner_stops_reads_or_advances_it(self):
+  m=quick();m['segments']=[dict(target_k=300.15,rate_k_s=.02,hold_s=50.,gas='N2'),dict(target_k=301.15,rate_k_s=.5,hold_s=1.,gas='N2')];h=setup(method=m);h.register_principal('other');a=h.session();b=h.session('other')
+  q=lambda s,k,i:s.invoke(instance_id=h.instance_id,capability_id=k,arguments={},request_id=i)
+  snap=lambda:json.dumps({k:v for k,v in h.__dict__.items() if k!='_requests'},sort_keys=True,default=str)
+  op=q(a,'acquisition.start','s')['operation_id'];step(h,1.);before=snap()
+  for k in ['method.advance','acquisition.stop','acquisition.result']:self.assertEqual(q(b,k,k)['error']['code'],'ACCESS_DENIED')
+  self.assertEqual(snap(),before);self.assertEqual(q(a,'method.advance','adv')['result'],{'segment_index':1});self.assertEqual(a.cancel(op,'c')['status'],'succeeded');self.assertEqual(a.poll(op)['status'],'cancelled')
 CLASS_SAMPLE={'flavonoid':'zenodo23013247_quercetin_n2','volatile_terpene':'zenodo23013247_limonene_n2','vitamin_oxidative':'zenodo23013247_ascorbic_acid_o2','phenolic_additive':'zenodo23013247_irganox_1010_n2','alkaloid':'zenodo23013247_caffeine_n2','chlorinated_polymer':'fsri_pvc_n2_10k_r1','wood':'fsri_oak_flooring_n2_10k_r1','mineral_board':'fsri_gypsum_wallboard_gypsum_core_n2_10k_r1','protein_fibre':'fsri_wool_rug_n2_10k_r1'}
 class TestTGA5500ExtendedLibrary(unittest.TestCase):
  def test_43_every_runtime_record_is_real_curve_with_provenance_and_50_materials(self):

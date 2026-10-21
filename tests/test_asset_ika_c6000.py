@@ -514,9 +514,11 @@ class IkaC6000RuntimeTests(unittest.TestCase):
         h.invoke('vessel.prepare', **rt.PREPARE_EXAMPLE)
         st = a1.invoke(instance_id=h.instance_id, capability_id='measurement.start', arguments=dict(measurement_id=mid), request_id='s1')
         self.assertEqual(st['status'], 'accepted')
-        for cap, a in (('measurement.confirm', {}), ('cover.close', {}), ('measurement.result', dict(measurement_id=mid)), ('vessel.scan', dict(rfid=RFID))):
+        for cap, a in (('measurement.confirm', {}), ('cover.close', {}), ('measurement.result', dict(measurement_id=mid))):
             r = a2.invoke(instance_id=h.instance_id, capability_id=cap, arguments=a, request_id='f-' + cap)
             self.assertEqual(r['error']['code'], 'ACCESS_DENIED', cap)
+        r = a2.invoke(instance_id=h.instance_id, capability_id='vessel.scan', arguments=dict(rfid=RFID), request_id='f-scan')
+        self.assertEqual(r['status'], 'succeeded')                              # sweep 2026-10-19: moving a vessel past the RFID field is physical
         with self.assertRaises(rt.ActionRejected):
             a2.cancel(st['operation_id'], 'c2')
         self.assertTrue(a2.read(instance_id=h.instance_id)['observations']['measurement.started_by_other_agent']['value'])

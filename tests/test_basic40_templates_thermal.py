@@ -32,6 +32,7 @@ TIER = ROOT / "assets/basic40_batch02/t1_thermal"
 REACTION_INSTRUMENTS = {"nabertherm_l9": "instrument.nabertherm_l9", "carbolite_tf1": "instrument.carbolite_tf1_12_60_300",
                         "binder_vd56": "instrument.binder_vd56", "parr_4591": "instrument.parr_4591", "radleys_mya4": "instrument.radleys_mya4"}
 R = 8.314462618
+PANEL_VERSIONS = {"binder_vd56": "1.3.0", "carbolite_tf1": "1.3.0", "parr_4591": "1.3.0", "radleys_mya4": "1.2.1", "nabertherm_l9": "1.3.0"}            # assets that gained the front-panel layer (2026-10-18); parr / nabertherm 1.3.0: 3D panel parts (2026-10-20)
 
 
 def load(path):
@@ -243,7 +244,7 @@ class ReactionTemplateLibraryTests(unittest.TestCase):
             out = c["extensions"]["chemistry_lab.output_templates"]
             self.assertEqual(out["status"], "not_applicable")
             self.assertIn("chemistry_lab.reaction_templates", out["reason_zh"])
-            self.assertEqual(c["asset_version"], "1.1.0")
+            self.assertEqual(c["asset_version"], PANEL_VERSIONS.get(slug, "1.1.0"))   # + front panel (minor bump)
 
 
 class Multiwave7101TemplateTests(unittest.TestCase):
@@ -291,7 +292,7 @@ class Multiwave7101TemplateTests(unittest.TestCase):
         self.assertEqual(self.spec["declared_capabilities"]["chemistry.digest"]["availability"], "unsupported")
         for cap in ("power.set", "thermal.set_temperature", "microwave.set_enabled", "microwave.set_power", "door.open", "door.close", "rack.set_slot"):
             self.assertIn(cap, self.spec["capabilities"])
-        self.assertEqual(self.spec["asset_version"], "1.1.0")
+        self.assertEqual(self.spec["asset_version"], "1.3.0")   # templates 1.1.0, + front panel (minor), + users / fan / pressure (minor)
 
     def test_template_read_is_public_and_side_effect_free(self):
         before = self.host.debug_snapshot()
@@ -465,7 +466,7 @@ class Multiwave7101TemplateTests(unittest.TestCase):
 
     def test_contract_registration(self):
         c = load(TIER / "multiwave_7101/asset.contract.json")
-        self.assertEqual(c["asset_version"], "1.1.0")
+        self.assertEqual(c["asset_version"], "1.3.0")   # templates 1.1.0, + front panel (minor), + users / fan / pressure (minor)
         ext = c["extensions"]["chemistry_lab.output_templates"]
         self.assertEqual(ext["status"], "implemented")
         self.assertEqual(ext["library"], mw.TEMPLATE_REL)
@@ -487,7 +488,7 @@ class NotApplicableRegistrationTests(unittest.TestCase):
             self.assertEqual(set(ext), {"status", "reason_zh"})
             self.assertEqual(ext["status"], "not_applicable")
             self.assertTrue(ext["reason_zh"])
-            self.assertEqual(c["asset_version"], "1.0.1")
+            self.assertEqual(c["asset_version"], {"julabo_corio_cd200f": "1.2.0", "miele_plw6111": "1.3.0"}[slug])   # both: + front panel (minor); miele 1.3.0: 3D panel parts (2026-10-20)
 
 
 if __name__ == "__main__":

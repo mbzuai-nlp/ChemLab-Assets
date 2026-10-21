@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta property="og:title" content="ChemLab-Assets">
-<meta property="og:description" content="203 simulation-ready chemistry laboratory instruments with geometry, joints, executable behaviour models and machine-readable contracts.">
+<meta property="og:description" content="203 simulation-ready chemistry laboratory instruments with geometry, joints, working front-panel menus, executable behaviour models and machine-readable contracts.">
 <meta property="og:image" content="media/og.jpg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 2.5h6M10 2.5v6.2L4.4 18.6A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.8-2.9L14 8.7V2.5' fill='none' stroke='%2315202a' stroke-width='1.8'/%3E%3Cpath d='M7.3 15h9.4' stroke='%230a6bc2' stroke-width='1.8'/%3E%3C/svg%3E">
 <title>ChemLab-Assets</title>
-<meta name="description" content="203 simulation-ready chemistry laboratory instruments with geometry, joints, executable behaviour models and machine-readable contracts.">
+<meta name="description" content="203 simulation-ready chemistry laboratory instruments with geometry, joints, working front-panel menus, executable behaviour models and machine-readable contracts.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,300..650;1,8..60,400&display=swap">
@@ -174,6 +174,12 @@ p { margin: 0; }
 .excerpt pre.code { border-radius: 0; font-size: .76rem; background: var(--panel); }
 .excerpt-note { font-family: var(--font-display); font-size: .76rem; color: var(--ink-3); padding: 0 14px 12px; }
 .prov-grid { display: grid; grid-template-columns: minmax(0, 66ch) minmax(0, 1fr); gap: 40px; align-items: start; }
+.panel-stack { display: grid; gap: 22px; }
+.panel-strip { margin: 0; }
+.panel-strip img { aspect-ratio: auto; }
+.panel-shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.panel-shots .shot img { aspect-ratio: auto; }
+@media (max-width: 700px) { .panel-shots { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 1180px) { .prov-grid { grid-template-columns: minmax(0, 1fr); } }
 .shot { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
 .shot img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; }
@@ -288,7 +294,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       ChemLab-Assets
     </a>
     <nav class="topnav" aria-label="Sections">
-      <a href="#instruments">Instruments</a><a href="#overview">Overview</a><a href="#anatomy">Anatomy</a><a href="#numbers">Numbers</a><a href="#quickstart">Quick start</a><a href="#cite">Cite</a>
+      <a href="#instruments">Instruments</a><a href="#overview">Overview</a><a href="#anatomy">Anatomy</a><a href="#numbers">Numbers</a><a href="#quickstart">Quick start</a><a href="#panels">Front panels</a><a href="#cite">Cite</a>
     </nav>
     <span class="spacer"></span>
     <a class="btn small" data-link="dataset" href="#">Dataset</a>
@@ -299,7 +305,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
 <main id="top">
   <section class="wrap wide title-block">
     <div>
-      <div class="eyebrow">Open dataset · Release 1.3.0 · October 2026</div>
+      <div class="eyebrow">Open dataset · Release 1.4.0 · October 2026</div>
       <h1>ChemLab<span class="hy">-</span>Assets</h1>
       <p class="deck">203 simulation-ready chemistry laboratory instruments. Each one comes with part-level geometry, working joints, an executable behaviour model and a contract that records what every value means and where it came from.</p>
       <div class="authors">
@@ -314,10 +320,11 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       </div>
     </div>
     <aside class="plate" aria-label="Release summary">
-      <div class="plate-head"><b>CHEMLAB-ASSETS</b><span>REL 1.3.0 · 2026-10</span></div>
+      <div class="plate-head"><b>CHEMLAB-ASSETS</b><span>REL 1.4.0 · 2026-10</span></div>
       <dl>
         <dt>Instruments</dt><dd>203 in 16 domains</dd>
         <dt>Manufacturers</dt><dd>119 brands</dd>
+        <dt>Front panels</dt><dd>106 with working menus</dd>
         <dt>Formats</dt><dd>GLB · URDF · OBJ · .blend · JSON</dd>
         <dt>Units</dt><dd>SI: m, kg, s, K, Pa</dd>
         <dt>Frame</dt><dd>Z up, front faces −Y</dd>
@@ -425,7 +432,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       </div>
       <div class="chart-card" id="sources-card">
         <h3>Where the numbers come from</h3>
-        <p class="sub">3,501 sources cited across the 200 contracts, by kind</p>
+        <p class="sub">3,615 sources cited across the 203 contracts, by kind</p>
         <div class="bars" id="bars" role="img" aria-label="Bar chart of cited sources by kind"></div>
         <p class="chart-note">Raw third-party documents are not redistributed; contracts keep the citation and the derived values.</p>
         <details class="tbl"><summary>Show as table</summary><table id="bars-table"></table></details>
@@ -444,7 +451,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
           <button class="tab" role="tab" id="tab-files" aria-controls="pane-files" aria-selected="false" tabindex="-1">3 · Asset folder</button>
         </div>
         <div class="panel-code" role="tabpanel" id="pane-get" aria-labelledby="tab-get">
-<pre class="code"><span class="c"># everything: models, contracts, runtimes and tests (about 1.5 GB)</span>
+<pre class="code"><span class="c"># everything: models, contracts, runtimes and tests (about 1.9 GB)</span>
 pip install -U huggingface_hub
 hf download MBZUAI/ChemLab-Assets --repo-type dataset --local-dir ChemLab-Assets
 pip install -r ChemLab-Assets/requirements.txt
@@ -499,25 +506,55 @@ after calibration    reading 0.31 m/s   alarm none</pre>
     </div>
   </section>
 
+  <section class="wrap wide sec" id="panels">
+    <div class="sec-head"><div class="eyebrow">05 · Front panels</div><h2>Menus a robot can read and press</h2></div>
+    <div class="sec-body">
+      <div class="aside">New in release 1.4.0. 58 touchscreens, 28 text-menu displays and 20 simple displays that step through settings.</div>
+      <div class="main panel-stack">
+      <figure class="shot panel-strip">
+        <img src="media/figs/menu_preview_aqualab.webp" width="1496" height="590" loading="lazy" alt="Six screens of the AquaLab 4TE: the measurement screen, the configuration menu, the temperature item selected, the temperature editor at 25.0 and 25.1 °C, and the menu with the saved value">
+        <figcaption><b>Figure 3.</b> Changing the measuring temperature of the AquaLab 4TE water-activity meter in its menu: MENU, down, ENTER, up, SAVE. Each frame is the screen after one step, written by <code>examples/preview_menu.py</code>.</figcaption>
+      </figure>
+      <div class="prose">
+        <p>106 of the 203 instruments have a working front panel: the keys, knobs, switches and touchscreens of the real instrument, and the screens and menus its manual describes. A menu runs on the instrument's own behaviour model, so a setting changed in the menu changes the simulated instrument, and the screen shows the result.</p>
+        <p><strong>Preview menu steps.</strong> Name an instrument and a list of steps; the script presses, turns or touches as told, saves the screen after each step and puts the frames into one strip image. A step is a key (<code>menu_key</code>, or <code>press:menu_key:2</code> to hold it), <code>turn:knob_speed:+3</code>, <code>switch:power_switch:on</code>, <code>touch:terminal:400,240</code> or <code>tap:Methods</code> on a touchscreen, or <code>wait:5</code>.</p>
+      </div>
+<pre class="code" style="margin:0">python examples/preview_menu.py aqualab_4te btn3=MENU down btn2=ENTER up btn2=SAVE
+python examples/preview_menu.py mt_xpr204e --list   <span class="c"># keys, knobs, displays and the buttons on screen</span>
+python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close</pre>
+      <div class="prose">
+        <p><strong>For agents.</strong> The same gestures are capabilities in each contract. <code>panel.press</code>, <code>panel.turn</code>, <code>panel.switch</code> and <code>panel.touch</code> perform one gesture and only report whether the instrument accepted it, so an agent has to read the screen to see what happened. <code>panel.capture</code> returns the image of a display, as a camera pointed at it would see it. <code>panel.frame</code> returns the structured screen (page, menu position, values) and is for evaluators only. Each instrument's <code>panel_ui.json</code> describes its screens and menus and cites the manufacturer's documents for each of them.</p>
+        <p><strong>Checked in Isaac Sim.</strong> All 106 front panels were checked in Isaac Sim through the Matterix framework: the rendered screen matches the menu engine; keys, knobs and touchscreens drive the menu in each simulated copy separately; and a robot arm pressed a key or tapped the screen on 97 of them.</p>
+      </div>
+      <div class="panel-shots" style="margin-top:0">
+        <figure class="shot"><img src="media/figs/isaac_panel_aqualab_screen.webp" width="720" height="561" loading="lazy" alt="The AquaLab 4TE screen rendered in Isaac Sim, rectified, and drawn by the menu engine"><figcaption>AquaLab 4TE: the screen rendered in Isaac Sim (top), rectified (bottom left) and drawn by the menu engine (bottom right).</figcaption></figure>
+        <figure class="shot"><img src="media/figs/isaac_panel_xpr204e_screen.webp" width="720" height="561" loading="lazy" alt="The XPR204E terminal rendered in Isaac Sim next to the menu engine's image"><figcaption>Mettler Toledo XPR204E terminal: the same comparison on a touchscreen.</figcaption></figure>
+        <figure class="shot"><img src="media/figs/isaac_panel_julabo_press.webp" width="720" height="405" loading="lazy" alt="A robot arm pressing a key of the JULABO CORIO CD-200F in Isaac Sim"><figcaption>A robot arm presses a key on the JULABO CORIO CD-200F.</figcaption></figure>
+        <figure class="shot"><img src="media/figs/isaac_panel_xpr204e_touch.webp" width="720" height="405" loading="lazy" alt="A robot arm tapping the XPR204E touchscreen in Isaac Sim"><figcaption>A robot arm taps the XPR204E touchscreen.</figcaption></figure>
+      </div>
+      </div>
+    </div>
+  </section>
+
   <section class="wrap wide sec" id="provenance">
-    <div class="sec-head"><div class="eyebrow">05 · Provenance &amp; limits</div><h2>What the models claim, and what they don't</h2></div>
+    <div class="sec-head"><div class="eyebrow">06 · Provenance &amp; limits</div><h2>What the models claim, and what they don't</h2></div>
     <div class="sec-body">
       <div class="aside">Every capability records its verification level for process, host, scene, robot and hardware.</div>
       <div class="main prov-grid">
       <div class="prose">
-        <p>Each state slot and capability lists the sources it rests on. Manufacturer documents give dimensions, ranges and operating limits; papers, standards and open databases give the measurements behind instrument outputs; where neither exists, the contract states the assumption explicitly. Values a real operator cannot see, such as true exhaust flow or sample composition, are evaluator-only slots: 1,035 of the 6,282 state slots.</p>
-        <p>786 capabilities are declared but marked unsupported, so an agent can tell a missing feature from a failed call. No capability claims robot-contact or real-hardware validation. Treat the assets as documented, testable behaviour models for embodied-AI research, not as certified digital twins.</p>
+        <p>Each state slot and capability lists the sources it rests on. Manufacturer documents give dimensions, ranges and operating limits; papers, standards and open databases give the measurements behind instrument outputs; where neither exists, the contract states the assumption explicitly. Values a real operator cannot see, such as true exhaust flow or sample composition, are evaluator-only slots: 1,143 of the 7,769 state slots.</p>
+        <p>787 capabilities are declared but marked unsupported, so an agent can tell a missing feature from a failed call. Contracts do not claim robot-contact or real-hardware validation for any capability; the robot presses in section 05 were made in simulation. Treat the assets as documented, testable behaviour models for embodied-AI research, not as certified digital twins.</p>
       </div>
       <figure class="shot">
         <img src="media/figs/isaac_esco.webp" width="1280" height="720" loading="lazy" alt="Two fume-hood instances rendered in Isaac Sim, one with the sash raised">
-        <figcaption><b>Figure 3.</b> The CHEM-199 fume hood as a USD articulation in Isaac Sim (RTX renderer), captured during the Matterix scene check.</figcaption>
+        <figcaption><b>Figure 4.</b> The CHEM-199 fume hood as a USD articulation in Isaac Sim (RTX renderer), captured during the Matterix scene check.</figcaption>
       </figure>
       </div>
     </div>
   </section>
 
   <section class="wrap wide sec" id="cite">
-    <div class="sec-head"><div class="eyebrow">06 · Cite</div><h2>BibTeX</h2></div>
+    <div class="sec-head"><div class="eyebrow">07 · Cite</div><h2>BibTeX</h2></div>
     <div class="sec-body">
       <div class="aside">If you use the assets, please cite the release.</div>
       <div class="main cite-box">
@@ -528,7 +565,7 @@ after calibration    reading 0.31 m/s   alarm none</pre>
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.3.0}
+  note         = {Dataset, release 1.4.0}
 }</pre>
         <button class="btn small" id="copy-bib" type="button">Copy</button>
       </div>
@@ -581,9 +618,9 @@ after calibration    reading 0.31 m/s   alarm none</pre>
 
   /* ---------- sources chart (single series, one hue, values labelled) ---------- */
   const SOURCES = [
-    ["Publications, standards and open databases", 1984],
-    ["Manufacturer brochures and manuals", 810],
-    ["Project code and geometry records", 498],
+    ["Publications, standards and open databases", 1990],
+    ["Manufacturer brochures and manuals", 873],
+    ["Project code and geometry records", 543],
     ["Stated modelling assumptions", 179],
     ["Product photos (reference only)", 30],
   ];
@@ -679,6 +716,7 @@ after calibration    reading 0.31 m/s   alarm none</pre>
       ["State slots", t.state_slots, "typed, with units and visibility"],
       ["Capabilities", t.capabilities, "JSON-Schema arguments and declared errors"],
       ["Readouts", t.readouts, "displays, LEDs and indicator lamps"],
+      ["Front-panel menus", t.with_panel_ui, t.panel_ui_kinds ? `${fmt(t.panel_ui_kinds.touchscreen)} touchscreens · ${fmt(t.panel_ui_kinds.text_menu)} text menus · ${fmt(t.panel_ui_kinds.parameter_cycle)} parameter cycles` : ""],
       ["Interface points", t.interface_points, "place, grasp, port and fixture frames"],
       ["Cited sources", t.sources, ""],
     ];
@@ -738,7 +776,8 @@ after calibration    reading 0.31 m/s   alarm none</pre>
     const size = a.sz ? a.sz.map((v) => Math.round(v * 1000)).join(" × ") + " mm" : "—";
     const legacy = !a.f.contract;
     const kv = [["Size (W × D × H)", size], ["Components", fmt(nc)], ["Joints", fmt(nj)], ["State slots", legacy && !ns ? "—" : fmt(ns)],
-      ["Capabilities", `${fmt(ncap)} (${fmt(nimp)} implemented)`], ["Readouts", fmt(nr)], ["Interface points", fmt(ni)], ["Cited sources", legacy && !nsrc ? "—" : fmt(nsrc)]];
+      ["Capabilities", `${fmt(ncap)} (${fmt(nimp)} implemented)`], ["Readouts", fmt(nr)], ["Interface points", fmt(ni)], ["Cited sources", legacy && !nsrc ? "—" : fmt(nsrc)],
+      ["Front-panel menu", { touchscreen: "Touchscreen", text_menu: "Text menu", parameter_cycle: "Parameter cycle" }[a.pu] || "—"]];
     $("#sheet-kv").innerHTML = kv.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join("") +
       (legacy ? `<p class="legacy-note" style="grid-column:1/-1;margin:10px 0 0">First-generation asset (September 2026). It is described by <code>physics_annotations.json</code> and its own runtime instead of an asset contract.</p>` : "");
     const tree = LINKS.dataset + "/tree/main/" + a.p;
@@ -746,6 +785,7 @@ after calibration    reading 0.31 m/s   alarm none</pre>
     if (a.f.contract) links.push([LINKS.dataset + "/blob/main/" + a.f.contract, "Contract", false]);
     if (a.f.glb) links.push([CAT.base + a.f.glb, "GLB", false]);
     if (a.f.urdf) links.push([LINKS.dataset + "/blob/main/" + a.f.urdf, "URDF", false]);
+    if (a.f.panel_ui) links.push([LINKS.dataset + "/blob/main/" + a.f.panel_ui, "Front panel", false]);
     $("#sheet-links").innerHTML = links.map(([u, t, p]) => `<a class="btn small${p ? " primary" : ""}" href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>`).join("");
     showImage(a);
     if (!sheet.open) sheet.showModal();

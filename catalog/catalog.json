@@ -1,23 +1,29 @@
 {
  "name": "ChemLab-Assets",
- "version": "1.3.0",
+ "version": "1.4.0",
  "hf_dataset": "MBZUAI/ChemLab-Assets",
  "file_base_url": "https://huggingface.co/datasets/MBZUAI/ChemLab-Assets/resolve/main/",
  "totals": {
   "instruments": 203,
   "domains": 16,
   "makers": 119,
-  "components": 15054,
-  "mesh_parts": 15258,
-  "joints": 1360,
-  "state_slots": 6479,
-  "capabilities": 4822,
-  "capabilities_unsupported": 804,
-  "mechanisms": 230,
-  "readouts": 667,
+  "components": 15299,
+  "mesh_parts": 15323,
+  "joints": 1327,
+  "state_slots": 7769,
+  "capabilities": 6823,
+  "capabilities_unsupported": 787,
+  "mechanisms": 245,
+  "readouts": 663,
   "interface_points": 2547,
-  "sources": 3501,
+  "sources": 3615,
   "with_output_templates": 179,
+  "with_panel_ui": 106,
+  "panel_ui_kinds": {
+   "touchscreen": 58,
+   "text_menu": 28,
+   "parameter_cycle": 20
+  },
   "isaac_lab": 203
  },
  "domains": [
@@ -127,41 +133,49 @@
    "maker": "METTLER TOLEDO",
    "model": "XPR204E",
    "title": "METTLER TOLEDO XPR204E",
-   "name_zh": "CHEM-001 分析天平（METTLER TOLEDO XPR204E目标；PX224E功能族几何）",
+   "name_zh": "CHEM-001 分析天平（METTLER TOLEDO XPR204E）",
    "domain": "metrology",
    "domain_name": "Basic Metrology & Sample Handling",
    "domain_zh": "基础计量与样品处理",
    "path": "assets/basic40_batch02/t4_measure/mt_xpr204e",
    "size_m": [
     0.209,
-    0.3286,
-    0.309
+    0.4604,
+    0.339
    ],
-   "n_components": 25,
-   "n_mesh_parts": 25,
-   "n_joints": 16,
+   "n_components": 28,
+   "n_mesh_parts": 28,
+   "n_joints": 12,
    "joint_types": {
-    "prismatic": 12,
+    "prismatic": 8,
     "revolute": 4
    },
-   "n_state_slots": 22,
-   "n_capabilities": 9,
-   "n_capabilities_implemented": 9,
+   "n_state_slots": 54,
+   "n_capabilities": 66,
+   "n_capabilities_implemented": 66,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
-   "n_readouts": 1,
+   "n_readouts": 0,
    "n_interface_points": 1,
-   "n_sources": 14,
-   "n_limitations": 8,
+   "n_sources": 17,
+   "n_limitations": 17,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/mt_xpr204e/model.glb",
     "urdf": "assets/basic40_batch02/t4_measure/mt_xpr204e/model.urdf",
     "blend": "assets/basic40_batch02/t4_measure/mt_xpr204e/model.blend",
     "contract": "assets/basic40_batch02/t4_measure/mt_xpr204e/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_measure.py"
+    "runtime": "scripts/basic40_runtime_measure.py",
+    "panel_ui": "assets/basic40_batch02/t4_measure/mt_xpr204e/panel_ui.json"
    },
    "thumb": "media/thumb/mt_xpr204e.webp",
    "hero": "media/hero/mt_xpr204e.webp"
@@ -184,30 +198,38 @@
     0.597,
     0.1437
    ],
-   "n_components": 56,
+   "n_components": 57,
    "n_mesh_parts": 56,
    "n_joints": 5,
    "joint_types": {
     "prismatic": 5
    },
-   "n_state_slots": 14,
-   "n_capabilities": 8,
-   "n_capabilities_implemented": 8,
+   "n_state_slots": 38,
+   "n_capabilities": 74,
+   "n_capabilities_implemented": 74,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 1,
-   "n_sources": 6,
-   "n_limitations": 10,
+   "n_sources": 8,
+   "n_limitations": 18,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/mt_hx204/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/mt_hx204/model.urdf",
     "blend": "assets/expansion_batch04/t4_measure/mt_hx204/model.blend",
     "contract": "assets/expansion_batch04/t4_measure/mt_hx204/asset.contract.json",
-    "runtime": "scripts/asset_runtime/mt_hx204.py"
+    "runtime": "scripts/asset_runtime/mt_hx204.py",
+    "panel_ui": "assets/expansion_batch04/t4_measure/mt_hx204/panel_ui.json"
    },
    "thumb": "media/thumb/mt_hx204.webp",
    "hero": "media/hero/mt_hx204.webp"
@@ -230,30 +252,38 @@
     0.5298,
     0.252
    ],
-   "n_components": 39,
+   "n_components": 41,
    "n_mesh_parts": 39,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 4
    },
-   "n_state_slots": 17,
-   "n_capabilities": 9,
-   "n_capabilities_implemented": 9,
+   "n_state_slots": 50,
+   "n_capabilities": 52,
+   "n_capabilities_implemented": 52,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 2,
-   "n_sources": 5,
-   "n_limitations": 8,
+   "n_sources": 9,
+   "n_limitations": 17,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_dma5002/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_dma5002/model.urdf",
     "blend": "assets/expansion_batch03/t4_measure/antonpaar_dma5002/model.blend",
     "contract": "assets/expansion_batch03/t4_measure/antonpaar_dma5002/asset.contract.json",
-    "runtime": "scripts/asset_runtime/antonpaar_dma5002.py"
+    "runtime": "scripts/asset_runtime/antonpaar_dma5002.py",
+    "panel_ui": "assets/expansion_batch03/t4_measure/antonpaar_dma5002/panel_ui.json"
    },
    "thumb": "media/thumb/antonpaar_dma5002.webp",
    "hero": "media/hero/antonpaar_dma5002.webp"
@@ -276,31 +306,39 @@
     0.3338,
     0.1242
    ],
-   "n_components": 38,
+   "n_components": 40,
    "n_mesh_parts": 38,
    "n_joints": 5,
    "joint_types": {
     "prismatic": 4,
     "revolute": 1
    },
-   "n_state_slots": 19,
-   "n_capabilities": 10,
-   "n_capabilities_implemented": 10,
+   "n_state_slots": 50,
+   "n_capabilities": 50,
+   "n_capabilities_implemented": 50,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 1,
-   "n_sources": 5,
-   "n_limitations": 9,
+   "n_sources": 8,
+   "n_limitations": 14,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_abbematadvanced/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_abbematadvanced/model.urdf",
     "blend": "assets/expansion_batch03/t4_measure/antonpaar_abbematadvanced/model.blend",
     "contract": "assets/expansion_batch03/t4_measure/antonpaar_abbematadvanced/asset.contract.json",
-    "runtime": "scripts/asset_runtime/antonpaar_abbematadvanced.py"
+    "runtime": "scripts/asset_runtime/antonpaar_abbematadvanced.py",
+    "panel_ui": "assets/expansion_batch03/t4_measure/antonpaar_abbematadvanced/panel_ui.json"
    },
    "thumb": "media/thumb/antonpaar_abbematadvanced.webp",
    "hero": "media/hero/antonpaar_abbematadvanced.webp"
@@ -323,30 +361,37 @@
     0.208,
     0.0551
    ],
-   "n_components": 11,
-   "n_mesh_parts": 10,
+   "n_components": 19,
+   "n_mesh_parts": 13,
    "n_joints": 3,
    "joint_types": {
     "prismatic": 3
    },
-   "n_state_slots": 44,
-   "n_capabilities": 14,
-   "n_capabilities_implemented": 14,
+   "n_state_slots": 61,
+   "n_capabilities": 33,
+   "n_capabilities_implemented": 33,
    "n_capabilities_unsupported": 0,
-   "n_mechanisms": 1,
+   "n_mechanisms": 2,
    "n_readouts": 0,
    "n_interface_points": 0,
-   "n_sources": 10,
-   "n_limitations": 15,
+   "n_sources": 11,
+   "n_limitations": 25,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/metrohm_914/model.glb",
     "urdf": "assets/basic40_batch02/t4_measure/metrohm_914/model.urdf",
     "blend": "assets/basic40_batch02/t4_measure/metrohm_914/model.blend",
     "contract": "assets/basic40_batch02/t4_measure/metrohm_914/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_measure.py"
+    "runtime": "scripts/basic40_runtime_measure.py",
+    "panel_ui": "assets/basic40_batch02/t4_measure/metrohm_914/panel_ui.json"
    },
    "thumb": "media/thumb/metrohm_914.webp",
    "hero": "media/hero/metrohm_914.webp"
@@ -375,24 +420,32 @@
    "joint_types": {
     "prismatic": 4
    },
-   "n_state_slots": 26,
-   "n_capabilities": 10,
-   "n_capabilities_implemented": 10,
+   "n_state_slots": 41,
+   "n_capabilities": 49,
+   "n_capabilities_implemented": 49,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 4,
-   "n_sources": 6,
-   "n_limitations": 10,
+   "n_sources": 8,
+   "n_limitations": 17,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/mt_mp70/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/mt_mp70/model.urdf",
     "blend": "assets/expansion_batch03/t4_measure/mt_mp70/model.blend",
     "contract": "assets/expansion_batch03/t4_measure/mt_mp70/asset.contract.json",
-    "runtime": "scripts/asset_runtime/mt_mp70.py"
+    "runtime": "scripts/asset_runtime/mt_mp70.py",
+    "panel_ui": "assets/expansion_batch03/t4_measure/mt_mp70/panel_ui.json"
    },
    "thumb": "media/thumb/mt_mp70.webp",
    "hero": "media/hero/mt_mp70.webp"
@@ -422,24 +475,32 @@
     "prismatic": 8,
     "revolute": 2
    },
-   "n_state_slots": 27,
-   "n_capabilities": 13,
-   "n_capabilities_implemented": 13,
+   "n_state_slots": 37,
+   "n_capabilities": 36,
+   "n_capabilities_implemented": 36,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 1,
-   "n_sources": 6,
-   "n_limitations": 12,
+   "n_sources": 7,
+   "n_limitations": 21,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/aqualab_4te/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/aqualab_4te/model.urdf",
     "blend": "assets/expansion_batch04/t4_measure/aqualab_4te/model.blend",
     "contract": "assets/expansion_batch04/t4_measure/aqualab_4te/asset.contract.json",
-    "runtime": "scripts/asset_runtime/aqualab_4te.py"
+    "runtime": "scripts/asset_runtime/aqualab_4te.py",
+    "panel_ui": "assets/expansion_batch04/t4_measure/aqualab_4te/panel_ui.json"
    },
    "thumb": "media/thumb/aqualab_4te.webp",
    "hero": "media/hero/aqualab_4te.webp"
@@ -469,24 +530,33 @@
     "prismatic": 6,
     "revolute": 2
    },
-   "n_state_slots": 33,
-   "n_capabilities": 33,
-   "n_capabilities_implemented": 29,
+   "n_state_slots": 35,
+   "n_capabilities": 41,
+   "n_capabilities_implemented": 37,
    "n_capabilities_unsupported": 4,
    "n_mechanisms": 1,
    "n_readouts": 13,
    "n_interface_points": 7,
    "n_sources": 14,
-   "n_limitations": 53,
+   "n_limitations": 59,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch05/t4_measure/ika_plate_rctdigital/model.glb",
     "urdf": "assets/expansion_batch05/t4_measure/ika_plate_rctdigital/model.urdf",
     "blend": "assets/expansion_batch05/t4_measure/ika_plate_rctdigital/model.blend",
     "contract": "assets/expansion_batch05/t4_measure/ika_plate_rctdigital/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ika_plate_rctdigital.py"
+    "runtime": "scripts/asset_runtime/ika_plate_rctdigital.py",
+    "panel_ui": "assets/expansion_batch05/t4_measure/ika_plate_rctdigital/panel_ui.json"
    },
    "thumb": "media/thumb/ika_plate_rctdigital.webp",
    "hero": "media/hero/ika_plate_rctdigital.webp"
@@ -528,6 +598,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/ika_ks4000/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/ika_ks4000/model.urdf",
@@ -556,31 +628,39 @@
     0.68,
     0.37
    ],
-   "n_components": 16,
+   "n_components": 17,
    "n_mesh_parts": 17,
    "n_joints": 2,
    "joint_types": {
     "revolute": 1,
     "continuous": 1
    },
-   "n_state_slots": 23,
-   "n_capabilities": 15,
-   "n_capabilities_implemented": 11,
+   "n_state_slots": 36,
+   "n_capabilities": 36,
+   "n_capabilities_implemented": 32,
    "n_capabilities_unsupported": 4,
-   "n_mechanisms": 1,
+   "n_mechanisms": 2,
    "n_readouts": 2,
    "n_interface_points": 24,
-   "n_sources": 13,
-   "n_limitations": 24,
+   "n_sources": 14,
+   "n_limitations": 30,
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t3_analytical/eppendorf_5910ri/model.glb",
     "urdf": "assets/basic40_batch02/t3_analytical/eppendorf_5910ri/model.urdf",
     "blend": "assets/basic40_batch02/t3_analytical/eppendorf_5910ri/model.blend",
     "contract": "assets/basic40_batch02/t3_analytical/eppendorf_5910ri/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_analytical.py"
+    "runtime": "scripts/basic40_runtime_analytical.py",
+    "panel_ui": "assets/basic40_batch02/t3_analytical/eppendorf_5910ri/panel_ui.json"
    },
    "thumb": "media/thumb/eppendorf_5910ri.webp",
    "hero": "media/hero/eppendorf_5910ri.webp"
@@ -610,24 +690,31 @@
     "revolute": 2,
     "prismatic": 5
    },
-   "n_state_slots": 25,
-   "n_capabilities": 32,
-   "n_capabilities_implemented": 24,
+   "n_state_slots": 28,
+   "n_capabilities": 38,
+   "n_capabilities_implemented": 30,
    "n_capabilities_unsupported": 8,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 8,
-   "n_sources": 15,
-   "n_limitations": 52,
+   "n_sources": 16,
+   "n_limitations": 56,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/expansion_batch05/t4_measure/binder_fd056/model.glb",
     "urdf": "assets/expansion_batch05/t4_measure/binder_fd056/model.urdf",
     "blend": "assets/expansion_batch05/t4_measure/binder_fd056/model.blend",
     "contract": "assets/expansion_batch05/t4_measure/binder_fd056/asset.contract.json",
-    "runtime": "scripts/asset_runtime/binder_fd056.py"
+    "runtime": "scripts/asset_runtime/binder_fd056.py",
+    "panel_ui": "assets/expansion_batch05/t4_measure/binder_fd056/panel_ui.json"
    },
    "thumb": "media/thumb/binder_fd056.webp",
    "hero": "media/hero/binder_fd056.webp"
@@ -650,31 +737,39 @@
     0.538,
     0.815
    ],
-   "n_components": 24,
+   "n_components": 29,
    "n_mesh_parts": 24,
    "n_joints": 7,
    "joint_types": {
     "revolute": 3,
     "prismatic": 4
    },
-   "n_state_slots": 10,
-   "n_capabilities": 6,
-   "n_capabilities_implemented": 5,
+   "n_state_slots": 58,
+   "n_capabilities": 33,
+   "n_capabilities_implemented": 32,
    "n_capabilities_unsupported": 0,
-   "n_mechanisms": 1,
+   "n_mechanisms": 2,
    "n_readouts": 1,
    "n_interface_points": 6,
-   "n_sources": 14,
-   "n_limitations": 14,
+   "n_sources": 15,
+   "n_limitations": 22,
    "isaac_lab": "full",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t1_thermal/binder_vd56/model.glb",
     "urdf": "assets/basic40_batch02/t1_thermal/binder_vd56/model.urdf",
     "blend": "assets/basic40_batch02/t1_thermal/binder_vd56/model.blend",
     "contract": "assets/basic40_batch02/t1_thermal/binder_vd56/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_thermal.py"
+    "runtime": "scripts/basic40_runtime_thermal.py",
+    "panel_ui": "assets/basic40_batch02/t1_thermal/binder_vd56/panel_ui.json"
    },
    "thumb": "media/thumb/binder_vd56.webp",
    "hero": "media/hero/binder_vd56.webp"
@@ -716,6 +811,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/elma_elmasonics60h/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/elma_elmasonics60h/model.urdf",
@@ -751,24 +848,32 @@
     "revolute": 1,
     "prismatic": 1
    },
-   "n_state_slots": 26,
-   "n_capabilities": 11,
-   "n_capabilities_implemented": 11,
+   "n_state_slots": 43,
+   "n_capabilities": 40,
+   "n_capabilities_implemented": 40,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 2,
    "n_sources": 7,
-   "n_limitations": 13,
+   "n_limitations": 21,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/hach_tl2300epa/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/hach_tl2300epa/model.urdf",
     "blend": "assets/expansion_batch03/t4_measure/hach_tl2300epa/model.blend",
     "contract": "assets/expansion_batch03/t4_measure/hach_tl2300epa/asset.contract.json",
-    "runtime": "scripts/asset_runtime/hach_tl2300epa.py"
+    "runtime": "scripts/asset_runtime/hach_tl2300epa.py",
+    "panel_ui": "assets/expansion_batch03/t4_measure/hach_tl2300epa/panel_ui.json"
    },
    "thumb": "media/thumb/hach_tl2300epa.webp",
    "hero": "media/hero/hach_tl2300epa.webp"
@@ -797,24 +902,32 @@
    "joint_types": {
     "prismatic": 3
    },
-   "n_state_slots": 32,
-   "n_capabilities": 13,
-   "n_capabilities_implemented": 13,
+   "n_state_slots": 36,
+   "n_capabilities": 24,
+   "n_capabilities_implemented": 24,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 2,
-   "n_sources": 15,
-   "n_limitations": 13,
+   "n_sources": 18,
+   "n_limitations": 18,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t5_automation/antonpaar_monowave400/model.glb",
     "urdf": "assets/expansion_batch03/t5_automation/antonpaar_monowave400/model.urdf",
     "blend": "assets/expansion_batch03/t5_automation/antonpaar_monowave400/model.blend",
     "contract": "assets/expansion_batch03/t5_automation/antonpaar_monowave400/asset.contract.json",
-    "runtime": "scripts/asset_runtime/antonpaar_monowave400.py"
+    "runtime": "scripts/asset_runtime/antonpaar_monowave400.py",
+    "panel_ui": "assets/expansion_batch03/t5_automation/antonpaar_monowave400/panel_ui.json"
    },
    "thumb": "media/thumb/antonpaar_monowave400.webp",
    "hero": "media/hero/antonpaar_monowave400.webp"
@@ -844,24 +957,32 @@
     "revolute": 1,
     "prismatic": 1
    },
-   "n_state_slots": 40,
-   "n_capabilities": 12,
-   "n_capabilities_implemented": 12,
+   "n_state_slots": 45,
+   "n_capabilities": 22,
+   "n_capabilities_implemented": 22,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 1,
    "n_sources": 10,
-   "n_limitations": 13,
+   "n_limitations": 20,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t5_automation/ika_electrasyn2/model.glb",
     "urdf": "assets/expansion_batch03/t5_automation/ika_electrasyn2/model.urdf",
     "blend": "assets/expansion_batch03/t5_automation/ika_electrasyn2/model.blend",
     "contract": "assets/expansion_batch03/t5_automation/ika_electrasyn2/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ika_electrasyn2.py"
+    "runtime": "scripts/asset_runtime/ika_electrasyn2.py",
+    "panel_ui": "assets/expansion_batch03/t5_automation/ika_electrasyn2/panel_ui.json"
    },
    "thumb": "media/thumb/ika_electrasyn2.webp",
    "hero": "media/hero/ika_electrasyn2.webp"
@@ -892,23 +1013,31 @@
     "revolute": 1
    },
    "n_state_slots": 36,
-   "n_capabilities": 15,
-   "n_capabilities_implemented": 15,
+   "n_capabilities": 20,
+   "n_capabilities_implemented": 20,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 8,
    "n_sources": 7,
-   "n_limitations": 20,
+   "n_limitations": 25,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t5_automation/hepatochem_photoredoxbox/model.glb",
     "urdf": "assets/expansion_batch03/t5_automation/hepatochem_photoredoxbox/model.urdf",
     "blend": "assets/expansion_batch03/t5_automation/hepatochem_photoredoxbox/model.blend",
     "contract": "assets/expansion_batch03/t5_automation/hepatochem_photoredoxbox/asset.contract.json",
-    "runtime": "scripts/asset_runtime/hepatochem_photoredoxbox.py"
+    "runtime": "scripts/asset_runtime/hepatochem_photoredoxbox.py",
+    "panel_ui": "assets/expansion_batch03/t5_automation/hepatochem_photoredoxbox/panel_ui.json"
    },
    "thumb": "media/thumb/hepatochem_photoredoxbox.webp",
    "hero": "media/hero/hepatochem_photoredoxbox.webp"
@@ -927,36 +1056,45 @@
    "domain_zh": "反应与分子合成",
    "path": "assets/basic40_batch02/t1_thermal/parr_4591",
    "size_m": [
-    0.3048,
+    0.639,
     0.4572,
     0.6858
    ],
-   "n_components": 30,
-   "n_mesh_parts": 30,
-   "n_joints": 9,
+   "n_components": 40,
+   "n_mesh_parts": 40,
+   "n_joints": 15,
    "joint_types": {
-    "revolute": 3,
-    "prismatic": 5,
+    "revolute": 7,
+    "prismatic": 7,
     "continuous": 1
    },
-   "n_state_slots": 22,
-   "n_capabilities": 10,
-   "n_capabilities_implemented": 7,
+   "n_state_slots": 23,
+   "n_capabilities": 16,
+   "n_capabilities_implemented": 13,
    "n_capabilities_unsupported": 3,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 1,
-   "n_sources": 10,
-   "n_limitations": 21,
+   "n_sources": 11,
+   "n_limitations": 27,
    "isaac_lab": "partial",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t1_thermal/parr_4591/model.glb",
     "urdf": "assets/basic40_batch02/t1_thermal/parr_4591/model.urdf",
     "blend": "assets/basic40_batch02/t1_thermal/parr_4591/model.blend",
     "contract": "assets/basic40_batch02/t1_thermal/parr_4591/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_thermal.py"
+    "runtime": "scripts/basic40_runtime_thermal.py",
+    "panel_ui": "assets/basic40_batch02/t1_thermal/parr_4591/panel_ui.json"
    },
    "thumb": "media/thumb/parr_4591.webp",
    "hero": "media/hero/parr_4591.webp"
@@ -979,31 +1117,40 @@
     0.309,
     0.5124
    ],
-   "n_components": 96,
+   "n_components": 97,
    "n_mesh_parts": 96,
    "n_joints": 4,
    "joint_types": {
     "prismatic": 3,
     "revolute": 1
    },
-   "n_state_slots": 38,
-   "n_capabilities": 13,
-   "n_capabilities_implemented": 13,
+   "n_state_slots": 52,
+   "n_capabilities": 28,
+   "n_capabilities_implemented": 28,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 11,
    "n_sources": 16,
-   "n_limitations": 21,
+   "n_limitations": 27,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t5_automation/syrris_asiadiscovery/model.glb",
     "urdf": "assets/expansion_batch03/t5_automation/syrris_asiadiscovery/model.urdf",
     "blend": "assets/expansion_batch03/t5_automation/syrris_asiadiscovery/model.blend",
     "contract": "assets/expansion_batch03/t5_automation/syrris_asiadiscovery/asset.contract.json",
-    "runtime": "scripts/asset_runtime/syrris_asiadiscovery.py"
+    "runtime": "scripts/asset_runtime/syrris_asiadiscovery.py",
+    "panel_ui": "assets/expansion_batch03/t5_automation/syrris_asiadiscovery/panel_ui.json"
    },
    "thumb": "media/thumb/syrris_asiadiscovery.webp",
    "hero": "media/hero/syrris_asiadiscovery.webp"
@@ -1033,24 +1180,32 @@
     "revolute": 3,
     "prismatic": 2
    },
-   "n_state_slots": 41,
-   "n_capabilities": 17,
-   "n_capabilities_implemented": 17,
+   "n_state_slots": 42,
+   "n_capabilities": 23,
+   "n_capabilities_implemented": 23,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 6,
    "n_sources": 11,
-   "n_limitations": 30,
+   "n_limitations": 35,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t5_automation/thalesnano_hcube/model.glb",
     "urdf": "assets/expansion_batch03/t5_automation/thalesnano_hcube/model.urdf",
     "blend": "assets/expansion_batch03/t5_automation/thalesnano_hcube/model.blend",
     "contract": "assets/expansion_batch03/t5_automation/thalesnano_hcube/asset.contract.json",
-    "runtime": "scripts/asset_runtime/thalesnano_hcube.py"
+    "runtime": "scripts/asset_runtime/thalesnano_hcube.py",
+    "panel_ui": "assets/expansion_batch03/t5_automation/thalesnano_hcube/panel_ui.json"
    },
    "thumb": "media/thumb/thalesnano_hcube.webp",
    "hero": "media/hero/thalesnano_hcube.webp"
@@ -1073,30 +1228,38 @@
     0.611,
     0.4992
    ],
-   "n_components": 33,
+   "n_components": 34,
    "n_mesh_parts": 33,
    "n_joints": 4,
    "joint_types": {
     "continuous": 4
    },
-   "n_state_slots": 92,
-   "n_capabilities": 15,
-   "n_capabilities_implemented": 10,
+   "n_state_slots": 118,
+   "n_capabilities": 47,
+   "n_capabilities_implemented": 42,
    "n_capabilities_unsupported": 5,
-   "n_mechanisms": 2,
+   "n_mechanisms": 3,
    "n_readouts": 4,
    "n_interface_points": 4,
-   "n_sources": 12,
-   "n_limitations": 19,
+   "n_sources": 13,
+   "n_limitations": 27,
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t1_thermal/radleys_mya4/model.glb",
     "urdf": "assets/basic40_batch02/t1_thermal/radleys_mya4/model.urdf",
     "blend": "assets/basic40_batch02/t1_thermal/radleys_mya4/model.blend",
     "contract": "assets/basic40_batch02/t1_thermal/radleys_mya4/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_thermal.py"
+    "runtime": "scripts/basic40_runtime_thermal.py",
+    "panel_ui": "assets/basic40_batch02/t1_thermal/radleys_mya4/panel_ui.json"
    },
    "thumb": "media/thumb/radleys_mya4.webp",
    "hero": "media/hero/radleys_mya4.webp"
@@ -1137,6 +1300,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t5_automation/cem_libertyblue/model.glb",
     "urdf": "assets/expansion_batch03/t5_automation/cem_libertyblue/model.urdf",
@@ -1184,6 +1349,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t5_automation/cytiva_ktaoligosynt/model.glb",
     "urdf": "assets/expansion_batch03/t5_automation/cytiva_ktaoligosynt/model.urdf",
@@ -1212,7 +1379,7 @@
     0.44,
     0.6822
    ],
-   "n_components": 23,
+   "n_components": 34,
    "n_mesh_parts": 23,
    "n_joints": 5,
    "joint_types": {
@@ -1220,24 +1387,33 @@
     "continuous": 1,
     "revolute": 1
    },
-   "n_state_slots": 26,
-   "n_capabilities": 12,
-   "n_capabilities_implemented": 10,
+   "n_state_slots": 35,
+   "n_capabilities": 22,
+   "n_capabilities_implemented": 21,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 4,
    "n_readouts": 2,
    "n_interface_points": 2,
-   "n_sources": 18,
-   "n_limitations": 16,
+   "n_sources": 19,
+   "n_limitations": 22,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t2_vacuum/ika_rv10/model.glb",
     "urdf": "assets/basic40_batch02/t2_vacuum/ika_rv10/model.urdf",
     "blend": "assets/basic40_batch02/t2_vacuum/ika_rv10/model.blend",
     "contract": "assets/basic40_batch02/t2_vacuum/ika_rv10/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_vacuum.py"
+    "runtime": "scripts/basic40_runtime_vacuum.py",
+    "panel_ui": "assets/basic40_batch02/t2_vacuum/ika_rv10/panel_ui.json"
    },
    "thumb": "media/thumb/ika_rv10_digital_v.webp",
    "hero": "media/hero/ika_rv10_digital_v.webp"
@@ -1260,31 +1436,41 @@
     0.645,
     0.9275
    ],
-   "n_components": 14,
+   "n_components": 16,
    "n_mesh_parts": 14,
    "n_joints": 3,
    "joint_types": {
     "prismatic": 2,
     "revolute": 1
    },
-   "n_state_slots": 34,
-   "n_capabilities": 15,
-   "n_capabilities_implemented": 15,
+   "n_state_slots": 51,
+   "n_capabilities": 45,
+   "n_capabilities_implemented": 45,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 4,
-   "n_sources": 12,
-   "n_limitations": 23,
+   "n_sources": 13,
+   "n_limitations": 29,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t2_vacuum/buchi_lyovapor_l250/model.glb",
     "urdf": "assets/basic40_batch02/t2_vacuum/buchi_lyovapor_l250/model.urdf",
     "blend": "assets/basic40_batch02/t2_vacuum/buchi_lyovapor_l250/model.blend",
     "contract": "assets/basic40_batch02/t2_vacuum/buchi_lyovapor_l250/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_vacuum.py"
+    "runtime": "scripts/basic40_runtime_vacuum.py",
+    "panel_ui": "assets/basic40_batch02/t2_vacuum/buchi_lyovapor_l250/panel_ui.json"
    },
    "thumb": "media/thumb/buchi_lyovapor_l250_pro.webp",
    "hero": "media/hero/buchi_lyovapor_l250_pro.webp"
@@ -1313,24 +1499,34 @@
    "joint_types": {
     "prismatic": 2
    },
-   "n_state_slots": 26,
-   "n_capabilities": 16,
-   "n_capabilities_implemented": 16,
+   "n_state_slots": 38,
+   "n_capabilities": 35,
+   "n_capabilities_implemented": 35,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 13,
-   "n_sources": 11,
-   "n_limitations": 37,
+   "n_sources": 12,
+   "n_limitations": 44,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/buchi_minispray/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/buchi_minispray/model.urdf",
     "blend": "assets/expansion_batch03/t2_vacuum/buchi_minispray/model.blend",
     "contract": "assets/expansion_batch03/t2_vacuum/buchi_minispray/asset.contract.json",
-    "runtime": "scripts/asset_runtime/buchi_minispray.py"
+    "runtime": "scripts/asset_runtime/buchi_minispray.py",
+    "panel_ui": "assets/expansion_batch03/t2_vacuum/buchi_minispray/panel_ui.json"
    },
    "thumb": "media/thumb/buchi_minispray.webp",
    "hero": "media/hero/buchi_minispray.webp"
@@ -1371,6 +1567,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/tousimis_autosamdri815/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/tousimis_autosamdri815/model.urdf",
@@ -1405,24 +1603,33 @@
    "joint_types": {
     "prismatic": 4
    },
-   "n_state_slots": 33,
-   "n_capabilities": 14,
-   "n_capabilities_implemented": 14,
+   "n_state_slots": 56,
+   "n_capabilities": 50,
+   "n_capabilities_implemented": 50,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 24,
-   "n_sources": 14,
-   "n_limitations": 41,
+   "n_sources": 15,
+   "n_limitations": 50,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/buchi_speedextractore/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/buchi_speedextractore/model.urdf",
     "blend": "assets/expansion_batch03/t2_vacuum/buchi_speedextractore/model.blend",
     "contract": "assets/expansion_batch03/t2_vacuum/buchi_speedextractore/asset.contract.json",
-    "runtime": "scripts/asset_runtime/buchi_speedextractore.py"
+    "runtime": "scripts/asset_runtime/buchi_speedextractore.py",
+    "panel_ui": "assets/expansion_batch03/t2_vacuum/buchi_speedextractore/panel_ui.json"
    },
    "thumb": "media/thumb/buchi_speedextractore.webp",
    "hero": "media/hero/buchi_speedextractore.webp"
@@ -1452,24 +1659,32 @@
     "revolute": 1,
     "prismatic": 2
    },
-   "n_state_slots": 28,
-   "n_capabilities": 10,
-   "n_capabilities_implemented": 10,
+   "n_state_slots": 37,
+   "n_capabilities": 22,
+   "n_capabilities_implemented": 22,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 202,
    "n_sources": 11,
-   "n_limitations": 37,
+   "n_limitations": 46,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/gilson_cpc250/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/gilson_cpc250/model.urdf",
     "blend": "assets/expansion_batch03/t2_vacuum/gilson_cpc250/model.blend",
     "contract": "assets/expansion_batch03/t2_vacuum/gilson_cpc250/asset.contract.json",
-    "runtime": "scripts/asset_runtime/gilson_cpc250.py"
+    "runtime": "scripts/asset_runtime/gilson_cpc250.py",
+    "panel_ui": "assets/expansion_batch03/t2_vacuum/gilson_cpc250/panel_ui.json"
    },
    "thumb": "media/thumb/gilson_cpc250.webp",
    "hero": "media/hero/gilson_cpc250.webp"
@@ -1510,6 +1725,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/sartorius_vivaflow200/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/sartorius_vivaflow200/model.urdf",
@@ -1538,28 +1755,38 @@
     0.57,
     0.73
    ],
-   "n_components": 24,
-   "n_mesh_parts": 24,
-   "n_joints": 0,
-   "joint_types": {},
-   "n_state_slots": 30,
-   "n_capabilities": 12,
-   "n_capabilities_implemented": 12,
+   "n_components": 26,
+   "n_mesh_parts": 26,
+   "n_joints": 1,
+   "joint_types": {
+    "revolute": 1
+   },
+   "n_state_slots": 45,
+   "n_capabilities": 39,
+   "n_capabilities_implemented": 39,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 0,
    "n_interface_points": 3,
-   "n_sources": 18,
-   "n_limitations": 21,
+   "n_sources": 19,
+   "n_limitations": 32,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t2_vacuum/biotage_extrahera/model.glb",
     "urdf": "assets/basic40_batch02/t2_vacuum/biotage_extrahera/model.urdf",
     "blend": "assets/basic40_batch02/t2_vacuum/biotage_extrahera/model.blend",
     "contract": "assets/basic40_batch02/t2_vacuum/biotage_extrahera/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_vacuum.py"
+    "runtime": "scripts/basic40_runtime_vacuum.py",
+    "panel_ui": "assets/basic40_batch02/t2_vacuum/biotage_extrahera/panel_ui.json"
    },
    "thumb": "media/thumb/biotage_extrahera_classic.webp",
    "hero": "media/hero/biotage_extrahera_classic.webp"
@@ -1582,31 +1809,39 @@
     0.57,
     0.76
    ],
-   "n_components": 92,
+   "n_components": 93,
    "n_mesh_parts": 92,
    "n_joints": 3,
    "joint_types": {
     "revolute": 2,
     "prismatic": 1
    },
-   "n_state_slots": 30,
-   "n_capabilities": 13,
-   "n_capabilities_implemented": 13,
+   "n_state_slots": 32,
+   "n_capabilities": 19,
+   "n_capabilities_implemented": 19,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 6,
    "n_sources": 11,
-   "n_limitations": 39,
+   "n_limitations": 44,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/sft_sft110/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/sft_sft110/model.urdf",
     "blend": "assets/expansion_batch03/t2_vacuum/sft_sft110/model.blend",
     "contract": "assets/expansion_batch03/t2_vacuum/sft_sft110/asset.contract.json",
-    "runtime": "scripts/asset_runtime/sft_sft110.py"
+    "runtime": "scripts/asset_runtime/sft_sft110.py",
+    "panel_ui": "assets/expansion_batch03/t2_vacuum/sft_sft110/panel_ui.json"
    },
    "thumb": "media/thumb/sft_sft110.webp",
    "hero": "media/hero/sft_sft110.webp"
@@ -1629,30 +1864,40 @@
     0.3032,
     0.13
    ],
-   "n_components": 58,
+   "n_components": 59,
    "n_mesh_parts": 58,
    "n_joints": 2,
    "joint_types": {
     "prismatic": 2
    },
    "n_state_slots": 42,
-   "n_capabilities": 15,
-   "n_capabilities_implemented": 15,
+   "n_capabilities": 21,
+   "n_capabilities_implemented": 21,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 6,
    "n_sources": 14,
-   "n_limitations": 38,
+   "n_limitations": 43,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.select",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/syrris_asiafllex/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/syrris_asiafllex/model.urdf",
     "blend": "assets/expansion_batch03/t2_vacuum/syrris_asiafllex/model.blend",
     "contract": "assets/expansion_batch03/t2_vacuum/syrris_asiafllex/asset.contract.json",
-    "runtime": "scripts/asset_runtime/syrris_asiafllex.py"
+    "runtime": "scripts/asset_runtime/syrris_asiafllex.py",
+    "panel_ui": "assets/expansion_batch03/t2_vacuum/syrris_asiafllex/panel_ui.json"
    },
    "thumb": "media/thumb/syrris_asiafllex.webp",
    "hero": "media/hero/syrris_asiafllex.webp"
@@ -1675,30 +1920,38 @@
     0.393,
     0.545
    ],
-   "n_components": 217,
+   "n_components": 218,
    "n_mesh_parts": 217,
    "n_joints": 3,
    "joint_types": {
     "prismatic": 3
    },
-   "n_state_slots": 55,
-   "n_capabilities": 15,
-   "n_capabilities_implemented": 15,
+   "n_state_slots": 85,
+   "n_capabilities": 59,
+   "n_capabilities_implemented": 59,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 151,
-   "n_sources": 12,
-   "n_limitations": 40,
+   "n_sources": 13,
+   "n_limitations": 45,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/biotage_selekt/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/biotage_selekt/model.urdf",
     "blend": "assets/expansion_batch03/t2_vacuum/biotage_selekt/model.blend",
     "contract": "assets/expansion_batch03/t2_vacuum/biotage_selekt/asset.contract.json",
-    "runtime": "scripts/asset_runtime/biotage_selekt.py"
+    "runtime": "scripts/asset_runtime/biotage_selekt.py",
+    "panel_ui": "assets/expansion_batch03/t2_vacuum/biotage_selekt/panel_ui.json"
    },
    "thumb": "media/thumb/biotage_selekt.webp",
    "hero": "media/hero/biotage_selekt.webp"
@@ -1739,6 +1992,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/pccell_ed64002/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/pccell_ed64002/model.urdf",
@@ -1767,31 +2022,40 @@
     0.4567,
     0.3002
    ],
-   "n_components": 52,
+   "n_components": 55,
    "n_mesh_parts": 52,
    "n_joints": 9,
    "joint_types": {
     "revolute": 5,
     "prismatic": 4
    },
-   "n_state_slots": 22,
-   "n_capabilities": 13,
-   "n_capabilities_implemented": 13,
+   "n_state_slots": 25,
+   "n_capabilities": 23,
+   "n_capabilities_implemented": 23,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 8,
    "n_sources": 12,
-   "n_limitations": 27,
+   "n_limitations": 33,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/genevac_mivac2/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/genevac_mivac2/model.urdf",
     "blend": "assets/expansion_batch03/t2_vacuum/genevac_mivac2/model.blend",
     "contract": "assets/expansion_batch03/t2_vacuum/genevac_mivac2/asset.contract.json",
-    "runtime": "scripts/asset_runtime/genevac_mivac2.py"
+    "runtime": "scripts/asset_runtime/genevac_mivac2.py",
+    "panel_ui": "assets/expansion_batch03/t2_vacuum/genevac_mivac2/panel_ui.json"
    },
    "thumb": "media/thumb/genevac_mivac2.webp",
    "hero": "media/hero/genevac_mivac2.webp"
@@ -1833,6 +2097,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/pilodist_pilodist104/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/pilodist_pilodist104/model.urdf",
@@ -1880,6 +2146,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/uic_kdl1basic/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/uic_kdl1basic/model.urdf",
@@ -1926,6 +2194,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/scp_digiprepms/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/scp_digiprepms/model.urdf",
@@ -1961,24 +2231,33 @@
     "revolute": 4,
     "prismatic": 4
    },
-   "n_state_slots": 24,
-   "n_capabilities": 13,
-   "n_capabilities_implemented": 13,
+   "n_state_slots": 33,
+   "n_capabilities": 28,
+   "n_capabilities_implemented": 28,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 3,
    "n_sources": 5,
-   "n_limitations": 23,
+   "n_limitations": 30,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/retsch_pm100/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/retsch_pm100/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/retsch_pm100/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/retsch_pm100/asset.contract.json",
-    "runtime": "scripts/asset_runtime/retsch_pm100.py"
+    "runtime": "scripts/asset_runtime/retsch_pm100.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/retsch_pm100/panel_ui.json"
    },
    "thumb": "media/thumb/retsch_pm100.webp",
    "hero": "media/hero/retsch_pm100.webp"
@@ -2001,31 +2280,39 @@
     0.4031,
     0.842
    ],
-   "n_components": 65,
+   "n_components": 69,
    "n_mesh_parts": 65,
    "n_joints": 16,
    "joint_types": {
     "prismatic": 15,
     "revolute": 1
    },
-   "n_state_slots": 24,
-   "n_capabilities": 20,
-   "n_capabilities_implemented": 20,
+   "n_state_slots": 36,
+   "n_capabilities": 35,
+   "n_capabilities_implemented": 35,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 4,
    "n_sources": 7,
-   "n_limitations": 25,
+   "n_limitations": 33,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/retsch_as200/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/retsch_as200/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/retsch_as200/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/retsch_as200/asset.contract.json",
-    "runtime": "scripts/asset_runtime/retsch_as200.py"
+    "runtime": "scripts/asset_runtime/retsch_as200.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/retsch_as200/panel_ui.json"
    },
    "thumb": "media/thumb/retsch_as200.webp",
    "hero": "media/hero/retsch_as200.webp"
@@ -2068,6 +2355,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/retsch_pt100/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/retsch_pt100/model.urdf",
@@ -2116,6 +2405,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/ika_t25/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/ika_t25/model.urdf",
@@ -2150,24 +2441,31 @@
    "joint_types": {
     "prismatic": 25
    },
-   "n_state_slots": 34,
-   "n_capabilities": 19,
-   "n_capabilities_implemented": 19,
+   "n_state_slots": 39,
+   "n_capabilities": 27,
+   "n_capabilities_implemented": 27,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 5,
    "n_sources": 7,
-   "n_limitations": 29,
+   "n_limitations": 34,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/sonics_vcx750/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/sonics_vcx750/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/sonics_vcx750/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/sonics_vcx750/asset.contract.json",
-    "runtime": "scripts/asset_runtime/sonics_vcx750.py"
+    "runtime": "scripts/asset_runtime/sonics_vcx750.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/sonics_vcx750/panel_ui.json"
    },
    "thumb": "media/thumb/sonics_vcx750.webp",
    "hero": "media/hero/sonics_vcx750.webp"
@@ -2190,7 +2488,7 @@
     0.336,
     0.3808
    ],
-   "n_components": 40,
+   "n_components": 43,
    "n_mesh_parts": 40,
    "n_joints": 10,
    "joint_types": {
@@ -2198,24 +2496,32 @@
     "revolute": 2,
     "prismatic": 6
    },
-   "n_state_slots": 33,
-   "n_capabilities": 14,
-   "n_capabilities_implemented": 14,
+   "n_state_slots": 40,
+   "n_capabilities": 26,
+   "n_capabilities_implemented": 26,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 5,
    "n_sources": 9,
-   "n_limitations": 24,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/thinky_are310s/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/thinky_are310s/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/thinky_are310s/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/thinky_are310s/asset.contract.json",
-    "runtime": "scripts/asset_runtime/thinky_are310s.py"
+    "runtime": "scripts/asset_runtime/thinky_are310s.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/thinky_are310s/panel_ui.json"
    },
    "thumb": "media/thumb/thinky_are310s.webp",
    "hero": "media/hero/thinky_are310s.webp"
@@ -2245,24 +2551,32 @@
     "revolute": 1,
     "prismatic": 9
    },
-   "n_state_slots": 31,
-   "n_capabilities": 17,
-   "n_capabilities_implemented": 17,
+   "n_state_slots": 35,
+   "n_capabilities": 26,
+   "n_capabilities_implemented": 26,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 14,
-   "n_sources": 6,
-   "n_limitations": 25,
+   "n_sources": 7,
+   "n_limitations": 31,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/metrohm_909uv/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/metrohm_909uv/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/metrohm_909uv/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/metrohm_909uv/asset.contract.json",
-    "runtime": "scripts/asset_runtime/metrohm_909uv.py"
+    "runtime": "scripts/asset_runtime/metrohm_909uv.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/metrohm_909uv/panel_ui.json"
    },
    "thumb": "media/thumb/metrohm_909uv.webp",
    "hero": "media/hero/metrohm_909uv.webp"
@@ -2285,30 +2599,38 @@
     0.742,
     0.47
    ],
-   "n_components": 44,
+   "n_components": 45,
    "n_mesh_parts": 44,
    "n_joints": 1,
    "joint_types": {
     "revolute": 1
    },
-   "n_state_slots": 16,
-   "n_capabilities": 14,
-   "n_capabilities_implemented": 10,
+   "n_state_slots": 39,
+   "n_capabilities": 41,
+   "n_capabilities_implemented": 37,
    "n_capabilities_unsupported": 4,
-   "n_mechanisms": 1,
+   "n_mechanisms": 2,
    "n_readouts": 1,
    "n_interface_points": 0,
-   "n_sources": 14,
-   "n_limitations": 21,
+   "n_sources": 15,
+   "n_limitations": 29,
    "isaac_lab": "partial",
    "glb_up": "y",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t1_thermal/multiwave_7101/model.glb",
     "urdf": "assets/basic40_batch02/t1_thermal/multiwave_7101/model.urdf",
     "blend": "assets/basic40_batch02/t1_thermal/multiwave_7101/model.blend",
     "contract": "assets/basic40_batch02/t1_thermal/multiwave_7101/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_thermal.py"
+    "runtime": "scripts/basic40_runtime_thermal.py",
+    "panel_ui": "assets/basic40_batch02/t1_thermal/multiwave_7101/panel_ui.json"
    },
    "thumb": "media/thumb/multiwave_7101.webp",
    "hero": "media/hero/multiwave_7101.webp"
@@ -2338,24 +2660,32 @@
     "prismatic": 3,
     "revolute": 3
    },
-   "n_state_slots": 34,
-   "n_capabilities": 18,
-   "n_capabilities_implemented": 18,
+   "n_state_slots": 41,
+   "n_capabilities": 27,
+   "n_capabilities_implemented": 27,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 9,
    "n_sources": 10,
-   "n_limitations": 25,
+   "n_limitations": 31,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/velp_udk159/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/velp_udk159/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/velp_udk159/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/velp_udk159/asset.contract.json",
-    "runtime": "scripts/asset_runtime/velp_udk159.py"
+    "runtime": "scripts/asset_runtime/velp_udk159.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/velp_udk159/panel_ui.json"
    },
    "thumb": "media/thumb/velp_udk159.webp",
    "hero": "media/hero/velp_udk159.webp"
@@ -2397,6 +2727,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/buchi_hydrolexh/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/buchi_hydrolexh/model.urdf",
@@ -2432,24 +2764,32 @@
     "revolute": 3,
     "prismatic": 3
    },
-   "n_state_slots": 20,
-   "n_capabilities": 15,
-   "n_capabilities_implemented": 15,
+   "n_state_slots": 28,
+   "n_capabilities": 26,
+   "n_capabilities_implemented": 26,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 5,
-   "n_sources": 6,
-   "n_limitations": 22,
+   "n_sources": 7,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/malvern_leneo/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/malvern_leneo/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/malvern_leneo/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/malvern_leneo/asset.contract.json",
-    "runtime": "scripts/asset_runtime/malvern_leneo.py"
+    "runtime": "scripts/asset_runtime/malvern_leneo.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/malvern_leneo/panel_ui.json"
    },
    "thumb": "media/thumb/malvern_leneo.webp",
    "hero": "media/hero/malvern_leneo.webp"
@@ -2491,6 +2831,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/specac_atlasmanual/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/specac_atlasmanual/model.urdf",
@@ -2526,24 +2868,32 @@
     "prismatic": 6,
     "revolute": 2
    },
-   "n_state_slots": 30,
-   "n_capabilities": 23,
-   "n_capabilities_implemented": 23,
+   "n_state_slots": 35,
+   "n_capabilities": 30,
+   "n_capabilities_implemented": 30,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 10,
-   "n_sources": 6,
-   "n_limitations": 28,
+   "n_sources": 7,
+   "n_limitations": 34,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/buchi_encapsulatorb/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/buchi_encapsulatorb/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/buchi_encapsulatorb/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/buchi_encapsulatorb/asset.contract.json",
-    "runtime": "scripts/asset_runtime/buchi_encapsulatorb.py"
+    "runtime": "scripts/asset_runtime/buchi_encapsulatorb.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/buchi_encapsulatorb/panel_ui.json"
    },
    "thumb": "media/thumb/buchi_encapsulatorb.webp",
    "hero": "media/hero/buchi_encapsulatorb.webp"
@@ -2573,24 +2923,32 @@
     "revolute": 2,
     "prismatic": 13
    },
-   "n_state_slots": 13,
-   "n_capabilities": 14,
-   "n_capabilities_implemented": 14,
+   "n_state_slots": 14,
+   "n_capabilities": 21,
+   "n_capabilities_implemented": 21,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 4,
-   "n_sources": 10,
-   "n_limitations": 17,
+   "n_sources": 11,
+   "n_limitations": 23,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/ossila_spincoater/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/ossila_spincoater/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/ossila_spincoater/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/ossila_spincoater/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ossila_spincoater.py"
+    "runtime": "scripts/asset_runtime/ossila_spincoater.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/ossila_spincoater/panel_ui.json"
    },
    "thumb": "media/thumb/ossila_spincoater.webp",
    "hero": "media/hero/ossila_spincoater.webp"
@@ -2619,24 +2977,32 @@
    "joint_types": {
     "prismatic": 15
    },
-   "n_state_slots": 18,
-   "n_capabilities": 19,
-   "n_capabilities_implemented": 19,
+   "n_state_slots": 22,
+   "n_capabilities": 29,
+   "n_capabilities_implemented": 29,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 4,
-   "n_sources": 10,
-   "n_limitations": 22,
+   "n_sources": 11,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/ossila_dipcoater/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/ossila_dipcoater/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/ossila_dipcoater/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/ossila_dipcoater/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ossila_dipcoater.py"
+    "runtime": "scripts/asset_runtime/ossila_dipcoater.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/ossila_dipcoater/panel_ui.json"
    },
    "thumb": "media/thumb/ossila_dipcoater.webp",
    "hero": "media/hero/ossila_dipcoater.webp"
@@ -2659,31 +3025,39 @@
     0.3858,
     0.19
    ],
-   "n_components": 74,
+   "n_components": 77,
    "n_mesh_parts": 74,
    "n_joints": 16,
    "joint_types": {
     "prismatic": 15,
     "revolute": 1
    },
-   "n_state_slots": 21,
-   "n_capabilities": 20,
-   "n_capabilities_implemented": 20,
+   "n_state_slots": 26,
+   "n_capabilities": 33,
+   "n_capabilities_implemented": 33,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 4,
-   "n_sources": 11,
-   "n_limitations": 24,
+   "n_sources": 12,
+   "n_limitations": 31,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/ossila_doctorblade/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/ossila_doctorblade/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/ossila_doctorblade/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/ossila_doctorblade/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ossila_doctorblade.py"
+    "runtime": "scripts/asset_runtime/ossila_doctorblade.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/ossila_doctorblade/panel_ui.json"
    },
    "thumb": "media/thumb/ossila_doctorblade.webp",
    "hero": "media/hero/ossila_doctorblade.webp"
@@ -2706,31 +3080,39 @@
     0.3654,
     0.223
    ],
-   "n_components": 83,
+   "n_components": 87,
    "n_mesh_parts": 83,
    "n_joints": 17,
    "joint_types": {
     "prismatic": 16,
     "revolute": 1
    },
-   "n_state_slots": 29,
-   "n_capabilities": 24,
-   "n_capabilities_implemented": 24,
+   "n_state_slots": 35,
+   "n_capabilities": 39,
+   "n_capabilities_implemented": 39,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 5,
-   "n_sources": 11,
-   "n_limitations": 26,
+   "n_sources": 12,
+   "n_limitations": 33,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/ossila_slotdie/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/ossila_slotdie/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/ossila_slotdie/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/ossila_slotdie/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ossila_slotdie.py"
+    "runtime": "scripts/asset_runtime/ossila_slotdie.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/ossila_slotdie/panel_ui.json"
    },
    "thumb": "media/thumb/ossila_slotdie.webp",
    "hero": "media/hero/ossila_slotdie.webp"
@@ -2760,24 +3142,32 @@
     "prismatic": 3,
     "revolute": 2
    },
-   "n_state_slots": 32,
-   "n_capabilities": 24,
-   "n_capabilities_implemented": 24,
+   "n_state_slots": 50,
+   "n_capabilities": 45,
+   "n_capabilities_implemented": 45,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 10,
    "n_interface_points": 7,
    "n_sources": 43,
-   "n_limitations": 24,
+   "n_limitations": 31,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/thermo_process11/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/thermo_process11/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/thermo_process11/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/thermo_process11/asset.contract.json",
-    "runtime": "scripts/asset_runtime/thermo_process11.py"
+    "runtime": "scripts/asset_runtime/thermo_process11.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/thermo_process11/panel_ui.json"
    },
    "thumb": "media/thumb/thermo_process11.webp",
    "hero": "media/hero/thermo_process11.webp"
@@ -2819,6 +3209,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/fujifilm_dmp2850/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/fujifilm_dmp2850/model.urdf",
@@ -2855,24 +3247,33 @@
     "continuous": 1,
     "prismatic": 12
    },
-   "n_state_slots": 33,
-   "n_capabilities": 21,
-   "n_capabilities_implemented": 21,
+   "n_state_slots": 38,
+   "n_capabilities": 34,
+   "n_capabilities_implemented": 34,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 15,
-   "n_sources": 6,
-   "n_limitations": 23,
+   "n_sources": 7,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/linari_rtadvanced/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/linari_rtadvanced/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/linari_rtadvanced/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/linari_rtadvanced/asset.contract.json",
-    "runtime": "scripts/asset_runtime/linari_rtadvanced.py"
+    "runtime": "scripts/asset_runtime/linari_rtadvanced.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/linari_rtadvanced/panel_ui.json"
    },
    "thumb": "media/thumb/linari_rtadvanced.webp",
    "hero": "media/hero/linari_rtadvanced.webp"
@@ -2895,31 +3296,39 @@
     0.3527,
     0.38
    ],
-   "n_components": 43,
+   "n_components": 44,
    "n_mesh_parts": 43,
    "n_joints": 9,
    "joint_types": {
     "revolute": 2,
     "prismatic": 7
    },
-   "n_state_slots": 35,
-   "n_capabilities": 20,
-   "n_capabilities_implemented": 20,
+   "n_state_slots": 42,
+   "n_capabilities": 29,
+   "n_capabilities_implemented": 29,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 12,
-   "n_sources": 9,
-   "n_limitations": 23,
+   "n_sources": 10,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/cytiva_nanoassemblrignite/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/cytiva_nanoassemblrignite/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/cytiva_nanoassemblrignite/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/cytiva_nanoassemblrignite/asset.contract.json",
-    "runtime": "scripts/asset_runtime/cytiva_nanoassemblrignite.py"
+    "runtime": "scripts/asset_runtime/cytiva_nanoassemblrignite.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/cytiva_nanoassemblrignite/panel_ui.json"
    },
    "thumb": "media/thumb/cytiva_nanoassemblrignite.webp",
    "hero": "media/hero/cytiva_nanoassemblrignite.webp"
@@ -2962,6 +3371,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/glatt_miniglatt/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/glatt_miniglatt/model.urdf",
@@ -2998,24 +3409,32 @@
     "continuous": 1,
     "revolute": 2
    },
-   "n_state_slots": 28,
-   "n_capabilities": 18,
-   "n_capabilities_implemented": 18,
+   "n_state_slots": 40,
+   "n_capabilities": 40,
+   "n_capabilities_implemented": 40,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 10,
-   "n_sources": 10,
-   "n_limitations": 29,
+   "n_sources": 11,
+   "n_limitations": 33,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/quorum_q150tes/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/quorum_q150tes/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/quorum_q150tes/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/quorum_q150tes/asset.contract.json",
-    "runtime": "scripts/asset_runtime/quorum_q150tes.py"
+    "runtime": "scripts/asset_runtime/quorum_q150tes.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/quorum_q150tes/panel_ui.json"
    },
    "thumb": "media/thumb/quorum_q150tes.webp",
    "hero": "media/hero/quorum_q150tes.webp"
@@ -3045,24 +3464,33 @@
     "revolute": 7,
     "prismatic": 3
    },
-   "n_state_slots": 34,
-   "n_capabilities": 16,
-   "n_capabilities_implemented": 16,
+   "n_state_slots": 36,
+   "n_capabilities": 27,
+   "n_capabilities_implemented": 27,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 12,
-   "n_sources": 10,
-   "n_limitations": 24,
+   "n_sources": 11,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/laboao_cvdltf12p50/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/laboao_cvdltf12p50/model.urdf",
     "blend": "assets/expansion_batch04/t5_automation/laboao_cvdltf12p50/model.blend",
     "contract": "assets/expansion_batch04/t5_automation/laboao_cvdltf12p50/asset.contract.json",
-    "runtime": "scripts/asset_runtime/laboao_cvdltf12p50.py"
+    "runtime": "scripts/asset_runtime/laboao_cvdltf12p50.py",
+    "panel_ui": "assets/expansion_batch04/t5_automation/laboao_cvdltf12p50/panel_ui.json"
    },
    "thumb": "media/thumb/laboao_cvdltf12p50.webp",
    "hero": "media/hero/laboao_cvdltf12p50.webp"
@@ -3104,6 +3532,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t5_automation/arradiance_gemstarxt/model.glb",
     "urdf": "assets/expansion_batch04/t5_automation/arradiance_gemstarxt/model.urdf",
@@ -3151,6 +3581,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/jasco_j1500/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/jasco_j1500/model.urdf",
@@ -3197,6 +3629,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/bruker_minispecmq20/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/bruker_minispecmq20/model.urdf",
@@ -3244,6 +3678,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/jasco_fp8350/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/jasco_fp8350/model.urdf",
@@ -3290,6 +3726,8 @@
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/magritek_spinsolve80/model.glb",
     "urdf": "assets/basic40_batch02/t4_measure/magritek_spinsolve80/model.urdf",
@@ -3335,6 +3773,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/bruker_magnettechesr5000/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/bruker_magnettechesr5000/model.urdf",
@@ -3369,24 +3809,32 @@
    "joint_types": {
     "revolute": 2
    },
-   "n_state_slots": 23,
-   "n_capabilities": 20,
-   "n_capabilities_implemented": 18,
+   "n_state_slots": 27,
+   "n_capabilities": 43,
+   "n_capabilities_implemented": 41,
    "n_capabilities_unsupported": 2,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 7,
-   "n_sources": 9,
-   "n_limitations": 32,
+   "n_sources": 12,
+   "n_limitations": 41,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/jasco_p4200/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/jasco_p4200/model.urdf",
     "blend": "assets/expansion_batch03/t3_analytical/jasco_p4200/model.blend",
     "contract": "assets/expansion_batch03/t3_analytical/jasco_p4200/asset.contract.json",
-    "runtime": "scripts/asset_runtime/jasco_p4200.py"
+    "runtime": "scripts/asset_runtime/jasco_p4200.py",
+    "panel_ui": "assets/expansion_batch03/t3_analytical/jasco_p4200/panel_ui.json"
    },
    "thumb": "media/thumb/jasco_p4200.webp",
    "hero": "media/hero/jasco_p4200.webp"
@@ -3409,30 +3857,39 @@
     0.46,
     0.215
    ],
-   "n_components": 14,
+   "n_components": 16,
    "n_mesh_parts": 14,
    "n_joints": 1,
    "joint_types": {
     "continuous": 1
    },
-   "n_state_slots": 14,
-   "n_capabilities": 14,
-   "n_capabilities_implemented": 9,
+   "n_state_slots": 42,
+   "n_capabilities": 55,
+   "n_capabilities_implemented": 50,
    "n_capabilities_unsupported": 5,
-   "n_mechanisms": 1,
+   "n_mechanisms": 2,
    "n_readouts": 1,
    "n_interface_points": 1,
-   "n_sources": 9,
-   "n_limitations": 11,
+   "n_sources": 11,
+   "n_limitations": 18,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t3_analytical/hach_dr6000/model.glb",
     "urdf": "assets/basic40_batch02/t3_analytical/hach_dr6000/model.urdf",
     "blend": "assets/basic40_batch02/t3_analytical/hach_dr6000/model.blend",
     "contract": "assets/basic40_batch02/t3_analytical/hach_dr6000/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_analytical.py"
+    "runtime": "scripts/basic40_runtime_analytical.py",
+    "panel_ui": "assets/basic40_batch02/t3_analytical/hach_dr6000/panel_ui.json"
    },
    "thumb": "media/thumb/hach_dr6000.webp",
    "hero": "media/hero/hach_dr6000.webp"
@@ -3473,6 +3930,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/basic40_batch02/t3_analytical/jasco_ftir4700/model.glb",
     "urdf": "assets/basic40_batch02/t3_analytical/jasco_ftir4700/model.urdf",
@@ -3520,6 +3979,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/jasco_nrs5500/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/jasco_nrs5500/model.urdf",
@@ -3567,6 +4028,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/applied_sx20/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/applied_sx20/model.urdf",
@@ -3614,6 +4077,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/edinburgh_fls1000tcspc/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/edinburgh_fls1000tcspc/model.urdf",
@@ -3660,6 +4125,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/ultrafast_helios/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/ultrafast_helios/model.urdf",
@@ -3707,6 +4174,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/jasco_fvs6000/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/jasco_fvs6000/model.urdf",
@@ -3754,6 +4223,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/jasco_cpl300/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/jasco_cpl300/model.urdf",
@@ -3801,6 +4272,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/elementar_varioel/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/elementar_varioel/model.urdf",
@@ -3829,31 +4302,39 @@
     0.6747,
     0.48
    ],
-   "n_components": 150,
+   "n_components": 152,
    "n_mesh_parts": 150,
    "n_joints": 40,
    "joint_types": {
     "prismatic": 37,
     "revolute": 3
    },
-   "n_state_slots": 32,
-   "n_capabilities": 29,
-   "n_capabilities_implemented": 26,
+   "n_state_slots": 53,
+   "n_capabilities": 47,
+   "n_capabilities_implemented": 44,
    "n_capabilities_unsupported": 3,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 9,
-   "n_sources": 29,
-   "n_limitations": 51,
+   "n_sources": 31,
+   "n_limitations": 57,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/shimadzu_tocl/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/shimadzu_tocl/model.urdf",
     "blend": "assets/expansion_batch03/t3_analytical/shimadzu_tocl/model.blend",
     "contract": "assets/expansion_batch03/t3_analytical/shimadzu_tocl/asset.contract.json",
-    "runtime": "scripts/asset_runtime/shimadzu_tocl.py"
+    "runtime": "scripts/asset_runtime/shimadzu_tocl.py",
+    "panel_ui": "assets/expansion_batch03/t3_analytical/shimadzu_tocl/panel_ui.json"
    },
    "thumb": "media/thumb/shimadzu_tocl.webp",
    "hero": "media/hero/shimadzu_tocl.webp"
@@ -3895,6 +4376,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/jena_contraa800/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/jena_contraa800/model.urdf",
@@ -3942,6 +4425,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/shimadzu_icpe9800/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/shimadzu_icpe9800/model.urdf",
@@ -3989,6 +4474,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/shimadzu_icpms2030/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/shimadzu_icpms2030/model.urdf",
@@ -4036,6 +4523,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/shimadzu_edx7200/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/shimadzu_edx7200/model.urdf",
@@ -4083,6 +4572,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/jena_multix/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/jena_multix/model.urdf",
@@ -4107,35 +4598,43 @@
    "domain_zh": "元素与质谱分析",
    "path": "assets/expansion_batch04/t3_analytical/milestone_dma80",
    "size_m": [
-    0.8,
+    1.1,
     0.42,
     0.3
    ],
-   "n_components": 118,
-   "n_mesh_parts": 118,
-   "n_joints": 5,
+   "n_components": 122,
+   "n_mesh_parts": 122,
+   "n_joints": 6,
    "joint_types": {
-    "revolute": 3,
+    "revolute": 4,
     "prismatic": 2
    },
-   "n_state_slots": 38,
-   "n_capabilities": 34,
-   "n_capabilities_implemented": 28,
+   "n_state_slots": 39,
+   "n_capabilities": 40,
+   "n_capabilities_implemented": 34,
    "n_capabilities_unsupported": 6,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 46,
-   "n_sources": 69,
-   "n_limitations": 56,
+   "n_sources": 72,
+   "n_limitations": 65,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/milestone_dma80/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/milestone_dma80/model.urdf",
     "blend": "assets/expansion_batch04/t3_analytical/milestone_dma80/model.blend",
     "contract": "assets/expansion_batch04/t3_analytical/milestone_dma80/asset.contract.json",
-    "runtime": "scripts/asset_runtime/milestone_dma80.py"
+    "runtime": "scripts/asset_runtime/milestone_dma80.py",
+    "panel_ui": "assets/expansion_batch04/t3_analytical/milestone_dma80/panel_ui.json"
    },
    "thumb": "media/thumb/milestone_dma80.webp",
    "hero": "media/hero/milestone_dma80.webp"
@@ -4176,6 +4675,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/stanford_rga100/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/stanford_rga100/model.urdf",
@@ -4223,6 +4724,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/thermo_orbitrapexploris/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/thermo_orbitrapexploris/model.urdf",
@@ -4269,6 +4772,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/leco_onh836/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/leco_onh836/model.urdf",
@@ -4316,6 +4821,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/elementar_isoprimeprecision/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/elementar_isoprimeprecision/model.urdf",
@@ -4345,29 +4852,37 @@
     0.133
    ],
    "n_components": 35,
-   "n_mesh_parts": 35,
-   "n_joints": 4,
+   "n_mesh_parts": 32,
+   "n_joints": 1,
    "joint_types": {
-    "prismatic": 4
+    "prismatic": 1
    },
    "n_state_slots": 34,
-   "n_capabilities": 20,
-   "n_capabilities_implemented": 17,
+   "n_capabilities": 24,
+   "n_capabilities_implemented": 21,
    "n_capabilities_unsupported": 3,
    "n_mechanisms": 3,
    "n_readouts": 3,
    "n_interface_points": 5,
-   "n_sources": 22,
-   "n_limitations": 10,
+   "n_sources": 23,
+   "n_limitations": 13,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/eco_ncld822/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/eco_ncld822/model.urdf",
     "blend": "assets/expansion_batch04/t3_analytical/eco_ncld822/model.blend",
     "contract": "assets/expansion_batch04/t3_analytical/eco_ncld822/asset.contract.json",
-    "runtime": "scripts/asset_runtime/eco_ncld822.py"
+    "runtime": "scripts/asset_runtime/eco_ncld822.py",
+    "panel_ui": "assets/expansion_batch04/t3_analytical/eco_ncld822/panel_ui.json"
    },
    "thumb": "media/thumb/eco_ncld822.webp",
    "hero": "media/hero/eco_ncld822.webp"
@@ -4408,6 +4923,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/camag_tlcscanner/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/camag_tlcscanner/model.urdf",
@@ -4455,6 +4972,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/sciex_pa800/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/sciex_pa800/model.urdf",
@@ -4502,6 +5021,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/agilent_1260infinity/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/agilent_1260infinity/model.urdf",
@@ -4548,6 +5069,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/wyatt_eclipseaf4/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/wyatt_eclipseaf4/model.urdf",
@@ -4573,34 +5096,43 @@
    "path": "assets/basic40_batch02/t3_analytical/agilent_gc8890b",
    "size_m": [
     0.5803,
-    0.545,
-    0.4905
+    0.55,
+    0.49
    ],
-   "n_components": 52,
-   "n_mesh_parts": 52,
-   "n_joints": 50,
+   "n_components": 54,
+   "n_mesh_parts": 50,
+   "n_joints": 4,
    "joint_types": {
     "revolute": 3,
-    "prismatic": 47
+    "prismatic": 1
    },
-   "n_state_slots": 22,
-   "n_capabilities": 56,
-   "n_capabilities_implemented": 46,
+   "n_state_slots": 42,
+   "n_capabilities": 88,
+   "n_capabilities_implemented": 78,
    "n_capabilities_unsupported": 10,
-   "n_mechanisms": 3,
-   "n_readouts": 3,
+   "n_mechanisms": 4,
+   "n_readouts": 0,
    "n_interface_points": 1,
-   "n_sources": 11,
-   "n_limitations": 9,
+   "n_sources": 13,
+   "n_limitations": 20,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t3_analytical/agilent_gc8890b/model.glb",
     "urdf": "assets/basic40_batch02/t3_analytical/agilent_gc8890b/model.urdf",
     "blend": "assets/basic40_batch02/t3_analytical/agilent_gc8890b/model.blend",
     "contract": "assets/basic40_batch02/t3_analytical/agilent_gc8890b/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_analytical.py"
+    "runtime": "scripts/basic40_runtime_analytical.py",
+    "panel_ui": "assets/basic40_batch02/t3_analytical/agilent_gc8890b/panel_ui.json"
    },
    "thumb": "media/thumb/agilent_gc8890b.webp",
    "hero": "media/hero/agilent_gc8890b.webp"
@@ -4641,6 +5173,8 @@
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/basic40_batch02/t3_analytical/agilent_hplc1260/model.glb",
     "urdf": "assets/basic40_batch02/t3_analytical/agilent_hplc1260/model.urdf",
@@ -4668,30 +5202,40 @@
     0.577,
     0.625
    ],
-   "n_components": 72,
+   "n_components": 73,
    "n_mesh_parts": 72,
-   "n_joints": 2,
+   "n_joints": 3,
    "joint_types": {
-    "revolute": 2
+    "revolute": 2,
+    "prismatic": 1
    },
-   "n_state_slots": 21,
-   "n_capabilities": 16,
-   "n_capabilities_implemented": 14,
+   "n_state_slots": 52,
+   "n_capabilities": 48,
+   "n_capabilities_implemented": 46,
    "n_capabilities_unsupported": 2,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 6,
    "n_sources": 7,
-   "n_limitations": 22,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/thermo_dionexintegrion/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/thermo_dionexintegrion/model.urdf",
     "blend": "assets/expansion_batch03/t3_analytical/thermo_dionexintegrion/model.blend",
     "contract": "assets/expansion_batch03/t3_analytical/thermo_dionexintegrion/asset.contract.json",
-    "runtime": "scripts/asset_runtime/thermo_dionexintegrion.py"
+    "runtime": "scripts/asset_runtime/thermo_dionexintegrion.py",
+    "panel_ui": "assets/expansion_batch03/t3_analytical/thermo_dionexintegrion/panel_ui.json"
    },
    "thumb": "media/thumb/thermo_dionexintegrion.webp",
    "hero": "media/hero/thermo_dionexintegrion.webp"
@@ -4733,6 +5277,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/agilent_1290infinity/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/agilent_1290infinity/model.urdf",
@@ -4761,31 +5307,41 @@
     0.8,
     0.79
    ],
-   "n_components": 200,
+   "n_components": 203,
    "n_mesh_parts": 200,
    "n_joints": 4,
    "joint_types": {
     "revolute": 1,
     "prismatic": 3
    },
-   "n_state_slots": 29,
-   "n_capabilities": 20,
-   "n_capabilities_implemented": 18,
+   "n_state_slots": 44,
+   "n_capabilities": 41,
+   "n_capabilities_implemented": 39,
    "n_capabilities_unsupported": 2,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 65,
    "n_sources": 5,
-   "n_limitations": 24,
+   "n_limitations": 33,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/gas_flavourspec25gc/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/gas_flavourspec25gc/model.urdf",
     "blend": "assets/expansion_batch04/t3_analytical/gas_flavourspec25gc/model.blend",
     "contract": "assets/expansion_batch04/t3_analytical/gas_flavourspec25gc/asset.contract.json",
-    "runtime": "scripts/asset_runtime/gas_flavourspec25gc.py"
+    "runtime": "scripts/asset_runtime/gas_flavourspec25gc.py",
+    "panel_ui": "assets/expansion_batch04/t3_analytical/gas_flavourspec25gc/panel_ui.json"
    },
    "thumb": "media/thumb/gas_flavourspec25gc.webp",
    "hero": "media/hero/gas_flavourspec25gc.webp"
@@ -4827,6 +5383,8 @@
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/metrohm_omnis/model.glb",
     "urdf": "assets/basic40_batch02/t4_measure/metrohm_omnis/model.urdf",
@@ -4855,30 +5413,37 @@
     0.2889,
     0.3373
    ],
-   "n_components": 11,
+   "n_components": 19,
    "n_mesh_parts": 11,
    "n_joints": 11,
    "joint_types": {
     "prismatic": 11
    },
-   "n_state_slots": 26,
-   "n_capabilities": 10,
-   "n_capabilities_implemented": 10,
+   "n_state_slots": 51,
+   "n_capabilities": 37,
+   "n_capabilities_implemented": 37,
    "n_capabilities_unsupported": 0,
-   "n_mechanisms": 1,
+   "n_mechanisms": 2,
    "n_readouts": 0,
    "n_interface_points": 1,
-   "n_sources": 11,
-   "n_limitations": 24,
+   "n_sources": 12,
+   "n_limitations": 33,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/metrohm_899/model.glb",
     "urdf": "assets/basic40_batch02/t4_measure/metrohm_899/model.urdf",
     "blend": "assets/basic40_batch02/t4_measure/metrohm_899/model.blend",
     "contract": "assets/basic40_batch02/t4_measure/metrohm_899/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_measure.py"
+    "runtime": "scripts/basic40_runtime_measure.py",
+    "panel_ui": "assets/basic40_batch02/t4_measure/metrohm_899/panel_ui.json"
    },
    "thumb": "media/thumb/metrohm_899.webp",
    "hero": "media/hero/metrohm_899.webp"
@@ -4917,6 +5482,8 @@
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/gamry_ref620/model.glb",
     "urdf": "assets/basic40_batch02/t4_measure/gamry_ref620/model.urdf",
@@ -4963,6 +5530,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/ch_chi920d/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/ch_chi920d/model.urdf",
@@ -5009,6 +5578,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/ch_chi440c/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/ch_chi440c/model.urdf",
@@ -5043,24 +5614,32 @@
    "joint_types": {
     "prismatic": 2
    },
-   "n_state_slots": 24,
-   "n_capabilities": 17,
-   "n_capabilities_implemented": 13,
+   "n_state_slots": 36,
+   "n_capabilities": 27,
+   "n_capabilities_implemented": 23,
    "n_capabilities_unsupported": 4,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 6,
-   "n_sources": 6,
-   "n_limitations": 24,
+   "n_sources": 7,
+   "n_limitations": 30,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/knauer_k7400s/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/knauer_k7400s/model.urdf",
     "blend": "assets/expansion_batch04/t4_measure/knauer_k7400s/model.blend",
     "contract": "assets/expansion_batch04/t4_measure/knauer_k7400s/asset.contract.json",
-    "runtime": "scripts/asset_runtime/knauer_k7400s.py"
+    "runtime": "scripts/asset_runtime/knauer_k7400s.py",
+    "panel_ui": "assets/expansion_batch04/t4_measure/knauer_k7400s/panel_ui.json"
    },
    "thumb": "media/thumb/knauer_k7400s.webp",
    "hero": "media/hero/knauer_k7400s.webp"
@@ -5103,6 +5682,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/pine_wavevortex10/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/pine_wavevortex10/model.urdf",
@@ -5128,33 +5709,44 @@
    "path": "assets/basic40_batch02/t3_analytical/agilent_hs8697",
    "size_m": [
     0.599,
-    0.73,
+    0.7305,
     0.8
    ],
-   "n_components": 141,
-   "n_mesh_parts": 140,
-   "n_joints": 1,
+   "n_components": 146,
+   "n_mesh_parts": 144,
+   "n_joints": 3,
    "joint_types": {
-    "continuous": 1
+    "continuous": 1,
+    "prismatic": 1,
+    "revolute": 1
    },
-   "n_state_slots": 24,
-   "n_capabilities": 14,
-   "n_capabilities_implemented": 9,
+   "n_state_slots": 40,
+   "n_capabilities": 37,
+   "n_capabilities_implemented": 32,
    "n_capabilities_unsupported": 5,
-   "n_mechanisms": 2,
+   "n_mechanisms": 3,
    "n_readouts": 1,
    "n_interface_points": 60,
-   "n_sources": 9,
-   "n_limitations": 9,
+   "n_sources": 11,
+   "n_limitations": 17,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t3_analytical/agilent_hs8697/model.glb",
     "urdf": "assets/basic40_batch02/t3_analytical/agilent_hs8697/model.urdf",
     "blend": "assets/basic40_batch02/t3_analytical/agilent_hs8697/model.blend",
     "contract": "assets/basic40_batch02/t3_analytical/agilent_hs8697/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_analytical.py"
+    "runtime": "scripts/basic40_runtime_analytical.py",
+    "panel_ui": "assets/basic40_batch02/t3_analytical/agilent_hs8697/panel_ui.json"
    },
    "thumb": "media/thumb/agilent_hs8697.webp",
    "hero": "media/hero/agilent_hs8697.webp"
@@ -5196,6 +5788,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/teledyne_atomxxyz/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/teledyne_atomxxyz/model.urdf",
@@ -5243,6 +5837,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/teledyne_analyteexcite/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/teledyne_analyteexcite/model.urdf",
@@ -5290,6 +5886,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/frontier_egapy/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/frontier_egapy/model.urdf",
@@ -5337,6 +5935,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t3_analytical/markes_unityxr/model.glb",
     "urdf": "assets/expansion_batch03/t3_analytical/markes_unityxr/model.urdf",
@@ -5384,6 +5984,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_surpass3/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_surpass3/model.urdf",
@@ -5419,24 +6021,34 @@
     "prismatic": 3,
     "revolute": 3
    },
-   "n_state_slots": 33,
-   "n_capabilities": 25,
-   "n_capabilities_implemented": 19,
+   "n_state_slots": 39,
+   "n_capabilities": 39,
+   "n_capabilities_implemented": 33,
    "n_capabilities_unsupported": 6,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 9,
-   "n_sources": 9,
-   "n_limitations": 20,
+   "n_sources": 12,
+   "n_limitations": 26,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.home",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_ultrapyc5000/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_ultrapyc5000/model.urdf",
     "blend": "assets/expansion_batch03/t4_measure/antonpaar_ultrapyc5000/model.blend",
     "contract": "assets/expansion_batch03/t4_measure/antonpaar_ultrapyc5000/asset.contract.json",
-    "runtime": "scripts/asset_runtime/antonpaar_ultrapyc5000.py"
+    "runtime": "scripts/asset_runtime/antonpaar_ultrapyc5000.py",
+    "panel_ui": "assets/expansion_batch03/t4_measure/antonpaar_ultrapyc5000/panel_ui.json"
    },
    "thumb": "media/thumb/antonpaar_ultrapyc5000.webp",
    "hero": "media/hero/antonpaar_ultrapyc5000.webp"
@@ -5478,6 +6090,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_autosorb6100/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_autosorb6100/model.urdf",
@@ -5525,6 +6139,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_poremaster60/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_poremaster60/model.urdf",
@@ -5572,6 +6188,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_litesizerdls/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_litesizerdls/model.urdf",
@@ -5619,6 +6237,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_psa1190/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_psa1190/model.urdf",
@@ -5666,6 +6286,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/antonpaar_litesizerdia/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/antonpaar_litesizerdia/model.urdf",
@@ -5713,6 +6335,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/biolin_sigma700/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/biolin_sigma700/model.urdf",
@@ -5760,6 +6384,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/biolin_thetaflex/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/biolin_thetaflex/model.urdf",
@@ -5807,6 +6433,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/micromeritics_autochemiii/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/micromeritics_autochemiii/model.urdf",
@@ -5854,6 +6482,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/surface_dvsresolution/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/surface_dvsresolution/model.urdf",
@@ -5901,6 +6531,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/freeman_ft4powder/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/freeman_ft4powder/model.urdf",
@@ -5948,6 +6580,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/porometer_poroluxrevo/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/porometer_poroluxrevo/model.urdf",
@@ -5995,6 +6629,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/microtrac_turbiscanlab/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/microtrac_turbiscanlab/model.urdf",
@@ -6042,6 +6678,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/biolin_mediuml/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/biolin_mediuml/model.urdf",
@@ -6089,6 +6727,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/antonpaar_trb/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/antonpaar_trb/model.urdf",
@@ -6136,6 +6776,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/antonpaar_rst300/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/antonpaar_rst300/model.urdf",
@@ -6183,6 +6825,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/antonpaar_hit300/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/antonpaar_hit300/model.urdf",
@@ -6218,24 +6862,32 @@
     "prismatic": 4,
     "revolute": 1
    },
-   "n_state_slots": 43,
-   "n_capabilities": 36,
-   "n_capabilities_implemented": 25,
+   "n_state_slots": 49,
+   "n_capabilities": 47,
+   "n_capabilities_implemented": 36,
    "n_capabilities_unsupported": 11,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 13,
    "n_sources": 89,
-   "n_limitations": 34,
+   "n_limitations": 40,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/ta_dsc2500/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/ta_dsc2500/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/ta_dsc2500/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/ta_dsc2500/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ta_dsc2500.py"
+    "runtime": "scripts/asset_runtime/ta_dsc2500.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/ta_dsc2500/panel_ui.json"
    },
    "thumb": "media/thumb/ta_dsc2500.webp",
    "hero": "media/hero/ta_dsc2500.webp"
@@ -6265,24 +6917,32 @@
     "prismatic": 2,
     "revolute": 2
    },
-   "n_state_slots": 48,
-   "n_capabilities": 40,
-   "n_capabilities_implemented": 28,
+   "n_state_slots": 51,
+   "n_capabilities": 49,
+   "n_capabilities_implemented": 37,
    "n_capabilities_unsupported": 12,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 13,
    "n_sources": 12,
-   "n_limitations": 40,
+   "n_limitations": 46,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/ta_tga5500/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/ta_tga5500/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/ta_tga5500/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/ta_tga5500/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ta_tga5500.py"
+    "runtime": "scripts/asset_runtime/ta_tga5500.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/ta_tga5500/panel_ui.json"
    },
    "thumb": "media/thumb/ta_tga5500.webp",
    "hero": "media/hero/ta_tga5500.webp"
@@ -6305,7 +6965,7 @@
     0.47,
     0.535
    ],
-   "n_components": 121,
+   "n_components": 122,
    "n_mesh_parts": 121,
    "n_joints": 5,
    "joint_types": {
@@ -6313,23 +6973,32 @@
     "revolute": 1
    },
    "n_state_slots": 43,
-   "n_capabilities": 41,
-   "n_capabilities_implemented": 29,
+   "n_capabilities": 46,
+   "n_capabilities_implemented": 34,
    "n_capabilities_unsupported": 12,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 10,
    "n_sources": 57,
-   "n_limitations": 30,
+   "n_limitations": 35,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/ta_dma850/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/ta_dma850/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/ta_dma850/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/ta_dma850/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ta_dma850.py"
+    "runtime": "scripts/asset_runtime/ta_dma850.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/ta_dma850/panel_ui.json"
    },
    "thumb": "media/thumb/ta_dma850.webp",
    "hero": "media/hero/ta_dma850.webp"
@@ -6359,24 +7028,32 @@
     "prismatic": 2,
     "revolute": 1
    },
-   "n_state_slots": 50,
-   "n_capabilities": 47,
-   "n_capabilities_implemented": 33,
+   "n_state_slots": 52,
+   "n_capabilities": 56,
+   "n_capabilities_implemented": 42,
    "n_capabilities_unsupported": 14,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 10,
    "n_sources": 18,
-   "n_limitations": 51,
+   "n_limitations": 57,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/ta_tma450/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/ta_tma450/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/ta_tma450/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/ta_tma450/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ta_tma450.py"
+    "runtime": "scripts/asset_runtime/ta_tma450.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/ta_tma450/panel_ui.json"
    },
    "thumb": "media/thumb/ta_tma450.webp",
    "hero": "media/hero/ta_tma450.webp"
@@ -6418,6 +7095,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/netzsch_lfa467/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/netzsch_lfa467/model.urdf",
@@ -6465,6 +7144,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/hot_tps2500/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/hot_tps2500/model.urdf",
@@ -6501,24 +7182,32 @@
     "continuous": 1,
     "revolute": 1
    },
-   "n_state_slots": 26,
-   "n_capabilities": 28,
-   "n_capabilities_implemented": 18,
+   "n_state_slots": 33,
+   "n_capabilities": 43,
+   "n_capabilities_implemented": 33,
    "n_capabilities_unsupported": 10,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 8,
-   "n_sources": 8,
-   "n_limitations": 32,
+   "n_sources": 12,
+   "n_limitations": 37,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/antonpaar_mcr503/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/antonpaar_mcr503/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/antonpaar_mcr503/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/antonpaar_mcr503/asset.contract.json",
-    "runtime": "scripts/asset_runtime/antonpaar_mcr503.py"
+    "runtime": "scripts/asset_runtime/antonpaar_mcr503.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/antonpaar_mcr503/panel_ui.json"
    },
    "thumb": "media/thumb/antonpaar_mcr503.webp",
    "hero": "media/hero/antonpaar_mcr503.webp"
@@ -6560,6 +7249,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/ta_tamiv/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/ta_tamiv/model.urdf",
@@ -6607,6 +7298,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/linseis_lsr3/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/linseis_lsr3/model.urdf",
@@ -6654,6 +7347,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/novocontrol_alphat/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/novocontrol_alphat/model.urdf",
@@ -6689,24 +7384,32 @@
     "revolute": 1,
     "prismatic": 3
    },
-   "n_state_slots": 36,
-   "n_capabilities": 31,
-   "n_capabilities_implemented": 23,
+   "n_state_slots": 45,
+   "n_capabilities": 51,
+   "n_capabilities_implemented": 43,
    "n_capabilities_unsupported": 8,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 17,
-   "n_sources": 11,
-   "n_limitations": 57,
+   "n_sources": 12,
+   "n_limitations": 62,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/lakeshore_measurereadym91/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/lakeshore_measurereadym91/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/lakeshore_measurereadym91/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/lakeshore_measurereadym91/asset.contract.json",
-    "runtime": "scripts/asset_runtime/lakeshore_measurereadym91.py"
+    "runtime": "scripts/asset_runtime/lakeshore_measurereadym91.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/lakeshore_measurereadym91/panel_ui.json"
    },
    "thumb": "media/thumb/lakeshore_measurereadym91.webp",
    "hero": "media/hero/lakeshore_measurereadym91.webp"
@@ -6729,31 +7432,41 @@
     0.978,
     1.676
    ],
-   "n_components": 99,
+   "n_components": 109,
    "n_mesh_parts": 100,
    "n_joints": 5,
    "joint_types": {
     "revolute": 2,
     "prismatic": 3
    },
-   "n_state_slots": 34,
-   "n_capabilities": 29,
-   "n_capabilities_implemented": 21,
+   "n_state_slots": 43,
+   "n_capabilities": 49,
+   "n_capabilities_implemented": 41,
    "n_capabilities_unsupported": 8,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 16,
-   "n_sources": 13,
-   "n_limitations": 58,
+   "n_sources": 14,
+   "n_limitations": 68,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/signatone_quadpro2/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/signatone_quadpro2/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/signatone_quadpro2/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/signatone_quadpro2/asset.contract.json",
-    "runtime": "scripts/asset_runtime/signatone_quadpro2.py"
+    "runtime": "scripts/asset_runtime/signatone_quadpro2.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/signatone_quadpro2/panel_ui.json"
    },
    "thumb": "media/thumb/signatone_quadpro2.webp",
    "hero": "media/hero/signatone_quadpro2.webp"
@@ -6796,6 +7509,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/lakeshore_8604vsm/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/lakeshore_8604vsm/model.urdf",
@@ -6824,31 +7539,39 @@
     0.52,
     1.603
    ],
-   "n_components": 85,
+   "n_components": 92,
    "n_mesh_parts": 85,
    "n_joints": 6,
    "joint_types": {
     "prismatic": 5,
     "revolute": 1
    },
-   "n_state_slots": 35,
-   "n_capabilities": 28,
-   "n_capabilities_implemented": 19,
+   "n_state_slots": 40,
+   "n_capabilities": 35,
+   "n_capabilities_implemented": 26,
    "n_capabilities_unsupported": 9,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 14,
-   "n_sources": 12,
-   "n_limitations": 49,
+   "n_sources": 13,
+   "n_limitations": 56,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/shimadzu_ags10knxd/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/shimadzu_ags10knxd/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/shimadzu_ags10knxd/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/shimadzu_ags10knxd/asset.contract.json",
-    "runtime": "scripts/asset_runtime/shimadzu_ags10knxd.py"
+    "runtime": "scripts/asset_runtime/shimadzu_ags10knxd.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/shimadzu_ags10knxd/panel_ui.json"
    },
    "thumb": "media/thumb/shimadzu_ags10knxd.webp",
    "hero": "media/hero/shimadzu_ags10knxd.webp"
@@ -6878,24 +7601,33 @@
     "revolute": 3,
     "prismatic": 1
    },
-   "n_state_slots": 31,
-   "n_capabilities": 27,
-   "n_capabilities_implemented": 18,
+   "n_state_slots": 34,
+   "n_capabilities": 35,
+   "n_capabilities_implemented": 26,
    "n_capabilities_unsupported": 9,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 13,
    "n_sources": 12,
-   "n_limitations": 49,
+   "n_limitations": 54,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/zwick_hit5p/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/zwick_hit5p/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/zwick_hit5p/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/zwick_hit5p/asset.contract.json",
-    "runtime": "scripts/asset_runtime/zwick_hit5p.py"
+    "runtime": "scripts/asset_runtime/zwick_hit5p.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/zwick_hit5p/panel_ui.json"
    },
    "thumb": "media/thumb/zwick_hit5p.webp",
    "hero": "media/hero/zwick_hit5p.webp"
@@ -6925,24 +7657,33 @@
     "revolute": 3,
     "prismatic": 6
    },
-   "n_state_slots": 43,
-   "n_capabilities": 36,
-   "n_capabilities_implemented": 22,
+   "n_state_slots": 49,
+   "n_capabilities": 46,
+   "n_capabilities_implemented": 32,
    "n_capabilities_unsupported": 14,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 14,
    "n_sources": 12,
-   "n_limitations": 51,
+   "n_limitations": 55,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/zwick_mflow/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/zwick_mflow/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/zwick_mflow/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/zwick_mflow/asset.contract.json",
-    "runtime": "scripts/asset_runtime/zwick_mflow.py"
+    "runtime": "scripts/asset_runtime/zwick_mflow.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/zwick_mflow/panel_ui.json"
    },
    "thumb": "media/thumb/zwick_mflow.webp",
    "hero": "media/hero/zwick_mflow.webp"
@@ -6972,24 +7713,33 @@
     "prismatic": 6,
     "revolute": 2
    },
-   "n_state_slots": 55,
-   "n_capabilities": 31,
-   "n_capabilities_implemented": 18,
-   "n_capabilities_unsupported": 13,
+   "n_state_slots": 69,
+   "n_capabilities": 48,
+   "n_capabilities_implemented": 39,
+   "n_capabilities_unsupported": 9,
    "n_mechanisms": 1,
    "n_readouts": 5,
    "n_interface_points": 14,
-   "n_sources": 13,
-   "n_limitations": 41,
+   "n_sources": 14,
+   "n_limitations": 49,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/ametek_oxtran/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/ametek_oxtran/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/ametek_oxtran/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/ametek_oxtran/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ametek_oxtran.py"
+    "runtime": "scripts/asset_runtime/ametek_oxtran.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/ametek_oxtran/panel_ui.json"
    },
    "thumb": "media/thumb/ametek_oxtran.webp",
    "hero": "media/hero/ametek_oxtran.webp"
@@ -7031,6 +7781,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/netzsch_mmc315/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/netzsch_mmc315/model.urdf",
@@ -7066,24 +7818,32 @@
     "prismatic": 3,
     "revolute": 2
    },
-   "n_state_slots": 57,
-   "n_capabilities": 37,
-   "n_capabilities_implemented": 26,
+   "n_state_slots": 59,
+   "n_capabilities": 46,
+   "n_capabilities_implemented": 35,
    "n_capabilities_unsupported": 11,
    "n_mechanisms": 1,
    "n_readouts": 5,
    "n_interface_points": 12,
-   "n_sources": 17,
-   "n_limitations": 47,
+   "n_sources": 18,
+   "n_limitations": 52,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t1_thermal/mt_rc1mxhfcal/model.glb",
     "urdf": "assets/expansion_batch04/t1_thermal/mt_rc1mxhfcal/model.urdf",
     "blend": "assets/expansion_batch04/t1_thermal/mt_rc1mxhfcal/model.blend",
     "contract": "assets/expansion_batch04/t1_thermal/mt_rc1mxhfcal/asset.contract.json",
-    "runtime": "scripts/asset_runtime/mt_rc1mxhfcal.py"
+    "runtime": "scripts/asset_runtime/mt_rc1mxhfcal.py",
+    "panel_ui": "assets/expansion_batch04/t1_thermal/mt_rc1mxhfcal/panel_ui.json"
    },
    "thumb": "media/thumb/mt_rc1mxhfcal.webp",
    "hero": "media/hero/mt_rc1mxhfcal.webp"
@@ -7113,24 +7873,32 @@
     "prismatic": 2,
     "revolute": 1
    },
-   "n_state_slots": 43,
-   "n_capabilities": 44,
-   "n_capabilities_implemented": 35,
-   "n_capabilities_unsupported": 9,
+   "n_state_slots": 54,
+   "n_capabilities": 66,
+   "n_capabilities_implemented": 59,
+   "n_capabilities_unsupported": 7,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 16,
    "n_sources": 18,
-   "n_limitations": 37,
+   "n_limitations": 46,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t1_thermal/ika_c6000/model.glb",
     "urdf": "assets/expansion_batch03/t1_thermal/ika_c6000/model.urdf",
     "blend": "assets/expansion_batch03/t1_thermal/ika_c6000/model.blend",
     "contract": "assets/expansion_batch03/t1_thermal/ika_c6000/asset.contract.json",
-    "runtime": "scripts/asset_runtime/ika_c6000.py"
+    "runtime": "scripts/asset_runtime/ika_c6000.py",
+    "panel_ui": "assets/expansion_batch03/t1_thermal/ika_c6000/panel_ui.json"
    },
    "thumb": "media/thumb/ika_c6000.webp",
    "hero": "media/hero/ika_c6000.webp"
@@ -7160,24 +7928,34 @@
     "prismatic": 8,
     "revolute": 4
    },
-   "n_state_slots": 64,
-   "n_capabilities": 48,
-   "n_capabilities_implemented": 39,
+   "n_state_slots": 79,
+   "n_capabilities": 92,
+   "n_capabilities_implemented": 83,
    "n_capabilities_unsupported": 9,
    "n_mechanisms": 1,
    "n_readouts": 7,
    "n_interface_points": 13,
-   "n_sources": 22,
-   "n_limitations": 39,
+   "n_sources": 23,
+   "n_limitations": 46,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/jeol_jsmit200/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/jeol_jsmit200/model.urdf",
     "blend": "assets/expansion_batch04/t3_analytical/jeol_jsmit200/model.blend",
     "contract": "assets/expansion_batch04/t3_analytical/jeol_jsmit200/asset.contract.json",
-    "runtime": "scripts/asset_runtime/jeol_jsmit200.py"
+    "runtime": "scripts/asset_runtime/jeol_jsmit200.py",
+    "panel_ui": "assets/expansion_batch04/t3_analytical/jeol_jsmit200/panel_ui.json"
    },
    "thumb": "media/thumb/jeol_jsmit200.webp",
    "hero": "media/hero/jeol_jsmit200.webp"
@@ -7200,31 +7978,41 @@
     2.2643,
     2.4921
    ],
-   "n_components": 82,
-   "n_mesh_parts": 82,
-   "n_joints": 21,
+   "n_components": 114,
+   "n_mesh_parts": 114,
+   "n_joints": 36,
    "joint_types": {
-    "revolute": 13,
-    "prismatic": 8
+    "revolute": 15,
+    "prismatic": 21
    },
-   "n_state_slots": 77,
-   "n_capabilities": 59,
-   "n_capabilities_implemented": 48,
+   "n_state_slots": 83,
+   "n_capabilities": 77,
+   "n_capabilities_implemented": 66,
    "n_capabilities_unsupported": 11,
    "n_mechanisms": 1,
    "n_readouts": 7,
    "n_interface_points": 9,
-   "n_sources": 28,
-   "n_limitations": 33,
+   "n_sources": 32,
+   "n_limitations": 40,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/jeol_jem1400flash/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/jeol_jem1400flash/model.urdf",
     "blend": "assets/expansion_batch04/t3_analytical/jeol_jem1400flash/model.blend",
     "contract": "assets/expansion_batch04/t3_analytical/jeol_jem1400flash/asset.contract.json",
-    "runtime": "scripts/asset_runtime/jeol_jem1400flash.py"
+    "runtime": "scripts/asset_runtime/jeol_jem1400flash.py",
+    "panel_ui": "assets/expansion_batch04/t3_analytical/jeol_jem1400flash/panel_ui.json"
    },
    "thumb": "media/thumb/jeol_jem1400flash.webp",
    "hero": "media/hero/jeol_jem1400flash.webp"
@@ -7266,6 +8054,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/antonpaar_saxspace/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/antonpaar_saxspace/model.urdf",
@@ -7313,6 +8103,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/kratos_axissupra/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/kratos_axissupra/model.urdf",
@@ -7360,6 +8152,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/keyence_vkx3000/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/keyence_vkx3000/model.urdf",
@@ -7396,23 +8190,32 @@
     "revolute": 1
    },
    "n_state_slots": 60,
-   "n_capabilities": 46,
-   "n_capabilities_implemented": 36,
+   "n_capabilities": 51,
+   "n_capabilities_implemented": 41,
    "n_capabilities_unsupported": 10,
    "n_mechanisms": 1,
    "n_readouts": 7,
    "n_interface_points": 7,
-   "n_sources": 16,
-   "n_limitations": 26,
+   "n_sources": 17,
+   "n_limitations": 30,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/bruker_x4poseidon/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/bruker_x4poseidon/model.urdf",
     "blend": "assets/expansion_batch04/t3_analytical/bruker_x4poseidon/model.blend",
     "contract": "assets/expansion_batch04/t3_analytical/bruker_x4poseidon/asset.contract.json",
-    "runtime": "scripts/asset_runtime/bruker_x4poseidon.py"
+    "runtime": "scripts/asset_runtime/bruker_x4poseidon.py",
+    "panel_ui": "assets/expansion_batch04/t3_analytical/bruker_x4poseidon/panel_ui.json"
    },
    "thumb": "media/thumb/bruker_x4poseidon.webp",
    "hero": "media/hero/bruker_x4poseidon.webp"
@@ -7454,6 +8257,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/ja_alphase/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/ja_alphase/model.urdf",
@@ -7501,6 +8306,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/park_nx10/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/park_nx10/model.urdf",
@@ -7547,6 +8354,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/nanosurf_naiostm/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/nanosurf_naiostm/model.urdf",
@@ -7593,6 +8402,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/basic40_batch02/t4_measure/rigaku_miniflex600/model.glb",
     "urdf": "assets/basic40_batch02/t4_measure/rigaku_miniflex600/model.urdf",
@@ -7640,6 +8451,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/rigaku_xtalabsynergy/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/rigaku_xtalabsynergy/model.urdf",
@@ -7687,6 +8500,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t3_analytical/evident_bx53p/model.glb",
     "urdf": "assets/expansion_batch04/t3_analytical/evident_bx53p/model.urdf",
@@ -7721,24 +8536,32 @@
    "joint_types": {
     "prismatic": 3
    },
-   "n_state_slots": 36,
-   "n_capabilities": 26,
-   "n_capabilities_implemented": 20,
+   "n_state_slots": 45,
+   "n_capabilities": 45,
+   "n_capabilities_implemented": 39,
    "n_capabilities_unsupported": 6,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 12,
    "n_sources": 17,
-   "n_limitations": 21,
+   "n_limitations": 34,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/biotek_405ts/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/biotek_405ts/model.urdf",
     "blend": "assets/expansion_batch04/t4_measure/biotek_405ts/model.blend",
     "contract": "assets/expansion_batch04/t4_measure/biotek_405ts/asset.contract.json",
-    "runtime": "scripts/asset_runtime/biotek_405ts.py"
+    "runtime": "scripts/asset_runtime/biotek_405ts.py",
+    "panel_ui": "assets/expansion_batch04/t4_measure/biotek_405ts/panel_ui.json"
    },
    "thumb": "media/thumb/biotek_405ts.webp",
    "hero": "media/hero/biotek_405ts.webp"
@@ -7761,30 +8584,38 @@
     0.289,
     0.1993
    ],
-   "n_components": 40,
+   "n_components": 47,
    "n_mesh_parts": 40,
    "n_joints": 8,
    "joint_types": {
     "prismatic": 8
    },
-   "n_state_slots": 36,
-   "n_capabilities": 37,
-   "n_capabilities_implemented": 30,
+   "n_state_slots": 38,
+   "n_capabilities": 42,
+   "n_capabilities_implemented": 35,
    "n_capabilities_unsupported": 7,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 11,
-   "n_sources": 17,
-   "n_limitations": 23,
+   "n_sources": 18,
+   "n_limitations": 29,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/biorad_miniprotean/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/biorad_miniprotean/model.urdf",
     "blend": "assets/expansion_batch03/t4_measure/biorad_miniprotean/model.blend",
     "contract": "assets/expansion_batch03/t4_measure/biorad_miniprotean/asset.contract.json",
-    "runtime": "scripts/asset_runtime/biorad_miniprotean.py"
+    "runtime": "scripts/asset_runtime/biorad_miniprotean.py",
+    "panel_ui": "assets/expansion_batch03/t4_measure/biorad_miniprotean/panel_ui.json"
    },
    "thumb": "media/thumb/biorad_miniprotean.webp",
    "hero": "media/hero/biorad_miniprotean.webp"
@@ -7814,24 +8645,32 @@
     "prismatic": 2,
     "revolute": 1
    },
-   "n_state_slots": 24,
-   "n_capabilities": 32,
-   "n_capabilities_implemented": 26,
-   "n_capabilities_unsupported": 6,
+   "n_state_slots": 41,
+   "n_capabilities": 57,
+   "n_capabilities_implemented": 53,
+   "n_capabilities_unsupported": 4,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 5,
    "n_sources": 10,
-   "n_limitations": 18,
+   "n_limitations": 23,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t4_measure/thermo_ibrightfl1500/model.glb",
     "urdf": "assets/expansion_batch03/t4_measure/thermo_ibrightfl1500/model.urdf",
     "blend": "assets/expansion_batch03/t4_measure/thermo_ibrightfl1500/model.blend",
     "contract": "assets/expansion_batch03/t4_measure/thermo_ibrightfl1500/asset.contract.json",
-    "runtime": "scripts/asset_runtime/thermo_ibrightfl1500.py"
+    "runtime": "scripts/asset_runtime/thermo_ibrightfl1500.py",
+    "panel_ui": "assets/expansion_batch03/t4_measure/thermo_ibrightfl1500/panel_ui.json"
    },
    "thumb": "media/thumb/thermo_ibrightfl1500.webp",
    "hero": "media/hero/thermo_ibrightfl1500.webp"
@@ -7861,24 +8700,32 @@
     "prismatic": 2,
     "revolute": 3
    },
-   "n_state_slots": 57,
-   "n_capabilities": 46,
-   "n_capabilities_implemented": 40,
-   "n_capabilities_unsupported": 6,
+   "n_state_slots": 63,
+   "n_capabilities": 70,
+   "n_capabilities_implemented": 66,
+   "n_capabilities_unsupported": 4,
    "n_mechanisms": 1,
    "n_readouts": 2,
    "n_interface_points": 14,
    "n_sources": 18,
-   "n_limitations": 24,
+   "n_limitations": 36,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/eppendorf_cellxpertc170i/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/eppendorf_cellxpertc170i/model.urdf",
     "blend": "assets/expansion_batch04/t4_measure/eppendorf_cellxpertc170i/model.blend",
     "contract": "assets/expansion_batch04/t4_measure/eppendorf_cellxpertc170i/asset.contract.json",
-    "runtime": "scripts/asset_runtime/eppendorf_cellxpertc170i.py"
+    "runtime": "scripts/asset_runtime/eppendorf_cellxpertc170i.py",
+    "panel_ui": "assets/expansion_batch04/t4_measure/eppendorf_cellxpertc170i/panel_ui.json"
    },
    "thumb": "media/thumb/eppendorf_cellxpertc170i.webp",
    "hero": "media/hero/eppendorf_cellxpertc170i.webp"
@@ -7908,24 +8755,32 @@
     "prismatic": 2,
     "revolute": 1
    },
-   "n_state_slots": 40,
-   "n_capabilities": 35,
-   "n_capabilities_implemented": 29,
-   "n_capabilities_unsupported": 6,
+   "n_state_slots": 53,
+   "n_capabilities": 62,
+   "n_capabilities_implemented": 57,
+   "n_capabilities_unsupported": 5,
    "n_mechanisms": 1,
    "n_readouts": 5,
    "n_interface_points": 7,
-   "n_sources": 14,
-   "n_limitations": 21,
+   "n_sources": 15,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/biorad_cfxopus/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/biorad_cfxopus/model.urdf",
     "blend": "assets/expansion_batch04/t4_measure/biorad_cfxopus/model.blend",
     "contract": "assets/expansion_batch04/t4_measure/biorad_cfxopus/asset.contract.json",
-    "runtime": "scripts/asset_runtime/biorad_cfxopus.py"
+    "runtime": "scripts/asset_runtime/biorad_cfxopus.py",
+    "panel_ui": "assets/expansion_batch04/t4_measure/biorad_cfxopus/panel_ui.json"
    },
    "thumb": "media/thumb/biorad_cfxopus.webp",
    "hero": "media/hero/biorad_cfxopus.webp"
@@ -7967,6 +8822,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/bd_facsariaiii/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/bd_facsariaiii/model.urdf",
@@ -8014,6 +8871,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/malvern_microcalpeaq/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/malvern_microcalpeaq/model.urdf",
@@ -8061,6 +8920,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/cytiva_biacoret200/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/cytiva_biacoret200/model.urdf",
@@ -8096,24 +8957,31 @@
     "continuous": 6,
     "prismatic": 24
    },
-   "n_state_slots": 45,
-   "n_capabilities": 33,
-   "n_capabilities_implemented": 30,
+   "n_state_slots": 46,
+   "n_capabilities": 39,
+   "n_capabilities_implemented": 36,
    "n_capabilities_unsupported": 3,
    "n_mechanisms": 1,
    "n_readouts": 24,
    "n_interface_points": 13,
    "n_sources": 19,
-   "n_limitations": 27,
+   "n_limitations": 32,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/wtw_oxitopi/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/wtw_oxitopi/model.urdf",
     "blend": "assets/expansion_batch04/t4_measure/wtw_oxitopi/model.blend",
     "contract": "assets/expansion_batch04/t4_measure/wtw_oxitopi/asset.contract.json",
-    "runtime": "scripts/asset_runtime/wtw_oxitopi.py"
+    "runtime": "scripts/asset_runtime/wtw_oxitopi.py",
+    "panel_ui": "assets/expansion_batch04/t4_measure/wtw_oxitopi/panel_ui.json"
    },
    "thumb": "media/thumb/wtw_oxitopi.webp",
    "hero": "media/hero/wtw_oxitopi.webp"
@@ -8156,6 +9024,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/seal_aa500/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/seal_aa500/model.urdf",
@@ -8203,6 +9073,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t4_measure/bmg_clariostarplus/model.glb",
     "urdf": "assets/expansion_batch04/t4_measure/bmg_clariostarplus/model.urdf",
@@ -8231,30 +9103,39 @@
     0.542,
     0.495
    ],
-   "n_components": 18,
+   "n_components": 22,
    "n_mesh_parts": 16,
    "n_joints": 3,
    "joint_types": {
     "prismatic": 1,
     "revolute": 2
    },
-   "n_state_slots": 20,
-   "n_capabilities": 12,
-   "n_capabilities_implemented": 11,
+   "n_state_slots": 51,
+   "n_capabilities": 43,
+   "n_capabilities_implemented": 42,
    "n_capabilities_unsupported": 1,
    "n_mechanisms": 3,
    "n_readouts": 0,
    "n_interface_points": 1,
-   "n_sources": 12,
-   "n_limitations": 14,
+   "n_sources": 13,
+   "n_limitations": 22,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/mt_quantos_q2/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/mt_quantos_q2/model.urdf",
     "blend": "assets/basic40_batch02/t5_automation/mt_quantos_q2/model.blend",
-    "contract": "assets/basic40_batch02/t5_automation/mt_quantos_q2/asset.contract.json"
+    "contract": "assets/basic40_batch02/t5_automation/mt_quantos_q2/asset.contract.json",
+    "panel_ui": "assets/basic40_batch02/t5_automation/mt_quantos_q2/panel_ui.json"
    },
    "thumb": "media/thumb/mt_quantos_q2_xpe206dr.webp",
    "hero": "media/hero/mt_quantos_q2_xpe206dr.webp"
@@ -8274,32 +9155,41 @@
    "path": "assets/basic40_batch02/t5_automation/opentrons_flex",
    "size_m": [
     0.87,
-    0.6907,
+    0.6909,
     0.84
    ],
-   "n_components": 28,
-   "n_mesh_parts": 28,
+   "n_components": 29,
+   "n_mesh_parts": 29,
    "n_joints": 4,
    "joint_types": {
-    "prismatic": 4
+    "prismatic": 3,
+    "revolute": 1
    },
-   "n_state_slots": 15,
-   "n_capabilities": 10,
-   "n_capabilities_implemented": 7,
+   "n_state_slots": 33,
+   "n_capabilities": 41,
+   "n_capabilities_implemented": 38,
    "n_capabilities_unsupported": 3,
    "n_mechanisms": 2,
    "n_readouts": 0,
    "n_interface_points": 16,
-   "n_sources": 8,
-   "n_limitations": 20,
+   "n_sources": 9,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/opentrons_flex/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/opentrons_flex/model.urdf",
     "blend": "assets/basic40_batch02/t5_automation/opentrons_flex/model.blend",
-    "contract": "assets/basic40_batch02/t5_automation/opentrons_flex/asset.contract.json"
+    "contract": "assets/basic40_batch02/t5_automation/opentrons_flex/asset.contract.json",
+    "panel_ui": "assets/basic40_batch02/t5_automation/opentrons_flex/panel_ui.json"
    },
    "thumb": "media/thumb/opentrons_flex_single_5_1000ul.webp",
    "hero": "media/hero/opentrons_flex_single_5_1000ul.webp"
@@ -8322,30 +9212,38 @@
     0.5075,
     0.403
    ],
-   "n_components": 17,
+   "n_components": 18,
    "n_mesh_parts": 16,
    "n_joints": 1,
    "joint_types": {
     "prismatic": 1
    },
-   "n_state_slots": 22,
-   "n_capabilities": 9,
-   "n_capabilities_implemented": 8,
+   "n_state_slots": 35,
+   "n_capabilities": 29,
+   "n_capabilities_implemented": 28,
    "n_capabilities_unsupported": 1,
    "n_mechanisms": 2,
    "n_readouts": 1,
    "n_interface_points": 1,
-   "n_sources": 5,
-   "n_limitations": 16,
+   "n_sources": 6,
+   "n_limitations": 22,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/azenta_heat_sealer/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/azenta_heat_sealer/model.urdf",
     "blend": "assets/basic40_batch02/t5_automation/azenta_heat_sealer/model.blend",
     "contract": "assets/basic40_batch02/t5_automation/azenta_heat_sealer/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_automation.py"
+    "runtime": "scripts/basic40_runtime_automation.py",
+    "panel_ui": "assets/basic40_batch02/t5_automation/azenta_heat_sealer/panel_ui.json"
    },
    "thumb": "media/thumb/azenta_automated_roll_heat_sealer_a4s.webp",
    "hero": "media/hero/azenta_automated_roll_heat_sealer_a4s.webp"
@@ -8368,31 +9266,38 @@
     0.24,
     0.3
    ],
-   "n_components": 10,
-   "n_mesh_parts": 9,
-   "n_joints": 8,
+   "n_components": 13,
+   "n_mesh_parts": 11,
+   "n_joints": 5,
    "joint_types": {
     "continuous": 1,
-    "prismatic": 7
+    "prismatic": 4
    },
-   "n_state_slots": 13,
-   "n_capabilities": 6,
-   "n_capabilities_implemented": 5,
+   "n_state_slots": 16,
+   "n_capabilities": 11,
+   "n_capabilities_implemented": 10,
    "n_capabilities_unsupported": 1,
    "n_mechanisms": 2,
    "n_readouts": 0,
    "n_interface_points": 1,
-   "n_sources": 11,
-   "n_limitations": 19,
+   "n_sources": 12,
+   "n_limitations": 24,
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/azenta_intellixcap_s1/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/azenta_intellixcap_s1/model.urdf",
     "blend": "assets/basic40_batch02/t5_automation/azenta_intellixcap_s1/model.blend",
     "contract": "assets/basic40_batch02/t5_automation/azenta_intellixcap_s1/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_automation.py"
+    "runtime": "scripts/basic40_runtime_automation.py",
+    "panel_ui": "assets/basic40_batch02/t5_automation/azenta_intellixcap_s1/panel_ui.json"
    },
    "thumb": "media/thumb/azenta_intellixcap_s1_46_0001.webp",
    "hero": "media/hero/azenta_intellixcap_s1_46_0001.webp"
@@ -8434,6 +9339,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/preciseflex_400/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/preciseflex_400/model.urdf",
@@ -8480,6 +9387,8 @@
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/ziath_dp5/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/ziath_dp5/model.urdf",
@@ -8508,30 +9417,37 @@
     0.0267,
     0.1033
    ],
-   "n_components": 11,
+   "n_components": 18,
    "n_mesh_parts": 11,
    "n_joints": 7,
    "joint_types": {
     "prismatic": 7
    },
-   "n_state_slots": 25,
-   "n_capabilities": 11,
-   "n_capabilities_implemented": 10,
+   "n_state_slots": 40,
+   "n_capabilities": 24,
+   "n_capabilities_implemented": 23,
    "n_capabilities_unsupported": 1,
    "n_mechanisms": 3,
    "n_readouts": 1,
    "n_interface_points": 0,
-   "n_sources": 11,
-   "n_limitations": 18,
+   "n_sources": 12,
+   "n_limitations": 29,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/alicat_mc/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/alicat_mc/model.urdf",
     "blend": "assets/basic40_batch02/t5_automation/alicat_mc/model.blend",
     "contract": "assets/basic40_batch02/t5_automation/alicat_mc/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_automation.py"
+    "runtime": "scripts/basic40_runtime_automation.py",
+    "panel_ui": "assets/basic40_batch02/t5_automation/alicat_mc/panel_ui.json"
    },
    "thumb": "media/thumb/alicat_mc_1slpm_rev6.webp",
    "hero": "media/hero/alicat_mc_1slpm_rev6.webp"
@@ -8554,30 +9470,37 @@
     0.025,
     0.123
    ],
-   "n_components": 11,
-   "n_mesh_parts": 10,
-   "n_joints": 1,
+   "n_components": 13,
+   "n_mesh_parts": 12,
+   "n_joints": 2,
    "joint_types": {
-    "prismatic": 1
+    "prismatic": 2
    },
-   "n_state_slots": 18,
-   "n_capabilities": 9,
-   "n_capabilities_implemented": 9,
+   "n_state_slots": 38,
+   "n_capabilities": 25,
+   "n_capabilities_implemented": 25,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 0,
    "n_interface_points": 0,
-   "n_sources": 9,
-   "n_limitations": 16,
+   "n_sources": 10,
+   "n_limitations": 24,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/bronkhorst_p702cv/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/bronkhorst_p702cv/model.urdf",
     "blend": "assets/basic40_batch02/t5_automation/bronkhorst_p702cv/model.blend",
     "contract": "assets/basic40_batch02/t5_automation/bronkhorst_p702cv/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_automation.py"
+    "runtime": "scripts/basic40_runtime_automation.py",
+    "panel_ui": "assets/basic40_batch02/t5_automation/bronkhorst_p702cv/panel_ui.json"
    },
    "thumb": "media/thumb/bronkhorst_p702cv_5bar_gauge_n2.webp",
    "hero": "media/hero/bronkhorst_p702cv_5bar_gauge_n2.webp"
@@ -8597,33 +9520,41 @@
    "path": "assets/basic40_batch02/t5_automation/vici_euta",
    "size_m": [
     0.2338,
-    0.086,
+    0.1755,
     0.105
    ],
-   "n_components": 15,
-   "n_mesh_parts": 14,
-   "n_joints": 1,
+   "n_components": 21,
+   "n_mesh_parts": 19,
+   "n_joints": 4,
    "joint_types": {
-    "continuous": 1
+    "continuous": 1,
+    "prismatic": 3
    },
-   "n_state_slots": 8,
-   "n_capabilities": 3,
-   "n_capabilities_implemented": 3,
+   "n_state_slots": 20,
+   "n_capabilities": 10,
+   "n_capabilities_implemented": 10,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 0,
    "n_interface_points": 7,
-   "n_sources": 10,
-   "n_limitations": 14,
+   "n_sources": 11,
+   "n_limitations": 17,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t5_automation/vici_euta/model.glb",
     "urdf": "assets/basic40_batch02/t5_automation/vici_euta/model.urdf",
     "blend": "assets/basic40_batch02/t5_automation/vici_euta/model.blend",
     "contract": "assets/basic40_batch02/t5_automation/vici_euta/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_automation.py"
+    "runtime": "scripts/basic40_runtime_automation.py",
+    "panel_ui": "assets/basic40_batch02/t5_automation/vici_euta/panel_ui.json"
    },
    "thumb": "media/thumb/vici_euta_2sd6mwe.webp",
    "hero": "media/hero/vici_euta_2sd6mwe.webp"
@@ -8664,6 +9595,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch03/t5_automation/bronkhorst_cemw/model.glb",
     "urdf": "assets/expansion_batch03/t5_automation/bronkhorst_cemw/model.urdf",
@@ -8698,24 +9631,32 @@
    "joint_types": {
     "prismatic": 12
    },
-   "n_state_slots": 31,
-   "n_capabilities": 35,
-   "n_capabilities_implemented": 28,
-   "n_capabilities_unsupported": 7,
+   "n_state_slots": 32,
+   "n_capabilities": 47,
+   "n_capabilities_implemented": 46,
+   "n_capabilities_unsupported": 1,
    "n_mechanisms": 1,
    "n_readouts": 10,
    "n_interface_points": 9,
-   "n_sources": 15,
-   "n_limitations": 28,
+   "n_sources": 16,
+   "n_limitations": 36,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch05/t5_automation/newera_ne1000/model.glb",
     "urdf": "assets/expansion_batch05/t5_automation/newera_ne1000/model.urdf",
     "blend": "assets/expansion_batch05/t5_automation/newera_ne1000/model.blend",
     "contract": "assets/expansion_batch05/t5_automation/newera_ne1000/asset.contract.json",
-    "runtime": "scripts/asset_runtime/newera_ne1000.py"
+    "runtime": "scripts/asset_runtime/newera_ne1000.py",
+    "panel_ui": "assets/expansion_batch05/t5_automation/newera_ne1000/panel_ui.json"
    },
    "thumb": "media/thumb/newera_ne1000.webp",
    "hero": "media/hero/newera_ne1000.webp"
@@ -8738,31 +9679,38 @@
     0.505,
     0.58
    ],
-   "n_components": 10,
-   "n_mesh_parts": 10,
-   "n_joints": 7,
+   "n_components": 11,
+   "n_mesh_parts": 11,
+   "n_joints": 2,
    "joint_types": {
-    "revolute": 1,
-    "prismatic": 6
+    "revolute": 2
    },
-   "n_state_slots": 12,
-   "n_capabilities": 10,
-   "n_capabilities_implemented": 7,
-   "n_capabilities_unsupported": 3,
-   "n_mechanisms": 1,
+   "n_state_slots": 40,
+   "n_capabilities": 54,
+   "n_capabilities_implemented": 52,
+   "n_capabilities_unsupported": 2,
+   "n_mechanisms": 2,
    "n_readouts": 1,
    "n_interface_points": 4,
-   "n_sources": 8,
-   "n_limitations": 15,
+   "n_sources": 9,
+   "n_limitations": 24,
    "isaac_lab": "full",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t1_thermal/nabertherm_l9/model.glb",
     "urdf": "assets/basic40_batch02/t1_thermal/nabertherm_l9/model.urdf",
     "blend": "assets/basic40_batch02/t1_thermal/nabertherm_l9/model.blend",
     "contract": "assets/basic40_batch02/t1_thermal/nabertherm_l9/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_thermal.py"
+    "runtime": "scripts/basic40_runtime_thermal.py",
+    "panel_ui": "assets/basic40_batch02/t1_thermal/nabertherm_l9/panel_ui.json"
    },
    "thumb": "media/thumb/nabertherm_l9.webp",
    "hero": "media/hero/nabertherm_l9.webp"
@@ -8785,30 +9733,38 @@
     0.48,
     0.575
    ],
-   "n_components": 19,
+   "n_components": 23,
    "n_mesh_parts": 19,
    "n_joints": 6,
    "joint_types": {
     "prismatic": 6
    },
-   "n_state_slots": 14,
-   "n_capabilities": 5,
-   "n_capabilities_implemented": 5,
+   "n_state_slots": 29,
+   "n_capabilities": 23,
+   "n_capabilities_implemented": 23,
    "n_capabilities_unsupported": 0,
-   "n_mechanisms": 2,
+   "n_mechanisms": 3,
    "n_readouts": 1,
    "n_interface_points": 1,
-   "n_sources": 13,
-   "n_limitations": 17,
+   "n_sources": 14,
+   "n_limitations": 25,
    "isaac_lab": "partial",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t1_thermal/carbolite_tf1/model.glb",
     "urdf": "assets/basic40_batch02/t1_thermal/carbolite_tf1/model.urdf",
     "blend": "assets/basic40_batch02/t1_thermal/carbolite_tf1/model.blend",
     "contract": "assets/basic40_batch02/t1_thermal/carbolite_tf1/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_thermal.py"
+    "runtime": "scripts/basic40_runtime_thermal.py",
+    "panel_ui": "assets/basic40_batch02/t1_thermal/carbolite_tf1/panel_ui.json"
    },
    "thumb": "media/thumb/carbolite_tf1_12_60_300.webp",
    "hero": "media/hero/carbolite_tf1_12_60_300.webp"
@@ -8831,31 +9787,40 @@
     0.3898,
     0.65
    ],
-   "n_components": 20,
+   "n_components": 28,
    "n_mesh_parts": 20,
    "n_joints": 6,
    "joint_types": {
     "revolute": 2,
     "prismatic": 4
    },
-   "n_state_slots": 15,
-   "n_capabilities": 4,
-   "n_capabilities_implemented": 4,
+   "n_state_slots": 34,
+   "n_capabilities": 24,
+   "n_capabilities_implemented": 24,
    "n_capabilities_unsupported": 0,
-   "n_mechanisms": 2,
+   "n_mechanisms": 3,
    "n_readouts": 1,
    "n_interface_points": 1,
-   "n_sources": 13,
-   "n_limitations": 11,
+   "n_sources": 14,
+   "n_limitations": 18,
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t1_thermal/julabo_corio_cd200f/model.glb",
     "urdf": "assets/basic40_batch02/t1_thermal/julabo_corio_cd200f/model.urdf",
     "blend": "assets/basic40_batch02/t1_thermal/julabo_corio_cd200f/model.blend",
     "contract": "assets/basic40_batch02/t1_thermal/julabo_corio_cd200f/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_thermal.py"
+    "runtime": "scripts/basic40_runtime_thermal.py",
+    "panel_ui": "assets/basic40_batch02/t1_thermal/julabo_corio_cd200f/panel_ui.json"
    },
    "thumb": "media/thumb/julabo_corio_cd200f.webp",
    "hero": "media/hero/julabo_corio_cd200f.webp"
@@ -8878,31 +9843,41 @@
     0.303,
     0.4
    ],
-   "n_components": 15,
+   "n_components": 18,
    "n_mesh_parts": 15,
    "n_joints": 3,
    "joint_types": {
     "revolute": 1,
     "prismatic": 2
    },
-   "n_state_slots": 12,
-   "n_capabilities": 7,
-   "n_capabilities_implemented": 6,
+   "n_state_slots": 26,
+   "n_capabilities": 34,
+   "n_capabilities_implemented": 33,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 0,
-   "n_sources": 11,
-   "n_limitations": 14,
+   "n_sources": 12,
+   "n_limitations": 19,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t2_vacuum/vacuubrand_pc3001/model.glb",
     "urdf": "assets/basic40_batch02/t2_vacuum/vacuubrand_pc3001/model.urdf",
     "blend": "assets/basic40_batch02/t2_vacuum/vacuubrand_pc3001/model.blend",
     "contract": "assets/basic40_batch02/t2_vacuum/vacuubrand_pc3001/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_vacuum.py"
+    "runtime": "scripts/basic40_runtime_vacuum.py",
+    "panel_ui": "assets/basic40_batch02/t2_vacuum/vacuubrand_pc3001/panel_ui.json"
    },
    "thumb": "media/thumb/vacuubrand_pc3001_vario_select.webp",
    "hero": "media/hero/vacuubrand_pc3001_vario_select.webp"
@@ -8925,30 +9900,40 @@
     1.067,
     1.921
    ],
-   "n_components": 15,
+   "n_components": 21,
    "n_mesh_parts": 15,
    "n_joints": 2,
    "joint_types": {
     "revolute": 2
    },
-   "n_state_slots": 27,
-   "n_capabilities": 10,
-   "n_capabilities_implemented": 9,
+   "n_state_slots": 39,
+   "n_capabilities": 34,
+   "n_capabilities_implemented": 33,
    "n_capabilities_unsupported": 1,
    "n_mechanisms": 3,
    "n_readouts": 1,
    "n_interface_points": 9,
-   "n_sources": 7,
-   "n_limitations": 12,
+   "n_sources": 8,
+   "n_limitations": 19,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t2_vacuum/inert_purelab_he/model.glb",
     "urdf": "assets/basic40_batch02/t2_vacuum/inert_purelab_he/model.urdf",
     "blend": "assets/basic40_batch02/t2_vacuum/inert_purelab_he/model.blend",
     "contract": "assets/basic40_batch02/t2_vacuum/inert_purelab_he/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_vacuum.py"
+    "runtime": "scripts/basic40_runtime_vacuum.py",
+    "panel_ui": "assets/basic40_batch02/t2_vacuum/inert_purelab_he/panel_ui.json"
    },
    "thumb": "media/thumb/inert_purelab_he_2gb.webp",
    "hero": "media/hero/inert_purelab_he_2gb.webp"
@@ -8971,30 +9956,38 @@
     0.47,
     0.9
    ],
-   "n_components": 17,
+   "n_components": 23,
    "n_mesh_parts": 17,
    "n_joints": 6,
    "joint_types": {
     "prismatic": 6
    },
-   "n_state_slots": 26,
-   "n_capabilities": 8,
-   "n_capabilities_implemented": 8,
+   "n_state_slots": 32,
+   "n_capabilities": 24,
+   "n_capabilities_implemented": 24,
    "n_capabilities_unsupported": 0,
    "n_mechanisms": 1,
    "n_readouts": 0,
    "n_interface_points": 1,
-   "n_sources": 7,
-   "n_limitations": 19,
+   "n_sources": 8,
+   "n_limitations": 25,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": false,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t2_vacuum/elga_purelab_flex3/model.glb",
     "urdf": "assets/basic40_batch02/t2_vacuum/elga_purelab_flex3/model.urdf",
     "blend": "assets/basic40_batch02/t2_vacuum/elga_purelab_flex3/model.blend",
     "contract": "assets/basic40_batch02/t2_vacuum/elga_purelab_flex3/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_vacuum.py"
+    "runtime": "scripts/basic40_runtime_vacuum.py",
+    "panel_ui": "assets/basic40_batch02/t2_vacuum/elga_purelab_flex3/panel_ui.json"
    },
    "thumb": "media/thumb/elga_purelab_flex3.webp",
    "hero": "media/hero/elga_purelab_flex3.webp"
@@ -9017,31 +10010,39 @@
     0.744,
     1.87
    ],
-   "n_components": 29,
-   "n_mesh_parts": 29,
-   "n_joints": 7,
+   "n_components": 38,
+   "n_mesh_parts": 30,
+   "n_joints": 5,
    "joint_types": {
-    "revolute": 1,
-    "prismatic": 6
+    "revolute": 2,
+    "prismatic": 3
    },
-   "n_state_slots": 20,
-   "n_capabilities": 8,
-   "n_capabilities_implemented": 8,
+   "n_state_slots": 44,
+   "n_capabilities": 31,
+   "n_capabilities_implemented": 31,
    "n_capabilities_unsupported": 0,
-   "n_mechanisms": 2,
+   "n_mechanisms": 3,
    "n_readouts": 0,
    "n_interface_points": 27,
-   "n_sources": 9,
-   "n_limitations": 25,
+   "n_sources": 10,
+   "n_limitations": 35,
    "isaac_lab": "bridged",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/basic40_batch02/t1_thermal/miele_plw6111/model.glb",
     "urdf": "assets/basic40_batch02/t1_thermal/miele_plw6111/model.urdf",
     "blend": "assets/basic40_batch02/t1_thermal/miele_plw6111/model.blend",
     "contract": "assets/basic40_batch02/t1_thermal/miele_plw6111/asset.contract.json",
-    "runtime": "scripts/basic40_runtime_thermal.py"
+    "runtime": "scripts/basic40_runtime_thermal.py",
+    "panel_ui": "assets/basic40_batch02/t1_thermal/miele_plw6111/panel_ui.json"
    },
    "thumb": "media/thumb/miele_plw6111.webp",
    "hero": "media/hero/miele_plw6111.webp"
@@ -9064,31 +10065,38 @@
     0.555,
     1.0
    ],
-   "n_components": 21,
+   "n_components": 22,
    "n_mesh_parts": 21,
    "n_joints": 5,
    "joint_types": {
     "revolute": 2,
     "prismatic": 3
    },
-   "n_state_slots": 19,
-   "n_capabilities": 24,
-   "n_capabilities_implemented": 18,
+   "n_state_slots": 27,
+   "n_capabilities": 35,
+   "n_capabilities_implemented": 29,
    "n_capabilities_unsupported": 6,
    "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 9,
-   "n_sources": 16,
-   "n_limitations": 23,
+   "n_sources": 17,
+   "n_limitations": 30,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/expansion_batch03/t2_vacuum/tuttnauer_3870elvd/model.glb",
     "urdf": "assets/expansion_batch03/t2_vacuum/tuttnauer_3870elvd/model.urdf",
     "blend": "assets/expansion_batch03/t2_vacuum/tuttnauer_3870elvd/model.blend",
     "contract": "assets/expansion_batch03/t2_vacuum/tuttnauer_3870elvd/asset.contract.json",
-    "runtime": "scripts/asset_runtime/tuttnauer_3870elvd.py"
+    "runtime": "scripts/asset_runtime/tuttnauer_3870elvd.py",
+    "panel_ui": "assets/expansion_batch03/t2_vacuum/tuttnauer_3870elvd/panel_ui.json"
    },
    "thumb": "media/thumb/tuttnauer_3870elvd.webp",
    "hero": "media/hero/tuttnauer_3870elvd.webp"
@@ -9117,24 +10125,32 @@
    "joint_types": {
     "prismatic": 9
    },
-   "n_state_slots": 30,
-   "n_capabilities": 24,
-   "n_capabilities_implemented": 20,
-   "n_capabilities_unsupported": 4,
+   "n_state_slots": 32,
+   "n_capabilities": 38,
+   "n_capabilities_implemented": 35,
+   "n_capabilities_unsupported": 3,
    "n_mechanisms": 1,
    "n_readouts": 7,
    "n_interface_points": 7,
    "n_sources": 12,
-   "n_limitations": 25,
+   "n_limitations": 30,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t2_vacuum/esco_ac24s8/model.glb",
     "urdf": "assets/expansion_batch04/t2_vacuum/esco_ac24s8/model.urdf",
     "blend": "assets/expansion_batch04/t2_vacuum/esco_ac24s8/model.blend",
     "contract": "assets/expansion_batch04/t2_vacuum/esco_ac24s8/asset.contract.json",
-    "runtime": "scripts/asset_runtime/esco_ac24s8.py"
+    "runtime": "scripts/asset_runtime/esco_ac24s8.py",
+    "panel_ui": "assets/expansion_batch04/t2_vacuum/esco_ac24s8/panel_ui.json"
    },
    "thumb": "media/thumb/esco_ac24s8.webp",
    "hero": "media/hero/esco_ac24s8.webp"
@@ -9157,31 +10173,38 @@
     0.525,
     0.85
    ],
-   "n_components": 27,
+   "n_components": 35,
    "n_mesh_parts": 27,
    "n_joints": 6,
    "joint_types": {
     "prismatic": 5,
     "revolute": 1
    },
-   "n_state_slots": 28,
-   "n_capabilities": 26,
-   "n_capabilities_implemented": 22,
+   "n_state_slots": 41,
+   "n_capabilities": 40,
+   "n_capabilities_implemented": 36,
    "n_capabilities_unsupported": 4,
    "n_mechanisms": 1,
    "n_readouts": 4,
    "n_interface_points": 6,
    "n_sources": 15,
-   "n_limitations": 22,
+   "n_limitations": 31,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t2_vacuum/inficon_ul1000fab/model.glb",
     "urdf": "assets/expansion_batch04/t2_vacuum/inficon_ul1000fab/model.urdf",
     "blend": "assets/expansion_batch04/t2_vacuum/inficon_ul1000fab/model.blend",
     "contract": "assets/expansion_batch04/t2_vacuum/inficon_ul1000fab/asset.contract.json",
-    "runtime": "scripts/asset_runtime/inficon_ul1000fab.py"
+    "runtime": "scripts/asset_runtime/inficon_ul1000fab.py",
+    "panel_ui": "assets/expansion_batch04/t2_vacuum/inficon_ul1000fab/panel_ui.json"
    },
    "thumb": "media/thumb/inficon_ul1000fab.webp",
    "hero": "media/hero/inficon_ul1000fab.webp"
@@ -9222,6 +10245,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t2_vacuum/vaisala_dmt152/model.glb",
     "urdf": "assets/expansion_batch04/t2_vacuum/vaisala_dmt152/model.urdf",
@@ -9256,24 +10281,32 @@
    "joint_types": {
     "prismatic": 2
    },
-   "n_state_slots": 23,
-   "n_capabilities": 21,
-   "n_capabilities_implemented": 17,
+   "n_state_slots": 25,
+   "n_capabilities": 28,
+   "n_capabilities_implemented": 24,
    "n_capabilities_unsupported": 4,
    "n_mechanisms": 1,
    "n_readouts": 7,
    "n_interface_points": 5,
-   "n_sources": 13,
-   "n_limitations": 23,
+   "n_sources": 14,
+   "n_limitations": 28,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t2_vacuum/peak_precisionhydrogen/model.glb",
     "urdf": "assets/expansion_batch04/t2_vacuum/peak_precisionhydrogen/model.urdf",
     "blend": "assets/expansion_batch04/t2_vacuum/peak_precisionhydrogen/model.blend",
     "contract": "assets/expansion_batch04/t2_vacuum/peak_precisionhydrogen/asset.contract.json",
-    "runtime": "scripts/asset_runtime/peak_precisionhydrogen.py"
+    "runtime": "scripts/asset_runtime/peak_precisionhydrogen.py",
+    "panel_ui": "assets/expansion_batch04/t2_vacuum/peak_precisionhydrogen/panel_ui.json"
    },
    "thumb": "media/thumb/peak_precisionhydrogen.webp",
    "hero": "media/hero/peak_precisionhydrogen.webp"
@@ -9296,7 +10329,7 @@
     1.009,
     1.95
    ],
-   "n_components": 41,
+   "n_components": 61,
    "n_mesh_parts": 41,
    "n_joints": 12,
    "joint_types": {
@@ -9304,23 +10337,33 @@
     "prismatic": 5
    },
    "n_state_slots": 35,
-   "n_capabilities": 34,
-   "n_capabilities_implemented": 28,
+   "n_capabilities": 38,
+   "n_capabilities_implemented": 32,
    "n_capabilities_unsupported": 6,
    "n_mechanisms": 1,
    "n_readouts": 8,
    "n_interface_points": 11,
    "n_sources": 12,
-   "n_limitations": 23,
+   "n_limitations": 27,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.lock",
+    "panel.press",
+    "panel.switch",
+    "panel.unlock"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t2_vacuum/eppendorf_cryocubef570n/model.glb",
     "urdf": "assets/expansion_batch04/t2_vacuum/eppendorf_cryocubef570n/model.urdf",
     "blend": "assets/expansion_batch04/t2_vacuum/eppendorf_cryocubef570n/model.blend",
     "contract": "assets/expansion_batch04/t2_vacuum/eppendorf_cryocubef570n/asset.contract.json",
-    "runtime": "scripts/asset_runtime/eppendorf_cryocubef570n.py"
+    "runtime": "scripts/asset_runtime/eppendorf_cryocubef570n.py",
+    "panel_ui": "assets/expansion_batch04/t2_vacuum/eppendorf_cryocubef570n/panel_ui.json"
    },
    "thumb": "media/thumb/eppendorf_cryocubef570n.webp",
    "hero": "media/hero/eppendorf_cryocubef570n.webp"
@@ -9350,24 +10393,32 @@
     "revolute": 2,
     "prismatic": 1
    },
-   "n_state_slots": 33,
-   "n_capabilities": 33,
-   "n_capabilities_implemented": 26,
-   "n_capabilities_unsupported": 7,
+   "n_state_slots": 37,
+   "n_capabilities": 51,
+   "n_capabilities_implemented": 45,
+   "n_capabilities_unsupported": 6,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 7,
-   "n_sources": 16,
-   "n_limitations": 29,
+   "n_sources": 17,
+   "n_limitations": 36,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "touchscreen",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ],
    "files": {
     "glb": "assets/expansion_batch04/t2_vacuum/binder_kbf115/model.glb",
     "urdf": "assets/expansion_batch04/t2_vacuum/binder_kbf115/model.urdf",
     "blend": "assets/expansion_batch04/t2_vacuum/binder_kbf115/model.blend",
     "contract": "assets/expansion_batch04/t2_vacuum/binder_kbf115/asset.contract.json",
-    "runtime": "scripts/asset_runtime/binder_kbf115.py"
+    "runtime": "scripts/asset_runtime/binder_kbf115.py",
+    "panel_ui": "assets/expansion_batch04/t2_vacuum/binder_kbf115/panel_ui.json"
    },
    "thumb": "media/thumb/binder_kbf115.webp",
    "hero": "media/hero/binder_kbf115.webp"
@@ -9398,23 +10449,31 @@
     "revolute": 2
    },
    "n_state_slots": 32,
-   "n_capabilities": 32,
-   "n_capabilities_implemented": 27,
+   "n_capabilities": 36,
+   "n_capabilities_implemented": 31,
    "n_capabilities_unsupported": 5,
    "n_mechanisms": 1,
    "n_readouts": 6,
    "n_interface_points": 10,
    "n_sources": 14,
-   "n_limitations": 30,
+   "n_limitations": 33,
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "parameter_cycle",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/model.glb",
     "urdf": "assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/model.urdf",
     "blend": "assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/model.blend",
     "contract": "assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/asset.contract.json",
-    "runtime": "scripts/asset_runtime/esco_efa5uduvw.py"
+    "runtime": "scripts/asset_runtime/esco_efa5uduvw.py",
+    "panel_ui": "assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/panel_ui.json"
    },
    "thumb": "media/thumb/esco_efa5uduvw.webp",
    "hero": "media/hero/esco_efa5uduvw.webp"
@@ -9456,6 +10515,8 @@
    "isaac_lab": "bridged",
    "glb_up": "z",
    "output_templates": true,
+   "panel_ui": "none",
+   "panel_capabilities": [],
    "files": {
     "glb": "assets/expansion_batch04/t2_vacuum/inert_puresolvmd/model.glb",
     "urdf": "assets/expansion_batch04/t2_vacuum/inert_puresolvmd/model.urdf",
@@ -9474,7 +10535,7 @@
    "maker": "Agilent",
    "model": "7890B",
    "title": "Agilent 7890B",
-   "name_zh": "Agilent 7890B 气相色谱仪（单 S/SL 进样口 + FID）",
+   "name_zh": "Agilent 7890B 气相色谱仪（分流/不分流进样口 + FID）",
    "domain": "chromatography",
    "domain_name": "Chromatography & Electrophoresis",
    "domain_zh": "色谱与电泳分离",
@@ -9491,22 +10552,32 @@
     "revolute": 3,
     "prismatic": 47
    },
-   "n_state_slots": 0,
-   "n_capabilities": 16,
-   "n_capabilities_implemented": 14,
-   "n_capabilities_unsupported": 0,
+   "n_state_slots": 66,
+   "n_capabilities": 80,
+   "n_capabilities_implemented": 77,
+   "n_capabilities_unsupported": 3,
    "n_mechanisms": 1,
    "n_readouts": 3,
    "n_interface_points": 1,
-   "n_sources": 0,
-   "n_limitations": 1,
+   "n_sources": 7,
+   "n_limitations": 14,
    "isaac_lab": "full",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ],
    "files": {
     "glb": "assets/GC7890B/GC7890B.glb",
     "urdf": "assets/GC7890B/GC7890B.urdf",
-    "blend": "assets/GC7890B/GC7890B.blend"
+    "blend": "assets/GC7890B/GC7890B.blend",
+    "contract": "assets/GC7890B/asset.contract.json",
+    "runtime": "scripts/asset_runtime/agilent_7890b_ssl_fid.py",
+    "panel_ui": "assets/GC7890B/panel_ui.json"
    },
    "thumb": "media/thumb/agilent_7890b_ssl_fid.webp",
    "hero": "media/hero/agilent_7890b_ssl_fid.webp"
@@ -9519,7 +10590,7 @@
    "maker": "OHAUS",
    "model": "Pioneer PX224/E",
    "title": "OHAUS Pioneer PX224/E",
-   "name_zh": "OHAUS Pioneer PX224/E 分析天平",
+   "name_zh": "OHAUS Pioneer PX224/E 分析天平（外校型，220 g × 0.1 mg）",
    "domain": "metrology",
    "domain_name": "Basic Metrology & Sample Handling",
    "domain_zh": "基础计量与样品处理",
@@ -9536,21 +10607,32 @@
     "prismatic": 12,
     "revolute": 4
    },
-   "n_state_slots": 0,
-   "n_capabilities": 7,
-   "n_capabilities_implemented": 5,
+   "n_state_slots": 43,
+   "n_capabilities": 47,
+   "n_capabilities_implemented": 47,
    "n_capabilities_unsupported": 0,
-   "n_mechanisms": 0,
+   "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 1,
-   "n_sources": 0,
-   "n_limitations": 0,
+   "n_sources": 5,
+   "n_limitations": 13,
    "isaac_lab": "partial",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/PX224E/PX224E.glb",
-    "urdf": "assets/PX224E/PX224E.urdf"
+    "urdf": "assets/PX224E/PX224E.urdf",
+    "contract": "assets/PX224E/asset.contract.json",
+    "runtime": "scripts/asset_runtime/ohaus_balance.py",
+    "panel_ui": "assets/PX224E/panel_ui.json"
    },
    "thumb": "media/thumb/ohaus_px224e.webp",
    "hero": "media/hero/ohaus_px224e.webp"
@@ -9563,7 +10645,7 @@
    "maker": "OHAUS",
    "model": "Scout SPX2201",
    "title": "OHAUS Scout SPX2201",
-   "name_zh": "OHAUS Scout SPX2201 电子天平",
+   "name_zh": "OHAUS Scout SPX2201 电子天平（2200 g × 0.1 g）",
    "domain": "metrology",
    "domain_name": "Basic Metrology & Sample Handling",
    "domain_zh": "基础计量与样品处理",
@@ -9580,21 +10662,32 @@
     "prismatic": 9,
     "revolute": 6
    },
-   "n_state_slots": 0,
-   "n_capabilities": 7,
-   "n_capabilities_implemented": 5,
+   "n_state_slots": 40,
+   "n_capabilities": 42,
+   "n_capabilities_implemented": 42,
    "n_capabilities_unsupported": 0,
-   "n_mechanisms": 0,
+   "n_mechanisms": 1,
    "n_readouts": 1,
    "n_interface_points": 1,
-   "n_sources": 0,
-   "n_limitations": 0,
+   "n_sources": 5,
+   "n_limitations": 10,
    "isaac_lab": "partial",
    "glb_up": "y",
    "output_templates": false,
+   "panel_ui": "text_menu",
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ],
    "files": {
     "glb": "assets/SPX2201/SPX2201.glb",
-    "urdf": "assets/SPX2201/SPX2201.urdf"
+    "urdf": "assets/SPX2201/SPX2201.urdf",
+    "contract": "assets/SPX2201/asset.contract.json",
+    "runtime": "scripts/asset_runtime/ohaus_balance.py",
+    "panel_ui": "assets/SPX2201/panel_ui.json"
    },
    "thumb": "media/thumb/ohaus_spx2201.webp",
    "hero": "media/hero/ohaus_spx2201.webp"

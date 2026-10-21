@@ -4,7 +4,8 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='ossila_doctorblade'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-055'; PROTOCOL_VERSION='1.0.0'
+SLUG='ossila_doctorblade'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-055'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.3.1'
+ASSET_DIR=ROOT/'assets/expansion_batch04/t5_automation/ossila_doctorblade'
 TEMPLATE_REL='assets/reactions/ossila_doctorblade_film_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -59,13 +60,13 @@ for key,s,ex,vis,c in [('plant',PLANT,PLANT_EXAMPLE,'evaluator','motor'),('metho
     cap(key+'.configure',s,obj({'configured':BOOL}),[c],'配置/有限装料/固定基板宿主附着','configuration',vis,ex,[key+'.configured']+(['truth.ledger'] if key in ['charge','substrate'] else []))
 cap('power.set',obj({'enabled':BOOL}),obj({'enabled':BOOL}),['switch_power'],'后部电源；急停释放后须关开电源才复位',ex={'enabled':True},effects=['power.enabled','stage.homed','cycle.phase','safety.latched'])
 cap('power.toggle',obj({}),obj({'enabled':BOOL}),['switch_power'],'后部电源开关翻转',effects=['power.enabled','stage.homed','cycle.phase','safety.latched'])
-cap('stage.home',obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['button_return','motor','carriage'],'规定速度回后端；空料无膜时才允许',effects=['cycle.phase','stage.target_m'])
+cap('stage.home',obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['button_return','motor','carriage'],'规定速度回回零位置（回零参考端+回零偏移，默认后端）；空料无膜时才允许',effects=['cycle.phase','stage.target_m'])
 cap('stage.move_to',obj({'position_m':POS,'speed_m_s':SPEED}),obj({'phase':PHASE,'operation_id':TEXT}),['carriage','motor'],'无料轴定位，非自动涂布',ex={'position_m':.05,'speed_m_s':.02},effects=['cycle.phase','stage.target_m'])
 cap('gap.set',obj({'left_m':GAP,'right_m':GAP}),obj({'left_m':GAP,'right_m':GAP}),['blade','gauge_left','gauge_right'],'宿主手动双端调隙目标；非机载电动执行','configuration','agent',{'left_m':.0001,'right_m':.0001},['gap.left_target_m','gap.right_target_m'])
 cap('emergency.stop',obj({}),obj({'latched':BOOL}),['button_emergency'],'急停锁存；驱动停止且回零失效',effects=['safety.pressed','safety.latched','power.enabled','stage.homed','cycle.phase'])
 cap('emergency.release',obj({}),obj({'released':BOOL}),['button_emergency'],'宿主顺时针释放按钮，尚未重置驱动故障','configuration','agent',{},['safety.pressed'])
-cap('acquisition.start',obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['button_start','motor','carriage','blade'],'单次恒速前向刮涂，有限浆料',effects=['cycle.phase','cycle.elapsed_s','stage.target_m'])
-cap('acquisition.stop',obj({}),obj({'phase':PHASE}),['button_stop','motor'],'硬停止；保留部分成膜和残余料',effects=['cycle.phase','stage.target_m'])
+cap('acquisition.start',obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['button_start','motor','carriage','blade'],'运行所选程序：从回零位置按各步长度与速度分段恒速刮涂（延时步停留），离开回零端方向；有限浆料',effects=['cycle.phase','cycle.elapsed_s','stage.target_m'])
+cap('acquisition.stop',obj({}),obj({'phase':PHASE}),['button_stop','motor'],'停止：HARD立即停，SOFT在0.3 s内线性减速停（停止方式见settings.configure）；保留部分成膜和残余料',effects=['cycle.phase','stage.target_m'])
 cap('coating.measure',obj({}),RESULT,['display_digits','gauge_left','gauge_right'],'理想位置/速度/间隙读数；不是膜厚仪','query')
 cap('product.read',obj({}),PRODUCT,['substrate','reservoir','waste_tray'],'有限浆料、膜、废料、蒸发评价账本','query','evaluator')
 cap('product.collect',obj({'recipient_id':TEXT}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['substrate'],'停止后宿主释放基板并转移膜账本','device_command','evaluator',{'recipient_id':'coated_slide'},['substrate.configured','truth.ledger'])
@@ -78,6 +79,69 @@ cap('reference.properties',obj({'substance_id':TEXT}),PROPS_OUT,['reservoir'],'2
 CHARGE_REF=obj({k:v for k,v in CHARGE['properties'].items() if k not in ('solvent_density_kg_m3', 'viscosity_pa_s')})
 CHARGE_REF_EXAMPLE=dict({k:v for k,v in CHARGE_EXAMPLE.items() if k in CHARGE_REF['properties']},solvent_id='toluene')
 cap('charge'+'.configure_from_reference',CHARGE_REF,obj(dict({k:number(CHARGE['properties'][k]['x-unit'],0) for k in ('solvent_density_kg_m3', 'viscosity_pa_s')},configured=BOOL,evidence=TEXT)),['reservoir'],'装料溶剂密度/黏度取自库内298.15K真实纯溶剂物性；宿主温度须为298.15±0.5K','configuration','evaluator',CHARGE_REF_EXAMPLE,['charge.configured', 'truth.ledger'])
+# front panel 1.2.0 (manual 9.1-9.2, quick guide): settings, 20 programs of up to 100 steps (coating length + speed, or a delay step), manual jog,
+# home reference / offset, HARD / SOFT stop and the two digital micrometer gauges of the applicator; the selected program is the method that runs
+TRAVEL=.29;PROGRAMS=20;MAX_STEPS=100;SOFT_STOP_S=.3                         # SOFT: linear deceleration to rest in 0.3 s (assumed; manual: 'a short period')
+def INT(lo,hi):return dict(type='integer',minimum=lo,maximum=hi,**{'x-unit':'1'})
+def opt(p,req=()):return dict(type='object',properties=p,required=list(req),additionalProperties=False)
+SETTINGS_FIELDS=dict(brightness_pct=INT(5,100),home_reference=dict(type='string',enum=['back','front']),stop_mode=dict(type='string',enum=['hard','soft']),manual_speed_m_s=SPEED)
+SETTINGS_VIEW=obj(dict(SETTINGS_FIELDS,home_offset_m=POS))
+SETTINGS_DEFAULT=dict(brightness_pct=100,home_reference='back',stop_mode='hard',home_offset_m=0.)
+STEP_FIELDS={'length_m':POS,'speed_m_s':number('m/s',0,.25),'delay_s':number('s',0,999.99)}
+STEP_ROW=obj(dict(step=INT(1,MAX_STEPS),**STEP_FIELDS))
+PROGRAM_VIEW=obj({'program':INT(1,PROGRAMS),'count':INT(1,MAX_STEPS),'steps':dict(type='array',minItems=1,maxItems=MAX_STEPS,items=STEP_ROW),'runnable':BOOL})
+PROGRAM_DEFAULT=[[TRAVEL,.1,0.]]                                             # manual p.19 Program 01: 290.00 mm, 100.00 mm/s, delay 000.00 s
+GAUGE=obj({'on':BOOL,'unit':dict(type='string',enum=['mm','in']),'zero_m':GAP,'reading_m':number('m',-.01,.01)})
+GAUGES_VIEW=obj({'left':GAUGE,'right':GAUGE})
+PROGRAM_CAPS={}
+def pcap(k,i,o,c,z,ex,effects,kind='configuration'):PROGRAM_CAPS[k]=(i,o,c,z,kind,'agent',ex,effects)
+pcap('settings.configure',opt(SETTINGS_FIELDS),SETTINGS_VIEW,['display_digits'],'面板设定：LCD亮度（5%步进）、回零参考（后端BACK/前端FRONT：改变离开回零端的行进方向并清零回零偏移）、停止方式（HARD立即停/SOFT短时减速停）、手动模式速度',
+     {'stop_mode':'soft'},['settings.state'])
+pcap('stage.set_home_offset',obj({}),SETTINGS_VIEW,['button_return','carriage'],'手动模式按住Return：回零偏移设为当前位置距回零参考端的距离，此后回零与程序起点都在该位置',{},['settings.state'])
+pcap('program.select',obj({'program':INT(1,PROGRAMS)}),PROGRAM_VIEW,['display_digits'],'选择程序1–20；所选程序即运行的方法（每步为涂布长度+速度，或延时步）',{'program':2},['programs.state','method.configured'])
+pcap('program.set_steps_count',obj({'count':INT(1,MAX_STEPS)}),PROGRAM_VIEW,['display_digits'],'所选程序的步数1–100（增加的步为0 mm/0 mm/s/0 s未编程，减少即删去末尾步）',{'count':2},['programs.state','method.configured'])
+pcap('program.set_step',opt(dict(step=INT(1,MAX_STEPS),**STEP_FIELDS),['step']),PROGRAM_VIEW,['display_digits'],
+     '所选程序某一步：涂布长度0–290 mm与速度0.05–250 mm/s（网格0.01 mm、0.01 mm/s），或延时0.01–999.99 s（延时步的长度与速度为0；设长度或速度即清除延时）',
+     {'step':1,'length_m':.2,'speed_m_s':.02},['programs.state','method.configured'])
+pcap('stage.jog',obj({'direction':dict(type='string',enum=['forward','back']),'duration_s':number('s',.02,60)}),obj({'phase':PHASE,'operation_id':TEXT}),['carriage','motor'],
+     '手动模式左右键：按住时间×手动速度移动推杆（forward离开回零端，back回向回零端），限0–290 mm行程；与stage.move_to同样只在已回零、无料无膜时允许',
+     {'direction':'forward','duration_s':1.},['cycle.phase','stage.target_m'],'device_command')
+pcap('gauge.button',obj({'gauge':dict(type='string',enum=['left','right']),'button':dict(type='string',enum=['on','unit','origin'])}),GAUGES_VIEW,['gauge_keys_left','gauge_keys_right'],
+     '数字测微器按键：on开/关，mm/in切换单位，按住origin把当前间隙设为零点（读数=间隙−零点）；测微器自带电池，与主机电源无关',{'gauge':'left','button':'on'},['gauges.state'],'device_command')
+# 1.3.0 (sync audit): the troubleshooting table's "Crash Warning" (manual p.24: the secondary safety switch has been triggered) through an evaluator
+# fault injection; an accidental trigger is cleared by switching the unit off and on, a faulty switch keeps the warning until it is repaired (fault.clear)
+FAULT_CAUSES=['triggered','switch_fault']
+FAULT_CAPS={}
+def fcap(k,i,o,c,z,ex,effects):FAULT_CAPS[k]=(i,o,c,z,'simulation','evaluator',ex,effects)
+fcap('fault.inject',obj({'code':dict(type='string',enum=['crash_warning']),'cause':dict(type='string',enum=FAULT_CAUSES)}),obj({'code':TEXT,'phase':PHASE}),['motor','display_digits'],
+     '评测者注入手册故障排除表的Crash Warning（p.24）：triggered=次级安全开关被意外触发（关开电源即消除），switch_fault=次级安全开关内部故障（修复即fault.clear前每次开机都显示）；'
+     '运动立即停止（运行失败），屏幕显示Crash Warning，回零/移动/点动/启动/回零偏移被拒',{'code':'crash_warning','cause':'triggered'},['safety.crash_warning','truth.secondary_switch','cycle.phase'])
+fcap('fault.clear',obj({}),obj({'cause':{'anyOf':[TEXT,{'type':'null'}]}}),['motor'],'评测者：次级安全开关已修复；Crash Warning仍须关开电源才消失',{},['truth.secondary_switch'])
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.ossila_doctorblade
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=_panel_ui.load_spec(ASSET_DIR/'panel_ui.json',capabilities=set(CAPS)|set(PROGRAM_CAPS))
+PANEL_CAPS={k:(d['input_schema'],d['output_schema'],d['component_ids'],d['function_zh'],d['kind'],d['visibility'],d['example_arguments'],[]) for k,d in _panel_ui.capability_definitions(PANEL_SPEC).items()}
+ALL_CAPS={**CAPS,**PROGRAM_CAPS,**FAULT_CAPS,**PANEL_CAPS}
+
+class _Panel(_panel_ui.PanelUI):
+    """Front-panel UI whose state dict lives in the runtime (panel_ui), so copies and snapshots of a runtime include the screen it shows."""
+    def __init__(self,host):
+        saved=host.__dict__.get('panel_ui');super().__init__(PANEL_SPEC,host)
+        if saved is not None:self.ui=saved
+    @property
+    def ui(self):return self.host.panel_ui
+    @ui.setter
+    def ui(self,value):self.host.panel_ui=value
+
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,z,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=z
 for key in ['plant','method','charge','substrate']:slot(key+'.configured',BOOL,'1',key+'配置或存在标记','setpoint')
@@ -88,15 +152,21 @@ slot('stage.position_m',POS,'m','沿-Y运动学位移理想示值','scene',c='ca
 slot('stage.speed_m_s',number('m/s',-.25,.25),'m/s','前向正后向负理想速度',c='display_digits')
 for end in ['left','right']:
     slot('gap.'+end+'_target_m',GAP,'m','手动调节'+end+'端目标，1µm网格','setpoint',c='gauge_'+end)
-    slot('gap.'+end+'_m',GAP,'m','手动调节'+end+'端理想数字示值，未标定3µm精度','scene',c='gauge_'+end)
+    slot('gap.'+end+'_m',GAP,'m',end+'端刮刀实际升起量（相对基片的绝对间隙，场景值；未标定3µm精度）；测微器屏上的读数是相对其零点的gauges.state.reading_m（按住origin后=间隙−零点）','scene',c='gauge_'+end)
 slot('gap.mean_m',GAP,'m','刮刀平均升起量，非湿膜厚度','scene',c='blade_lift')
 slot('gap.tilt_rad',number('rad',-.1,.1),'rad','刮刀绕Y倾斜角，右高为负','scene',c='blade')
 slot('safety.pressed',BOOL,'1','急停按钮宿主事件，不是机器人触发证明','scene',c='button_emergency')
 slot('safety.latched',BOOL,'1','必须释放后关开电源的故障锁存',c='button_emergency')
 slot('cycle.phase',PHASE,'1','回零/定位/涂布异步状态',c='display_digits')
-slot('cycle.stage',TEXT,'1','homing/manual/coating/stopped/idle',c='display_digits')
+slot('cycle.stage',TEXT,'1','homing/manual/coating/delay/stopping/stopped/idle（delay为程序延时步，stopping为SOFT减速停止）',c='display_digits')
 slot('cycle.elapsed_s',number('s',0),'s','本次操作宿主累计时间',c='display_digits')
 slot('truth.ledger',PRODUCT,'1','64条带薄膜/有限浆料/废料/蒸发/收集物种账本','process_truth','evaluator','substrate')
+slot('settings.state',SETTINGS_VIEW,'1','面板设定：LCD亮度、回零参考与回零偏移、停止方式、手动模式速度','setpoint',c='display_digits')
+slot('programs.state',PROGRAM_VIEW,'1','面板所选程序（1–20）及其各步（长度、速度、延时）与能否运行','setpoint',c='display_digits')
+slot('gauges.state',GAUGES_VIEW,'1','两只数字测微器：开关、单位、零点与读数（间隙−零点）',c='gauge_display_left')
+slot('safety.crash_warning',BOOL,'1','屏幕上的Crash Warning（次级安全开关，手册p.24）；关开电源后若开关已正常则消失',c='display_digits')
+slot('truth.secondary_switch',{'anyOf':[dict(type='string',enum=['switch_fault']),{'type':'null'}]},'1','仍存在的Crash Warning原因（评测者注入的次级开关故障；fault.clear前每次开机都显示）；无为null','process_truth','evaluator','motor')
+SLOTS['gauges.state']=SLOTS['gauges.state'][:4]+(['gauge_display_left','gauge_display_right'],None)
 
 class OssilaDoctorbladeRuntime:
     """Trusted host controls time and manual attachment; no hardware/robot driver."""
@@ -107,6 +177,68 @@ class OssilaDoctorbladeRuntime:
         self.q=0.;self.target=0.;self.speed=0.;self.manual_speed=.02;self.gaps=[0.,0.];self.gap_targets=[0.,0.]
         self.phase='idle';self.stage='idle';self.elapsed_s=0.;self.initial=[0.,0.];self.bead=[0.,0.];self.waste=[0.,0.];self.evaporated=[0.,0.];self.collected=[0.,0.];self.film=[[0.,0.] for _ in range(64)];self.evap_flux=0.
         self.operation_id='';self._operation_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+        self.settings=dict(SETTINGS_DEFAULT);self.programs={str(n):[list(x) for x in PROGRAM_DEFAULT] for n in range(1,PROGRAMS+1)};self.program_no=1
+        self.plan=[];self.plan_index=0;self.wait_left=0.;self.stop_v=0.;self.stop_left=0.;self.stop_from=''
+        self.gauges={g:dict(on=False,unit='mm',zero_m=0.) for g in ('left','right')}
+        self.power_epoch=0;self.panel_ui=None;self.panel_capture_dir=None;_Panel(self)
+        self.crash_warning=False;self.secondary=None   # 1.3.0: Crash Warning on the screen / a cause that persists through a power cycle
+        self._caller=None   # principal of the session call in progress (set by OssilaDoctorbladeSession.invoke; panel keys act as that caller)
+    @property
+    def panel(self):return _Panel(self)
+    # ---- panel settings, program store and gauges (manual 9.2, quick guide)
+    def _home_end(self):return 0. if self.settings['home_reference']=='back' else TRAVEL
+    def _dir(self):return 1. if self.settings['home_reference']=='back' else -1.
+    def _home_pos(self):return self._home_end()+self._dir()*self.settings['home_offset_m']
+    def _settings_view(self):return dict(self.settings,manual_speed_m_s=self.manual_speed)
+    @staticmethod
+    def _step_ok(st):
+        length,speed,delay=st
+        return (length>0 and speed>=5e-5-1e-12 and delay==0) or (delay>0 and length==0 and speed==0)
+    def _runnable(self,steps):return all(map(self._step_ok,steps)) and sum(x[0] for x in steps)>=.001-1e-12
+    def _program_view(self):
+        steps=self.programs[str(self.program_no)]
+        return dict(program=self.program_no,count=len(steps),steps=[dict(step=i+1,length_m=a,speed_m_s=b,delay_s=c) for i,(a,b,c) in enumerate(steps)],runnable=self._runnable(steps))
+    def _load_program(self):
+        steps=self.programs[str(self.program_no)]
+        if self._runnable(steps):
+            first=next(x for x in steps if x[0]>0)
+            self.method=dict(distance_m=sum(x[0] for x in steps),speed_m_s=first[1],steps=[list(x) for x in steps])
+        else:self.method=None
+    def _gauges_view(self):
+        return {g:dict(on=v['on'],unit=v['unit'],zero_m=v['zero_m'],reading_m=round(self.gaps[i]-v['zero_m'],9)) for i,(g,v) in enumerate(self.gauges.items())}
+    def _begin_step(self,i):
+        """Start plan step i (a coating move from the current position, or a delay); past the last step the program has finished."""
+        if i>=len(self.plan):
+            self.phase='succeeded';self.stage='idle';self.speed=0.;return
+        self.plan_index=i;length,speed,delay=self.plan[i]
+        if delay>0:self.stage='delay';self.wait_left=delay;self.target=self.q;self.speed=0.
+        else:self.stage='coating';self.target=min(TRAVEL,max(0.,round(self.q+self._dir()*length,12)))
+    def _arrived(self):
+        if self.stage=='coating':self._begin_step(self.plan_index+1)
+        else:self.homed=self.homed or self.stage=='homing';self.phase='succeeded';self.stage='idle';self.speed=0.
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the panel firmware draws: the agent slots plus power, the Coating lamp, the position from the home end and the board temperature ('host.*')."""
+        v=self.read('agent')
+        v.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,
+                  'host.coating':self.phase=='running' and (self.stage in ('coating','delay') or (self.stage=='stopping' and self.stop_from=='coating')),
+                  'host.position_m':abs(self.q-self._home_end()),'host.board_temp_c':round(self.plant['temperature_k']-273.15,1) if self.plant else None,
+                  'host.moving':0 if abs(self.speed)<1e-12 else (1 if self.speed*self._dir()>0 else -1)})
+        return v
+    def panel_invoke(self,capability_id,arguments):
+        try:return self.invoke(capability_id,**arguments)
+        except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+    def panel_time(self):return self.time_s
+    def _gesture(self,fn,*args):
+        try:return {'accepted':bool(fn(*args))}
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+    def _capture(self,display_id):
+        import hashlib,tempfile
+        try:data,w,h=self.panel.png_bytes(display_id)
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+        sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);path=d/f'{display_id}_{sha[:16]}.png'
+        if not path.exists():path.write_bytes(data)
+        return dict(display_id=display_id,time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
     def register_principal(self,principal_id,visibility='agent'):
         if visibility not in ('agent','debug','evaluator') or not isinstance(principal_id,str) or not principal_id:raise ActionRejected('INVALID_ARGUMENT')
         if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -143,8 +275,15 @@ class OssilaDoctorbladeRuntime:
         return p
     def read(self,visibility='agent'):
         if visibility not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
-        v={'plant.configured':self.plant is not None,'method.configured':self.method is not None,'charge.configured':self.charge_cfg is not None,'substrate.configured':self.sample_present,'power.enabled':self.powered,'stage.homed':self.homed,'stage.target_m':self.target,'stage.position_m':self.q,'stage.speed_m_s':self.speed,'gap.left_target_m':self.gap_targets[0],'gap.right_target_m':self.gap_targets[1],'gap.left_m':self.gaps[0],'gap.right_m':self.gaps[1],'gap.mean_m':sum(self.gaps)/2,'gap.tilt_rad':-math.atan2(self.gaps[1]-self.gaps[0],.1),'safety.pressed':self.pressed,'safety.latched':self.latched,'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.elapsed_s':self.elapsed_s,'truth.ledger':self._product()}
+        v={'plant.configured':self.plant is not None,'method.configured':self.method is not None,'charge.configured':self.charge_cfg is not None,'substrate.configured':self.sample_present,'power.enabled':self.powered,'stage.homed':self.homed,'stage.target_m':self.target,'stage.position_m':self.q,'stage.speed_m_s':self.speed,'gap.left_target_m':self.gap_targets[0],'gap.right_target_m':self.gap_targets[1],'gap.left_m':self.gaps[0],'gap.right_m':self.gaps[1],'gap.mean_m':sum(self.gaps)/2,'gap.tilt_rad':-math.atan2(self.gaps[1]-self.gaps[0],.1),'safety.pressed':self.pressed,'safety.latched':self.latched,'safety.crash_warning':self.crash_warning,'truth.secondary_switch':self.secondary,'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.elapsed_s':self.elapsed_s,'truth.ledger':self._product(),
+           'settings.state':self._settings_view(),'programs.state':self._program_view(),'gauges.state':self._gauges_view()}
         return copy.deepcopy({k:x for k,x in v.items() if visibility!='agent' or SLOTS[k][3]=='agent'})
+    def _foreign_run(self):
+        """An agent may not stop (Stop key, acquisition.stop) or switch off (power switch, power.set / power.toggle) another agent's running operation (program,
+        homing, jog); the same check for the direct call and the panel key, because both run with the session caller in _caller.  Unowned operations, the
+        evaluator and the emergency stop are not restricted."""
+        c=self._caller;o=self._owners.get(self.operation_id)
+        return self.phase=='running' and c is not None and self._principals.get(c)=='agent' and o is not None and o!=c
     def _stop(self,result='cancelled'):
         if self.phase=='running':self.phase=result;self.stage='stopped';self.target=self.q;self.speed=0.
     def _new_operation(self,stage,target):
@@ -159,8 +298,12 @@ class OssilaDoctorbladeRuntime:
     def _grid(value,quantum):
         if abs(value/quantum-round(value/quantum))>1e-6:raise ActionRejected('INVALID_ARGUMENT')
     def invoke(self,capability,**a):
-        if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][0],a);orig=capability;used=None
+        if capability not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+        validate(ALL_CAPS[capability][0],a);orig=capability;used=None
+        if capability=='panel.frame':return {'frame':self.panel.frame()}
+        if capability=='panel.capture':return self._capture(a['display_id'])
+        if capability=='panel.press':out=self._gesture(self.panel.press,a['input_id'],float(a.get('duration_s',.1)));self.revision+=1;return out
+        if capability=='panel.switch':out=self._gesture(self.panel.switch,a['input_id'],a['position']);self.revision+=1;return out
         if capability=='charge.configure_from_reference':
             if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
             if abs(self.plant['temperature_k']-REF_T)>REF_TOL:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
@@ -171,7 +314,8 @@ class OssilaDoctorbladeRuntime:
             self.plant=copy.deepcopy(a);out={'configured':True}
         elif capability=='method.configure':
             if self.phase=='running':raise ActionRejected('BUSY')
-            self._grid(a['speed_m_s'],.00001);self.method=a.copy();out={'configured':True}
+            self._grid(a['speed_m_s'],.00001);self.programs[str(self.program_no)]=[[a['distance_m'],a['speed_m_s'],0.]]
+            self.method=dict(a,steps=[[a['distance_m'],a['speed_m_s'],0.]]);out={'configured':True}           # also stored as the selected program
         elif capability=='substrate.configure':
             if self.phase=='running' or self.sample_present or self.q!=0 or not a['accept_host_attachment']:raise ActionRejected('PRECONDITION_FAILED')
             if a['start_m']+a['length_m']>.29:raise ActionRejected('INVALID_GEOMETRY')
@@ -185,7 +329,9 @@ class OssilaDoctorbladeRuntime:
             self.evap_flux=self.plant['mass_transfer_m_s']*ref['vapor_pressure_pa']*self.templates[a['solvent_id']]['molar_mass_kg_mol']/(8.314462618*self.plant['temperature_k']);out={'configured':True}
         elif capability in ('power.set','power.toggle'):
             enabled=a['enabled'] if capability=='power.set' else not self.power_switch
+            # lead rule 10-19: the rear power switch (power.set / power.toggle model it) is a hard switch - physical, never refused (a power loss)
             if enabled and self.latched and (self.pressed or not self.reset_off):raise ActionRejected('PRECONDITION_FAILED')
+            if enabled and not self.powered:self.power_epoch+=1;self.crash_warning=self.secondary is not None   # manual p.24: switch the unit off and on again
             self.power_switch=enabled
             if not enabled:self.powered=False;self.homed=False;self._stop();self.reset_off=self.latched and not self.pressed
             else:self.powered=True;self.latched=False;self.reset_off=False
@@ -198,19 +344,77 @@ class OssilaDoctorbladeRuntime:
             self.pressed=True;self.latched=True;self.reset_off=False;self.powered=False;self.homed=False;self._stop('failed');out={'latched':True}
         elif capability=='emergency.release':
             self.pressed=False;out={'released':True}
+        elif capability=='fault.inject':
+            self.crash_warning=True;self.secondary=None if a['cause']=='triggered' else a['cause'];self._stop('failed');out={'code':a['code'],'phase':self.phase}
+        elif capability=='fault.clear':
+            out={'cause':self.secondary};self.secondary=None
         elif capability in ('stage.home','stage.move_to','acquisition.start'):
-            if not self.plant or not self.powered or self.latched or self.phase=='running':raise ActionRejected('PRECONDITION_FAILED')
+            if not self.plant or not self.powered or self.latched or self.crash_warning or self.phase=='running':raise ActionRejected('PRECONDITION_FAILED')
             if capability=='acquisition.start':
-                if not all([self.method,self.charge_cfg,self.sample_present,self.homed]) or self.q!=0 or any(abs(a-b)>1e-12 for a,b in zip(self.gaps,self.gap_targets)):raise ActionRejected('PRECONDITION_FAILED')
+                if not all([self.method,self.charge_cfg,self.sample_present,self.homed]) or abs(self.q-self._home_pos())>1e-12 or any(abs(a-b)>1e-12 for a,b in zip(self.gaps,self.gap_targets)):raise ActionRejected('PRECONDITION_FAILED')
                 if self.bead[0]<=1e-15:raise ActionRejected('RESERVOIR_EXHAUSTED')
-                self._model_check();out=self._new_operation('coating',self.method['distance_m'])
+                self._model_check();end=self.q+self._dir()*self.method['distance_m']
+                if not -1e-12<=end<=TRAVEL+1e-12:raise ActionRejected('INVALID_GEOMETRY')   # the program's travel from the home position
+                self.plan=[list(x) for x in self.method['steps']];out=self._new_operation('coating',self.q);self._begin_step(0)
             else:
                 if sum(self.bead)>1e-15 or sum(map(sum,self.film))>1e-15:raise ActionRejected('PRECONDITION_FAILED')
-                if capability=='stage.home':out=self._new_operation('homing',0.)
+                if capability=='stage.home':out=self._new_operation('homing',self._home_pos())
                 else:
                     if not self.homed:raise ActionRejected('PRECONDITION_FAILED')
                     self._grid(a['speed_m_s'],.00001);self.manual_speed=a['speed_m_s'];out=self._new_operation('manual',a['position_m'])
-        elif capability=='acquisition.stop':self._stop();out={'phase':self.phase}
+        elif capability=='acquisition.stop':
+            if self._foreign_run():raise ActionRejected('ACCESS_DENIED')
+            if self.settings['stop_mode']=='soft' and self.phase=='running' and self.stage in ('coating','homing','manual') and abs(self.speed)>1e-12:
+                self.stop_from=self.stage;self.stop_v=self.speed;self.stop_left=SOFT_STOP_S;self.stage='stopping'   # SOFT: decelerates to rest
+            elif self.stage!='stopping':self._stop()
+            out={'phase':self.phase}
+        elif capability=='settings.configure':
+            if self.phase=='running' and ({'home_reference','manual_speed_m_s'}&a.keys()):raise ActionRejected('BUSY')
+            if a.get('brightness_pct',5)%5:raise ActionRejected('INVALID_ARGUMENT')                        # manual p.20: steps of 5 %
+            if 'manual_speed_m_s' in a:self._grid(a['manual_speed_m_s'],1e-6)                              # Manual Mode shows 0.001 mm/s
+            new=dict(self.settings,**{k:a[k] for k in ('brightness_pct','home_reference','stop_mode') if k in a})
+            if new['home_reference']!=self.settings['home_reference']:new['home_offset_m']=0.             # manual p.20: resets the home offset
+            self.settings=new
+            if 'manual_speed_m_s' in a:self.manual_speed=a['manual_speed_m_s']
+            out=self._settings_view()
+        elif capability=='stage.set_home_offset':
+            if not self.powered or self.latched or self.crash_warning or self.phase=='running' or not self.homed:raise ActionRejected('PRECONDITION_FAILED')
+            self.settings['home_offset_m']=round(abs(self.q-self._home_end()),9);out=self._settings_view()
+        elif capability=='program.select':
+            if self.phase=='running':raise ActionRejected('BUSY')
+            self.program_no=a['program'];self._load_program();out=self._program_view()
+        elif capability=='program.set_steps_count':
+            if self.phase=='running':raise ActionRejected('BUSY')
+            steps=self.programs[str(self.program_no)];self.programs[str(self.program_no)]=(steps+[[0.,0.,0.] for _ in range(MAX_STEPS)])[:a['count']]
+            self._load_program();out=self._program_view()
+        elif capability=='program.set_step':
+            if self.phase=='running':raise ActionRejected('BUSY')
+            steps=self.programs[str(self.program_no)]
+            if a['step']>len(steps):raise ActionRejected('PRECONDITION_FAILED')
+            length,speed,delay=steps[a['step']-1]
+            if 'length_m' in a:self._grid(a['length_m'],1e-5)
+            if 'speed_m_s' in a:
+                self._grid(a['speed_m_s'],1e-5)
+                if 0<a['speed_m_s']<5e-5-1e-12:raise ActionRejected('INVALID_ARGUMENT')                   # 0 or 0.05-250 mm/s
+            if 'delay_s' in a:self._grid(a['delay_s'],.01)
+            if a.get('delay_s',0)>0 and (a.get('length_m',0)>0 or a.get('speed_m_s',0)>0):raise ActionRejected('INVALID_ARGUMENT')
+            if a.get('delay_s',0)>0:length,speed,delay=0.,0.,a['delay_s']                                # a delay step: length and speed zero (p.23)
+            else:
+                length,speed=a.get('length_m',length),a.get('speed_m_s',speed)
+                if 'delay_s' in a or a.get('length_m',0)>0 or a.get('speed_m_s',0)>0:delay=0.
+            steps[a['step']-1]=[length,speed,delay];self._load_program();out=self._program_view()
+        elif capability=='stage.jog':
+            if not self.plant or not self.powered or self.latched or self.crash_warning or self.phase=='running' or not self.homed:raise ActionRejected('PRECONDITION_FAILED')
+            if sum(self.bead)>1e-15 or sum(map(sum,self.film))>1e-15:raise ActionRejected('PRECONDITION_FAILED')
+            sign=self._dir()*(1 if a['direction']=='forward' else -1)
+            out=self._new_operation('manual',min(TRAVEL,max(0.,self.q+sign*self.manual_speed*a['duration_s'])))
+        elif capability=='gauge.button':
+            g=self.gauges[a['gauge']]
+            if a['button']=='on':g['on']=not g['on']
+            elif not g['on']:raise ActionRejected('PRECONDITION_FAILED')                                     # a switched-off gauge ignores its keys
+            elif a['button']=='unit':g['unit']='in' if g['unit']=='mm' else 'mm'
+            else:g['zero_m']=self.gaps[0 if a['gauge']=='left' else 1]
+            out=self._gauges_view()
         elif capability=='coating.measure':
             return dict(phase=self.phase,stage=self.stage,position_m=self.q,speed_m_s=self.speed,left_gap_m=self.gaps[0],right_gap_m=self.gaps[1],elapsed_s=self.elapsed_s,evidence='ideal_panel_and_gauges_NOT_thickness_sensor',template_source=TEMPLATE_REL)
         elif capability=='product.read':return self._product()
@@ -227,15 +431,16 @@ class OssilaDoctorbladeRuntime:
             # Configuration retained so densities and historical ledger remain meaningful; refill is unsupported.
             out={'emptied':True}
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][1],out)
+        validate(ALL_CAPS[capability][1],out)
         if used is not None:out=dict(out,**used);validate(CAPS[orig][1],out)
         self.revision+=1;return copy.deepcopy(out)
     def _deposit(self,lo,hi,speed):
+        reverse=hi<lo;lo,hi=min(lo,hi),max(lo,hi)                            # travel towards the back (home reference FRONT): strips in reverse order
         if hi<=lo or not self.charge_cfg or self._volume(self.bead)<=1e-30:return
         c=self.charge_cfg;s=self.sample;dl=s['length_m']/64;cuts=[lo]+[s['start_m']+i*dl for i in range(65) if lo<s['start_m']+i*dl<hi]+[hi]
         left,right=self.gaps;mean=(left+right)/2;cube=(left**3+left**2*right+left*right**2+right**3)/4
         a=.1*mean/2
-        for start,end in zip(cuts,cuts[1:]):
+        for start,end in (reversed(list(zip(cuts,cuts[1:]))) if reverse else zip(cuts,cuts[1:])):
             volume=self._volume(self.bead)
             if volume<=1e-30:break
             rho=sum(self.bead)/volume;b=.1*rho*9.80665*cube/(12*c['viscosity_pa_s']*c['blade_contact_length_m']*speed*c['reservoir_area_m2'])
@@ -257,16 +462,25 @@ class OssilaDoctorbladeRuntime:
         validate(number('s',1e-12,1000),dt_s);remaining=float(dt_s)
         while remaining>1e-12:
             dt=min(.02,remaining)
-            if self.phase=='running':
+            if self.phase=='running' and self.stage=='delay':                # a delay step of the program: the stage rests
+                dt=min(dt,self.wait_left);self.wait_left-=dt;self.elapsed_s+=dt;self.speed=0.
+                if self.wait_left<=1e-12:self._begin_step(self.plan_index+1)
+            elif self.phase=='running' and self.stage=='stopping':           # SOFT stop: linear deceleration over SOFT_STOP_S
+                dt=min(dt,self.stop_left);v0=self.stop_v*self.stop_left/SOFT_STOP_S;self.stop_left-=dt;v1=self.stop_v*max(0.,self.stop_left)/SOFT_STOP_S
+                before=self.q;self.q=min(TRAVEL,max(0.,self.q+(v0+v1)/2*dt));self.speed=v1;self.elapsed_s+=dt
+                if self.stop_from=='coating' and self.q!=before:self._deposit(before,self.q,abs(v0+v1)/2)
+                if self.stop_left<=1e-12:self.phase='cancelled';self.stage='stopped';self.target=self.q;self.speed=0.
+            elif self.phase=='running':
                 distance=self.target-self.q
                 if abs(distance)<1e-12:
-                    self.q=self.target;self.homed=self.homed or self.stage=='homing';self.phase='succeeded';self.stage='idle';self.speed=0.;continue
-                speed=self.method['speed_m_s'] if self.stage=='coating' else .02 if self.stage=='homing' else self.manual_speed
+                    self.q=self.target;self._arrived();continue
+                speed=self.plan[self.plan_index][1] if self.stage=='coating' else .02 if self.stage=='homing' else self.manual_speed
                 dt=min(dt,abs(distance)/speed);before=self.q;self.q+=math.copysign(speed*dt,distance);self.speed=math.copysign(speed,distance)
                 if self.stage=='coating':self._deposit(before,self.q,speed)
                 self.elapsed_s+=dt
                 if abs(self.q-self.target)<1e-11:
-                    self.q=self.target;self.homed=self.homed or self.stage=='homing';self.phase='succeeded';self.stage='idle';self.speed=0.
+                    self.q=self.target;self._arrived()
+                    if self.phase!='running':self.speed=0.
             else:self.speed=0.
             if self.plant:
                 for i in range(2):
@@ -284,7 +498,7 @@ class OssilaDoctorbladeSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_ossila_doctorblade_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_ossila_doctorblade_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -294,16 +508,20 @@ class OssilaDoctorbladeSession:
         h=self._host
         try:
             self._target(instance_id)
-            if not isinstance(capability_id,str) or capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role=='agent' and CAPS[capability_id][5]!='agent':raise ActionRejected('ACCESS_DENIED')
+            if not isinstance(capability_id,str) or capability_id not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+            if self._role=='agent' and ALL_CAPS[capability_id][5]!='agent':raise ActionRejected('ACCESS_DENIED')
             if not isinstance(request_id,str) or not request_id:raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id][0],arguments);key=(self._principal,instance_id,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+            validate(ALL_CAPS[capability_id][0],arguments);key=(self._principal,instance_id,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
             if key in h._requests:
                 old,result=h._requests[key]
                 if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(result)
-            result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+            before=h.operation_id;h._caller=self._principal
+            try:result=h.invoke(capability_id,**arguments)
+            finally:h._caller=None
+            op=result.get('operation_id')
             if op:h._owners[op]=self._principal
+            elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a run, homing or jog started by a key belongs to the caller
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
         except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
     def write(self,*,instance_id,state_id,value,request_id):
@@ -326,8 +544,8 @@ def export_ossila_doctorblade_contract_metadata():
             read_binding=dict(backend='host',artifact_id='runtime',accessor=f'OssilaDoctorbladeSession.read(state_ids=[{k!r}])'),write_via=dict(capability_id=w[0],argument=w[1],fixed_arguments={}) if w else None,
             sampling=dict(mode='instant',time_domain='simulation',window_description=None),source_ids=['simulation_assumption'])
     evolving=['stage.position_m','stage.speed_m_s','stage.homed','gap.left_m','gap.right_m','gap.mean_m','gap.tilt_rad','cycle.phase','cycle.stage','cycle.elapsed_s','truth.ledger']
-    for k,(inp,out,c,z,kind,vis,ex,effects) in CAPS.items():
-        asynchronous=k in ['acquisition.start','stage.home','stage.move_to'];query=kind=='query'
+    for k,(inp,out,c,z,kind,vis,ex,effects) in ALL_CAPS.items():
+        asynchronous=k in ['acquisition.start','stage.home','stage.move_to','stage.jog'];query=kind=='query'
         caps[k]=dict(function_zh=z,kind=kind,visibility=vis,component_ids=c,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),
             implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),
             binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.ossila_doctorblade.OssilaDoctorbladeSession.invoke',invocation=f'session.invoke(instance_id="doctorblade_01",capability_id={k!r},arguments={ex!r},request_id="unique")'),
@@ -353,7 +571,7 @@ def export_ossila_doctorblade_contract_metadata():
           'evap_kg_s=k_mass*exposed_area*P_sat*M/(R*T)*solvent_mass_fraction, inventory limited',
           'initial_species=bead+film+waste+evaporated+collected; nonvolatile solute evaporation=0'],
         parameters={},source_ids=['manufacturer_primary','nist_vapor_pressure','simulation_assumption'],
-        limitations=['平行板Couette-Poiseuille教学近似；g/刀口长度<=.1，Newtonian液体，无自由液面/弯月面/屈服应力/剪切变稀/颗粒/润湿标定。','库内溶剂298.15K真实物性（密度/黏度/表面张力/蒸气压/沸点）只替代宿主假设的液体物性，不等于实测刮涂膜厚；浆料流变仍需宿主实测。','选择100mm刮刀、8mm固定玻璃台；200mm、真空台、加热、注液、气刀没有实现。','单前向恒速涂布+后端回零+硬停；20程序100步骤/软停/前端回零和完整LCD菜单未实现。','64条带，不沿宽度解析膜剖面；不建结晶、流平、干燥收缩、挥发冷却或CFD。','理想测微器示值不证明厂家3µm精度；手动调隙为宿主运动学，不是电动执行或力反馈。','急停释放且关开电源才可恢复，需重新回零；未验证硬件断电、制动距离或安全等级。','几何固定100×200mm示例基板；宿主不同基板参数不自动改网格。','废料接收器假设覆盖，不计算废料蒸发；单次装料不可补液。','代理API过滤不等于文件/进程隔离；原始Runtime仅供受信任宿主。'])
+        limitations=['平行板Couette-Poiseuille教学近似；g/刀口长度<=.1，Newtonian液体，无自由液面/弯月面/屈服应力/剪切变稀/颗粒/润湿标定。','库内溶剂298.15K真实物性（密度/黏度/表面张力/蒸气压/沸点）只替代宿主假设的液体物性，不等于实测刮涂膜厚；浆料流变仍需宿主实测。','选择100mm刮刀、8mm固定玻璃台；200mm、真空台、加热、注液、气刀没有实现。','程序为分段恒速涂布（20个程序×最多100步：长度+速度，或延时步）；回零参考后端/前端、回零偏移、HARD/SOFT停止按手册9.2（SOFT为0.3 s线性减速，假设）；无加速度/转矩模型。','64条带，不沿宽度解析膜剖面；不建结晶、流平、干燥收缩、挥发冷却或CFD。','理想测微器示值不证明厂家3µm精度；手动调隙为宿主运动学，不是电动执行或力反馈。','急停释放且关开电源才可恢复，需重新回零；未验证硬件断电、制动距离或安全等级。','几何固定100×200mm示例基板；宿主不同基板参数不自动改网格。','废料接收器假设覆盖，不计算废料蒸发；单次装料不可补液。','代理API过滤不等于文件/进程隔离；原始Runtime仅供受信任宿主。'])
     spec=importlib.util.spec_from_file_location('_blade_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'doctor_blade':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'charge.configure':(CHARGE,CHARGE_EXAMPLE),'substrate.configure':(SAMPLE,SAMPLE_EXAMPLE)})
     mech['parameters']={k.lower():v for k,v in mech['parameters'].items()}

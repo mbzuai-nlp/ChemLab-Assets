@@ -1220,5 +1220,343 @@ class ContractReviewRegressions(unittest.TestCase):
         self.assertLess(abs(led['gas_residual_mol']), 1e-9 * max(1.0, led['gas_admitted_mol']))
 
 
+ERR0 = dict(gun_shift_x=0.0, gun_shift_y=0.0, gun_tilt_x=0.0, gun_tilt_y=0.0, aperture_x_m=0.0, aperture_y_m=0.0, stage_x_m=0.0, stage_y_m=0.0)
+
+
+class FrontPanelCommands(unittest.TestCase):
+    """The SEM Operation functions behind the front panel (1.1.0): direct calls (the panel suite drives the same commands by gestures)."""
+
+    def test_blanking_pc_scale_high_current_and_scan_modes(self):
+        h = observing(ready())
+        ip = h.read('evaluator')['truth.probe_current_a']
+        h.invoke('beam.blank', on=True)
+        self.assertEqual(h.read('evaluator')['truth.probe_current_a'], 0.0)
+        before = h.ledger()['beam_charge_c']
+        h.step(5.0)
+        self.assertEqual(h.ledger()['beam_charge_c'], before)                   # no dose while blanked
+        h.invoke('beam.blank', on=False)
+        self.assertEqual(h.read('evaluator')['truth.probe_current_a'], ip)
+        out = h.invoke('beam.set_pc', pc=50.0)
+        self.assertAlmostEqual(out['current_a'], rt.PC_STD_A[0] * (rt.PC_STD_A[1] / rt.PC_STD_A[0]) ** 0.5)
+        self.assertEqual(h.read()['beam.probe_current_pc'], 50.0)
+        h.invoke('settings.configure', section='eos', values=dict(high_current=True))
+        self.assertEqual(h.read()['beam.probe_current_pc'], 50.0)                # the P.C. stays, the current rises x10
+        self.assertAlmostEqual(h.ip_set / out['current_a'], 10.0)
+        h.invoke('scan.set_mode', mode='FREEZE', charge_free=False)
+        self.assertEqual(h.read('evaluator')['truth.probe_current_a'], 0.0)
+        self.assertIsNotNone(h.frozen)
+        op = h.invoke('image.acquire', pixels='320x240', dwell_s=1e-5)['operation_id']
+        self.assertGreater(h.read('evaluator')['truth.probe_current_a'], 0.0)    # a photo scans in Freeze
+        h.step(h.operations[op]['duration'] + 1.0)
+        self.assertEqual(h.read('evaluator')['truth.probe_current_a'], 0.0)
+        h.invoke('scan.set_mode', mode='RDC', charge_free=True)
+        self.assertEqual(h._charging_factor(), 1.0)
+        fw = [p for p in h._dose_points()]
+        self.assertEqual(len(fw), 24)
+        h.invoke('scan.set_mode', mode='SLOW', charge_free=True)
+        self.assertEqual(h._charging_factor(), rt.CF_CHARGING)
+
+    def test_charge_free_and_rdc_change_the_charging(self):
+        def charge(mode, cf):
+            h = observing(ready(specimen=spec('quartz', 'quartz', topo='particles', height=0.003)), kv=15000.0)
+            h.invoke('scan.set_mode', mode=mode, charge_free=cf)
+            h.step(3.0)
+            return h.read('evaluator')['truth.specimen_charge_c']
+        self.assertLess(abs(charge('SLOW', True)), abs(charge('SLOW', False)))
+        self.assertEqual(charge('FREEZE', False), charge('FREEZE', True))
+
+    def test_rotation_beam_shift_and_click_center(self):
+        h = observing(ready(), mag=2000.0)
+        a = h._frame_signals(1e-5, 640, 480, noise=False)['pixel_signal']
+        h.invoke('scan.set_rotation', rotation_rad=math.pi)
+        b = h._frame_signals(1e-5, 640, 480, noise=False)['pixel_signal']
+        self.assertTrue(np.allclose(a, b[::-1, ::-1], rtol=1e-6, atol=1e-6 * float(np.max(a))))   # 180 deg: the image turns over
+        self.assertAlmostEqual(h.invoke('scan.rotate_to_line', u1=0.0, v1=0.75, u2=0.75, v2=0.0, orientation='horizontal')['rotation_rad'],
+                               (math.pi + math.atan2(0.75 * 3, 0.75 * 4)) % (2 * math.pi))
+        h.invoke('scan.set_rotation', rotation_rad=0.0)
+        u0 = h._beam_point()[0]
+        out = h.invoke('optics.set_beam_shift', x_m=2e-6, y_m=0.0)
+        self.assertFalse(out['at_limit'])
+        self.assertAlmostEqual(h._beam_point()[0] - u0, 2e-6)
+        self.assertTrue(h.invoke('optics.set_beam_shift', x_m=5e-5, y_m=0.0)['at_limit'])
+        self.assertEqual(h.read()['optics.beam_shift_m'], [rt.BEAM_SHIFT_LIMIT_M, 0.0])
+        h.invoke('optics.set_beam_shift', x_m=0.0, y_m=0.0)
+        fw = h.read()['scan.field_width_m']
+        h.invoke('stage.click_center', u=0.75, v=0.5)                           # the point a quarter field right of the centre comes to the centre
+        h.step(5.0)
+        self.assertAlmostEqual(h._beam_point()[0] - u0, 0.25 * fw, places=9)
+        h.invoke('stage.stop')
+        h.invoke('stage.last_move')
+        h.step(5.0)
+        self.assertAlmostEqual(h._beam_point()[0], u0, places=9)
+
+    def test_stigmator_and_image_adjust(self):
+        h = observing(ready())
+        r = h.astig
+        self.assertAlmostEqual(r, 1e-9)                                          # AS in observing()
+        s = h.read()['optics.stigmator_m']
+        h.invoke('optics.set_stigmator', x_m=s[0] + 5e-9, y_m=s[1])
+        self.assertGreater(h.read('evaluator')['truth.astigmatism_m'], 3.9e-9)
+        self.assertFalse(h.read()['optics.astigmatism_corrected'])
+        h.invoke('optics.set_stigmator', x_m=s[0], y_m=s[1])
+        self.assertAlmostEqual(h.read('evaluator')['truth.astigmatism_m'], 1e-9, places=15)
+        g0 = acquire_image(h)['regions'][0]['mean_grey']
+        h.invoke('optics.set_image_adjust', brightness=0.6, contrast=0.5, suppress=0.5)
+        g1 = acquire_image(h)['regions'][0]['mean_grey']
+        self.assertAlmostEqual(g1 - g0, 25.5, delta=3.0)
+        h.invoke('settings.configure', section='auto', values=dict(acb_interlock=True, acb_brightness=0.5, acb_contrast=0.8))
+        h.invoke('beam.set_voltage', voltage_v=10000.0)                         # the interlock runs ACB (and resets the manual adjustment)
+        self.assertTrue(h.read()['optics.acb_done'])
+        self.assertEqual(h.read()['optics.image_adjust']['brightness'], 0.5)
+
+    def test_gun_window_alignment_bias_and_overheating(self):
+        h = observing(ready())
+        ip0 = h.read('evaluator')['truth.probe_current_a']
+        h.invoke('alignment.configure_error', **dict(ERR0, gun_shift_x=0.25, gun_tilt_y=0.25, aperture_x_m=4e-5))
+        f = math.exp(-(0.25 ** 2 * 2) / rt.GUN_ALIGN_WIDTH ** 2 - 1.0)
+        self.assertAlmostEqual(h.read('evaluator')['truth.probe_current_a'] / ip0, f)
+        h.invoke('gun.auto_adjust', mode='AGC')
+        rejected(h, 'gun.set', 'GUN_AUTO_RUNNING', **rt.CAPS['gun.set']['example_arguments'])
+        h.step(rt.GUN_AUTO_S + 1.0)
+        self.assertIsNone(h.read()['gun.auto_adjust'])
+        self.assertAlmostEqual(h.read('evaluator')['truth.probe_current_a'] / ip0, math.exp(-1.0))   # the aperture remains
+        h.invoke('optics.wobbler', on=True)
+        self.assertAlmostEqual(h.panel_read()['host.wobble_shift_m'], rt.WOBBLE_GAIN * 4e-5)
+        h.invoke('aperture.set_position', x_m=4e-5, y_m=0.0)
+        self.assertAlmostEqual(h.read('evaluator')['truth.probe_current_a'], ip0)
+        self.assertEqual(h.panel_read()['host.wobble_shift_m'], 0.0)
+        h.invoke('optics.wobbler', on=False)
+        g = dict(h.read()['gun.settings'])
+        g.pop('mode')
+        h.invoke('gun.set', **dict(g, bias_coarse=75.0))
+        h.step(2.0)
+        self.assertAlmostEqual(h.read('evaluator')['truth.emission_a'] / rt.EMISSION_SAT_A, 0.5)
+        h.invoke('gun.bias_memory', action='save')
+        h.invoke('gun.set', **dict(g, bias_coarse=50.0))
+        h.invoke('gun.bias_memory', action='load')
+        self.assertEqual(h.read()['gun.settings']['bias_coarse'], 75.0)
+        h.invoke('beam.set_voltage', voltage_v=5000.0)
+        rejected(h, 'gun.bias_memory', 'NO_SAVED_BIAS', action='load')
+        used = h.fil_used_s
+        h.step(10.0)
+        normal = h.fil_used_s - used
+        h.invoke('gun.set', **dict(g, heating=0.66))                            # orange area: the filament wears faster
+        used = h.fil_used_s
+        h.step(10.0)
+        self.assertAlmostEqual((h.fil_used_s - used) / normal, 1.0 + rt.OVERHEAT_WEAR * 0.1, places=6)
+        h.invoke('vacuum.toggle_lv')
+        h.step(150.0)
+        h.invoke('beam.observation_on')
+        h.step(11.0)
+        rejected(h, 'gun.auto_adjust', 'LV_MODE', mode='AFS')
+
+    def test_recipes(self):
+        h = ready()
+        self.assertEqual(h.invoke('recipe.execute', category='general', coated=True, method='low_kv', eds=False),
+                         dict(voltage_v=15000.0, pc=50.0, detector='SED', vacuum_mode='HV', lv_pressure_pa=None))
+        out = h.invoke('recipe.execute', category='biological', coated=False, method='low_vacuum', eds=True)
+        self.assertEqual((out['voltage_v'], out['pc'], out['detector'], out['vacuum_mode'], out['lv_pressure_pa']), (10000.0, 65.0, 'BED_COMPO', 'LV', 50.0))
+        rejected(h, 'recipe.execute', 'RECIPE_NOT_AVAILABLE', category='high_mag', coated=False, method='low_kv', eds=False)
+
+    def test_memory_calibration_and_specimen_information(self):
+        h = observing(ready())
+        h.invoke('stage.move_xy', x_m=0.003, y_m=-0.002)
+        h.step(5.0)
+        h.invoke('stage.memory', action='record', name='a')
+        h.invoke('stage.memory', action='record', name='')
+        self.assertEqual(len(h.read()['operation.state']['memory']), 2)
+        h.invoke('stage.move_xy', x_m=0.0, y_m=0.0)
+        h.step(5.0)
+        h.invoke('stage.memory', action='move', name='a')
+        h.step(5.0)
+        self.assertAlmostEqual(h.read()['stage.x_indicated_m'], 0.003, places=7)
+        h.invoke('stage.memory', action='delete', name='a')
+        rejected(h, 'stage.memory', 'UNKNOWN_MEMORY', action='move', name='a')
+        h.invoke('alignment.configure_error', **dict(ERR0, stage_x_m=3e-4))
+        self.assertAlmostEqual(h.read()['stage.x_indicated_m'] - h.read('evaluator')['stage.x_m'], 3e-4, places=9)
+        rejected(h, 'stage.calibrate', 'VENT_REQUIRED', axes='all')
+        h.invoke('vacuum.vent')
+        h.step(150.0)
+        h.invoke('chamber.draw_out')
+        h.step(3.0)
+        rejected(h, 'stage.calibrate', 'HOLDER_OCCUPIED', axes='x')
+        h.invoke('specimen.unload')
+        self.assertEqual(h.invoke('stage.calibrate', axes='x')['correction_m'], [3e-4, 0.0])
+        h.step(20.0)
+        self.assertAlmostEqual(h.read()['stage.x_indicated_m'], h.read('evaluator')['stage.x_m'], places=9)
+        h.invoke('specimen.set_info', name='Fe-Si', holder='10mm_round', height_m=0.004)
+        self.assertEqual(h.read()['operation.state']['specimen'], dict(name='Fe-Si', holder='10mm_round', height_m=0.004))
+        h.invoke('settings.configure', section='stage', values=dict(auto_focus_tracer=True, frame_travel=False, frame_travel_rate=0.5))
+        wd = h.focus_wd
+        h.invoke('stage.set_z', z_lift_m=h.stage_target['z'] + 0.002)          # the focus follows the Z travel
+        self.assertAlmostEqual(h.focus_wd, wd - 0.002)
+
+    def test_files_movie_snapshot_ruler_users(self):
+        h = observing(ready())
+        h.invoke('settings.configure', section='image_save', values=dict(rt.SETTINGS_DEFAULTS['image_save'], auto_save=True, file_name='fe'))
+        rec = acquire_image(h)
+        files = h.read()['operation.state']['files']
+        self.assertEqual((files[-1]['file'], files[-1]['image_id']), ('fe_0001.tif', rec['image_id']))
+        h.invoke('scan.set_mode', mode='FREEZE', charge_free=False)
+        self.assertEqual(h.invoke('image.save', name='frz')['file'], 'frz.tif')
+        rejected(h, 'image.save', 'FILE_EXISTS', name='frz')
+        h.invoke('image.open', file='fe_0001.tif')
+        self.assertEqual(h.invoke('image.copy')['source'], 'fe_0001.tif')
+        out = h.invoke('measure.ruler', u1=0.0, v1=0.5, u2=1.0, v2=0.5)
+        self.assertAlmostEqual(out['distance_m'], rec['field_of_view_m'][0])
+        h.invoke('image.open', file='')
+        rejected(h, 'image.open', 'UNKNOWN_FILE', file='nope.tif')
+        h.invoke('scan.set_mode', mode='FAST', charge_free=False)
+        h.invoke('stage.set_tilt', tilt_rad=math.radians(4.0))
+        h.step(2.0)
+        acquire_image(h)
+        self.assertGreater(h.invoke('image.anaglyph', left_file='fe_0001.tif', right_file='fe_0002.tif')['tilt_difference_rad'], math.radians(3.9))
+        rejected(h, 'image.anaglyph', 'TILT_PAIR_REQUIRED', left_file='fe_0001.tif', right_file='frz.tif')
+        h.invoke('movie.record', on=True)
+        h.step(4.0)
+        out = h.invoke('movie.record', on=False)
+        self.assertEqual(out['file'], '20260101' + h._date(h.time_s - 4.0).strftime('%H%M%S') + '_0000.avi')
+        rejected(h, 'movie.record', 'NOT_RECORDING', on=False)
+        h.invoke('snapshot.take', file='')
+        h.invoke('scan.set_magnification', magnification=5000.0)
+        self.assertEqual(h.invoke('snapshot.reproduce', accv=False, pc=False, mag=True, wd=False, signal=False, stage=False)['applied'], ['mag'])
+        self.assertEqual(h.mag, 1000.0)
+        self.assertEqual(h.invoke('snapshot.save')['file'], 'Snap_0001.jpg')
+        h.invoke('snapshot.take', file='fe_0002.tif')
+        self.assertEqual(h.read()['operation.state']['snapshot']['source'], 'fe_0002.tif')
+        h.invoke('eds.transfer_image')
+        h.invoke('presets.configure', window='mag', index=0, value=200.0)
+        rejected(h, 'presets.configure', 'INVALID_ARGUMENT', window='pressure', index=3, value=50.0)
+        h.invoke('ui.select', window='pressure', value=60.0)
+        rejected(h, 'ui.select', 'INVALID_ARGUMENT', window='accv', value=40.0)
+        self.assertEqual(h.invoke('user.manage', action='add', name='bob')['user'], 'bob')
+        self.assertEqual(h.read()['operation.state']['settings']['image_save']['folder'], 'E:/DATA/IT200/bob')
+        rejected(h, 'user.manage', 'USER_EXISTS', action='add', name='bob')
+        h.invoke('settings.configure', section='view', values=dict(mode='full_screen', mix_ratio=0.5))
+        rejected(h, 'movie.record', 'FULL_SCREEN', on=True)
+
+    def test_lv_auto_eco_and_slow_leak(self):
+        h = observing(ready(lv=True))
+        h.invoke('vacuum.set_lv_pressure', pressure_pa=80.0)
+        h.invoke('vacuum.lv_auto', on=False)                                    # Stop: the needle valve holds
+        v = h.lv_valve
+        h.step(60.0)
+        self.assertEqual(h.lv_valve, v)
+        h.invoke('vacuum.lv_auto', on=True)
+        h.step(120.0)
+        self.assertAlmostEqual(h.p_ch, 80.0, delta=4.0)
+        h.invoke('settings.configure', section='eco', values=dict(enabled=True, minutes=5))
+        h.invoke('beam.observation_on')
+        h.step(11.0)
+        h.step(280.0)
+        self.assertTrue(h.ht)
+        h.step(10.0)
+        self.assertFalse(h.ht)                                                   # Eco: 5 min without an operation
+        def evac(slow):
+            g = ready(evacuate=False)
+            g.invoke('settings.configure', section='vacuum', values=dict(slow_leak=slow))
+            g.invoke('vacuum.evacuate')
+            t = 0
+            while g.vac_state != 'hv_ready' and t < 700:
+                g.step(5.0)
+                t += 5
+            return t
+        self.assertGreater(evac(True), evac(False) + 60)
+
+
+
+class InstrumentFaults(unittest.TestCase):
+    """Messages of the JSM-IT300 manual 3.14 that need a hardware fault (1.2.0 sweep): evaluator fault.inject / fault.clear, the documented refusal
+    and remedy."""
+
+    def test_stage_motor_failure_needs_vent_and_initialization(self):
+        h = ready()
+        h.invoke('stage.move_xy', x_m=0.005, y_m=0.0)
+        h.step(1.0)
+        out = h.invoke('fault.inject', code='stage_motor_failure')
+        self.assertEqual(out['injected'], ['stage_motor_failure'])
+        x = h.stage['x']
+        h.step(10.0)
+        self.assertEqual(h.stage['x'], x)                                        # the motors stopped
+        self.assertEqual(h.read()['system.error_code'], 'STAGE_MOTOR_FAILURE')
+        self.assertEqual(h.read('evaluator')['fault.injected'], ['stage_motor_failure'])
+        self.assertNotIn('fault.injected', h.read())
+        rejected(h, 'stage.move_xy', 'ERROR_PENDING', x_m=0.0, y_m=0.0)
+        h.invoke('error.acknowledge')
+        rejected(h, 'stage.move_xy', 'STAGE_MOTOR_FAILURE', x_m=0.0, y_m=0.0)
+        rejected(h, 'stage.calibrate', 'VENT_REQUIRED', axes='all')
+        h.invoke('vacuum.vent')
+        h.step(120.0)
+        self.assertEqual(h.stage['x'], x)                                        # VENT does not return a stage whose motors failed
+        h.invoke('chamber.draw_out')
+        h.step(3.0)
+        h.invoke('specimen.unload')
+        h.invoke('stage.calibrate', axes='all')                                  # manual: after venting, initialize all axes
+        self.assertEqual(h.read('evaluator')['fault.injected'], [])
+        h.invoke('chamber.draw_in')
+        h.step(3.0)
+        h.invoke('stage.move_xy', x_m=0.001, y_m=0.0)                           # the motors work again
+
+    def test_other_faults_refuse_their_function_until_cleared(self):
+        h = ready(evacuate=False)
+        h.invoke('fault.inject', code='stage_driver_overheat')
+        h.invoke('error.acknowledge')
+        rejected(h, 'stage.move_xy', 'STAGE_DRIVER_OVERHEAT', x_m=0.001, y_m=0.0)
+        h.invoke('fault.clear', code='stage_driver_overheat')                     # service repair
+        h.invoke('fault.inject', code='gun_chamber_open')
+        self.assertIsNone(h.read()['system.error_code'])
+        rejected(h, 'vacuum.evacuate', 'GUN_CHAMBER_OPEN')
+        h.invoke('fault.clear', code='gun_chamber_open')
+        h.invoke('vacuum.evacuate')
+        h.step(240.0)
+        h.invoke('fault.inject', code='filament_failure')
+        h.invoke('error.acknowledge')
+        rejected(h, 'beam.observation_on', 'FILAMENT_FAILURE')
+        h.invoke('vacuum.vent')
+        h.step(120.0)
+        h.invoke('gun.replace_filament')                                         # a new filament clears it
+        self.assertEqual(h.read('evaluator')['fault.injected'], [])
+        g = ready(lv=True)
+        g.invoke('fault.inject', code='lv_pressure_adjust')
+        self.assertEqual(g.read()['system.error_code'], 'LV_PRESSURE_ADJUST_FAILED')
+        self.assertFalse(g.sem_ui['lv_auto'])
+        g.invoke('error.acknowledge')
+        rejected(g, 'vacuum.lv_auto', 'LV_PRESSURE_ADJUST_FAILED', on=True)
+        g.invoke('fault.clear', code='lv_pressure_adjust')
+        g.invoke('vacuum.lv_auto', on=True)
+
+    def test_fault_injection_is_evaluator_only(self):
+        h = ready()
+        h.register_principal('a', 'agent')
+        h.register_principal('e', 'evaluator')
+        a, e = h.session('a'), h.session('e')
+        I = h.instance_id
+        r = a.invoke(instance_id=I, capability_id='fault.inject', arguments=dict(code='stage_lens_contact'), request_id='f1')
+        self.assertEqual(r['error']['code'], 'ACCESS_DENIED')
+        self.assertNotIn('fault.inject', a.describe(instance_id=I)['capabilities'])
+        r = e.invoke(instance_id=I, capability_id='fault.inject', arguments=dict(code='stage_lens_contact'), request_id='f2')
+        self.assertEqual(r['status'], 'succeeded', r)
+        self.assertEqual(h.read()['system.error_code'], 'STAGE_LENS_CONTACT')
+
+
+
+class HandKnobsDuringScan(unittest.TestCase):
+    """Sweep 2026-10-19 (1.2.0): Z / T / R are hand knobs; nothing stops a hand turning them during a scan: not refused, the scan sees the moved stage."""
+
+    def test_z_turned_during_a_photo_defocuses_it(self):
+        def photo(turn):
+            h = observing(ready())
+            op = h.invoke('image.acquire', pixels='640x480', dwell_s=2e-5)['operation_id']
+            if turn:
+                self.assertEqual(h.invoke('stage.set_z', z_lift_m=h.stage['z'] - 0.001)['z_lift_m'], h.stage_target['z'])
+                h.invoke('stage.set_tilt', tilt_rad=h.stage['tilt'])
+                h.invoke('stage.rotate', rotation_rad=h.stage['rot'])
+            h.step(h.operations[op]['duration'] + 1.0)
+            self.assertEqual(h.operations[op]['phase'], 'completed')
+            return h.images[h.operations[op]['record_id']]
+        sharp, moved = photo(False), photo(True)
+        self.assertGreater(moved['effective_resolution_m'], 3 * sharp['effective_resolution_m'])   # 1 mm defocus blurs the photo
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -27,16 +27,32 @@ Physics owned by the host clock (``step`` is the only entry that advances time; 
     identification;
   * stage X / Y (motor) and Z / T / R (manual knobs), tilt about the holder top (the beam meets a tilted specimen h tan t from its
     centre), swept-path collision limits against the pole piece, draw-out door (opens only at atmospheric pressure), specimen loading on
-    the 32 mm holder; charge, gas, X-ray and filament ledgers.
+    the 32 mm holder; charge, gas, X-ray and filament ledgers;
+  * front panel (1.1.0; panel_ui.json beside the contract, run by the shared engine _panel_ui.py): the SEM Operation (InTouchScope) main window,
+    photo data and Settings windows, the specimen exchange guide and the console VENT / EVAC / LV switches, MAIN POWER key, Z / T / R knobs and
+    aperture knobs; the functions behind them (beam blanking, scan modes / rotation, manual stigmator, brightness / contrast, beam shift,
+    wobbler and movable aperture, electron gun window, P.C. scale and EOS high current mode, recipes, stage memory / last move / click
+    center / calibration, settings, files, movie, snapshot, ruler, users) are minimal models in _SemOperation; alignment, aperture and stage
+    coordinate error parameters default to 0 (ideal).
+  * 1.2.0 (sweep 2026-10-19): the ownership guard checks the command a gesture invokes, not the gesture (window changes and viewing stay free;
+    a refused command shows the device message); hands-on actions (draw-out door, specimen loading, Z / T / R knobs, aperture knobs,
+    filament exchange, the MAIN POWER key switch) are never refused for ownership, the device's own conditions still apply (switching off
+    fails a running acquisition with POWER_OFF; the Z / T / R knobs are not refused during a scan, the scan sees the moved stage; the software
+    shutdown stays owner-guarded); evaluator fault.inject / fault.clear for the
+    messages of the JSM-IT300 manual 3.14 that need a hardware fault (stage Error IDs 0200 / 0240 / 0250 / 0260, evacuation 0331 / 0351,
+    Filament failure): the documented message, the motors / EVAC / automatic LV pressure / observation refused, the documented remedy.
 """
 from __future__ import annotations
 
 import bisect
 import copy
 import functools
+import hashlib
 import json
 import math
+import os
 import random
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -149,6 +165,53 @@ EDS_CHANNEL_EV, EDS_CHANNELS = 10.0, 2048
 WINDOW = dict(kapton_nm=300.0, al_nm=50.0, grid_open=0.77, dead_si_nm=30.0, si_um=450.0)
 KRAMERS_K = 2.0e-9                     # continuum photons per electron per eV into 4 pi (x Zbar (E0-E)/E)
 MAX_RECORDS, MAX_EVENTS = 200, 1000
+ASSET_VERSION = '1.2.0'
+# ---- SEM Operation (front panel 1.1.0).  The InTouchScope windows follow the JSM-IT300 instructions manual of the same family (chapters 3-5) and
+# the Iowa State JSM-IT200 guide; values the documents do not give are assumptions (listed in panel_ui.json and the contract limitations).
+PC_STD_A = (1e-12, 3e-8)                 # P.C. 1-99 in the standard mode: 1 pA - 30 nA on a log scale (scale not published; assumption)
+PC_HCM_A = (1e-11, 3e-7)                 # EOS High Current Mode: P.C. 1-99 -> 10 pA - 0.3 uA (catalogue maximum 0.3 uA; assumption)
+GUN_SAT_POS = 0.6                        # filament heating bar position of the saturation point (2nd peak) (assumption)
+GUN_ALIGN_WIDTH = 0.25                   # gun shift / tilt misalignment (full scale 1) that lowers the beam current to 1/e (assumption)
+GUN_AUTO_S = 30.0                        # AGC / AFS: 'after several dozen seconds' (manual 3-59); 30 s assumed
+BIAS_COARSE_OCTAVE, BIAS_FINE_OCTAVE = 25.0, 250.0   # gun bias slider steps that halve the load current (coarse / fine; assumption)
+OVERHEAT_WEAR = 20.0                     # filament wear x (1 + 20 (h / h_sat - 1)) right of the saturation point (manual 3-62 caution; assumption)
+STIG_RANGE_M = 100e-9                    # stigmator range +-100 nm of equivalent blur (assumption)
+BEAM_SHIFT_LIMIT_M = 10e-6               # beam shift deflection limit (manual 4-11: 'there is a limit'; assumption)
+APERTURE_RANGE_M = 5e-4                  # movable objective aperture X / Y fine adjustment +-0.5 mm (assumption)
+APERTURE_TOL_M = 4e-5                    # aperture offset from the beam axis that lowers the transmitted current to 1/e (assumption)
+APERTURE_BLUR = 2e-3                     # extra blur per metre of aperture offset (off-axis aberrations; assumption)
+WOBBLE_GAIN = 0.1                        # image swing of the wobbler per metre of aperture offset (assumption)
+WOBBLE_DEFOCUS_M = 20e-6                 # objective focus swing while the wobbler runs (blurs a photo taken meanwhile; assumption)
+RDC_FIELD = 0.25                         # RDC scans a reduced area: 1/4 of the field width (assumption)
+CF_CHARGING = 0.3                        # CF scan (Slow or Photo): charging rate x 0.3 (assumption)
+SLOW_LEAK_FACTOR, SLOW_LEAK_UNTIL_PA = 0.1, 5000.0   # slow-leak evacuation: roughing at 1/10 speed down to 5 kPa (assumption)
+CLOCK_EPOCH = '2026-01-01T00:00:00'      # the SEM PC clock at simulation time 0 (file names, photo data date; assumption)
+HOLDERS = ['32mm_multipurpose', '10mm_round', '3mm_pin_stub', '4x10mm_insert']   # Iowa State guide holder set; the modelled holder is the 32 mm mount
+PHOTO_1FRAME = [('640x480', 10.0), ('640x480', 20.0), ('1280x960', 20.0), ('1280x960', 40.0), ('1280x960', 80.0), ('2560x1920', 40.0),
+                ('2560x1920', 80.0), ('2560x1920', 160.0), ('5120x3840', 160.0), ('5120x3840', 320.0)]      # 10 combinations (manual 3-33; values assumed,
+                                                                                                           # Iowa State: 2560 x 1920 at 40 s or 80 s)
+PHOTO_INTEGRATION = [('640x480', 0.5), ('640x480', 1.0), ('1280x960', 1.0), ('1280x960', 2.0), ('2560x1920', 4.0)]   # 5 (pixels, frame time) pairs
+SCAN_SPEEDS = {'RDC': [('320x240', 0.075), ('320x240', 0.25), ('320x240', 0.5)],
+               'FAST': [('640x480', 0.15), ('640x480', 0.5), ('640x480', 1.0), ('1280x960', 0.5), ('1280x960', 1.0)],
+               'SLOW': [('1280x960', 10.0), ('1280x960', 20.0), ('1280x960', 40.0), ('2560x1920', 40.0)]}
+# live scan combinations (pixels, frame time) per mode: manual 3-32/33 (3 / 5 / 4 combinations) and specification table 8.2.5.b (frame times
+# RDC 0.075/0.25/0.5 s at 320 x 240, Fast 0.15/0.5/1.0 s and 0.5/1.0 s, Slow 10/20/40/40 s); the text copy flattens the merged pixel cells of
+# the table, so the pixel number of each frame time is assigned in column order (assumption)
+HOLDER_OUTLINE_R_M = {'32mm_multipurpose': 0.016, '10mm_round': 0.0075, '3mm_pin_stub': 0.016, '4x10mm_insert': 0.016}
+# outline radius of each holder the software knows (Iowa State guide: the pin stub and the 4-position inserts fit the 32 mm mount; the 10 mm
+# round holder's outer diameter of 15 mm is an assumption); the software stage limit uses it with the entered specimen height
+VIEW_MODES = ['standard', 'multiple', 'flexible', 'signal_mixing', 'full_screen']
+# recipes (manual 3-11/12, table 3-1, garbled in the text copy): kV and P.C. per specimen category for coated (SE), uncoated at low kV (SE) and uncoated in
+# low vacuum (BE, pressure); EDS raises the P.C.  None = '-' in the table.  Reconstruction, see LIMITATIONS.
+RECIPES = {
+    'general': dict(coated=(15000.0, 50.0), low_kv=(1000.0, 50.0), low_vacuum=(15000.0, 60.0, 50.0), eds_pc=60.0),
+    'high_mag': dict(coated=(20000.0, 35.0), low_kv=None, low_vacuum=None, eds_pc=None),
+    'inorganic': dict(coated=(15000.0, 50.0), low_kv=(1000.0, 50.0), low_vacuum=(15000.0, 60.0, 40.0), eds_pc=60.0),
+    'metal_mineral': dict(coated=(15000.0, 60.0), low_kv=(1500.0, 50.0), low_vacuum=(15000.0, 60.0, 30.0), eds_pc=65.0),
+    'organic': dict(coated=(10000.0, 60.0), low_kv=(1000.0, 50.0), low_vacuum=(10000.0, 60.0, 40.0), eds_pc=65.0),
+    'biological': dict(coated=(10000.0, 60.0), low_kv=(1000.0, 50.0), low_vacuum=(10000.0, 60.0, 50.0), eds_pc=65.0),
+}
+MAX_FILES, MAX_MEMORY, MAX_MEASUREMENTS = 500, 100, 20
 EDS_MAX_DEAD_TIME = 0.90             # the analysis refuses to start above 90 % dead time (reduce the probe current)
 THUMB_W, THUMB_H = 32, 24
 
@@ -211,7 +274,7 @@ def validate(s, v):
         if not isinstance(v, dict):
             raise ActionRejected('INVALID_ARGUMENT')
         if 'properties' in s:
-            if set(v) != set(s['properties']):
+            if not set(s.get('required', s['properties'])) <= set(v) <= set(s['properties']):   # optional arguments: only the panel.* commands
                 raise ActionRejected('INVALID_ARGUMENT')
             for key, value in v.items():
                 validate(s['properties'][key], value)
@@ -1204,8 +1267,8 @@ cap('specimen.load', obj(dict(specimen_id=TEXT)), obj(dict(specimen_id=TEXT, loa
 cap('specimen.unload', obj({}), obj(dict(specimen_id=TEXT)), {}, ['specimen_holder', 'stage_rot'], '从样品座取下样品放回实验台（门须完全拉出）', 'agent', 'robot_skill')
 cap('stage.move_xy', obj(dict(x_m=number('m', STAGE_X_RANGE_M[0], STAGE_X_RANGE_M[1]), y_m=number('m', STAGE_Y_RANGE_M[0], STAGE_Y_RANGE_M[1]))),
     obj(dict(x_m=number('m'), y_m=number('m'))), dict(x_m=0.002, y_m=-0.001), ['stage_x', 'stage_y'],
-    '电机驱动样品台X（80mm）/Y（40mm）移到目标位置（目录称优中心台；约3mm/s）；Y沿倾斜后的摇篮移动，倾斜时样品随Y升降：扫掠范围内最高点会进入极靴下4mm以内且高于当前位置时拒绝；'
-    '只写目标，位置随step推进；须门关闭')
+    '电机驱动样品台X（80mm）/Y（40mm）移到目标位置（目录称优中心台；约3mm/s）；Y沿倾斜后的摇篮移动，倾斜时样品随Y升降：扫掠范围内最高点会进入极靴下4mm以内且高于当前位置时拒绝'
+    '（按真实样品判定，另按所选样品座与输入的样品高度做软件限位）；只写目标，位置随step推进；须门关闭')
 cap('stage.set_z', obj(dict(z_lift_m=number('m', Z_LIFT_RANGE_M[0], Z_LIFT_RANGE_M[1]))), obj(dict(z_lift_m=number('m'))), dict(z_lift_m=0.038),
     ['knob_stage_z', 'stage_z'], 'Z旋钮（手动）：升降样品台，升降0对应样品座顶面WD 48mm，0.043m对应WD 5mm；门完全拉出（且未下令推回）时不检查碰撞；样品台在舱内时，'
     '按当前到目标的Z与正在进行的倾斜/Y运动的扫掠范围检查，最高点会进入极靴下4mm以内且高于当前位置则拒绝（降低总是允许）；只写目标，随step推进')
@@ -1233,8 +1296,8 @@ cap('optics.auto_stigmate', obj({}), obj(dict(astigmatism_m=number('m'))), {}, [
 cap('optics.auto_contrast_brightness', obj({}), obj(dict(gain=number('1'), offset=number('1'))), {}, ['monitor', 'bse_detector', 'sed_detector'],
     '自动衬度/亮度（ACB）：按当前视场实时帧（640×480、10µs）的灰度直方图——信号范围加减2.5σ像素噪声——设定探测器增益与偏置，使图像灰度落在20–235；'
     '没有信号衬度的视场（如平整样品的TOPO像）被拉伸到噪声宽度，增益有限')
-cap('detector.select', obj(dict(detector=enum(['SED', 'BED_COMPO', 'BED_TOPO', 'BED_SHADOW']))), obj(dict(detector=TEXT)), dict(detector='BED_COMPO'),
-    ['sed_detector', 'bse_detector'], '选择成像探测器：SED（E-T二次电子，只能高真空）或BED的成分（COMPO）、形貌（TOPO）、阴影（Shadow）像')
+cap('detector.select', obj(dict(detector=enum(['SED', 'REF', 'BED_COMPO', 'BED_TOPO', 'BED_SHADOW']))), obj(dict(detector=TEXT)), dict(detector='BED_COMPO'),
+    ['sed_detector', 'bse_detector'], '选择成像探测器：SED（E-T二次电子，只能高真空）、REF（SED只收背散射电子在样品室/极靴上转换的SE3，高真空）或BED的成分（COMPO）、形貌（TOPO）、阴影（Shadow）像')
 cap('image.acquire', obj(dict(pixels=enum(list(PIXEL_FORMATS)), dwell_s=number('s', 1e-7, 1e-2))), OPERATION, dict(pixels='640x480', dwell_s=2e-5),
     ['monitor', 'sed_detector', 'bse_detector', 'scan_coil_section'],
     '采集一帧图像（异步）：像素320×240–5120×3840（厂家），帧时间=像素数×驻留时间；返回按灰度分割的区域（按平均灰度排序，不给出物质名；平均灰度之差小于噪声与相内形貌纹理所定阈值的相并为一区）、'
@@ -1273,6 +1336,144 @@ UNSUPPORTED_COMPONENTS = {'eds.map': ['eds_finger', 'monitor'], 'stage.navigatio
 for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, UNSUPPORTED_COMPONENTS[_k], _v)
 
+# ---- SEM Operation commands (front panel 1.1.0): what the InTouchScope windows, icons and console knobs do beyond the commands above
+def _text(lo=0, hi=80):
+    return {'type': 'string', 'minLength': lo, 'maxLength': hi}
+
+
+FRACTION = number('1', 0.0, 1.0)
+XY_M = array(number('m'), 2, 2)
+SETTINGS_FIELDS = {          # section: {field: (schema, default)} - the Settings windows (manual 5-4) and the photo data / label area
+    'scan': dict(rdc=(integer(1, 3), 1), fast=(integer(1, 5), 2), slow=(integer(1, 4), 2), photo_mode=(enum(['1frame', 'integration']), '1frame'),
+                 photo=(integer(1, 10), 6), integration=(integer(1, 5), 3), frames=(integer(1, 255), 8)),
+    'auto': dict(acb_interlock=(BOOL, False), acb_brightness=(FRACTION, 0.5), acb_contrast=(FRACTION, 0.5)),
+    'stage': dict(auto_focus_tracer=(BOOL, False), frame_travel=(BOOL, False), frame_travel_rate=(number('1', 0.1, 1.0), 0.5)),
+    'eco': dict(enabled=(BOOL, False), minutes=(integer(5, 120), 30)),
+    'vacuum': dict(slow_leak=(BOOL, False)),
+    'eos': dict(high_current=(BOOL, False)),
+    'image_save': dict(auto_save=(BOOL, False), folder=(_text(1), 'E:/DATA/IT200/user'), file_name=(_text(1, 40), 'Image'), number=(integer(0, 99999), 1),
+                       format=(enum(['TIFF', 'JPEG', 'BMP']), 'TIFF'), insert_photo_data=(BOOL, True), snapshot_folder=(_text(1), 'E:/DATA/IT200/user/Snapshot')),
+    'movie': dict(folder=(_text(1), 'E:/DATA/IT200/user/Movie'), fps=(integer(1, 30), 15)),
+    'photo_data': dict(label=(_text(0, 30), ''), show_number=(BOOL, True), show_date=(BOOL, True), show_logo=(BOOL, False), micron_bar=(BOOL, True)),
+    'view': dict(mode=(enum(VIEW_MODES), 'standard'), mix_ratio=(FRACTION, 0.5)),
+    'environment': dict(language=(enum(['English', 'Japanese']), 'English'), theme=(enum(['light', 'dark']), 'light'), show_navigator=(BOOL, True),
+                        fixed_icons_right=(BOOL, False)),
+    'signal': dict(sed_filter=(BOOL, False), bed_gain=(enum(['standard', 'analysis']), 'standard'), shadow_level=(FRACTION, 0.5)),
+    'tilt_correction': dict(tilt_mag_deg=(number('deg', 0.0, 90.0), 0.0), dynamic_focus_deg=(number('deg', 0.0, 90.0), 0.0)),
+    'lut': dict(gamma=(number('1', 0.3, 3.0), 1.0), pseudo_color=(BOOL, False)),
+}
+SETTINGS_SCHEMAS = {s: obj({k: v[0] for k, v in f.items()}) for s, f in SETTINGS_FIELDS.items()}
+SETTINGS_DEFAULTS = {s: {k: v[1] for k, v in f.items()} for s, f in SETTINGS_FIELDS.items()}
+PRESET_WINDOWS = {'accv': (KV_RANGE_V, [1000.0, 5000.0, 10000.0, 15000.0, 20000.0]), 'pc': ((1.0, 99.0), [30.0, 40.0, 50.0, 60.0, 65.0]),
+                  'mag': (MAG_RANGE, [50.0, 500.0, 1000.0, 5000.0, 10000.0]), 'wd': ((0.005, 0.048), [0.008, 0.010, 0.015, 0.020, 0.030]),
+                  'pressure': (LV_RANGE_PA, [30.0, 50.0, 100.0])}      # five presets per window (pressure: three, manual 3-37); values assumed
+GUN = obj(dict(heating=FRACTION, bias_coarse=number('1', 0.0, 100.0), bias_fine=number('1', 0.0, 100.0), shift_x=number('1', -1.0, 1.0),
+               shift_y=number('1', -1.0, 1.0), tilt_x=number('1', -1.0, 1.0), tilt_y=number('1', -1.0, 1.0)))
+GUN_STATE = obj(dict(GUN['properties'], mode=enum(['auto', 'manual'])))
+ALIGN_ERR = obj(dict(gun_shift_x=number('1', -1.0, 1.0), gun_shift_y=number('1', -1.0, 1.0), gun_tilt_x=number('1', -1.0, 1.0), gun_tilt_y=number('1', -1.0, 1.0),
+                     aperture_x_m=number('m', -APERTURE_RANGE_M, APERTURE_RANGE_M), aperture_y_m=number('m', -APERTURE_RANGE_M, APERTURE_RANGE_M),
+                     stage_x_m=number('m', -1e-3, 1e-3), stage_y_m=number('m', -1e-3, 1e-3)))
+UV = number('1', 0.0, 1.0)
+cap('beam.blank', obj(dict(on=BOOL)), obj(dict(blanked=BOOL)), dict(on=True), ['electron_gun', 'monitor'],
+    'Beam Blanking（Home图标，手册4-6）：偏转电子束使其不到达样品（防损伤）；再按一次恢复；消隐时图像全黑、不荷电、不计剂量')
+cap('beam.set_pc', obj(dict(pc=number('1', 1.0, 99.0))), obj(dict(pc=number('1'), current_a=number('A'))), dict(pc=50.0), ['condenser_lens', 'monitor'],
+    '照片数据P.C.窗口（手册3-24）：按P.C.值1–99设定探针电流（标准模式1pA–30nA、EOS大束流模式10pA–0.3µA的对数刻度；刻度为假设），等同于beam.set_probe_current')
+cap('scan.set_mode', obj(dict(mode=enum(['RDC', 'FAST', 'SLOW', 'FREEZE']), charge_free=BOOL)), obj(dict(mode=TEXT, charge_free=BOOL)),
+    dict(mode='SLOW', charge_free=False), ['scan_coil_section', 'monitor'],
+    '扫描模式图标（手册3-31）：RDC（缩小扫描区域，剂量集中在1/4视场宽）、Fast、Slow、Freeze（冻结图像，此时电子束消隐——假设）；CF只在Slow与拍照时降低荷电速率')
+cap('scan.set_rotation', obj(dict(rotation_rad=number('rad', -10.0, 10.0))), obj(dict(rotation_rad=number('rad'))), dict(rotation_rad=math.pi / 2),
+    ['scan_coil_section', 'monitor'], '扫描旋转SRT（手册4-15）：转动电子束扫描方向使图像旋转（±0.1°、90°/180°/270°、复位0°）；角度取0–2π')
+cap('scan.rotate_to_line', obj(dict(u1=UV, v1=UV, u2=UV, v2=UV, orientation=enum(['horizontal', 'vertical']))), obj(dict(rotation_rad=number('rad'))),
+    dict(u1=0.2, v1=0.6, u2=0.8, v2=0.4, orientation='horizontal'), ['scan_coil_section', 'monitor'],
+    '扫描水平/垂直校正（手册4-16）：在图像上指定一条线的起止点（图像分数坐标），扫描旋转使该线变为水平或垂直')
+cap('optics.set_stigmator', obj(dict(x_m=number('m', -STIG_RANGE_M, STIG_RANGE_M), y_m=number('m', -STIG_RANGE_M, STIG_RANGE_M))), obj(dict(x_m=number('m'), y_m=number('m'))),
+    dict(x_m=5e-9, y_m=-3e-9), ['objective_lens', 'monitor'],
+    '手动消像散Stigma ±X/±Y（手册3-29）：消像散器X/Y（以等效模糊表示，±100nm）；剩余像散=固有像散矢量−消像散器设定；AS把它调到约1nm')
+cap('optics.set_image_adjust', obj(dict(brightness=FRACTION, contrast=FRACTION, suppress=FRACTION)), obj(dict(brightness=number('1'), contrast=number('1'), suppress=number('1'))),
+    dict(brightness=0.55, contrast=0.5, suppress=0.5), ['monitor', 'sed_detector', 'bse_detector'],
+    '手动亮度/衬度（手册3-26）与BED Suppress粗调（3-27）：0.5为ACB设定处；灰度=127.5+(g−127.5)·2^(4(衬度−0.5))+255(亮度−0.5)，BED另加255(Suppress−0.5)；ACB后复位到0.5')
+cap('optics.set_beam_shift', obj(dict(x_m=number('m', -1e-3, 1e-3), y_m=number('m', -1e-3, 1e-3))), obj(dict(x_m=number('m'), y_m=number('m'), at_limit=BOOL)),
+    dict(x_m=1e-6, y_m=0.0), ['scan_coil_section', 'monitor'],
+    '电子束位移Beam Shift（手册4-10/11）：在扫描坐标中移动视场；偏转限±10µm（假设），超出时停在限位并报at_limit（须复位后用样品台移动）')
+cap('optics.wobbler', obj(dict(on=BOOL)), obj(dict(on=BOOL)), dict(on=True), ['objective_lens', 'objective_aperture_holder'],
+    'Wobbler（Home图标，手册3-64）：物镜电流摆动；可动光阑偏离光轴时图像上下左右摆动（幅度∝偏离），对中后不动；摆动时拍照会离焦模糊')
+cap('aperture.set_position', obj(dict(x_m=number('m', -APERTURE_RANGE_M, APERTURE_RANGE_M), y_m=number('m', -APERTURE_RANGE_M, APERTURE_RANGE_M))),
+    obj(dict(x_m=number('m'), y_m=number('m'))), dict(x_m=1e-5, y_m=0.0), ['objective_aperture_drive', 'objective_aperture_holder'],
+    '可动物镜光阑X/Y微调旋钮（镜筒上，手册3-64；机械旋钮，不需软件）：光阑偏离光轴使透过电流按exp(−(d/40µm)²)下降、图像模糊增加并在Wobbler下摆动', 'agent', 'robot_skill')
+cap('gun.auto_adjust', obj(dict(mode=enum(['AGC', 'AFS']))), obj(dict(mode=TEXT, done_s=number('s'))), dict(mode='AGC'), ['electron_gun', 'gun_alignment'],
+    '电子枪窗口自动调整（手册3-59）：AGC=灯丝加热到饱和并自动对中（倾斜与平移），AFS=只调灯丝加热；约30s（手册“几十秒”）后完成；须观察中，LV模式不可用')
+cap('gun.set', GUN, GUN_STATE, dict(heating=GUN_SAT_POS, bias_coarse=50.0, bias_fine=50.0, shift_x=0.0, shift_y=0.0, tilt_x=0.0, tilt_y=0.0),
+    ['electron_gun', 'gun_alignment'],
+    '电子枪窗口手动调整（手册3-60–63）：灯丝加热条（0.6为饱和点，左侧有假峰，右侧橙色区过流缩短寿命）、栅偏压粗/细（改变负载电流L.C.与束流）、对中Shift/Tilt X/Y；'
+    '手动后观察开始时不再自动调整，直到再做AGC/AFS')
+cap('gun.bias_memory', obj(dict(action=enum(['save', 'load']))), obj(dict(voltage_v=number('V'), bias_coarse=number('1'), bias_fine=number('1'))), dict(action='save'),
+    ['electron_gun', 'monitor'], '电子枪窗口Save/Preset（手册3-60）：每个加速电压保存一组栅偏压粗/细值，Preset读回当前电压的保存值')
+cap('alignment.configure_error', ALIGN_ERR, ALIGN_ERR, dict(gun_shift_x=0.2, gun_shift_y=0.0, gun_tilt_x=0.0, gun_tilt_y=-0.1, aperture_x_m=2e-5, aperture_y_m=0.0,
+                                                           stage_x_m=0.0, stage_y_m=0.0), ['gun_alignment', 'objective_aperture_holder', 'stage_x', 'stage_y'],
+    '受限：设定误差参数（默认0=理想）：电子枪对中偏差、可动光阑偏离光轴、样品台X/Y坐标偏差；AGC/手动对中、光阑旋钮与样品台校准（Calibration）按手册把它们找回', 'evaluator', 'configuration')
+# messages of the JSM-IT300 manual 3.14 that need a hardware fault (1.2.0 sweep): evaluator fault.inject / fault.clear; 0261 needs the R motor and
+# 0360 / 0380 the VMIU, both absent options
+JSM_FAULTS = {'stage_driver_overheat': 'STAGE_DRIVER_OVERHEAT', 'stage_mechanical_limit': 'STAGE_MECHANICAL_LIMIT', 'stage_motor_failure': 'STAGE_MOTOR_FAILURE',
+              'stage_lens_contact': 'STAGE_LENS_CONTACT', 'gun_chamber_open': 'GUN_CHAMBER_OPEN', 'lv_pressure_adjust': 'LV_PRESSURE_ADJUST_FAILED',
+              'filament_failure': 'FILAMENT_FAILURE'}
+STAGE_FAULTS = ('stage_driver_overheat', 'stage_mechanical_limit', 'stage_motor_failure', 'stage_lens_contact')
+_FAULT_IN = obj(dict(code=enum(list(JSM_FAULTS))))
+cap('fault.inject', _FAULT_IN, obj(dict(injected=array(TEXT, 0, 7))), dict(code='stage_motor_failure'), ['monitor', 'stage_x', 'stage_y'],
+    '受限：注入手册3.14中需要硬件故障的信息：样品台电机驱动过热（0200）、超出机械限位（0240）、电机故障/位置读不出（0250）、样品台碰到物镜（0260）→ 电机停止、X/Y电机命令被拒；'
+    '电子枪室未关（0331）→ EVAC被拒；自动压力调节失败（0351）→ LV自动压力调节停止；灯丝故障（晶须）→ 不能开始观察；有错误信息待确认', 'evaluator', 'simulation')
+cap('fault.clear', _FAULT_IN, obj(dict(injected=array(TEXT, 0, 7))), dict(code='stage_motor_failure'), ['monitor', 'stage_x', 'stage_y'],
+    '受限：手册措施已完成（服务修理、关好电子枪室、检查后无损伤）：消除故障原因；0250也可在放气后执行样品台初始化（stage.calibrate all）清除，灯丝故障也可换灯丝清除', 'evaluator', 'simulation')
+RECIPE_IN = obj(dict(category=enum(list(RECIPES)), coated=BOOL, method=enum(['low_kv', 'low_vacuum']), eds=BOOL))
+cap('recipe.execute', RECIPE_IN, obj(dict(voltage_v=number('V'), pc=number('1'), detector=TEXT, vacuum_mode=TEXT, lv_pressure_pa=nullable(number('Pa')))),
+    dict(category='general', coated=True, method='low_kv', eds=False), ['monitor', 'electron_gun', 'bse_detector'],
+    'Recipes窗口Execute（手册3-11/12，表3-1）：按样品类别与勾选项（镀膜/未镀膜低加速电压/未镀膜低真空、EDS）设定加速电压、P.C.、探测器与真空模式（LV时设压力）；'
+    '表中“-”的组合被拒；表值为文本副本的重建（见限制）')
+cap('stage.stop', obj({}), obj(dict(x_m=number('m'), y_m=number('m'))), {}, ['stage_x', 'stage_y'], '坐标窗口Stop（手册3-45）：X/Y电机停在当前位置')
+cap('stage.last_move', obj({}), obj(dict(x_m=number('m'), y_m=number('m'))), {}, ['stage_x', 'stage_y'],
+    'Last Move（手册3-47）：回到上一次移动前的坐标（再按一次回到移动后的坐标）')
+cap('stage.click_center', obj(dict(u=number('1', -1.0, 2.0), v=number('1', -1.0, 2.0))), obj(dict(x_m=number('m'), y_m=number('m'))), dict(u=0.7, v=0.4),
+    ['stage_x', 'stage_y', 'monitor'], 'Click Center与导航XY按钮（手册3-63、5-10）：把图像上（图像分数坐标u向右、v向下）的点移到视场中心——按样品台旋转与扫描旋转换算成X/Y电机移动')
+cap('stage.memory', obj(dict(action=enum(['record', 'move', 'delete']), name=_text(0, 40))), obj(dict(name=TEXT, x_m=number('m'), y_m=number('m'))),
+    dict(action='record', name='site_a'), ['stage_x', 'stage_y', 'monitor'],
+    'Memory（手册3-47/48）：Record Current Position登记当前X/Y（名称空时用日期时间）、Move移到登记坐标、删除；最多100条')
+cap('stage.calibrate', obj(dict(axes=enum(['all', 'x', 'y']))), obj(dict(axes=TEXT, correction_m=XY_M)), dict(axes='all'), ['stage_x', 'stage_y'],
+    'Settings–Stage的Calibration（手册3-65）：放气并取下样品后执行，所选轴走到限位再回到交换位，校正坐标偏差（之后示值=真实位置）')
+cap('specimen.set_info', obj(dict(name=_text(0, 40), holder=enum(HOLDERS), height_m=number('m', 0.0, SPECIMEN_MAX_HEIGHT_M))),
+    obj(dict(name=TEXT, holder=TEXT, height_m=number('m'))), dict(name='Zn standard', holder='32mm_multipurpose', height_m=0.003), ['monitor', 'specimen_holder'],
+    '样品信息（换样向导第2步与样品座/高度区，手册3-10、5-13）：样品名、样品座种类与凸出高度（1mm步进）；X/Y电机的软件限位按所选样品座外廓与输入高度计算'
+    '（手册2-7：越过限位线即停并报错），导航区的样品座图画所选样品座；Z/T/R是手动轴，软件不能限位')
+cap('settings.configure', obj(dict(section=enum(list(SETTINGS_FIELDS)), values={'anyOf': list(SETTINGS_SCHEMAS.values())})),
+    obj(dict(section=TEXT, values={'type': 'object'})), dict(section='image_save', values=dict(SETTINGS_DEFAULTS['image_save'], auto_save=True)),
+    ['monitor'], 'Settings图标窗口与照片数据/标签区（手册5-4、3-31–3-56）：扫描组合与拍照模式、ACB联动与目标、样品台（自动聚焦跟踪、帧移动比例）、Eco待机、慢抽气、EOS大束流、'
+    '图像保存、录像、照片数据与标签、视图模式、语言/主题/布局、信号高级设置、倾斜校正、LUT；每节一次写入全部字段')
+cap('presets.configure', obj(dict(window=enum(list(PRESET_WINDOWS)), index=integer(0, 4), value=number('1'))), obj(dict(window=TEXT, presets=array(number('1'), 3, 5))),
+    dict(window='mag', index=2, value=2000.0), ['monitor'],
+    '预设按钮（手册3-23–3-37）：把滑块选定的值拖放到预设按钮上改写该预设（加速电压、P.C.、倍数、WD各5个，压力3个）')
+cap('ui.select', obj(dict(window=enum(['accv', 'pressure']), value=number('1'))), obj(dict(window=TEXT, value=number('1'))),
+    dict(window='accv', value=10000.0), ['monitor'], '加速电压窗口（V）与压力窗口（Pa）的选定值（手册3-23、3-37：预设或滑块选定，Apply才生效）；超出该窗口范围时拒绝')
+cap('vacuum.lv_auto', obj(dict(on=BOOL)), obj(dict(on=BOOL)), dict(on=False), ['lv_valve', 'monitor'],
+    '压力窗口Apply/Stop（手册3-37）：Stop停止自动调压（针阀停在当前开度，压力随之漂移），Apply重新开始按设定值自动调压')
+cap('image.save', obj(dict(name=_text(1, 40))), obj(dict(file=TEXT)), dict(name='site_a'), ['monitor'],
+    'Home–Save（手册3-53，自动保存关时）：把冻结图像或最近的照片按设定格式保存到图像目录')
+cap('image.open', obj(dict(file=_text(0, 120))), obj(dict(file=nullable(TEXT))), dict(file='Image_0001.tif'), ['monitor'],
+    'Home–Open（手册5-3）：在主屏上打开已保存的图像文件（空名关闭，回到实时图像）')
+cap('image.copy', obj({}), obj(dict(source=TEXT)), {}, ['monitor'], 'Home–Copy（手册5-3）：把当前图像登记到剪贴板')
+cap('image.anaglyph', obj(dict(left_file=_text(1, 120), right_file=_text(1, 120))), obj(dict(file=TEXT, tilt_difference_rad=number('rad'))),
+    dict(left_file='Image_0001.tif', right_file='Image_0002.tif'), ['monitor'],
+    'Home–3D Imaging（手册5-3）：由两张倾斜角不同（≥1°）的图像生成红/青立体图文件（3D测量软件为选配，不提供）')
+cap('movie.record', obj(dict(on=BOOL)), obj(dict(recording=BOOL, file=nullable(TEXT))), dict(on=True), ['monitor'],
+    'Home–Movie（手册3-56）：录制实时图像（640×480，按设定帧率）；全屏视图下不能录，录制中不能切换视图；停止时生成yyyymmddhhmmss_0000.avi文件')
+cap('snapshot.take', obj(dict(file=_text(0, 120))), obj(dict(source=TEXT)), dict(file=''), ['monitor'],
+    'Snap Shot的Snap图标与打开文件图标（手册3-55、5-12）：把主屏的实时或冻结图像（file为空）或已保存的图像文件连同观察条件贴到快照区')
+cap('snapshot.reproduce', obj({k: BOOL for k in ('accv', 'pc', 'mag', 'wd', 'signal', 'stage')}), obj(dict(applied=array(TEXT, 0, 6))),
+    dict(accv=True, pc=False, mag=True, wd=False, signal=False, stage=False), ['monitor'], '快照的条件再现图标（手册5-12）：勾选要再现的条件（加速电压、P.C.、倍数、WD、信号、样品台坐标）后Apply')
+cap('snapshot.save', obj({}), obj(dict(file=TEXT)), {}, ['monitor'], '从快照保存图像（手册3-55）：保存到快照目录')
+cap('measure.ruler', obj(dict(u1=UV, v1=UV, u2=UV, v2=UV)), obj(dict(distance_m=number('m'), angle_deg=number('deg'))), dict(u1=0.25, v1=0.5, u2=0.75, v2=0.5),
+    ['monitor'], 'Home–Ruler（手册5-3）：在主屏图像上量两点距离与连线角度（按显示图像的视场宽度换算）；保留最近20条')
+cap('eds.transfer_image', obj({}), obj(dict(source=TEXT)), {}, ['monitor', 'eds_finger'], 'Home–Transfer image（手册5-3）：把当前视场图像传到EDS分析窗口作参考图')
+cap('user.manage', obj(dict(action=enum(['add', 'switch']), name=_text(1, 30))), obj(dict(user=TEXT, users=array(TEXT, 1, 50))), dict(action='add', name='guest'),
+    ['monitor'], 'Settings–User（手册5-4）：登录/切换用户（新用户的数据目录E:/DATA/IT200/<用户>，Iowa State）')
+
 # ---------------------------------------------------------------- state slots
 SLOTS = {}
 
@@ -1289,7 +1490,9 @@ slot('clock.time_s', number('s'), 's', 'derived', 'cabinet_body', '宿主时钟�
 slot('plant.configured', BOOL, '1', 'derived', 'cabinet_body', '实验室条件已声明')
 slot('power.enabled', BOOL, '1', 'derived', 'key_main_power', '整机通电（钥匙在ON/START）')
 slot('system.state', enum(STATES), '1', 'derived', 'monitor', '软件状态：off/booting（约60s加载）/ready/shutdown（已软件关机，等待钥匙OFF）')
-slot('system.error_code', nullable(TEXT), '1', 'derived', 'monitor', '待确认的错误代码（EVAC_TIMEOUT、FILAMENT_BURNOUT、HT_TRIP、MAINS_FAULT）；无为null')
+slot('system.error_code', nullable(TEXT), '1', 'derived', 'monitor', '待确认的错误代码（EVAC_TIMEOUT、FILAMENT_BURNOUT、HT_TRIP、MAINS_FAULT；1.2.0起还有评测者注入的'
+     'STAGE_DRIVER_OVERHEAT、STAGE_MECHANICAL_LIMIT、STAGE_MOTOR_FAILURE、STAGE_LENS_CONTACT、LV_PRESSURE_ADJUST_FAILED、FILAMENT_FAILURE）；无为null')
+slot('fault.injected', array(TEXT, 0, 7), '1', 'setpoint', 'monitor', '评测者注入且尚未消除的硬件故障原因（fault.inject，1.2.0）', 'evaluator')
 slot('vacuum.mode', enum(['HV', 'LV']), '1', 'setpoint', 'button_lv', '真空模式：HV高真空或LV低真空')
 slot('vacuum.state', enum(VAC_STATES), '1', 'derived', 'vacuum_valve_block',
      '真空系统状态：vented已放气/venting放气中/roughing粗抽/hv_pumping涡轮泵抽高真空/hv_ready高真空就绪/lv_pumping与lv_ready低真空/idle断电后停泵')
@@ -1322,7 +1525,7 @@ slot('scan.field_width_m', number('m'), 'm', 'derived', 'scan_coil_section', '�
 slot('optics.focus_wd_m', number('m'), 'm', 'setpoint', 'objective_lens', '物镜聚焦的工作距离（屏上WD读数；聚焦后接近样品实际WD）')
 slot('optics.astigmatism_corrected', BOOL, '1', 'derived', 'scan_coil_section', '当前电压/灯丝下已做过自动消像散')
 slot('optics.acb_done', BOOL, '1', 'derived', 'monitor', '当前条件下已做过自动衬度/亮度')
-slot('detector.selected', enum(['SED', 'BED_COMPO', 'BED_TOPO', 'BED_SHADOW']), '1', 'setpoint', 'bse_detector', '当前成像探测器')
+slot('detector.selected', enum(['SED', 'REF', 'BED_COMPO', 'BED_TOPO', 'BED_SHADOW']), '1', 'setpoint', 'bse_detector', '当前成像探测器')
 slot('acquisition.id', nullable(TEXT), '1', 'derived', 'monitor', '进行中的采集（图像或EDS）ID；无或属于另一个agent时为null')
 slot('acquisition.kind', nullable(enum(['image', 'eds'])), '1', 'derived', 'monitor', '进行中采集的种类；无为null')
 slot('acquisition.progress', nullable(number('1', 0.0, 1.0)), '1', 'derived', 'monitor', '进行中采集的进度（0–1）；无为null')
@@ -1351,6 +1554,24 @@ for _k, _u, _c, _m in [('truth.chamber_pressure_pa', 'Pa', 'chamber_body', '样�
                        ('truth.specimen_charge_c', 'C', 'specimen_holder', '绝缘样品表面累积的电荷')]:
     slot(_k, number(_u), _u, 'process_truth', _c, _m, 'evaluator', ABS if _u == 'Pa' else None)
 slot('truth.specimens', {'type': 'object', 'additionalProperties': {'type': 'object'}}, '1', 'process_truth', 'specimen_holder', '各样品的真实组成、形貌、镀膜与位置', 'evaluator')
+# SEM Operation (front panel 1.1.0)
+slot('beam.blanked', BOOL, '1', 'setpoint', 'electron_gun', 'Beam Blanking开着：电子束被偏转，不到达样品')
+slot('beam.probe_current_pc', number('1'), '1', 'derived', 'monitor', '照片数据的P.C.值（标准模式1pA–30nA、大束流模式10pA–0.3µA对数刻度上的1–99；直接设定的电流可落在刻度外）')
+slot('scan.mode', enum(['RDC', 'FAST', 'SLOW', 'FREEZE']), '1', 'setpoint', 'scan_coil_section', '实时扫描模式（Freeze时电子束消隐，拍照或EDS时恢复）')
+slot('scan.charge_free', BOOL, '1', 'setpoint', 'scan_coil_section', 'CF图标开着（Slow与拍照时降低荷电速率）')
+slot('scan.rotation_rad', number('rad', 0.0, 2 * math.pi), 'rad', 'setpoint', 'scan_coil_section', '扫描旋转SRT角度')
+slot('optics.stigmator_m', XY_M, 'm', 'setpoint', 'objective_lens', '消像散器X/Y设定（等效模糊）')
+slot('optics.image_adjust', obj(dict(brightness=number('1'), contrast=number('1'), suppress=number('1'))), '1', 'setpoint', 'monitor',
+     '手动亮度、衬度与BED Suppress（0–1；0.5为ACB设定处）')
+slot('optics.beam_shift_m', XY_M, 'm', 'setpoint', 'scan_coil_section', '电子束位移X/Y（扫描坐标，±10µm限位）')
+slot('optics.wobbler_on', BOOL, '1', 'setpoint', 'objective_lens', 'Wobbler开着')
+slot('aperture.position_m', XY_M, 'm', 'setpoint', 'objective_aperture_drive', '可动物镜光阑X/Y微调旋钮位置')
+slot('gun.settings', GUN_STATE, '1', 'derived', 'gun_alignment', '电子枪窗口设定（AGC/AFS完成时由自动调整改写）：灯丝加热条（0.6为饱和点）、栅偏压粗/细、对中Shift/Tilt X/Y、auto（观察开始时自动调整）或manual')
+slot('gun.auto_adjust', nullable(enum(['AGC', 'AFS'])), '1', 'derived', 'gun_alignment', '正在进行的自动调整（AGC/AFS，约30s）；无为null')
+slot('operation.state', {'type': 'object'}, '1', 'derived', 'monitor',
+     'SEM Operation软件的设置与数据：settings（各设置窗口）、presets、selected、files（保存的文件）、memory（坐标记忆）、snapshot、measurements、movie、specimen、users/user、viewer、'
+     'clipboard、eds_image、gun_bias、last_move、calibrated_s')
+slot('truth.alignment_error', ALIGN_ERR, '1', 'process_truth', 'gun_alignment', '误差参数：电子枪对中、可动光阑偏离光轴、样品台坐标偏差（默认0=理想）', 'evaluator')
 
 
 class _Sum:
@@ -1382,7 +1603,927 @@ def quantize_kv(v):
     return round(round(v / step) * step, 6)
 
 
-class JeolJsmit200Runtime:
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.jeol_jsmit200 (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+if os.environ.get('JSMIT200_PANEL_BUILD'):                                   # spec builder: runtime constants without the spec being written
+    PANEL_SPEC, _PANEL_DEFS = None, {}
+else:
+    PANEL_SPEC = _panel_ui.load_spec(ASSET / 'panel_ui.json', capabilities=set(CAPS))
+    _PANEL_DEFS = _panel_ui.capability_definitions(PANEL_SPEC)               # panel.press / turn / switch / touch / capture / frame
+PANEL_CAPS = {k: dict(input_schema=d['input_schema'], output_schema=d['output_schema'], example_arguments=d['example_arguments'],
+                      component_ids=list(d['component_ids']), function_zh=d['function_zh'], visibility=d['visibility'], kind=d['kind'], effects=[])
+              for k, d in _PANEL_DEFS.items()}                              # kept out of CAPS: CAPS stays the instrument's command set
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)
+_ACB_INTERLOCK = {'beam.set_voltage', 'beam.set_probe_current', 'beam.set_pc', 'detector.select', 'recipe.execute'}
+
+
+class _SemOperation:
+    """SEM Operation (InTouchScope UI) functions beyond the basic commands: beam blanking, scan modes / rotation, manual stigmator, brightness /
+    contrast, beam shift, wobbler and the movable aperture, the electron gun window (AGC / AFS, heating, bias, alignment), P.C. scale and EOS high
+    current mode, recipes, stage memory / last move / click center / calibration, the Settings windows, files, movie, snapshot, ruler, users.
+    Error parameters (gun alignment, aperture offset, stage coordinates) default to 0 (ideal) and are found back by the documented procedures."""
+
+    def _init_operation(self):
+        self.blanked = False
+        self.scan_mode, self.charge_free, self.srt = 'FAST', False, 0.0
+        self.stig = getattr(self, 'stig', [0.0, 0.0])
+        self.image_adjust = dict(brightness=0.5, contrast=0.5, suppress=0.5)
+        self.beam_shift = [0.0, 0.0]
+        self.wobbler = False
+        self.aperture = [0.0, 0.0]
+        self.gun = dict(heating=GUN_SAT_POS, bias_coarse=50.0, bias_fine=50.0, shift_x=0.0, shift_y=0.0, tilt_x=0.0, tilt_y=0.0)
+        self.gun_mode = 'auto'
+        self.gun_auto = None
+        self.align_err = dict(gun_shift_x=0.0, gun_shift_y=0.0, gun_tilt_x=0.0, gun_tilt_y=0.0, aperture_x_m=0.0, aperture_y_m=0.0, stage_x_m=0.0, stage_y_m=0.0)
+        self.stage_cal = [0.0, 0.0]
+        self.last_op_s = 0.0
+        self.frozen = None
+        self.file_seq = 0
+        self._thumbs = {}
+        self._live_cache = None
+        self._slow_prev = None                   # Slow scan: the screen before the last condition change and when the repaint began
+        self.sem_ui = dict(settings=copy.deepcopy(SETTINGS_DEFAULTS), presets={k: list(v[1]) for k, v in PRESET_WINDOWS.items()}, selected=dict(accv=None, pressure=None), lv_auto=True,
+                           files=[], memory=[], snapshot=None, measurements=[], movie=None, specimen=dict(name='', holder=HOLDERS[0], height_m=0.0),
+                           users=['user'], user='user', viewer=None, clipboard=None, eds_image=None, gun_bias={}, last_move=None, calibrated_s=None)
+
+    # ---- residual astigmatism: a vector (intrinsic astigmatism minus the stigmator); the commands above set its magnitude
+    @property
+    def astig(self):
+        return self._astig_r
+
+    @astig.setter
+    def astig(self, r):
+        self._astig_r = float(r)
+        if getattr(self, '_astig_dir', None) is None:
+            self._astig_dir = (math.cos(0.6), math.sin(0.6))
+
+    def _set_stig(self, x, y):
+        rx = self._astig_r * self._astig_dir[0] + self.stig[0] - x
+        ry = self._astig_r * self._astig_dir[1] + self.stig[1] - y
+        self.stig = [float(x), float(y)]
+        r = math.hypot(rx, ry)
+        self._astig_r = r
+        if r > 0.0:
+            self._astig_dir = (rx / r, ry / r)
+
+    # ---- beam current factors (exactly 1 at the defaults)
+    def _beam_blanked(self):
+        return self.blanked or (self.scan_mode == 'FREEZE' and self.acq is None)
+
+    def _emission_factor(self):
+        """Filament heating against the saturation point (a W hairpin shows a false peak at about half of it) and the gun bias (load current)."""
+        g = self.gun
+        x = g['heating'] / GUN_SAT_POS
+        e = 1.0 if x >= 1.0 else max(x ** 3, 0.6 * math.exp(-((x - 0.5) / 0.08) ** 2))
+        return e * 2.0 ** (-(g['bias_coarse'] - 50.0) / BIAS_COARSE_OCTAVE - (g['bias_fine'] - 50.0) / BIAS_FINE_OCTAVE)
+
+    def _aperture_offset(self):
+        return math.hypot(self.aperture[0] - self.align_err['aperture_x_m'], self.aperture[1] - self.align_err['aperture_y_m'])
+
+    def _align_factor(self):
+        g, e = self.gun, self.align_err
+        d2 = sum((g[k] - e['gun_' + k]) ** 2 for k in ('shift_x', 'shift_y', 'tilt_x', 'tilt_y'))
+        return math.exp(-d2 / GUN_ALIGN_WIDTH ** 2 - (self._aperture_offset() / APERTURE_TOL_M) ** 2)
+
+    def _gun_factor(self):
+        return 0.0 if self._beam_blanked() else self._emission_factor() * self._align_factor()
+
+    def _wear_factor(self):
+        x = self.gun['heating'] / GUN_SAT_POS
+        return 1.0 if x <= 1.0 else 1.0 + OVERHEAT_WEAR * (x - 1.0)
+
+    def _extra_blur(self, alpha):
+        """Off-axis aperture blur and the focus swing of a running wobbler (0 at the defaults)."""
+        b = APERTURE_BLUR * self._aperture_offset()
+        w = 2.0 * alpha * WOBBLE_DEFOCUS_M if self.wobbler else 0.0
+        return math.hypot(b, w)
+
+    def _scan_angle(self):
+        return -self.stage['rot'] if self.srt == 0.0 else -self.stage['rot'] + self.srt
+
+    def _charging_factor(self):
+        scanning_cf = self.scan_mode == 'SLOW' or (self.acq is not None and self.acq['kind'] == 'image')
+        return CF_CHARGING if (self.charge_free and scanning_cf) else 1.0
+
+    def _slow_leak_factor(self):
+        return SLOW_LEAK_FACTOR if (self.sem_ui['settings']['vacuum']['slow_leak'] and self.p_ch > SLOW_LEAK_UNTIL_PA) else 1.0
+
+    def _stage_error(self):
+        return self.align_err['stage_x_m'] - self.stage_cal[0], self.align_err['stage_y_m'] - self.stage_cal[1]
+
+    def _stage_ind(self, i):
+        e = self._stage_error()[i]
+        v = self.stage['xy'[i]]
+        return v + e if e else v
+
+    def _grey(self, g):
+        """Grey level after the manual adjustments and the signal settings (identity at the defaults)."""
+        a, sg = self.image_adjust, self.sem_ui['settings']['signal']
+        bed = self.detector not in ('SED', 'REF')
+        if a['brightness'] == 0.5 and a['contrast'] == 0.5 and (a['suppress'] == 0.5 or not bed) and not sg['sed_filter'] \
+                and sg['bed_gain'] == 'standard' and (sg['shadow_level'] == 0.5 or self.detector != 'BED_SHADOW'):
+            return g
+        if bed and sg['bed_gain'] == 'analysis':                              # BED Advanced Gain 'Analysis': gain for strong probe currents
+            g = 20.0 + (g - 20.0) * 0.25
+        if self.detector == 'BED_SHADOW':
+            g = 127.5 + (g - 127.5) * 2.0 ** ((sg['shadow_level'] - 0.5) * 2.0)
+        if not bed and sg['sed_filter'] and g > 200.0:                        # SED Advanced Filter: edge-effect highlights compressed
+            g = 200.0 + (g - 200.0) * 0.3
+        g = 127.5 + (g - 127.5) * 2.0 ** ((a['contrast'] - 0.5) * 4.0) + 255.0 * (a['brightness'] - 0.5)
+        if bed:
+            g += 255.0 * (a['suppress'] - 0.5)
+        return g
+
+    def _pc_range(self):
+        return PC_HCM_A if self.sem_ui['settings']['eos']['high_current'] else PC_STD_A
+
+    def _pc_to_a(self, pc):
+        lo, hi = self._pc_range()
+        return min(max(lo * (hi / lo) ** ((float(pc) - 1.0) / 98.0), PROBE_CURRENT_RANGE_A[0]), PROBE_CURRENT_RANGE_A[1])
+
+    def _a_to_pc(self, a):
+        lo, hi = self._pc_range()
+        return 1.0 + 98.0 * math.log(a / lo) / math.log(hi / lo)
+
+    def _date(self, t=None):
+        import datetime
+        return datetime.datetime.fromisoformat(CLOCK_EPOCH) + datetime.timedelta(seconds=int(self.time_s if t is None else t))
+
+    def _need_software(self):
+        self._need_ready(allow_error=True)
+
+    # ---- live image (what the main screen shows): the scan of the present field with the selected speed combination
+    def _live_scan(self):
+        """The live scan of the present mode (Settings - Scan, manual 3-32/33): pixel format, frame time and integrated frames (the Frame
+        Integration Coefficient averages RDC / Fast frames; Slow shows single frames).  Freeze keeps the Fast entry (nothing is scanned)."""
+        st = self.sem_ui['settings']['scan']
+        mode = self.scan_mode if self.scan_mode in SCAN_SPEEDS else 'FAST'
+        px, t = SCAN_SPEEDS[mode][st[mode.lower()] - 1]
+        return dict(mode=mode, pixels=px, frame_time_s=t, frames=1 if mode == 'SLOW' else int(st['frames']))
+
+    def _live_frame(self):
+        """The live frame of the present state: the noise-free signal plus the shot / amplifier noise of one thumbnail pixel of the selected
+        scan (full-resolution pixel noise at the dwell frame time / pixels, over sqrt(pixels per thumbnail pixel x integrated frames)); the
+        noise pattern is drawn per instrument cycle from the plant noise seed (reproducible renders, the photo random stream untouched)."""
+        if not (self.power and self.state == 'ready' and self._vac_ready() and self._beam_ready()):
+            return None
+        if self.scan_mode == 'FREEZE' and self.acq is None:
+            return self.frozen
+        key = (self.revision, self.time_ns)
+        if self._live_cache is not None and self._live_cache[0] == key:
+            return self._live_cache[1]
+        if self._beam_blanked() or self._probe_current() <= 0.0:
+            rows = [[0] * THUMB_W for _ in range(THUMB_H)]
+        else:
+            sc = self._live_scan()
+            nx, ny = PIXEL_FORMATS[sc['pixels']]
+            fr = self._frame_signals(dwell=sc['frame_time_s'] / (nx * ny), nx=nx, ny=ny, noise=False)
+            acb = self.acb if (self.acb and self.acb['detector'] == self.detector) else dict(gain=255.0 / (0.3 * 1e-10 / E_CHARGE), offset=0.0)
+            sigma = {r['key']: r['sigma'] for r in fr['regions']}
+            k = 1.0 / math.sqrt(max(fr['n_avg'], 1.0) * sc['frames'])
+            z = np.random.default_rng([int(self.plant['noise_seed']) if self.plant else 0, self.time_ns // CYCLE_NS, 151]).standard_normal((THUMB_H, THUMB_W))
+            sig = fr['pixel_signal']
+            rows = [[int(min(255, max(0, round(self._grey(acb['offset'] + acb['gain'] * (float(sig[j, i]) + sigma.get(fr['keys'][j, i], 0.0) * k * z[j, i]))))))
+                     for i in range(THUMB_W)] for j in range(THUMB_H)]
+        self._live_cache = (key, rows)
+        return rows
+
+    def _screen_live(self):
+        """What the main screen shows of the live scan.  Fast / RDC frames (0.075-1 s) refresh within one instrument cycle.  A Slow frame
+        takes 10-40 s: after a condition change the image is repainted from the top, so the rows below the scan line still show the screen
+        of before the change until one frame time has passed (time-driven changes such as stage travel appear at once)."""
+        live = self._live_frame()
+        prev = self._slow_prev
+        if live is None or prev is None or prev['rows'] is None or self.scan_mode != 'SLOW' or self.acq is not None:
+            return live
+        frac = (self.time_s - prev['t0']) / self._live_scan()['frame_time_s']
+        if frac >= 1.0:
+            return live
+        n = max(0, int(frac * THUMB_H))
+        return [list(r) for r in live[:n]] + [list(r) for r in prev['rows'][n:]]
+
+    def _slow_hold(self):
+        """Before a command in the Slow scan: keep what the screen shows now; the new state is painted over it from the top."""
+        shown = self._screen_live()
+        self._slow_prev = dict(rows=None if shown is None else [list(r) for r in shown], t0=self.time_s)
+
+    def _y_div(self):
+        """Screen-height divisor of the scan on the specimen: a tilted surface is foreshortened by cos(tilt) (the frame covers 1/cos(tilt)
+        more specimen along Y); Tilt Mag correction (manual 4-14) shrinks the Y scan by cos(correction angle).  1 / cos(tilt) at 0."""
+        k_tm = max(math.cos(math.radians(self.sem_ui['settings']['tilt_correction']['tilt_mag_deg'])), 0.05)
+        return max(math.cos(self.stage['tilt']), 0.05) / k_tm
+
+    def _focus_gradient(self):
+        """Defocus per metre of projected scan deflection (screen x, screen y) on a tilted specimen: the surface rises by tan(tilt) along the
+        tilt direction (screen y at scan rotation 0, turned with the scan rotation); Dynamic Focus (manual 4-13) ramps the focus by
+        tan(correction angle) along the scan y.  (0, 0) on a flat stage without correction."""
+        t = max(min(self.stage['tilt'], math.radians(89.0)), -math.radians(89.0))
+        b = math.radians(min(self.sem_ui['settings']['tilt_correction']['dynamic_focus_deg'], 89.0))
+        tt = math.tan(t)
+        return tt * math.sin(self.srt), tt * math.cos(self.srt) - math.tan(b)
+
+    def _shown_image(self):
+        """What a Save / Copy / Snap / Ruler acts on: the frozen frame in Freeze, else the latest completed photo, else the live frame."""
+        if self.scan_mode == 'FREEZE' and self.frozen is not None:
+            return dict(source='freeze', thumbnail=self.frozen, field_width_m=PRINT_WIDTH_M / self.mag, image_id=None)
+        last = max((r for r in self.images.values() if r['status'] == 'completed'), key=lambda r: r['finished_s'], default=None)
+        if last is not None:
+            return dict(source=last['image_id'], thumbnail=last['thumbnail'], field_width_m=last['field_of_view_m'][0], image_id=last['image_id'])
+        live = self._screen_live()
+        if live is not None:
+            return dict(source='live', thumbnail=live, field_width_m=PRINT_WIDTH_M / self.mag, image_id=None)
+        raise ActionRejected('NO_IMAGE')
+
+    def _conditions(self):
+        return dict(accv=self.kv, pc=round(self._a_to_pc(self.ip_set), 1), mag=self.mag, wd=self.focus_wd, signal=self.detector,
+                    stage=[self.stage_target['x'] + self._stage_error()[0], self.stage_target['y'] + self._stage_error()[1]])
+
+    def _add_file(self, folder, name, kind, thumbnail=None, image_id=None, **extra):
+        files = self.sem_ui['files']
+        if len(files) >= MAX_FILES:
+            raise ActionRejected('FILES_FULL')
+        self.file_seq += 1
+        entry = dict(file=name, folder=folder, kind=kind, image_id=image_id, user=self.sem_ui['user'], time_s=self.time_s,
+                     date=self._date().strftime('%Y-%m-%d %H:%M:%S'), **extra)
+        files.append(entry)
+        if thumbnail is not None:
+            self._thumbs[name] = [list(r) for r in thumbnail]
+        return entry
+
+    def _photo_name(self, base):
+        st = self.sem_ui['settings']['image_save']
+        ext = {'TIFF': 'tif', 'JPEG': 'jpg', 'BMP': 'bmp'}[st['format']]
+        name = f"{base}_{st['number']:04d}.{ext}"
+        st['number'] = min(st['number'] + 1, 99999)
+        return name
+
+    def _photo_data(self):
+        pd = self.sem_ui['settings']['photo_data']
+        out = dict(accv_kv=self.kv / 1000.0, wd_mm=round(self.focus_wd * 1000.0, 1), pc=round(self._a_to_pc(self.ip_set), 1), mag=self.mag, signal=self.detector,
+                   vacuum=self.vac_mode, label=pd['label'])
+        if pd['show_date']:
+            out['date'] = self._date().strftime('%Y-%m-%d %H:%M')
+        return out
+
+    def _auto_save(self, rec):
+        """Photo completed: with Auto Save on, the image goes to the image folder (manual 3-31 / 3-50)."""
+        st = self.sem_ui['settings']['image_save']
+        rec['_stage'] = dict(tilt_rad=self.stage['tilt'], x_m=self.stage['x'], y_m=self.stage['y'])
+        rec['_tilt_correction'] = dict(self.sem_ui['settings']['tilt_correction'])
+        if st['auto_save'] and len(self.sem_ui['files']) < MAX_FILES:
+            self._add_file(st['folder'], self._photo_name(st['file_name']), 'image', image_id=rec['image_id'], format=st['format'],
+                           photo_data=self._photo_data() if st['insert_photo_data'] else None, lut=dict(self.sem_ui['settings']['lut']))
+
+    def _acb_interlock(self):
+        if (self.sem_ui['settings']['auto']['acb_interlock'] and self.state == 'ready' and self.error is None and self.acq is None and self._vac_ready()
+                and self._beam_ready()):
+            self._cmd_optics_auto_contrast_brightness()
+
+    def _operation_tick(self, t):
+        ga = self.gun_auto
+        if ga is not None:
+            if not self._beam_ready() or self.vac_mode == 'LV':
+                self.gun_auto = None
+                self._event('gun', 'GUN_AUTO_ABORTED', '电子束关闭或切换到LV：自动灯丝调整中止')
+            elif t >= ga['t_end'] - 1e-9:
+                self.gun['heating'] = GUN_SAT_POS
+                if ga['mode'] == 'AGC':
+                    for k in ('shift_x', 'shift_y', 'tilt_x', 'tilt_y'):
+                        self.gun[k] = self.align_err['gun_' + k]
+                self.gun_mode, self.gun_auto = 'auto', None
+                self._event('gun', ga['mode'] + '_DONE', ('AGC完成：灯丝加热到饱和并自动对中' if ga['mode'] == 'AGC' else 'AFS完成：灯丝加热到饱和'))
+        eco = self.sem_ui['settings']['eco']
+        if eco['enabled'] and self.ht and self.acq is None and t - self.last_op_s >= eco['minutes'] * 60.0 - 1e-9:
+            self.ht = False
+            self._event('gun', 'ECO_STANDBY', f'Eco：{eco["minutes"]}min无操作，停止观察（高压关闭）')
+
+    # ---- commands
+    def _cmd_beam_blank(self, on):
+        self._need_ready()
+        self.blanked = bool(on)
+        return dict(blanked=self.blanked)
+
+    def _cmd_beam_set_pc(self, pc):
+        self._cmd_beam_set_probe_current(self._pc_to_a(pc))
+        return dict(pc=round(self._a_to_pc(self.ip_set), 1), current_a=self.ip_set)
+
+    def _cmd_scan_set_mode(self, mode, charge_free):
+        self._need_ready()
+        self._need_idle()
+        if mode == 'FREEZE' and self.scan_mode != 'FREEZE':
+            self.frozen = self._screen_live()
+        elif mode != 'FREEZE':
+            self.frozen = None
+        if mode != 'SLOW':
+            self._slow_prev = None
+        self.scan_mode, self.charge_free = mode, bool(charge_free)
+        return dict(mode=self.scan_mode, charge_free=self.charge_free)
+
+    def _cmd_scan_set_rotation(self, rotation_rad):
+        self._need_ready()
+        self._need_idle()
+        self.srt = float(rotation_rad) % (2 * math.pi)
+        return dict(rotation_rad=self.srt)
+
+    def _cmd_scan_rotate_to_line(self, u1, v1, u2, v2, orientation):
+        self._need_ready()
+        self._need_idle()
+        dx, dy = (u2 - u1) * 4.0, (v1 - v2) * 3.0                            # 4:3 frame, image y up
+        if math.hypot(dx, dy) < 1e-6:
+            raise ActionRejected('INVALID_ARGUMENT')
+        a = math.atan2(dy, dx) - (math.pi / 2 if orientation == 'vertical' else 0.0)
+        return self._cmd_scan_set_rotation((self.srt + a) % (2 * math.pi))
+
+    def _cmd_optics_set_stigmator(self, x_m, y_m):
+        self._need_ready()
+        self._need_idle()
+        self._set_stig(x_m, y_m)
+        self.astig_ok = self.astig <= 2e-9
+        return dict(x_m=self.stig[0], y_m=self.stig[1])
+
+    def _cmd_optics_set_image_adjust(self, brightness, contrast, suppress):
+        self._need_ready()
+        self.image_adjust = dict(brightness=float(brightness), contrast=float(contrast), suppress=float(suppress))
+        return dict(self.image_adjust)
+
+    def _cmd_optics_set_beam_shift(self, x_m, y_m):
+        self._need_ready()
+        self._need_idle()
+        lim = BEAM_SHIFT_LIMIT_M
+        x, y = min(max(float(x_m), -lim), lim), min(max(float(y_m), -lim), lim)
+        self.beam_shift = [x, y]
+        return dict(x_m=x, y_m=y, at_limit=abs(x) >= lim - 1e-15 or abs(y) >= lim - 1e-15)
+
+    def _cmd_optics_wobbler(self, on):
+        self._need_ready()
+        self.wobbler = bool(on)
+        return dict(on=self.wobbler)
+
+    def _cmd_aperture_set_position(self, x_m, y_m):
+        self._need_plant()
+        self.aperture = [float(x_m), float(y_m)]
+        return dict(x_m=self.aperture[0], y_m=self.aperture[1])
+
+    def _cmd_gun_auto_adjust(self, mode):
+        self._need_ready()
+        self._need_idle()
+        self._need_beam()
+        if self.vac_mode == 'LV':
+            raise ActionRejected('LV_MODE')
+        if self.gun_auto is not None:
+            raise ActionRejected('GUN_AUTO_RUNNING')
+        self.gun_auto = dict(mode=mode, t_end=self.time_s + GUN_AUTO_S)
+        self._event('gun', mode + '_START', f'{mode}开始（约{GUN_AUTO_S:.0f}s；低于5kV时在5kV执行后恢复）')
+        return dict(mode=mode, done_s=self.gun_auto['t_end'])
+
+    def _cmd_gun_set(self, heating, bias_coarse, bias_fine, shift_x, shift_y, tilt_x, tilt_y):
+        self._need_ready()
+        if self.gun_auto is not None:
+            raise ActionRejected('GUN_AUTO_RUNNING')
+        hot = self.gun['heating'] > GUN_SAT_POS + 1e-9
+        self.gun = dict(heating=float(heating), bias_coarse=float(bias_coarse), bias_fine=float(bias_fine), shift_x=float(shift_x), shift_y=float(shift_y),
+                        tilt_x=float(tilt_x), tilt_y=float(tilt_y))
+        self.gun_mode = 'manual'
+        if self.gun['heating'] > GUN_SAT_POS + 1e-9 and not hot:
+            self._event('warning', 'FILAMENT_OVERHEAT', '灯丝加热条在饱和点右侧（橙色区）：过流缩短灯丝寿命')
+        return dict(self.gun, mode=self.gun_mode)
+
+    def _cmd_gun_bias_memory(self, action):
+        self._need_ready()
+        key = f'{self.kv:.0f}'
+        store = self.sem_ui['gun_bias']
+        if action == 'save':
+            store[key] = [self.gun['bias_coarse'], self.gun['bias_fine']]
+        else:
+            if key not in store:
+                raise ActionRejected('NO_SAVED_BIAS')
+            if self.gun_auto is not None:
+                raise ActionRejected('GUN_AUTO_RUNNING')
+            self.gun['bias_coarse'], self.gun['bias_fine'] = store[key]
+            self.gun_mode = 'manual'
+        return dict(voltage_v=self.kv, bias_coarse=self.gun['bias_coarse'], bias_fine=self.gun['bias_fine'])
+
+    def _cmd_alignment_configure_error(self, **err):
+        self._need_plant()
+        self.align_err = {k: float(v) for k, v in err.items()}
+        return dict(self.align_err)
+
+    def _cmd_recipe_execute(self, category, coated, method, eds):
+        self._need_ready()
+        self._need_idle()
+        r = RECIPES[category]
+        col = 'coated' if coated else method
+        cond = r[col]
+        if cond is None or (eds and r['eds_pc'] is None):
+            raise ActionRejected('RECIPE_NOT_AVAILABLE')
+        lv = col == 'low_vacuum'
+        if lv != (self.vac_mode == 'LV'):
+            self._cmd_vacuum_toggle_lv()
+        if lv:
+            self._cmd_vacuum_set_lv_pressure(cond[2])
+        self._cmd_beam_set_voltage(cond[0])
+        self._cmd_beam_set_pc(r['eds_pc'] if eds else cond[1])
+        self._cmd_detector_select('BED_COMPO' if lv else 'SED')
+        self._event('gun', 'RECIPE', f'Recipe {category}（{col}{"+EDS" if eds else ""}）：{self.kv / 1000:.1f}kV、P.C.{self._a_to_pc(self.ip_set):.0f}、{self.detector}')
+        return dict(voltage_v=self.kv, pc=round(self._a_to_pc(self.ip_set), 1), detector=self.detector, vacuum_mode=self.vac_mode,
+                    lv_pressure_pa=self.lv_set if lv else None)
+
+    def _cmd_stage_stop(self):
+        self._need_power()
+        self.stage_target['x'], self.stage_target['y'] = self.stage['x'], self.stage['y']
+        ex, ey = self._stage_error()
+        return dict(x_m=self.stage['x'] + ex, y_m=self.stage['y'] + ey)
+
+    def _cmd_stage_last_move(self):
+        last = self.sem_ui['last_move']
+        if last is None:
+            raise ActionRejected('NO_LAST_MOVE')
+        return self._cmd_stage_move_xy(last[0], last[1])
+
+    def _cmd_stage_click_center(self, u, v):
+        fw = PRINT_WIDTH_M / self.mag
+        xs, ys = (u - 0.5) * fw, (0.5 - v) * 0.75 * fw / self._y_div()
+        th = self._scan_angle()
+        du, dv = math.cos(th) * xs - math.sin(th) * ys, math.sin(th) * xs + math.cos(th) * ys
+        r = self.stage['rot']
+        ex, ey = self._stage_error()
+        x = self.stage_target['x'] + ex - (math.cos(r) * du - math.sin(r) * dv)
+        y = self.stage_target['y'] + ey - (math.sin(r) * du + math.cos(r) * dv)
+        return self._cmd_stage_move_xy(min(max(x, STAGE_X_RANGE_M[0]), STAGE_X_RANGE_M[1]), min(max(y, STAGE_Y_RANGE_M[0]), STAGE_Y_RANGE_M[1]))
+
+    def _cmd_stage_memory(self, action, name):
+        self._need_software()
+        mem = self.sem_ui['memory']
+        if action == 'record':
+            if len(mem) >= MAX_MEMORY:
+                raise ActionRejected('MEMORY_FULL')
+            ex, ey = self._stage_error()
+            entry = dict(name=name or self._date().strftime('%Y%m%d_%H%M%S'), x_m=round(self.stage['x'] + ex, 7), y_m=round(self.stage['y'] + ey, 7))
+            mem[:] = [m for m in mem if m['name'] != entry['name']] + [entry]
+            return dict(entry)
+        entry = next((m for m in mem if m['name'] == name), None)
+        if entry is None:
+            raise ActionRejected('UNKNOWN_MEMORY')
+        if action == 'move':
+            self._cmd_stage_move_xy(entry['x_m'], entry['y_m'])
+        else:
+            mem.remove(entry)
+        return dict(entry)
+
+    def _cmd_stage_calibrate(self, axes):
+        self._need_ready()
+        self._need_idle()
+        if not self._at_atmosphere():
+            raise ActionRejected('VENT_REQUIRED')
+        if self.loaded is not None:
+            raise ActionRejected('HOLDER_OCCUPIED')
+        other = next((f for f in STAGE_FAULTS if f in self.faults and f != 'stage_motor_failure'), None)
+        if other is not None:
+            raise ActionRejected(JSM_FAULTS[other])                         # motors inoperable: contact JEOL / check for damage
+        if axes == 'all' and 'stage_motor_failure' in self.faults:         # manual 3.14 (0250): vent, then the initialization of all axes
+            self.faults.remove('stage_motor_failure')
+        for i, ax in enumerate('xy'):
+            if axes in ('all', ax):
+                self.stage_cal[i] = self.align_err[f'stage_{ax}_m']
+                self.stage_target[ax] = 0.0
+        self.sem_ui['calibrated_s'] = self.time_s
+        self._event('stage', 'STAGE_CALIBRATED', f'样品台校准（{axes}）：坐标偏差已校正，回到交换位')
+        return dict(axes=axes, correction_m=list(self.stage_cal))
+
+    def _cmd_specimen_set_info(self, name, holder, height_m):
+        self._need_software()
+        self.sem_ui['specimen'] = dict(name=name, holder=holder, height_m=round(float(height_m), 3))
+        return dict(self.sem_ui['specimen'])
+
+    def _cmd_settings_configure(self, section, values):
+        self._need_software()
+        validate(SETTINGS_SCHEMAS[section], values)
+        st = self.sem_ui['settings']
+        if section == 'view' and self.sem_ui['movie'] is not None and values['mode'] != st['view']['mode']:
+            raise ActionRejected('MOVIE_RECORDING')
+        if section == 'eos' and values['high_current'] != st['eos']['high_current']:
+            self._need_idle()
+            pc = self._a_to_pc(self.ip_set)
+            st['eos'] = dict(values)
+            self.ip_set = self._pc_to_a(min(max(pc, 1.0), 99.0))
+            self.acb = None
+        st[section] = copy.deepcopy(values)
+        return dict(section=section, values=copy.deepcopy(values))
+
+    def _cmd_presets_configure(self, window, index, value):
+        self._need_software()
+        (lo, hi), pre = PRESET_WINDOWS[window][0], self.sem_ui['presets'][window]
+        if index >= len(pre) or not lo - 1e-12 <= value <= hi + 1e-12:
+            raise ActionRejected('INVALID_ARGUMENT')
+        pre[index] = quantize_kv(value) if window == 'accv' else float(value)
+        return dict(window=window, presets=list(pre))
+
+    def _cmd_ui_select(self, window, value):
+        self._need_software()
+        lo, hi = KV_RANGE_V if window == 'accv' else LV_RANGE_PA
+        if not lo - 1e-9 <= value <= hi + 1e-9:
+            raise ActionRejected('INVALID_ARGUMENT')
+        self.sem_ui['selected'][window] = quantize_kv(value) if window == 'accv' else float(value)
+        return dict(window=window, value=self.sem_ui['selected'][window])
+
+    def _cmd_vacuum_lv_auto(self, on):
+        self._need_power()
+        if on and 'lv_pressure_adjust' in self.faults:
+            raise ActionRejected('LV_PRESSURE_ADJUST_FAILED')               # Error ID 0351: use the manual adjustment buttons
+        self.sem_ui['lv_auto'] = bool(on)
+        return dict(on=self.sem_ui['lv_auto'])
+
+    def _cmd_image_save(self, name):
+        self._need_software()
+        img = self._shown_image()
+        st = self.sem_ui['settings']['image_save']
+        ext = {'TIFF': 'tif', 'JPEG': 'jpg', 'BMP': 'bmp'}[st['format']]
+        fname = name if '.' in name else f'{name}.{ext}'
+        if any(f['file'] == fname for f in self.sem_ui['files']):
+            raise ActionRejected('FILE_EXISTS')
+        self._add_file(st['folder'], fname, 'image', thumbnail=img['thumbnail'] if img['image_id'] is None else None, image_id=img['image_id'],
+                       format=st['format'], photo_data=self._photo_data() if st['insert_photo_data'] else None, lut=dict(self.sem_ui['settings']['lut']),
+                       field_width_m=img['field_width_m'])
+        return dict(file=fname)
+
+    def _file(self, name):
+        f = next((f for f in self.sem_ui['files'] if f['file'] == name), None)
+        if f is None:
+            raise ActionRejected('UNKNOWN_FILE')
+        return f
+
+    def _file_thumb(self, f):
+        if f['file'] in self._thumbs:
+            return self._thumbs[f['file']]
+        rec = self.images.get(f.get('image_id'))
+        return rec['thumbnail'] if rec else None
+
+    def _cmd_image_open(self, file):
+        self._need_software()
+        if file:
+            self._file(file)
+        self.sem_ui['viewer'] = file or None
+        return dict(file=self.sem_ui['viewer'])
+
+    def _cmd_image_copy(self):
+        self._need_software()
+        if self.sem_ui['viewer']:
+            src = self.sem_ui['viewer']
+        else:
+            src = self._shown_image()['source']
+        self.sem_ui['clipboard'] = src
+        return dict(source=src)
+
+    def _cmd_image_anaglyph(self, left_file, right_file):
+        self._need_software()
+        fl, fr = self._file(left_file), self._file(right_file)
+        rl, rr = self.images.get(fl.get('image_id')), self.images.get(fr.get('image_id'))
+        if rl is None or rr is None or '_stage' not in rl or '_stage' not in rr:
+            raise ActionRejected('TILT_PAIR_REQUIRED')
+        dt = abs(rl['_stage']['tilt_rad'] - rr['_stage']['tilt_rad'])
+        if dt < math.radians(1.0) - 1e-9:
+            raise ActionRejected('TILT_PAIR_REQUIRED')
+        thumb = [[[int(a), int(b), int(b)] for a, b in zip(ra, rb)] for ra, rb in zip(rl['thumbnail'], rr['thumbnail'])]
+        n = sum(1 for f in self.sem_ui['files'] if f['kind'] == 'anaglyph') + 1
+        name = f'Anaglyph_{n:04d}.jpg'
+        self._add_file(self.sem_ui['settings']['image_save']['folder'], name, 'anaglyph', thumbnail=thumb, left=left_file, right=right_file)
+        return dict(file=name, tilt_difference_rad=dt)
+
+    def _cmd_movie_record(self, on):
+        self._need_software()
+        mv = self.sem_ui['movie']
+        if on:
+            if self.sem_ui['settings']['view']['mode'] == 'full_screen':
+                raise ActionRejected('FULL_SCREEN')
+            if self._live_frame() is None:
+                raise ActionRejected('BEAM_NOT_READY')
+            if mv is None:
+                self.sem_ui['movie'] = dict(t0=self.time_s, fps=self.sem_ui['settings']['movie']['fps'], pixels='640x480')
+                self._event('acquisition', 'MOVIE_START', '开始录像（640×480）')
+            return dict(recording=True, file=None)
+        if mv is None:
+            raise ActionRejected('NOT_RECORDING')
+        name = self._date(mv['t0']).strftime('%Y%m%d%H%M%S') + '_0000.avi'
+        dur = self.time_s - mv['t0']
+        self._add_file(self.sem_ui['settings']['movie']['folder'], name, 'movie', duration_s=dur, frames=int(round(dur * mv['fps'])), pixels=mv['pixels'])
+        self.sem_ui['movie'] = None
+        self._event('acquisition', 'MOVIE_SAVED', f'录像已保存：{name}（{dur:.0f}s）')
+        return dict(recording=False, file=name)
+
+    def _cmd_snapshot_take(self, file):
+        self._need_software()
+        if file:
+            f = self._file(file)
+            thumb, rec = self._file_thumb(f), self.images.get(f.get('image_id'))
+            if thumb is None or isinstance(thumb[0][0], list):
+                raise ActionRejected('NO_IMAGE')
+            if f.get('conditions'):
+                cond = copy.deepcopy(f['conditions'])
+            elif rec is not None:
+                ex, ey = self._stage_error()
+                st = rec.get('_stage', dict(x_m=self.stage['x'], y_m=self.stage['y']))
+                cond = dict(accv=rec['accelerating_voltage_v'], pc=round(self._a_to_pc(rec['probe_current_a']), 1), mag=rec['magnification'],
+                            wd=rec['working_distance_m'] or self.focus_wd, signal=rec['detector'], stage=[st['x_m'] + ex, st['y_m'] + ey])
+            else:
+                cond = self._conditions()
+            img = dict(source=file, thumbnail=thumb, field_width_m=f.get('field_width_m') or (rec['field_of_view_m'][0] if rec else PRINT_WIDTH_M / self.mag))
+        else:
+            img, cond = self._shown_image(), self._conditions()
+        self.sem_ui['snapshot'] = dict(source=img['source'], time_s=self.time_s, conditions=cond, field_width_m=img['field_width_m'])
+        self._thumbs['<snapshot>'] = [list(r) for r in img['thumbnail']]
+        return dict(source=img['source'])
+
+    def _cmd_snapshot_reproduce(self, **items):
+        self._need_ready()
+        self._need_idle()
+        snap = self.sem_ui['snapshot']
+        if snap is None:
+            raise ActionRejected('NO_SNAPSHOT')
+        if not any(items.values()):
+            raise ActionRejected('INVALID_ARGUMENT')
+        c, done = snap['conditions'], []
+        for it in ('accv', 'pc', 'mag', 'wd', 'signal', 'stage'):
+            if not items[it]:
+                continue
+            if it == 'accv':
+                self._cmd_beam_set_voltage(c['accv'])
+            elif it == 'pc':
+                self._cmd_beam_set_pc(min(max(c['pc'], 1.0), 99.0))
+            elif it == 'mag':
+                self._cmd_scan_set_magnification(c['mag'])
+            elif it == 'wd':
+                self._cmd_optics_set_focus(c['wd'])
+            elif it == 'signal':
+                self._cmd_detector_select(c['signal'])
+            else:
+                self._cmd_stage_move_xy(c['stage'][0], c['stage'][1])
+            done.append(it)
+        return dict(applied=done)
+
+    def _cmd_snapshot_save(self):
+        self._need_software()
+        snap = self.sem_ui['snapshot']
+        if snap is None:
+            raise ActionRejected('NO_SNAPSHOT')
+        n = sum(1 for f in self.sem_ui['files'] if f['kind'] == 'snapshot') + 1
+        name = f'Snap_{n:04d}.jpg'
+        self._add_file(self.sem_ui['settings']['image_save']['snapshot_folder'], name, 'snapshot', thumbnail=self._thumbs['<snapshot>'],
+                       conditions=copy.deepcopy(snap['conditions']), field_width_m=snap['field_width_m'])
+        return dict(file=name)
+
+    def _cmd_measure_ruler(self, u1, v1, u2, v2):
+        self._need_software()
+        view = self.sem_ui['viewer']
+        if view:
+            f = self._file(view)
+            rec = self.images.get(f.get('image_id'))
+            fw = f.get('field_width_m') or (rec['field_of_view_m'][0] if rec else None)
+            if fw is None:
+                raise ActionRejected('NO_IMAGE')
+        else:
+            if self._live_frame() is None and not (self.scan_mode == 'FREEZE' and self.frozen is not None):
+                raise ActionRejected('NO_IMAGE')
+            fw = PRINT_WIDTH_M / self.mag
+        dx, dy = (u2 - u1) * fw, (v1 - v2) * 0.75 * fw
+        out = dict(distance_m=math.hypot(dx, dy), angle_deg=math.degrees(math.atan2(dy, dx)))
+        ms = self.sem_ui['measurements']
+        ms.append(dict(out, time_s=self.time_s))
+        del ms[:-MAX_MEASUREMENTS]
+        return out
+
+    def _cmd_eds_transfer_image(self):
+        self._need_software()
+        img = self._shown_image()
+        self.sem_ui['eds_image'] = dict(source=img['source'], time_s=self.time_s, field_width_m=img['field_width_m'])
+        self._thumbs['<eds>'] = [list(r) for r in img['thumbnail']]
+        return dict(source=img['source'])
+
+    def _cmd_user_manage(self, action, name):
+        self._need_software()
+        users = self.sem_ui['users']
+        if action == 'add':
+            if name in users:
+                raise ActionRejected('USER_EXISTS')
+            if len(users) >= 50:
+                raise ActionRejected('INVALID_ARGUMENT')
+            users.append(name)
+        elif name not in users:
+            raise ActionRejected('UNKNOWN_USER')
+        self.sem_ui['user'] = name
+        base = f'E:/DATA/IT200/{name}'
+        st = self.sem_ui['settings']
+        st['image_save'].update(folder=base, snapshot_folder=base + '/Snapshot')
+        st['movie']['folder'] = base + '/Movie'
+        return dict(user=name, users=list(users))
+
+    # ---- values the runtime reports
+    def _operation_values(self):
+        ui = copy.deepcopy(self.sem_ui)
+        if ui['movie'] is not None:
+            ui['movie']['elapsed_s'] = self.time_s - ui['movie']['t0']
+        return {'beam.blanked': self.blanked, 'beam.probe_current_pc': round(self._a_to_pc(self.ip_set), 1), 'scan.mode': self.scan_mode,
+                'scan.charge_free': self.charge_free, 'scan.rotation_rad': self.srt, 'optics.stigmator_m': list(self.stig),
+                'optics.image_adjust': dict(self.image_adjust), 'optics.beam_shift_m': list(self.beam_shift), 'optics.wobbler_on': self.wobbler,
+                'aperture.position_m': list(self.aperture), 'gun.settings': dict(self.gun, mode=self.gun_mode),
+                'gun.auto_adjust': self.gun_auto['mode'] if self.gun_auto else None, 'operation.state': ui, 'truth.alignment_error': dict(self.align_err)}
+
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What SEM Operation shows: the agent slots (no process truth) and the pictures it draws (live image, holder graphic, histogram)."""
+        out = self.read('agent')
+        live = self._screen_live() if self.power else None
+        view = self.sem_ui['viewer']
+        vf = next((f for f in self.sem_ui['files'] if f['file'] == view), None) if view else None
+        lut = self.sem_ui['settings']['lut']
+        main = self._file_thumb(vf) if vf else live
+        out.update({
+            'host.powered': self.power, 'host.live': live, 'host.main_image': self._lut_rows(main, lut), 'host.histogram': self._histogram(main),
+            'host.line_profile': None if main is None else [[i, float(v)] for i, v in enumerate(main[len(main) // 2])],
+            'host.holder_graphic': self._holder_graphic(), 'host.snapshot': self._thumbs.get('<snapshot>') if self.sem_ui['snapshot'] else None,
+            'host.wobble_shift_m': WOBBLE_GAIN * self._aperture_offset() if (self.wobbler and self.power) else None,
+            'host.date': self._date().strftime('%Y-%m-%d %H:%M'), 'host.field_width_um': PRINT_WIDTH_M / self.mag * 1e6,
+            'host.progress': {'vented': 'WAIT', 'venting': 'VENT', 'roughing': 'PRE EVAC', 'hv_pumping': 'EVAC', 'lv_pumping': 'EVAC', 'hv_ready': 'READY',
+                              'lv_ready': 'READY', 'idle': 'WAIT'}[self.vac_state],
+            'host.example_file': '{}_{:04d}.{}'.format(self.sem_ui['settings']['image_save']['file_name'], self.sem_ui['settings']['image_save']['number'],
+                                                        {'TIFF': 'tif', 'JPEG': 'jpg', 'BMP': 'bmp'}[self.sem_ui['settings']['image_save']['format']]),
+            'host.version': f'SEM Operation (simulated) / asset {ASSET_VERSION}',
+            'host.micron_bar': self._micron_bar(), 'host.last_photo': self._lut_rows(self._last_photo_rows(), lut), 'host.mix': self._mixed_frame() if (live is not None and not vf) else None,
+            'host.eds_image': self._thumbs.get('<eds>') if self.sem_ui['eds_image'] else None, 'host.last_spectrum': self._last_spectrum(),
+        })
+        return out
+
+    def _micron_bar(self):
+        """Micron bar of the main screen (manual 5-8): the largest 1-2-5 length up to a fifth of the field width."""
+        t = PRINT_WIDTH_M / self.mag / 5.0
+        e = 10.0 ** math.floor(math.log10(t))
+        v = max(k * e for k in (1.0, 2.0, 5.0) if k * e <= t * (1 + 1e-9))
+        for unit, f in (('mm', 1e-3), ('um', 1e-6), ('nm', 1e-9)):
+            if v >= f * (1 - 1e-9):
+                return f'{v / f:g} {unit}'
+        return f'{v / 1e-9:g} nm'
+
+    def _last_photo_rows(self):
+        last = max((r for r in self.images.values() if r['status'] == 'completed'), key=lambda r: r['finished_s'], default=None)
+        return None if last is None else last['thumbnail']
+
+    def _mixed_frame(self):
+        """View mode Signal Mixing (manual 5-5): SED and BED-COMPO live frames, each stretched to 0-255, mixed by the ratio (HV only)."""
+        if self.sem_ui['settings']['view']['mode'] != 'signal_mixing' or self.vac_mode == 'LV' or self._beam_blanked():
+            return None
+        det, frames = self.detector, []
+        try:
+            for d in ('SED', 'BED_COMPO'):
+                self.detector = d
+                sig = self._frame_signals(dwell=1e-5, nx=640, ny=480, noise=False)['pixel_signal']
+                lo, hi = float(sig.min()), float(sig.max())
+                frames.append((sig - lo) / (hi - lo) * 255.0 if hi > lo else sig * 0.0 + 128.0)
+        finally:
+            self.detector = det
+        r = self.sem_ui['settings']['view']['mix_ratio']
+        mix = r * frames[0] + (1.0 - r) * frames[1]
+        return [[int(round(float(v))) for v in row] for row in mix]
+
+    def _last_spectrum(self):
+        done = [r for r in self.spectra.values() if r['status'] == 'completed']
+        if not done:
+            return None
+        rec = max(done, key=lambda r: r['finished_s'])
+        q = self.quants.get(rec['spectrum_id'])
+        return dict(spectrum_id=rec['spectrum_id'], mode=rec['mode'], live_time_s=rec['live_time_s'], dead_time_fraction=rec['dead_time_fraction'],
+                    quant=' '.join(f"{x['element']} {100 * x['mass_fraction']:.1f}" for x in q['results'][:6]) + ' wt%' if q else '')
+
+    @staticmethod
+    def _lut_rows(rows, lut):
+        if rows is None:
+            return None
+        if lut['gamma'] == 1.0 and not lut['pseudo_color']:
+            return rows
+
+        def px(g):
+            if isinstance(g, list):
+                return g
+            x = (g / 255.0) ** (1.0 / lut['gamma']) * 255.0
+            if not lut['pseudo_color']:
+                return int(round(x))
+            return [int(round(min(255.0, 2 * x))), int(round(255 - abs(2 * x - 255))), int(round(max(0.0, 255 - 2 * x)))]
+        return [[px(g) for g in r] for r in rows]
+
+    @staticmethod
+    def _histogram(rows):
+        if not rows or isinstance(rows[0][0], list):
+            return None
+        h = [0] * 16
+        for r in rows:
+            for g in r:
+                h[min(15, int(g) // 16)] += 1
+        return [[i * 16 + 8, n] for i, n in enumerate(h)]
+
+    def _holder_graphic(self):
+        """Specimen holder graphic of the navigator (40 x 40, stage coordinates): holder, specimen and the field of view (bright)."""
+        n, R = 40, HOLDER_RADIUS_M * 1.25
+        r_holder = HOLDER_OUTLINE_R_M[self.sem_ui['specimen']['holder']]       # the graphic of the holder selected in the software
+        spec = self._spec()
+        ex, ey = self._stage_error()
+        bx, by = -(self.stage['x'] + ex), -(self.stage['y'] + ey)                # beam point on the holder (displayed coordinates)
+        rows = []
+        for j in range(n):
+            y = (0.5 - (j + 0.5) / n) * 2 * R
+            row = []
+            for i in range(n):
+                x = ((i + 0.5) / n - 0.5) * 2 * R
+                r = math.hypot(x, y)
+                g = 40 if r > r_holder else 110
+                if spec is not None and r <= spec['diameter_m'] / 2:
+                    g = 170
+                if abs(x - bx) <= R / n and abs(y - by) <= R / n:
+                    g = 255
+                row.append(g)
+            rows.append(row)
+        return rows
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (commands check before they change anything).  An agent's gesture may not
+        invoke a guarded command during another agent's acquisition (ACCESS_DENIED, shown as the device message); navigation is not guarded."""
+        try:
+            if self._foreign_acquisition(capability_id):
+                raise ActionRejected('ACCESS_DENIED')
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.time_s
+
+    def _foreign_acquisition(self, capability_id):
+        """The same rule as the session guard for direct calls: an agent caller may not change another agent's running acquisition."""
+        c = self._caller
+        if c is None or self._principals.get(c) != 'agent' or capability_id not in _CONTROL_GUARDED or self.acq is None:
+            return False
+        if capability_id in ('power.set', 'power.key_toggle') and not self.power:
+            return False
+        owner = self._owners.get(self.acq['record_id'])
+        return owner is not None and owner != c and self._principals.get(owner) == 'agent'
+
+    def _panel_entry(self, capability_id, arguments):
+        """The panel.* commands (the session sends them here, not through the command invoke): validate, run, count the revision of a gesture."""
+        validate(PANEL_CAPS[capability_id]['input_schema'], arguments)
+        out = getattr(self, '_cmd_' + capability_id.replace('.', '_'))(**arguments)
+        if PANEL_CAPS[capability_id]['kind'] == 'device_command':
+            self.revision += 1
+        return out
+
+    def _panel(self, gesture, *args):
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_turn(self, input_id, detents):
+        return self._panel(self.panel.turn, input_id, int(detents))
+
+    def _cmd_panel_switch(self, input_id, position):
+        return self._panel(self.panel.switch, input_id, position)
+
+    def _cmd_panel_touch(self, display_id, x, y, duration_s=0.1, to_x=None, to_y=None):
+        if (to_x is None) != (to_y is None):
+            raise ActionRejected('INVALID_ARGUMENT')
+        return self._panel(self.panel.touch, display_id, int(x), int(y), float(duration_s), None if to_x is None else (int(to_x), int(to_y)))
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        try:
+            data, w, h = self.panel.png_bytes(display_id)
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        sha = hashlib.sha256(data).hexdigest()
+        folder = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.time_s, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
+
+
+class JeolJsmit200Runtime(_SemOperation):
     """JSM-IT200 LA with the JED-2300 EDS: vacuum, gun, optics, signals, EDS, stage, door and specimen handling (SI units)."""
 
     def __init__(self, instance_id='jsmit200_01'):
@@ -1445,7 +2586,12 @@ class JeolJsmit200Runtime:
         self.led = {k: _Sum() for k in LEDGER_FLOWS}
         self._n0 = None
         self._principals, self._requests, self._owners = {}, {}, {}
+        self._caller = None                     # the principal whose session call is running (set by the session; panel gestures act as it)
+        self.faults = []                        # evaluator-injected hardware faults (manual 3.14, 1.2.0)
         self._last = {}
+        self._init_operation()
+        self.panel_capture_dir = None
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self) if PANEL_SPEC else None
 
     # ---------------------------------------------------------------- basics
     @property
@@ -1497,7 +2643,7 @@ class JeolJsmit200Runtime:
         """Current reaching the specimen: the set point, limited by the emission while the filament heats up."""
         if not self.ht or self.fil_burned:
             return 0.0
-        return self.ip_set * min(1.0, self.heat) ** 2
+        return self.ip_set * min(1.0, self.heat) ** 2 * self._gun_factor()
 
     def _spec(self):
         return self.specimens.get(self.loaded) if self.loaded else None
@@ -1510,14 +2656,20 @@ class JeolJsmit200Runtime:
         s = self._spec()
         return s['diameter_m'] / 2 if s else HOLDER_RADIUS_M
 
-    def _top_z_rel(self, z, tilt, y=0.0):
+    def _top_z_rel(self, z, tilt, y=0.0, hr=None):
         """Highest point of the specimen (or holder) above the WD-48 plane (m) for lift z, tilt and Y carriage offset: the Y carriage
         moves along the tilted cradle (vertical component y sin t), the top rim of a disc of height h and radius r reaches
-        h cos t + r |sin t| above its centre."""
-        h, r = self._spec_height(), max(self._spec_radius(), HOLDER_RADIUS_M)
+        h cos t + r |sin t| above its centre.  hr = (h, r) overrides the true specimen (the software limit uses the entered values)."""
+        h, r = hr if hr is not None else (self._spec_height(), max(self._spec_radius(), HOLDER_RADIUS_M))
         return z + y * math.sin(tilt) + h * math.cos(tilt) + r * abs(math.sin(tilt))
 
-    def _path_collision(self, z_to, tilt_to, y_to=None, strict=False):
+    def _software_hr(self):
+        """The specimen the stage software knows (manual 2-7, 3-8/3-10): the selected holder's outline and the entered specimen height
+        (the specimen is assumed not to stick out sideways)."""
+        sp = self.sem_ui['specimen']
+        return sp['height_m'], HOLDER_OUTLINE_R_M[sp['holder']]
+
+    def _path_collision(self, z_to, tilt_to, y_to=None, strict=False, hr=None):
         """The Z and T hand motions and the Y motor run independently towards their targets: the highest rim point over the whole swept
         box between the present position and the targets (max over Z, the tilt interval incl. the rim maximum at atan(r/h), and both Y
         ends) must stay 4 mm below the pole piece.  A motion that does not lift the rim above its present height is always allowed (the
@@ -1527,15 +2679,15 @@ class JeolJsmit200Runtime:
             return False
         y_to = self.stage['y'] if y_to is None else y_to
         lo, hi = sorted((self.stage['tilt'], tilt_to))
-        h, r = self._spec_height(), max(self._spec_radius(), HOLDER_RADIUS_M)
+        h, r = hr if hr is not None else (self._spec_height(), max(self._spec_radius(), HOLDER_RADIUS_M))
         phi = math.atan2(r, max(h, 1e-12))
         tilts = [lo + (hi - lo) * i / 90.0 for i in range(91)] + [t for t in (phi, -phi, 0.0) if lo < t < hi]
         z_max = max(self.stage['z'], z_to)
-        top = max(self._top_z_rel(z_max, t, y) for t in tilts for y in (self.stage['y'], y_to))
+        top = max(self._top_z_rel(z_max, t, y, (h, r)) for t in tilts for y in (self.stage['y'], y_to))
         limit = WD_RANGE_M[1] - POLE_CLEARANCE_M + 1e-12
         if strict:
             return top > limit
-        now = self._top_z_rel(self.stage['z'], self.stage['tilt'], self.stage['y'])
+        now = self._top_z_rel(self.stage['z'], self.stage['tilt'], self.stage['y'], (h, r))
         return top > limit and top > now + 1e-12
 
     def _stage_outside(self):
@@ -1573,6 +2725,13 @@ class JeolJsmit200Runtime:
     def _beam_point(self):
         """Beam position in specimen coordinates (m) and whether it lands on the specimen top face."""
         u, v, on, _ = self._hit()
+        bx, by = self.beam_shift
+        if bx or by:                                                         # beam shift: scan coordinates turned to the specimen
+            th = self._scan_angle()
+            cos_t = max(math.cos(self.stage['tilt']), 0.05)
+            u, v = u + math.cos(th) * bx - math.sin(th) * by / cos_t, v + math.sin(th) * bx + math.cos(th) * by / cos_t
+            spec = self._spec()
+            on = spec is not None and math.hypot(u, v) <= spec['diameter_m'] / 2
         return u, v, on
 
     def _phase_sub(self, spec, u, v):
@@ -1630,7 +2789,7 @@ class JeolJsmit200Runtime:
         dp = probe(self.kv, max(self._probe_current(), 1e-13), max(self.focus_wd, 1e-3))
         values = {
             'clock.time_s': self.time_s, 'plant.configured': self.plant is not None, 'power.enabled': self.power, 'system.state': self.state,
-            'system.error_code': self.error, 'vacuum.mode': self.vac_mode, 'vacuum.state': self.vac_state, 'vacuum.lv_setpoint_pa': self.lv_set,
+            'system.error_code': self.error, 'fault.injected': list(self.faults), 'vacuum.mode': self.vac_mode, 'vacuum.state': self.vac_state, 'vacuum.lv_setpoint_pa': self.lv_set,
             'vacuum.chamber_pressure_indicated_pa': m['pirani'] if m else None, 'vacuum.gun_pressure_indicated_pa': m['penning'] if m else None,
             'vacuum.lv_pressure_indicated_pa': m['lv'] if m else None,
             'vacuum.evacuation_elapsed_s': (self.time_s - self.evac_t0) if self.evac_t0 is not None else None,
@@ -1638,7 +2797,7 @@ class JeolJsmit200Runtime:
             'panel.evac_lamp_mode': lamp['evac'], 'panel.lv_lamp': self._lit(lamp['lv']), 'panel.lv_lamp_mode': lamp['lv'],
             'chamber.door_state': self._door_state(), 'specimen.loaded_id': self.loaded,
             'specimen.bench_ids': sorted(k for k, s in self.specimens.items() if s['location'] == 'bench'),
-            'stage.x_indicated_m': round(self.stage['x'], 7), 'stage.y_indicated_m': round(self.stage['y'], 7),
+            'stage.x_indicated_m': round(self._stage_ind(0), 7), 'stage.y_indicated_m': round(self._stage_ind(1), 7),
             'stage.z_indicated_m': round(self.stage['z'], 4), 'stage.tilt_indicated_rad': round(self.stage['tilt'] / math.radians(0.5)) * math.radians(0.5),
             'stage.rotation_indicated_rad': round(self.stage['rot'] / math.radians(1.0)) * math.radians(1.0),
             'stage.moving': any(abs(self.stage[k] - self.stage_target[k]) > 1e-12 for k in self.stage),
@@ -1652,13 +2811,14 @@ class JeolJsmit200Runtime:
             'stage.tilt_rad': self.stage['tilt'], 'stage.rotation_rad': self.stage['rot'],
             'truth.chamber_pressure_pa': self.p_ch, 'truth.gun_pressure_pa': self._p_gun(), 'truth.gas_load_pa_m3_s': self._gas_load_now(),
             'truth.tmp_speed_fraction': self.tmp_speed, 'truth.filament_on_time_s': self.fil_used_s, 'truth.filament_life_s': self.fil_life_s,
-            'truth.emission_a': EMISSION_SAT_A * self.heat if (self.ht and not self.fil_burned) else 0.0, 'truth.probe_current_a': self._probe_current(),
+            'truth.emission_a': EMISSION_SAT_A * self.heat * self._emission_factor() if (self.ht and not self.fil_burned) else 0.0, 'truth.probe_current_a': self._probe_current(),
             'truth.probe_diameter_m': dp[0], 'truth.working_distance_m': self._wd_true(), 'truth.defocus_m': self.focus_wd - self._wd_true(),
             'truth.astigmatism_m': self.astig, 'truth.specimen_charge_c': SURFACE_CAPACITANCE_F * sum(self.v_surface.values()),
             'truth.specimens': {k: dict(location=s['location'], phases=copy.deepcopy(s['phases']), diameter_m=s['diameter_m'], height_m=s['height_m'],
                                         topography=s['topography'], coating=s['coating'], coating_thickness_m=s['coating_thickness_m'], wet=s['wet'])
                                 for k, s in self.specimens.items()},
         }
+        values.update(self._operation_values())
         return {k: v for k, v in values.items() if SLOTS[k]['visibility'] == 'agent' or visibility == 'evaluator'}
 
     # ---------------------------------------------------------------- vacuum model
@@ -1686,7 +2846,7 @@ class JeolJsmit200Runtime:
         if vs == 'venting' or vs == 'vented':
             k += VENT_CONDUCTANCE_M3_S
         elif vs == 'roughing':
-            s = RP_EFF_M3_S
+            s = RP_EFF_M3_S * self._slow_leak_factor()
             q0 += RP_EFF_M3_S * RP_ULTIMATE_PA
         elif vs in ('hv_pumping', 'hv_ready'):
             s = TMP_SPEED_M3_S * self.tmp_speed + (RP_EFF_M3_S if self.tmp_speed < 0.05 else 0.0)
@@ -1736,9 +2896,10 @@ class JeolJsmit200Runtime:
         if acq is not None and acq['kind'] == 'eds' and acq.get('mode') == 'point':
             sub, th, az, k = self._phase_sub(spec if on0 else None, u0, v0)
             return [(sub, on0, k, th, az, 1.0)]
-        fw = PRINT_WIDTH_M / self.mag
-        c, s = math.cos(-self.stage['rot']), math.sin(-self.stage['rot'])
-        cos_t = max(math.cos(self.stage['tilt']), 0.05)
+        fw = PRINT_WIDTH_M / self.mag * (RDC_FIELD if (self.scan_mode == 'RDC' and acq is None) else 1.0)
+        th = self._scan_angle()
+        c, s = math.cos(th), math.sin(th)
+        cos_t = self._y_div()
         pts = []
         for i in range(6):
             for j in range(4):
@@ -1796,7 +2957,7 @@ class JeolJsmit200Runtime:
                 if charging:
                     v0 = self.v_surface.get(k, 0.0)
                     v_eq = self._v_equilibrium(sub, theta)
-                    dv = deposited / SURFACE_CAPACITANCE_F
+                    dv = deposited / SURFACE_CAPACITANCE_F * self._charging_factor()
                     # the potential only moves in the direction of the deposited charge and stops at the equilibrium
                     v1 = min(v0 + dv, max(v_eq, v0)) if dv >= 0.0 else max(v0 + dv, min(v_eq, v0), 0.0)
                     self.v_surface[k] = v1
@@ -1811,7 +2972,14 @@ class JeolJsmit200Runtime:
             raise ActionRejected('UNSUPPORTED')
         validate(CAPS[capability_id]['input_schema'], a)
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
+        if CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation') and \
+                (self.scan_mode == 'SLOW' or (capability_id == 'scan.set_mode' and a.get('mode') == 'SLOW')):
+            self._slow_hold()                                                  # the Slow scan repaints over what the screen shows now
         out = fn(**a)
+        if CAPS[capability_id]['kind'] in ('device_command', 'robot_skill'):
+            self.last_op_s = self.time_s                                       # Eco standby counts from the last operation
+        if capability_id in _ACB_INTERLOCK:
+            self._acb_interlock()
         if CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation'):   # sim.step counts its own revision when time advances
             self.revision += 1
         return out
@@ -1919,6 +3087,8 @@ class JeolJsmit200Runtime:
         if not (self.vac_state == 'vented' and self.p_ch >= VENT_READY_PA):
             self.vac_state = 'idle'                               # valves close without power: a chamber under vacuum only leaks slowly
         self.readings = None
+        self.gun_auto, self.frozen = None, None                              # auto adjustment and recording stop; SEM Operation keeps its settings
+        self.sem_ui['movie'] = None
         self._event('power', 'POWER_OFF', '钥匙转到OFF：主机断电')
 
     def _cmd_system_shutdown(self):
@@ -1958,6 +3128,8 @@ class JeolJsmit200Runtime:
     def _cmd_vacuum_evacuate(self):
         self._need_ready()
         self._need_idle()
+        if 'gun_chamber_open' in self.faults:
+            raise ActionRejected('GUN_CHAMBER_OPEN')                        # Error ID 0331: close the gun chamber, then press EVAC
         if self.vac_state in ('vented', 'venting', 'idle'):
             self._start_evac()
             self._event('vacuum', 'EVAC', 'EVAC：放气阀关闭，机械泵粗抽，涡轮分子泵启动')
@@ -1974,13 +3146,15 @@ class JeolJsmit200Runtime:
             self.evac_t0 = None
             self.tmp_on = False
             gas = '干燥氮气' if self.plant['vent_gas'] == 'dry_nitrogen' else '室内空气'
-            self.stage_target['x'] = 0.0
-            if self._path_collision(self.stage_target['z'], self.stage_target['tilt'], 0.0):
+            if any(f in self.faults for f in STAGE_FAULTS):                   # the X/Y motors are inoperable (manual 3.14): the stage stays
+                self._event('vacuum', 'VENT', f'VENT：放气（{gas}）；样品台电机故障，X/Y不回交换位')
+            elif self._path_collision(self.stage_target['z'], self.stage_target['tilt'], 0.0):
                 # on a tilted stage the Y return would lift the specimen rim towards the pole piece: X returns, Y stays
+                self.stage_target['x'] = 0.0
                 self._event('vacuum', 'VENT', f'VENT：放气（{gas}），样品台X回到交换位')
                 self._event('warning', 'Y_RETURN_SKIPPED', '样品台倾斜时Y回位会使样品升到极靴附近：Y未自动回位，请先降低Z或减小倾斜后用stage.move_xy回位')
             else:
-                self.stage_target['y'] = 0.0
+                self.stage_target['x'] = self.stage_target['y'] = 0.0
                 self._event('vacuum', 'VENT', f'VENT：放气（{gas}），样品台X/Y回到交换位')
         return dict(state=self.vac_state)
 
@@ -1992,7 +3166,7 @@ class JeolJsmit200Runtime:
             self._event('gun', 'HT_OFF', '切换真空模式：先关闭电子枪高压，达到新的真空后再开始观察')
         self.vac_mode = 'LV' if self.vac_mode == 'HV' else 'HV'
         if self.vac_mode == 'LV':
-            if self.detector == 'SED':
+            if self.detector in ('SED', 'REF'):
                 self.detector = 'BED_COMPO'
                 self._event('warning', 'DETECTOR_SWITCHED', 'LV模式不能用SED，已切换到BED（COMPO）')
             if self.vac_state in ('hv_pumping', 'hv_ready'):
@@ -2060,27 +3234,58 @@ class JeolJsmit200Runtime:
         self._event('specimen', 'UNLOAD', f'样品{sid}取下')
         return dict(specimen_id=sid)
 
+    def _cmd_fault_inject(self, code):
+        self._need_plant()
+        if code not in self.faults:
+            self.faults.append(code)
+        if self.power:
+            if code in STAGE_FAULTS:
+                self.stage_target['x'], self.stage_target['y'] = self.stage['x'], self.stage['y']   # the motors stop
+                self.error = JSM_FAULTS[code]
+            elif code == 'lv_pressure_adjust' and self.vac_mode == 'LV':
+                self.sem_ui['lv_auto'] = False
+                self.error = JSM_FAULTS[code]
+            elif code == 'filament_failure':
+                self.error = JSM_FAULTS[code]
+            self._event('error', JSM_FAULTS[code], f'评测者注入的硬件故障：{code}')
+        return dict(injected=list(self.faults))
+
+    def _cmd_fault_clear(self, code):
+        self._need_plant()
+        if code in self.faults:
+            self.faults.remove(code)
+        return dict(injected=list(self.faults))
+
     def _cmd_stage_move_xy(self, x_m, y_m):
         self._need_ready()
         self._need_idle()
+        f = next((x for x in STAGE_FAULTS if x in self.faults), None)
+        if f is not None:
+            raise ActionRejected(JSM_FAULTS[f])                             # manual 3.14: the motors of all axes are inoperable
         if self.door > 1e-9:
             raise ActionRejected('DOOR_OPEN')
-        if self._path_collision(self.stage_target['z'], self.stage_target['tilt'], float(y_m)):
+        ex, ey = self._stage_error()                                         # commanded in the (calibrated) coordinates of the display
+        tx = min(max(float(x_m) - ex, STAGE_X_RANGE_M[0]), STAGE_X_RANGE_M[1]) if ex else float(x_m)
+        ty = min(max(float(y_m) - ey, STAGE_Y_RANGE_M[0]), STAGE_Y_RANGE_M[1]) if ey else float(y_m)
+        if self._path_collision(self.stage_target['z'], self.stage_target['tilt'], ty):
             raise ActionRejected('STAGE_COLLISION_RISK')
-        self.stage_target['x'], self.stage_target['y'] = float(x_m), float(y_m)
-        return dict(x_m=self.stage_target['x'], y_m=self.stage_target['y'])
+        if self._path_collision(self.stage_target['z'], self.stage_target['tilt'], ty, hr=self._software_hr()):
+            raise ActionRejected('STAGE_COLLISION_RISK')                     # the motor stage software limit (selected holder, entered height)
+        self.sem_ui['last_move'] = [self.stage_target['x'] + ex, self.stage_target['y'] + ey]
+        self.stage_target['x'], self.stage_target['y'] = tx, ty
+        return dict(x_m=tx + ex if ex else tx, y_m=ty + ey if ey else ty)
 
     def _cmd_stage_set_z(self, z_lift_m):
-        self._need_plant()
-        self._need_idle()
+        self._need_plant()                                                   # a hand knob: turning it during a scan is not refused (the scan sees it)
         if self._path_collision(z_lift_m, self.stage_target['tilt'], self.stage_target['y']):
             raise ActionRejected('STAGE_COLLISION_RISK')
+        if self.sem_ui['settings']['stage']['auto_focus_tracer']:            # Auto Focus Tracer: the focus follows the Z travel (set for its target)
+            self.focus_wd = min(0.060, max(0.001, self.focus_wd - (float(z_lift_m) - self.stage_target['z'])))
         self.stage_target['z'] = float(z_lift_m)
         return dict(z_lift_m=self.stage_target['z'])
 
     def _cmd_stage_set_tilt(self, tilt_rad):
-        self._need_plant()
-        self._need_idle()
+        self._need_plant()                                                   # hand knob, as Z
         if self._path_collision(self.stage_target['z'], tilt_rad, self.stage_target['y']):
             raise ActionRejected('STAGE_COLLISION_RISK')
         self.stage_target['tilt'] = float(tilt_rad)
@@ -2088,8 +3293,7 @@ class JeolJsmit200Runtime:
         return dict(tilt_rad=self.stage_target['tilt'])
 
     def _cmd_stage_rotate(self, rotation_rad):
-        self._need_plant()
-        self._need_idle()
+        self._need_plant()                                                   # hand knob, as Z
         self.stage_target['rot'] = float(rotation_rad)
         return dict(rotation_rad=self.stage_target['rot'])
 
@@ -2113,12 +3317,18 @@ class JeolJsmit200Runtime:
 
     def _cmd_beam_observation_on(self):
         self._need_ready()
+        if 'filament_failure' in self.faults:
+            raise ActionRejected('FILAMENT_FAILURE')                        # remove the filament, check for whiskers, replace it
         if not self._vac_ready():
             raise ActionRejected('VACUUM_NOT_READY')
         if self.fil_burned:
             raise ActionRejected('FILAMENT_BURNED_OUT')
         if not self.ht:
             self.ht = True
+            if self.gun_mode == 'auto':                                         # fully automatic filament heating and gun alignment
+                self.gun['heating'] = GUN_SAT_POS
+                for k in ('shift_x', 'shift_y', 'tilt_x', 'tilt_y'):
+                    self.gun[k] = self.align_err['gun_' + k]
             self._event('gun', 'HT_ON', f'开始观察：{self.kv / 1000:.1f}kV，灯丝自动加热到饱和并自动对中')
         return dict(ht_on=True)
 
@@ -2140,7 +3350,9 @@ class JeolJsmit200Runtime:
         self.fil_burned = False
         self.heat = 0.0
         self.astig, self.astig_ok = self.rng.uniform(15e-9, 50e-9), False
-        if self.error == 'FILAMENT_BURNOUT':
+        if 'filament_failure' in self.faults:
+            self.faults.remove('filament_failure')                          # a new filament (no whiskers)
+        if self.error in ('FILAMENT_BURNOUT', 'FILAMENT_FAILURE'):
             self.error = None
         self._event('maintenance', 'FILAMENT_REPLACED', f'更换钨灯丝（第{self.fil_serial}根）')
         return dict(filament_serial=self.fil_serial)
@@ -2171,6 +3383,8 @@ class JeolJsmit200Runtime:
         self._need_ready()
         self._need_idle()
         self._need_beam()
+        r, d = self.astig, self._astig_dir                                    # the stigmator takes up the residual astigmatism
+        self.stig = [self.stig[0] + (r - 1e-9) * d[0], self.stig[1] + (r - 1e-9) * d[1]]
         self.astig, self.astig_ok = 1e-9, True
         return dict(astigmatism_m=self.astig)
 
@@ -2190,14 +3404,17 @@ class JeolJsmit200Runtime:
             lo, hi = 0.0, 2.0 * max(abs(hi), 1e-30)
         span = hi - lo
         lo -= 0.05 * span; hi += 0.05 * span
-        gain = 215.0 / (hi - lo)
-        self.acb = dict(gain=gain, offset=20.0 - gain * lo, detector=self.detector)
+        au = self.sem_ui['settings']['auto']                                 # Settings-Auto ACB target (0.5 / 0.5: grey 20-235)
+        span = 215.0 * 2.0 ** ((au['acb_contrast'] - 0.5) * 2.0)
+        gain = span / (hi - lo)
+        self.acb = dict(gain=gain, offset=20.0 + 200.0 * (au['acb_brightness'] - 0.5) - gain * lo, detector=self.detector)
+        self.image_adjust = dict(brightness=0.5, contrast=0.5, suppress=0.5)
         return dict(gain=gain, offset=self.acb['offset'])
 
     def _cmd_detector_select(self, detector):
         self._need_ready()
         self._need_idle()
-        if detector == 'SED' and self.vac_mode == 'LV':
+        if detector in ('SED', 'REF') and self.vac_mode == 'LV':
             raise ActionRejected('DETECTOR_NOT_AVAILABLE')
         if detector != self.detector:
             self.detector = detector
@@ -2231,10 +3448,18 @@ class JeolJsmit200Runtime:
         self._event('acquisition', 'IMAGE_START', f'开始采集图像{op["record_id"]}（{pixels}，帧时间{op["duration"]:.1f}s）', op['record_id'])
         return dict(operation_id=op['operation_id'])
 
+    def _check_record_owner(self, record_id):
+        """Another agent's image or spectrum is refused to an agent caller (the session checks direct calls first; this covers the panel)."""
+        owner, caller = self._owners.get(record_id), self._caller
+        if caller is not None and self._principals.get(caller) == 'agent' and owner is not None and owner != caller \
+                and self._principals.get(owner) == 'agent':
+            raise ActionRejected('ACCESS_DENIED')
+
     def _cmd_image_result(self, image_id):
         rec = self.images.get(image_id)
         if rec is None:
             raise ActionRejected('UNKNOWN_RECORD')
+        self._check_record_owner(image_id)
         return self._image_out(rec)
 
     def _cmd_eds_acquire(self, mode, live_time_s, process_time):
@@ -2258,12 +3483,14 @@ class JeolJsmit200Runtime:
         rec = self.spectra.get(spectrum_id)
         if rec is None:
             raise ActionRejected('UNKNOWN_RECORD')
+        self._check_record_owner(spectrum_id)
         return self._spectrum_out(rec)
 
     def _cmd_eds_quantify(self, spectrum_id, elements):
         rec = self.spectra.get(spectrum_id)
         if rec is None:
             raise ActionRejected('UNKNOWN_RECORD')
+        self._check_record_owner(spectrum_id)
         if rec['status'] != 'completed':
             raise ActionRejected('NOT_COMPLETED')
         if any(e not in _lib()['elements'] or element(e)['Z'] < EDS_Z_RANGE[0] for e in elements):
@@ -2325,8 +3552,10 @@ class JeolJsmit200Runtime:
         theta, slope_x = self._incidence(th_l, az_l)
         charging = on and self._charging_phase(sub, spec) and el < self.kv - 1e-6
         if charging and el <= MIRROR_EV:                       # mirror: the reflected beam returns up the axis; only SE3 from the chamber
-            return (SE3_FRACTION, 0.0, 1.0, True) if self.detector == 'SED' else (0.0, 0.0, 1.0, True)
+            return (SE3_FRACTION, 0.0, 1.0, True) if self.detector in ('SED', 'REF') else (0.0, 0.0, 1.0, True)
         e_kev = el / 1000.0
+        if self.detector == 'REF':                                             # SED grid rejects the specimen SE: only SE3 from the BSE
+            return SE3_FRACTION * eta(comp, e_kev, theta), 0.0, 1.0, charging
         if self.detector == 'SED':
             y = SE_COLLECTION * se_yield(sub, comp, e_kev, theta) + SE3_FRACTION * eta(comp, e_kev, theta)
             if charging:
@@ -2349,8 +3578,9 @@ class JeolJsmit200Runtime:
         fw = PRINT_WIDTH_M / self.mag
         fh = 0.75 * fw
         u0, v0, _ = self._beam_point()
-        c, s = math.cos(-self.stage['rot']), math.sin(-self.stage['rot'])
-        cos_t = max(math.cos(self.stage['tilt']), 0.05)
+        th = self._scan_angle()
+        c, s = math.cos(th), math.sin(th)
+        cos_t = self._y_div()
         ip = self._probe_current()
         rate = ip / E_CHARGE
         # LV skirt: only the unscattered fraction forms the probe, the rest spreads over the field of view
@@ -2390,29 +3620,48 @@ class JeolJsmit200Runtime:
         # blur: probe (at the focus plane) with defocus, astigmatism and vibration against the thumbnail pixel
         wd_f = max(self.focus_wd, 1e-3)
         d_p, alpha = probe(self.kv, max(ip, 1e-13), wd_f)
-        blur = math.sqrt(d_p ** 2 + (2.0 * alpha * abs(self.focus_wd - self._wd_true())) ** 2 + self.astig ** 2 + VIBRATION_M ** 2)
-        k_bed = BED_RES_FACTOR if self.detector != 'SED' else 1.0
+        blur = math.sqrt(d_p ** 2 + (2.0 * alpha * abs(self.focus_wd - self._wd_true())) ** 2 + self.astig ** 2 + VIBRATION_M ** 2 + self._extra_blur(alpha) ** 2)
+        k_bed = BED_RES_FACTOR if self.detector not in ('SED', 'REF') else 1.0
         px_full = fw / nx
-        eff_res = max(K_RES * blur * k_bed, 2.0 * px_full)
-        sigma_px = blur * k_bed / 2.3548 / (fw / THUMB_W)
-        if sigma_px > 0.3:
+
+        def gauss_blur(img, sigma_px):
+            if sigma_px <= 0.3:
+                return img
             r = int(min(12, math.ceil(3 * sigma_px)))
             ker = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma_px) ** 2)
             ker /= ker.sum()
-            pad = np.pad(sig, r, mode='edge')
-            sig = np.apply_along_axis(lambda m: np.convolve(m, ker, mode='valid'), 1, pad)
-            sig = np.apply_along_axis(lambda m: np.convolve(m, ker, mode='valid'), 0, sig)
+            pad = np.pad(img, r, mode='edge')
+            out = np.apply_along_axis(lambda m: np.convolve(m, ker, mode='valid'), 1, pad)
+            return np.apply_along_axis(lambda m: np.convolve(m, ker, mode='valid'), 0, out)
+        gx, gy = self._focus_gradient()
+        if gx == 0.0 and gy == 0.0:
+            sig = gauss_blur(sig, blur * k_bed / 2.3548 / (fw / THUMB_W))
+        else:
+            # tilted specimen: the defocus changes across the frame (surface height minus the Dynamic Focus ramp, along the projected scan
+            # deflection); each thumbnail pixel takes the blur of its own defocus, the frame resolution the rms blur over the frame
+            xs_c = ((np.arange(THUMB_W) + 0.5) / THUMB_W - 0.5) * fw
+            ys_c = (0.5 - (np.arange(THUMB_H) + 0.5) / THUMB_H) * fh * max(math.cos(self.stage['tilt']), 0.05) / cos_t
+            dz = (self.focus_wd - self._wd_true()) + gx * xs_c[None, :] + gy * ys_c[:, None]
+            b2 = d_p ** 2 + (2.0 * alpha * dz) ** 2 + self.astig ** 2 + VIBRATION_M ** 2 + self._extra_blur(alpha) ** 2
+            blur = math.sqrt(float(np.mean(b2)))
+            level = np.round(np.sqrt(b2) * k_bed / 2.3548 / (fw / THUMB_W), 2)
+            out = np.empty_like(sig)
+            for lv in np.unique(level):
+                m = level == lv
+                out[m] = gauss_blur(sig, float(lv))[m]
+            sig = out
+        eff_res = max(K_RES * blur * k_bed, 2.0 * px_full)
         # per-region noise and signal-to-noise of one full-resolution pixel (Poisson + detector amplifier). The shot variance counts every
         # detected carrier: SED the collected electrons (DQE 0.8); BED the pairs of both halves, so the TOPO difference signal A - B carries
         # the noise of the sum A + B (a flat specimen still gives a noisy TOPO frame). In LV the scattered skirt (1 - f_u) adds the frame-mean
         # shot variance. sigma is in pixel_signal units (per second); SNR = signal / sigma, the TOPO signal being the sum signal.
         n_e = ip * dwell / E_CHARGE
-        amp_var = 0.0 if self.detector == 'SED' else (BED_AMP_NOISE_PAIRS * math.sqrt(1e-6 / dwell)) ** 2
+        amp_var = 0.0 if self.detector in ('SED', 'REF') else (BED_AMP_NOISE_PAIRS * math.sqrt(1e-6 / dwell)) ** 2
         n_tot = 4.0 * THUMB_W * THUMB_H
         per = {}
         for key, st in stats.items():
             y = st['y'] / st['n']
-            if self.detector == 'SED':
+            if self.detector in ('SED', 'REF'):
                 shot, ref = n_e * max(y, 0.0) / 0.8, y
             else:
                 nb = st['n_bse'] / st['n']
@@ -2445,7 +3694,7 @@ class JeolJsmit200Runtime:
         for j in range(THUMB_H):
             for i in range(THUMB_W):
                 noisy = sig[j, i] + self.rng.gauss(0.0, sigma_px.get(fr['keys'][j, i], 0.0) / math.sqrt(fr['n_avg']))
-                grey[j, i] = acb['offset'] + acb['gain'] * noisy
+                grey[j, i] = self._grey(acb['offset'] + acb['gain'] * noisy)
         thumb = np.clip(np.rint(grey), 0, 255).astype(int)
         # grey-level segmentation of the frame: regions are what the image shows (ranked by mean grey), not named phases. Two phases join
         # one region (complete linkage over all members: no chaining) when their mean greys differ by less than
@@ -2461,7 +3710,7 @@ class JeolJsmit200Runtime:
         rows = []
         for r in fr['regions']:
             y_s = f_u * r['y'] + (1.0 - f_u) * y_mean
-            g_mean = float(np.clip(acb['offset'] + acb['gain'] * y_s * rate, 0.0, 255.0))
+            g_mean = float(np.clip(self._grey(acb['offset'] + acb['gain'] * y_s * rate), 0.0, 255.0))
             s_noise = gain * r['sigma'] / math.sqrt(max(fr['n_avg'], 1.0))
             s_tex = gain * r['texture']
             t = max(math.hypot(3.0 * s_noise, 2.0 * s_tex), 1.5)
@@ -2496,6 +3745,7 @@ class JeolJsmit200Runtime:
                    chamber_pressure_pa=self.readings['pirani'] if self.readings else None, regions=regions, contrast=contrast,
                    charging_artifacts=any(r['charging'] for r in regions), saturated_fraction=float(np.mean((thumb <= 0) | (thumb >= 255))),
                    thumbnail=thumb.tolist(), template_source=dict(library=LIBRARY_REL, substances=[]))
+        self._auto_save(rec)
 
     def _image_out(self, rec):
         out = {k: copy.deepcopy(v) for k, v in rec.items() if not k.startswith('_')}
@@ -2511,7 +3761,8 @@ class JeolJsmit200Runtime:
         beam (half the Kanaya-Okayama range), area = the field of view; in LV the scattered skirt reaches the field of view."""
         spec = self._spec()
         u0, v0, on0 = self._beam_point()
-        c, s = math.cos(-self.stage['rot']), math.sin(-self.stage['rot'])
+        th = self._scan_angle()
+        c, s = math.cos(th), math.sin(th)
         pts = []
         if mode == 'point':
             sub0 = self._phase_sub(spec if on0 else None, u0, v0)[0]
@@ -2521,7 +3772,7 @@ class JeolJsmit200Runtime:
         area = []
         for i in range(12):
             for j in range(9):
-                xs, ys = ((i + 0.5) / 12 - 0.5) * fw, ((j + 0.5) / 9 - 0.5) * 0.75 * fw / max(math.cos(self.stage['tilt']), 0.05)
+                xs, ys = ((i + 0.5) / 12 - 0.5) * fw, ((j + 0.5) / 9 - 0.5) * 0.75 * fw / self._y_div()
                 area.append((u0 + c * xs - s * ys, v0 + s * xs + c * ys, 1.0))
         f_u = 1.0
         if self.vac_mode == 'LV':
@@ -2680,7 +3931,7 @@ class JeolJsmit200Runtime:
             tau = min(dt, (1.0 - h0) * SATURATION_S)
             on_s = (h0 + h1) / 2.0 * tau + (dt - tau)                  # exact integral of the linear heating ramp
             self.heat = h1
-            self.fil_used_s += on_s
+            self.fil_used_s += on_s * self._wear_factor()
             self.led['filament_on_time_s'].add(on_s)
         else:
             self.heat = max(0.0, self.heat - dt / 5.0)
@@ -2712,8 +3963,9 @@ class JeolJsmit200Runtime:
             self.evac_t0 = t
         if self.vac_state in ('lv_pumping', 'lv_ready'):
             err = (self.lv_set - self.p_ch) / self.lv_set
-            self.lv_int = min(1.0, max(0.0, self.lv_int + err * CYCLE_S / LV_TI_S * LV_KP * 5.0))
-            self.lv_valve = min(1.0, max(0.0, LV_KP * err + self.lv_int))
+            if self.sem_ui['lv_auto']:                                         # Stop in the Pressure window holds the needle valve where it is
+                self.lv_int = min(1.0, max(0.0, self.lv_int + err * CYCLE_S / LV_TI_S * LV_KP * 5.0))
+                self.lv_valve = min(1.0, max(0.0, LV_KP * err + self.lv_int))
             ok = abs(err) < 0.05
             self.lv_ok_s = self.lv_ok_s + CYCLE_S if ok else 0.0
             if self.vac_state == 'lv_pumping' and self.lv_ok_s >= 10.0 and self._p_gun() < HV_READY_PA:
@@ -2737,12 +3989,13 @@ class JeolJsmit200Runtime:
             self.ht = False
             self.error = 'FILAMENT_BURNOUT'
             self._event('error', 'FILAMENT_BURNOUT', '钨灯丝烧断：放气后更换灯丝')
+        self._operation_tick(t)
         r = self.rng
         lv_on = self.vac_mode == 'LV' and self.vac_state in ('lv_pumping', 'lv_ready')
         self.readings = dict(pirani=min(1.2e5, max(0.5, self.p_ch * (1.0 + r.gauss(0.0, 0.03)))),
                              penning=min(0.1, max(1e-6, self._p_gun() * (1.0 + r.gauss(0.0, 0.10)))),
                              lv=self.p_ch * (1.0 + r.gauss(0.0, 0.005)) if lv_on else None,
-                             emission=EMISSION_SAT_A * self.heat * (1.0 + r.gauss(0.0, 0.01)) if (self.ht and not self.fil_burned) else None)
+                             emission=EMISSION_SAT_A * self.heat * self._emission_factor() * (1.0 + r.gauss(0.0, 0.01)) if (self.ht and not self.fil_burned) else None)
         self._check_acq()
 
 
@@ -2763,6 +4016,11 @@ _CONTROL_GUARDED = {'power.set', 'power.key_toggle', 'system.shutdown', 'error.a
                     'optics.auto_contrast_brightness', 'detector.select', 'image.acquire', 'eds.acquire'}
 _DATA_GUARDED = {'image.result', 'eds.result', 'eds.quantify'}
 ASYNC = {'image.acquire', 'eds.acquire'}
+# hands on the hardware (sweep 2026-10-19): physical actions are never refused for ownership; the device reacts by its own conditions
+_PHYSICAL = {'chamber.draw_out', 'chamber.draw_in', 'specimen.load', 'specimen.unload', 'gun.replace_filament', 'aperture.set_position', 'stage.set_z',
+             'stage.set_tilt', 'stage.rotate',
+             'power.set', 'power.key_toggle'}   # the MAIN POWER switch cuts the power: a power loss for the run, never refused (lead 10-19)
+_CONTROL_GUARDED -= _PHYSICAL
 
 
 class JeolJsmit200Session:
@@ -2797,7 +4055,7 @@ class JeolJsmit200Session:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -2836,7 +4094,7 @@ class JeolJsmit200Session:
         if self._role != 'agent':
             return
         h = self._host
-        if capability_id in _CONTROL_GUARDED and self._foreign_acq():
+        if capability_id in _CONTROL_GUARDED and self._foreign_acq():       # panel gestures: the host checks the command they invoke (panel_invoke)
             if capability_id in ('power.set', 'power.key_toggle') and not h.power:
                 return
             raise ActionRejected('ACCESS_DENIED')
@@ -2862,15 +4120,20 @@ class JeolJsmit200Session:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             self._guard(capability_id, arguments)
-            result = h.invoke(capability_id, **arguments)
+            ops_before = set(h.operations)
+            h._caller = self._principal                                         # commands run by a panel gesture act as this caller
+            try:
+                result = h._panel_entry(capability_id, arguments) if capability_id in PANEL_CAPS else h.invoke(capability_id, **arguments)
+            finally:
+                h._caller = None
             if capability_id == 'records.list' and self._role == 'agent':
                 result = dict(images=[r for r in result['images'] if not self._foreign(r)], spectra=[r for r in result['spectra'] if not self._foreign(r)])
             if capability_id == 'events.read' and self._role == 'agent':
@@ -2880,6 +4143,10 @@ class JeolJsmit200Session:
             if operation:
                 h._owners[operation] = self._principal
                 h._owners[h.operations[operation]['record_id']] = self._principal
+            elif capability_id in PANEL_CAPS:
+                for op_id in set(h.operations) - ops_before:                   # a photo / analysis started by a panel gesture belongs to the caller
+                    h._owners[op_id] = self._principal
+                    h._owners[h.operations[op_id]['record_id']] = self._principal
             response = dict(protocol_version=PROTOCOL_VERSION, instance_id=instance_id, request_id=request_id, operation_id=operation,
                             status='accepted' if operation else 'succeeded', state_revision=h.revision, clock={'domain': 'simulation', 'time_s': h.time_s},
                             result=copy.deepcopy(result), observations={}, error=None)
@@ -3077,11 +4344,11 @@ PRECONDITIONS = {
     'specimen.unload': ('门完全拉出且未下令推回；样品座上有样品', ['chamber.door_state', 'specimen.loaded_id']),
     'stage.move_xy': ('通电、软件已启动、无待确认错误与采集；门关闭；Y运动扫掠范围内样品最高点不进入极靴下4mm以内或不高于当前位置',
                       _READY + ['chamber.door_state', 'stage.y_indicated_m', 'stage.z_indicated_m', 'stage.tilt_indicated_rad', 'specimen.loaded_id']),
-    'stage.set_z': ('无采集；门完全拉出且未下令推回，或Z从当前到目标（与正在进行的倾斜/Y运动）的扫掠范围内样品最高点不进入极靴下4mm以内或不高于当前位置（降低总是允许）',
-                    ['stage.z_indicated_m', 'stage.tilt_indicated_rad', 'stage.y_indicated_m', 'specimen.loaded_id', 'acquisition.id']),
-    'stage.set_tilt': ('无采集；门完全拉出且未下令推回，或倾斜从当前到目标（含边缘最高的中间角度，与正在进行的Z/Y运动）的扫掠范围内样品最高点不进入极靴下4mm以内或不高于当前位置',
-                       ['stage.z_indicated_m', 'stage.tilt_indicated_rad', 'stage.y_indicated_m', 'specimen.loaded_id', 'acquisition.id']),
-    'stage.rotate': ('无采集', ['acquisition.id']),
+    'stage.set_z': ('门完全拉出且未下令推回，或Z从当前到目标（与正在进行的倾斜/Y运动）的扫掠范围内样品最高点不进入极靴下4mm以内或不高于当前位置（降低总是允许）',
+                    ['stage.z_indicated_m', 'stage.tilt_indicated_rad', 'stage.y_indicated_m', 'specimen.loaded_id']),
+    'stage.set_tilt': ('门完全拉出且未下令推回，或倾斜从当前到目标（含边缘最高的中间角度，与正在进行的Z/Y运动）的扫掠范围内样品最高点不进入极靴下4mm以内或不高于当前位置',
+                       ['stage.z_indicated_m', 'stage.tilt_indicated_rad', 'stage.y_indicated_m', 'specimen.loaded_id']),
+    'stage.rotate': ('已声明实验室条件（手动旋钮，采集中转动不被拒）', ['plant.configured']),
     'beam.set_voltage': ('通电、软件已启动、无待确认错误与采集', list(_READY)), 'beam.set_probe_current': ('通电、软件已启动、无待确认错误与采集', list(_READY)),
     'beam.observation_on': ('通电、软件已启动、无待确认错误；真空就绪（高真空或低真空；真空就绪即门已关闭）；灯丝未烧断', _READY + ['vacuum.state', 'beam.filament_state']),
     'beam.observation_off': ('通电', ['power.enabled']),
@@ -3115,6 +4382,13 @@ ERROR_ZH = {
     'VACUUM_LOST': '采集中真空失去就绪', 'EVAC_TIMEOUT': '抽气10min未完成（JSM-IT300手册同系列）', 'FILAMENT_BURNOUT': '钨灯丝烧断',
     'HT_TRIP': '电子枪真空变差，高压跳闸', 'MAINS_FAULT': '供电电压异常，主机断路',
     'COUNT_RATE_TOO_HIGH': 'EDS死时间会超过90%（输入计数率过高），请降低探针电流',
+    'STAGE_DRIVER_OVERHEAT': '样品台电机驱动过热（Error ID 0200–0205）：各轴电机不能动作，关电源并联系JEOL',
+    'STAGE_MECHANICAL_LIMIT': '超出样品台机械限位（Error ID 0240–0245）：关电源并联系JEOL',
+    'STAGE_MOTOR_FAILURE': '电机故障、位置读不出（Error ID 0250–0255）：按VENT放气后执行样品台初始化（全部轴）',
+    'STAGE_LENS_CONTACT': '检测到样品台碰到物镜（Error ID 0260）：放气到大气压并检查样品、物镜与探测器有无损伤',
+    'GUN_CHAMBER_OPEN': '电子枪室未关（Error ID 0331）：关好电子枪室后再按EVAC',
+    'LV_PRESSURE_ADJUST_FAILED': '自动压力调节失败（Error ID 0351）：用手动调节按钮或重做自动设定',
+    'FILAMENT_FAILURE': '灯丝故障（L.C.≥150µA，晶须）：取下灯丝检查晶须，必要时更换',
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 _R = ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'ERROR_PENDING', 'ACQUISITION_RUNNING']
@@ -3123,13 +4397,14 @@ CAP_ERRORS = {
     'plant.configure': [], 'specimen.provide': ['PLANT_REQUIRED', 'SPECIMEN_EXISTS', 'UNKNOWN_SUBSTANCE', 'AREA_FRACTIONS_INVALID', 'COATING_INVALID', 'SPECIMEN_TOO_LARGE'],
     'power.set': ['PLANT_REQUIRED', 'MAINS_OUT_OF_RANGE'], 'power.key_toggle': ['PLANT_REQUIRED', 'MAINS_OUT_OF_RANGE'],
     'system.shutdown': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'ACQUISITION_RUNNING'], 'error.acknowledge': ['PLANT_REQUIRED', 'POWER_OFF', 'NO_ERROR'],
-    'vacuum.evacuate': list(_R), 'vacuum.vent': list(_R), 'vacuum.toggle_lv': list(_R), 'vacuum.set_lv_pressure': ['PLANT_REQUIRED', 'POWER_OFF'],
+    'vacuum.evacuate': _R + ['GUN_CHAMBER_OPEN'], 'vacuum.vent': list(_R), 'vacuum.toggle_lv': list(_R), 'vacuum.set_lv_pressure': ['PLANT_REQUIRED', 'POWER_OFF'],
     'chamber.draw_out': ['PLANT_REQUIRED', 'ACQUISITION_RUNNING', 'CHAMBER_UNDER_VACUUM'], 'chamber.draw_in': ['PLANT_REQUIRED', 'ACQUISITION_RUNNING', 'STAGE_COLLISION_RISK'],
     'specimen.load': ['PLANT_REQUIRED', 'DOOR_NOT_OPEN', 'UNKNOWN_SPECIMEN', 'SPECIMEN_NOT_ON_BENCH', 'HOLDER_OCCUPIED'],
-    'specimen.unload': ['PLANT_REQUIRED', 'DOOR_NOT_OPEN', 'NO_SPECIMEN'], 'stage.move_xy': _R + ['DOOR_OPEN', 'STAGE_COLLISION_RISK'],
-    'stage.set_z': ['PLANT_REQUIRED', 'ACQUISITION_RUNNING', 'STAGE_COLLISION_RISK'], 'stage.set_tilt': ['PLANT_REQUIRED', 'ACQUISITION_RUNNING', 'STAGE_COLLISION_RISK'],
-    'stage.rotate': ['PLANT_REQUIRED', 'ACQUISITION_RUNNING'], 'beam.set_voltage': list(_R), 'beam.set_probe_current': list(_R),
-    'beam.observation_on': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'ERROR_PENDING', 'VACUUM_NOT_READY', 'FILAMENT_BURNED_OUT'],
+    'specimen.unload': ['PLANT_REQUIRED', 'DOOR_NOT_OPEN', 'NO_SPECIMEN'],
+    'stage.move_xy': _R + ['DOOR_OPEN', 'STAGE_COLLISION_RISK', 'STAGE_DRIVER_OVERHEAT', 'STAGE_MECHANICAL_LIMIT', 'STAGE_MOTOR_FAILURE', 'STAGE_LENS_CONTACT'],
+    'stage.set_z': ['PLANT_REQUIRED', 'STAGE_COLLISION_RISK'], 'stage.set_tilt': ['PLANT_REQUIRED', 'STAGE_COLLISION_RISK'],
+    'stage.rotate': ['PLANT_REQUIRED'], 'beam.set_voltage': list(_R), 'beam.set_probe_current': list(_R),
+    'beam.observation_on': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'ERROR_PENDING', 'VACUUM_NOT_READY', 'FILAMENT_BURNED_OUT', 'FILAMENT_FAILURE'],
     'beam.observation_off': ['PLANT_REQUIRED', 'POWER_OFF'], 'gun.replace_filament': ['PLANT_REQUIRED', 'VENT_REQUIRED'],
     'scan.set_magnification': list(_R), 'optics.autofocus': list(_B), 'optics.set_focus': list(_R),
     'optics.auto_stigmate': list(_B), 'optics.auto_contrast_brightness': list(_B),
@@ -3139,7 +4414,9 @@ CAP_ERRORS = {
     'image.result': ['UNKNOWN_RECORD'], 'eds.result': ['UNKNOWN_RECORD'], 'eds.quantify': ['UNKNOWN_RECORD', 'NOT_COMPLETED', 'UNKNOWN_ELEMENT', 'NO_PEAKS', 'QUANT_FAILED'],
 }
 _PARTIAL = {'USER_CANCEL', 'BEAM_OFF', 'VACUUM_LOST', 'POWER_OFF'}
-CAP_ERROR_ZH = {('chamber.draw_in', 'STAGE_COLLISION_RISK'): '推回后（或推回途中Z/T/Y到达目标时）样品最高点会进入极靴下4mm以内：推门按整个扫掠范围严格判定（先降低Z或减小倾斜）'}
+CAP_ERROR_ZH = {('chamber.draw_in', 'STAGE_COLLISION_RISK'): '推回后（或推回途中Z/T/Y到达目标时）样品最高点会进入极靴下4mm以内：推门按整个扫掠范围严格判定（先降低Z或减小倾斜）',
+                ('stage.move_xy', 'STAGE_COLLISION_RISK'): '移动会使样品最高点进入极靴下4mm以内并高于当前位置：按真实样品判定，或按所选样品座外廓与输入的样品高度（软件限位，'
+                                                           '手册2-7）判定（先降低Z或减小倾斜，或改正样品座/高度输入）'}
 MODEL_NONE_ZH = {
     'plant.configure': '只声明宿主实验室条件（室温、湿度、供电、放气气体、噪声种子），没有可见模型变化',
     'specimen.provide': '只在过程层实验台上增加样品；场景没有样品几何（样品位由接口点specimen_surface表示）',
@@ -3165,6 +4442,8 @@ RESOURCES = {'image.acquire': ['electron_beam', 'scan_generator', 'detectors', '
              'power.key_toggle': ['mains', 'vacuum_system', 'electron_gun'], 'system.shutdown': ['electron_gun'], 'plant.configure': ['room', 'mains', 'vent_gas'],
              'specimen.provide': ['bench'], 'sim.step': ['host_clock'], 'eds.quantify': ['records'], 'image.result': ['records'], 'eds.result': ['records']}
 _ROBOT = '实体操作为宿主/机器人技能的过程层抽象，没有接触或机器人验证；门与样品台关节由过程状态镜像，样品没有几何。'
+_HAND_SCAN = ('Z/T/R是手动旋钮：采集中转动不被拒（真机上没有东西阻止手转，1.2.0清扫）；扫描继续，图像/谱按扫描结束时的样品台位置、工作距离与离焦计算'
+              '（简化假设：真实图像在转动的行上出现错位或模糊，这里整幅按结束时的状态）。')
 CAP_LIMITS = {
     'plant.configure': ['宿主声明的实验室条件；供电波动、振动、杂散磁场与室温漂移对图像的影响不建模（供电只按±10%判断开机与断路）。'],
     'specimen.provide': ['样品用相面积分数与晶粒尺寸的Voronoi相图表示；形貌只分抛光平面/颗粒/粗糙断口三类（每个晶粒一个随机倾斜）；含水只影响放气量：只在样品处于关门且未放气的样品室中时放出水汽，放气量按累计暴露时间指数衰减（τ=30min，工程值），门拉出或放气时不放气也不变干，放气后不会重新变湿。'],
@@ -3179,10 +4458,10 @@ CAP_LIMITS = {
     'chamber.draw_in': [_ROBOT, '碰撞判据：Z、倾斜与Y扫掠范围内样品（或样品座）顶部边缘离极靴至少4mm（离下挂3.5mm的BED至少0.5mm）；未建模样品侧面与EDS/SED探头的碰撞。'],
     'specimen.load': [_ROBOT], 'specimen.unload': [_ROBOT],
     'stage.move_xy': ['X/Y电机速度3mm/s为工程值；到位精度按编码器0.1µm显示，未建模背隙；Y沿倾斜摇篮移动并计入碰撞扫掠检查。'],
-    'stage.set_z': ['Z为手动旋钮的单圈抽象（Matterix中旋钮转角与升降双向联动），手转速度2mm/s为工程值；碰撞按扫掠范围保守检查（Z与T运动独立推进）。'],
+    'stage.set_z': ['Z为手动旋钮的单圈抽象（Matterix中旋钮转角与升降双向联动），手转速度2mm/s为工程值；碰撞按扫掠范围保守检查（Z与T运动独立推进）。', _HAND_SCAN],
     'stage.set_tilt': ['倾斜轴取过样品座顶面中心的X轴（样品顶面不在倾斜轴上，高度h的样品倾斜后束斑落在顶面距中心h·tanθ处，工作距离=48mm−升降−h/cosθ）；'
-                       '束斑落出顶面时按落到样品座平面处理，未建模样品侧壁；倾斜方向朝门为工程选择；手转速度10°/s为工程值。'],
-    'stage.rotate': ['R为手动旋转，速度30°/s为工程值。'],
+                       '束斑落出顶面时按落到样品座平面处理，未建模样品侧壁；倾斜方向朝门为工程选择；手转速度10°/s为工程值。', _HAND_SCAN],
+    'stage.rotate': ['R为手动旋转，速度30°/s为工程值。', _HAND_SCAN],
     'beam.set_voltage': ['电压步进按同系列JSM-IT300手册（≤3kV 0.1kV、>3kV 1kV）；换电压后像散随机重置（工程）。'],
     'beam.set_probe_current': ['探针电流直接取设定值（聚光镜/光阑的具体档位未建模）；束斑按最优孔径角计算。'],
     'beam.observation_on': ['灯丝10s到饱和（设施手册约10s成像）；发射电流100µA与寿命均值300h（Weibull，设施手册“每几百小时”更换）为工程值；自动对中视为瞬时完成。'],
@@ -3284,6 +4563,215 @@ LIMITATIONS = [
     '没有真实硬件、JEOL固件、SEM Center/SMILE VIEW软件或厂家验收数据。',
 ]
 
+# ---------------------------------------------------------------- SEM Operation commands (front panel 1.1.0): metadata
+_OP = ['operation.state']
+_I = ['truth.probe_current_a', 'truth.probe_diameter_m']
+_PC = ['beam.probe_current_pc', 'beam.probe_current_setpoint_a', 'optics.acb_done'] + _I
+_MOVE = ['stage.moving', 'operation.state']                                # the move target and the Last Move bookkeeping
+_OFF_RESET = ['gun.auto_adjust', 'operation.state']                      # a power loss stops the auto adjustment and the movie recording
+_OP_EFFECTS = {
+    'beam.blank': ['beam.blanked'] + _I, 'beam.set_pc': list(_PC), 'scan.set_mode': ['scan.mode', 'scan.charge_free'] + _I,
+    'scan.set_rotation': ['scan.rotation_rad'], 'scan.rotate_to_line': ['scan.rotation_rad'],
+    'optics.set_stigmator': ['optics.stigmator_m', 'optics.astigmatism_corrected', 'truth.astigmatism_m'], 'optics.set_image_adjust': ['optics.image_adjust'],
+    'optics.set_beam_shift': ['optics.beam_shift_m'], 'optics.wobbler': ['optics.wobbler_on'], 'aperture.set_position': ['aperture.position_m'] + _I,
+    'gun.auto_adjust': ['gun.auto_adjust'], 'gun.set': ['gun.settings', 'truth.emission_a'] + _I,
+    'gun.bias_memory': ['gun.settings', 'operation.state', 'truth.emission_a'] + _I,
+    'alignment.configure_error': ['truth.alignment_error', 'stage.x_indicated_m', 'stage.y_indicated_m'] + _I,
+    'recipe.execute': EFFECTS['vacuum.toggle_lv'] + EFFECTS['vacuum.set_lv_pressure'] + EFFECTS['beam.set_voltage'] + _PC + EFFECTS['detector.select']
+                      + ['optics.image_adjust'],
+    'fault.inject': ['fault.injected', 'system.error_code', 'stage.moving', 'operation.state'], 'fault.clear': ['fault.injected'],
+    'stage.stop': ['stage.moving'], 'stage.last_move': list(_MOVE), 'stage.click_center': list(_MOVE), 'stage.memory': list(_MOVE),
+    'stage.calibrate': ['stage.x_indicated_m', 'stage.y_indicated_m', 'fault.injected'] + _MOVE, 'specimen.set_info': _OP, 'settings.configure': _OP + _PC,
+    'presets.configure': _OP, 'ui.select': _OP, 'image.save': _OP, 'image.open': _OP, 'image.copy': _OP, 'image.anaglyph': _OP, 'movie.record': _OP,
+    'snapshot.take': _OP, 'snapshot.reproduce': EFFECTS['beam.set_voltage'] + _PC + EFFECTS['scan.set_magnification'] + EFFECTS['optics.set_focus']
+                                               + EFFECTS['detector.select'] + _MOVE + ['optics.image_adjust'],
+    'snapshot.save': _OP, 'measure.ruler': _OP, 'eds.transfer_image': _OP, 'user.manage': _OP, 'vacuum.lv_auto': _OP,
+}
+for _k, _v in _OP_EFFECTS.items():
+    CAPS[_k]['effects'] = list(dict.fromkeys(_v))
+    EFFECTS[_k] = CAPS[_k]['effects']
+for _k, _extra in {'power.set': _OFF_RESET, 'power.key_toggle': _OFF_RESET, 'beam.observation_on': ['gun.settings'], 'stage.move_xy': _OP,
+                   'gun.replace_filament': ['fault.injected'],
+                   'optics.auto_stigmate': ['optics.stigmator_m'], 'optics.auto_contrast_brightness': ['optics.image_adjust'],
+                   'image.acquire': _I, 'eds.acquire': _I, 'stage.set_z': ['optics.focus_wd_m', 'truth.defocus_m', 'truth.probe_diameter_m']}.items():
+    CAPS[_k]['effects'] = list(dict.fromkeys(CAPS[_k]['effects'] + _extra))
+for _k in _ACB_INTERLOCK - {'recipe.execute', 'beam.set_pc'}:              # ACB interlock (Settings-Auto) resets the manual brightness / contrast
+    CAPS[_k]['effects'] = list(dict.fromkeys(CAPS[_k]['effects'] + ['optics.image_adjust']))
+CAPS['beam.set_pc']['effects'].append('optics.image_adjust')
+CAPS['beam.set_probe_current']['effects'] = list(dict.fromkeys(CAPS['beam.set_probe_current']['effects'] + ['beam.probe_current_pc']))
+for _k in EFFECTS:
+    EFFECTS[_k] = CAPS[_k]['effects']
+_GUN_STEP = ['gun.settings', 'gun.auto_adjust', 'beam.emission_indicated_a', 'truth.emission_a', 'truth.filament_on_time_s'] + _I + _CHARGE
+ON_STEP.update({
+    'beam.blank': _CHARGE, 'beam.set_pc': _CHARGE, 'scan.set_mode': _CHARGE, 'scan.set_rotation': _CHARGE, 'scan.rotate_to_line': _CHARGE,
+    'optics.set_beam_shift': _CHARGE, 'aperture.set_position': _CHARGE, 'gun.auto_adjust': _GUN_STEP,
+    'gun.set': ['beam.emission_indicated_a', 'truth.filament_on_time_s'] + _CHARGE, 'gun.bias_memory': ['beam.emission_indicated_a'] + _CHARGE,
+    'alignment.configure_error': _CHARGE, 'recipe.execute': ON_STEP['vacuum.toggle_lv'] + ON_STEP['vacuum.set_lv_pressure'] + _CHARGE,
+    'stage.last_move': ON_STEP['stage.move_xy'], 'stage.click_center': ON_STEP['stage.move_xy'], 'stage.memory': ON_STEP['stage.move_xy'],
+    'stage.calibrate': ON_STEP['stage.move_xy'], 'snapshot.reproduce': ON_STEP['stage.move_xy'] + _CHARGE,
+    'vacuum.lv_auto': list(ON_STEP['vacuum.set_lv_pressure']),
+    'settings.configure': ['beam.ht_on', 'beam.filament_state', 'beam.emission_indicated_a', 'truth.filament_on_time_s', 'vacuum.state', 'vacuum.evacuation_elapsed_s',
+                           'system.error_code'] + _BEAM_TRUTH + _P + _GAUGES + _LAMPS + _CHARGE,
+})
+for _k, _extra in {'image.acquire': ['operation.state'] + _I, 'eds.acquire': _I,
+                   'plant.configure': _OFF_RESET, 'beam.observation_on': _GUN_STEP, 'vacuum.vent': ['gun.auto_adjust'], 'vacuum.toggle_lv': ['gun.auto_adjust'],
+                   'beam.observation_off': ['gun.auto_adjust'], 'system.shutdown': ['gun.auto_adjust']}.items():
+    ON_STEP[_k] = ON_STEP[_k] + _extra
+ON_STEP = {k: list(dict.fromkeys(v)) for k, v in ON_STEP.items()}
+ON_STEP['sim.step'] = ['clock.time_s'] + sorted(set(sum((v for k, v in ON_STEP.items() if k != 'sim.step'), [])) | set(CAPS['power.set']['effects'])
+                                                - {'clock.time_s'})
+ON_STEP_ZH.update({
+    'beam.blank': '消隐期间束流不到样品：绝缘样品不再荷电；取消消隐后恢复', 'beam.set_pc': ON_STEP_ZH['beam.set_probe_current'],
+    'scan.set_mode': 'Freeze时电子束消隐（不荷电）；RDC把剂量集中在1/4视场宽，荷电更快；CF在Slow/拍照时降低荷电速率',
+    'scan.set_rotation': '扫描方向改变受照区域的取向，荷电随之变化', 'scan.rotate_to_line': '同扫描旋转',
+    'optics.set_beam_shift': '束斑落点随位移移动，绝缘样品的荷电随之变化', 'aperture.set_position': '透过电流随光阑偏离改变，荷电速率随之变化',
+    'gun.auto_adjust': '约30s后完成：灯丝加热回到饱和点，AGC还把对中设到最佳；束流与发射读数随之变化；电子束关闭或切到LV时中止',
+    'gun.set': '发射读数在下一周期更新；加热超过饱和点时灯丝寿命消耗加快', 'gun.bias_memory': '发射读数在下一周期更新',
+    'alignment.configure_error': '束流随误差改变，荷电速率随之变化',
+    'recipe.execute': '切换真空模式或LV压力后按新模式抽气与调压（同vacuum.toggle_lv、vacuum.set_lv_pressure）；新的着陆能量与束流改变荷电',
+    'stage.last_move': ON_STEP_ZH['stage.move_xy'], 'stage.click_center': ON_STEP_ZH['stage.move_xy'], 'stage.memory': ON_STEP_ZH['stage.move_xy'],
+    'stage.calibrate': 'X/Y回到交换位（按速度移动）', 'snapshot.reproduce': '再现的样品台坐标按速度移动；新的条件改变荷电',
+    'vacuum.lv_auto': '自动调压停止时针阀不动，样品室压力向该开度的平衡漂移（可能离开LV就绪）；重新Apply后按设定值调压',
+    'settings.configure': 'Eco开着时无操作达到设定分钟后停止观察（高压关闭）；慢抽气使粗抽到5kPa前按1/10速度进行；EOS大束流改变束流与荷电',
+})
+ON_STEP_ZH['image.acquire'] = ON_STEP_ZH['image.acquire'] + '；自动保存开着时完成后写入图像文件；Freeze时采集结束后电子束重新消隐'
+_SAMPLING_CYCLE |= {'gun.settings', 'gun.auto_adjust'}
+_SAMPLING_COMMAND -= _SAMPLING_CYCLE
+_SW = ['power.enabled', 'system.state']
+PRECONDITIONS.update({
+    'beam.blank': ('通电、软件已启动、无待确认错误', _READY[:3]), 'beam.set_pc': PRECONDITIONS['beam.set_probe_current'],
+    'scan.set_mode': ('通电、软件已启动、无待确认错误与采集', list(_READY)), 'scan.set_rotation': ('通电、软件已启动、无待确认错误与采集', list(_READY)),
+    'scan.rotate_to_line': ('通电、软件已启动、无待确认错误与采集；两点不重合', list(_READY)),
+    'optics.set_stigmator': ('通电、软件已启动、无待确认错误与采集', list(_READY)), 'optics.set_image_adjust': ('通电、软件已启动、无待确认错误', _READY[:3]),
+    'optics.set_beam_shift': ('通电、软件已启动、无待确认错误与采集', list(_READY)), 'optics.wobbler': ('通电、软件已启动、无待确认错误', _READY[:3]),
+    'aperture.set_position': ('已声明实验室条件（机械旋钮）', ['plant.configured']),
+    'gun.auto_adjust': ('通电、软件已启动、无待确认错误与采集；观察中（真空就绪、灯丝饱和）；高真空模式；没有正在进行的自动调整', _BEAM + ['vacuum.mode', 'gun.auto_adjust']),
+    'gun.set': ('通电、软件已启动、无待确认错误；没有正在进行的自动调整', _READY[:3] + ['gun.auto_adjust']),
+    'gun.bias_memory': ('通电、软件已启动、无待确认错误；读回时须已为当前加速电压保存过', _READY[:3] + ['beam.accelerating_voltage_v', 'gun.auto_adjust']),
+    'alignment.configure_error': ('已声明实验室条件', ['plant.configured']),
+    'fault.inject': ('已声明实验室条件', ['plant.configured']), 'fault.clear': ('已声明实验室条件', ['plant.configured']),
+    'recipe.execute': ('通电、软件已启动、无待确认错误与采集；所选类别有该列（表中“-”被拒）', _READY + ['vacuum.mode']),
+    'stage.stop': ('通电', ['power.enabled']), 'stage.last_move': ('同stage.move_xy；之前有过一次移动', PRECONDITIONS['stage.move_xy'][1] + ['operation.state']),
+    'stage.click_center': PRECONDITIONS['stage.move_xy'], 'stage.memory': ('软件已启动；移动时同stage.move_xy；名称须已登记', _SW + ['operation.state']),
+    'stage.calibrate': ('通电、软件已启动、无待确认错误与采集；样品室已放气到大气压；样品已取下', _READY + ['vacuum.state', 'specimen.loaded_id']),
+    'specimen.set_info': ('软件已启动', list(_SW)), 'vacuum.lv_auto': ('通电', ['power.enabled']), 'settings.configure': ('软件已启动；录像中不能切换视图；EOS切换时无采集', _SW + ['operation.state', 'acquisition.id']),
+    'presets.configure': ('软件已启动；数值在该窗口的范围内', list(_SW)), 'ui.select': ('软件已启动', list(_SW)),
+    'image.save': ('软件已启动；有冻结图像、已完成的照片或实时图像；文件名未被占用', _SW + ['scan.mode', 'result.last_image_id']),
+    'image.open': ('软件已启动；文件存在', _SW + ['operation.state']), 'image.copy': ('软件已启动；有可复制的图像', list(_SW)),
+    'image.anaglyph': ('软件已启动；两个文件都是倾斜角相差≥1°的照片', _SW + ['operation.state']),
+    'movie.record': ('软件已启动；开始时有实时图像且不是全屏视图；停止时正在录像', _SW + ['beam.ht_on', 'operation.state']),
+    'snapshot.take': ('软件已启动；有可贴的图像', list(_SW)), 'snapshot.reproduce': ('通电、软件已启动、无待确认错误与采集；有快照', _READY + ['operation.state']),
+    'snapshot.save': ('软件已启动；有快照', _SW + ['operation.state']), 'measure.ruler': ('软件已启动；主屏有图像', list(_SW)),
+    'eds.transfer_image': ('软件已启动；有图像', list(_SW)), 'user.manage': ('软件已启动；新增时名称未被占用、切换时用户已登记', _SW + ['operation.state']),
+})
+ERROR_ZH.update({
+    'LV_MODE': 'LV模式不能执行（手册：AGC/AFS不能用于LV）', 'GUN_AUTO_RUNNING': '自动灯丝调整（AGC/AFS）正在进行', 'NO_SAVED_BIAS': '当前加速电压没有保存的栅偏压',
+    'RECIPE_NOT_AVAILABLE': '该类别没有这一列条件（表中为“-”）', 'NO_LAST_MOVE': '还没有可返回的上一次移动', 'UNKNOWN_MEMORY': '坐标记忆中没有该名称',
+    'MEMORY_FULL': '坐标记忆已满（100条）', 'NO_IMAGE': '没有可用的图像（先观察、冻结或拍照）', 'UNKNOWN_FILE': '文件不存在', 'FILE_EXISTS': '文件名已存在',
+    'FILES_FULL': '文件列表已满（500个）', 'TILT_PAIR_REQUIRED': '须选两张倾斜角相差至少1°的照片', 'FULL_SCREEN': '全屏视图下不能录像', 'NOT_RECORDING': '没有在录像',
+    'MOVIE_RECORDING': '录像中不能切换视图', 'NO_SNAPSHOT': '快照区没有图像', 'USER_EXISTS': '用户已存在', 'UNKNOWN_USER': '用户未登记',
+})
+_SWE = ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY']
+CAP_ERRORS.update({
+    'beam.blank': _R[:4], 'beam.set_pc': list(_R), 'scan.set_mode': list(_R), 'scan.set_rotation': list(_R), 'scan.rotate_to_line': list(_R),
+    'optics.set_stigmator': list(_R), 'optics.set_image_adjust': _R[:4], 'optics.set_beam_shift': list(_R), 'optics.wobbler': _R[:4],
+    'aperture.set_position': ['PLANT_REQUIRED'], 'gun.auto_adjust': _B + ['LV_MODE', 'GUN_AUTO_RUNNING'], 'gun.set': _R[:4] + ['GUN_AUTO_RUNNING'],
+    'gun.bias_memory': _R[:4] + ['NO_SAVED_BIAS', 'GUN_AUTO_RUNNING'], 'alignment.configure_error': ['PLANT_REQUIRED'],
+    'recipe.execute': _R + ['RECIPE_NOT_AVAILABLE'], 'stage.stop': ['PLANT_REQUIRED', 'POWER_OFF'],
+    'stage.last_move': CAP_ERRORS['stage.move_xy'] + ['NO_LAST_MOVE'], 'stage.click_center': list(CAP_ERRORS['stage.move_xy']),
+    'stage.memory': _SWE + ['MEMORY_FULL', 'UNKNOWN_MEMORY'] + CAP_ERRORS['stage.move_xy'],
+    'stage.calibrate': _R + ['VENT_REQUIRED', 'HOLDER_OCCUPIED', 'STAGE_DRIVER_OVERHEAT', 'STAGE_MECHANICAL_LIMIT', 'STAGE_LENS_CONTACT'],
+    'specimen.set_info': list(_SWE), 'vacuum.lv_auto': ['PLANT_REQUIRED', 'POWER_OFF', 'LV_PRESSURE_ADJUST_FAILED'],
+    'fault.inject': ['PLANT_REQUIRED'], 'fault.clear': ['PLANT_REQUIRED'], 'settings.configure': _SWE + ['MOVIE_RECORDING', 'ACQUISITION_RUNNING'], 'presets.configure': list(_SWE),
+    'ui.select': list(_SWE), 'image.save': _SWE + ['NO_IMAGE', 'FILE_EXISTS', 'FILES_FULL'], 'image.open': _SWE + ['UNKNOWN_FILE'],
+    'image.copy': _SWE + ['NO_IMAGE'], 'image.anaglyph': _SWE + ['UNKNOWN_FILE', 'TILT_PAIR_REQUIRED', 'FILES_FULL'],
+    'movie.record': _SWE + ['FULL_SCREEN', 'BEAM_NOT_READY', 'NOT_RECORDING', 'FILES_FULL'], 'snapshot.take': _SWE + ['NO_IMAGE'],
+    'snapshot.reproduce': _R + ['NO_SNAPSHOT', 'DETECTOR_NOT_AVAILABLE', 'DOOR_OPEN', 'STAGE_COLLISION_RISK'], 'snapshot.save': _SWE + ['NO_SNAPSHOT', 'FILES_FULL'],
+    'measure.ruler': _SWE + ['NO_IMAGE', 'UNKNOWN_FILE'], 'eds.transfer_image': _SWE + ['NO_IMAGE'], 'user.manage': _SWE + ['USER_EXISTS', 'UNKNOWN_USER'],
+})
+for _k in _OP_EFFECTS:
+    MODEL_NONE_ZH.setdefault(_k, '只改SEM Operation软件或电子光学的设定，没有可见模型变化（屏幕画面由panel.capture提供）')
+MODEL_NONE_ZH['aperture.set_position'] = '光阑微调旋钮没有单独的场景关节；只改过程层光阑位置'
+RESOURCES.update({'vacuum.lv_auto': ['vacuum_system'], 'beam.blank': ['electron_gun'], 'beam.set_pc': ['electron_gun'], 'scan.set_mode': ['scan_generator'], 'scan.set_rotation': ['scan_generator'],
+                  'scan.rotate_to_line': ['scan_generator'], 'optics.set_stigmator': ['objective_lens'], 'optics.set_image_adjust': ['detectors'],
+                  'optics.set_beam_shift': ['scan_generator'], 'optics.wobbler': ['objective_lens'], 'aperture.set_position': ['objective_aperture'],
+                  'gun.auto_adjust': ['electron_gun', 'host_clock'], 'gun.set': ['electron_gun'], 'gun.bias_memory': ['electron_gun'],
+                  'recipe.execute': ['electron_gun', 'vacuum_system', 'detectors'], 'stage.stop': ['stage'], 'stage.last_move': ['stage'], 'stage.click_center': ['stage'],
+                  'stage.memory': ['stage'], 'stage.calibrate': ['stage'], 'snapshot.reproduce': ['electron_gun', 'scan_generator', 'detectors', 'stage'],
+                  'movie.record': ['scan_generator', 'records'], 'image.save': ['records'], 'image.anaglyph': ['records'], 'snapshot.save': ['records']})
+_ASSUMED = '刻度、步长、时间与系数为假设（JSM-IT300同系列手册与Iowa State指南未给出），见panel_ui.json的assumptions。'
+CAP_LIMITS.update({
+    'beam.blank': ['消隐瞬时生效；消隐偏转器与法拉第杯不单独建模。'],
+    'beam.set_pc': ['P.C.刻度（标准1pA–30nA、大束流10pA–0.3µA的对数1–99）为假设：厂家只给出照片数据的P.C.值。'],
+    'scan.set_mode': ['实时像按所选扫描组合（Settings–Scan的RDC/Fast/Slow组合，帧时间取手册规格表8.2.5.b）加散粒/放大器噪声：每个缩略图像素的噪声=全分辨率像素噪声/√(像素合并数×积分帧数)，'
+                      '噪声图样按仪器周期由噪声种子决定；Slow帧（10–40s）在条件改变后从上往下重画一帧时间（按时间推进的变化如样品台移动立即显示）；'
+                      'Freeze时消隐、RDC剂量集中在1/4视场宽、CF荷电速率×0.3为假设；扫描速度不改变荷电（视场平均剂量率与帧时间无关；未建模逐点充放电）。'],
+    'scan.set_rotation': ['扫描旋转只旋转扫描方向；Tilt Mag与Dynamic Focus要求SRT为0（手册）由操作者保证。'],
+    'scan.rotate_to_line': ['按4:3画面换算角度。'],
+    'optics.set_stigmator': ['固有像散是一个矢量：换电压或换灯丝时大小随机重置、方向保持；消像散器范围±100nm为假设。'],
+    'optics.set_image_adjust': ['亮度/衬度作用在探测器增益/偏置之后的灰度上（数字化映射，非真实放大器）；' + _ASSUMED],
+    'optics.set_beam_shift': ['偏转限±10µm为假设；束斑位移按扫描坐标换算到样品坐标（未建模束倾斜）。'],
+    'optics.wobbler': ['摆动幅度=0.1×光阑偏离、摆动时离焦20µm为假设；只给出摆动幅度读数，不生成动画帧。'],
+    'aperture.set_position': ['光阑偏离使透过电流按exp(−(d/40µm)²)下降、模糊增加2e-3×d为假设；光阑孔径档位未建模。', _ROBOT],
+    'gun.auto_adjust': ['AGC/AFS 30s为假设（手册“几十秒”）；低于5kV时在5kV执行后恢复，没有单独的电压变化。'],
+    'gun.set': ['灯丝加热：饱和点在加热条0.6处，左侧约一半处有假峰，右侧过流使寿命消耗×(1+20(h/h饱和−1))；栅偏压粗/细每25/250格使负载电流减半；'
+                '对中偏差按exp(−Σd²/0.25²)降低束流；全部为假设。'],
+    'gun.bias_memory': ['每个加速电压一组保存值。'],
+    'alignment.configure_error': ['误差参数默认0（理想）；真实偏差的统计分布不研究（后续“标定/仿真到真实差距”任务）。'],
+    'fault.inject': ['只有手册3.14中能由仿真表现的信息：0261需要R电机、0360/0380需要VMIU（均为未装选配），仍不支持；信息文字照手册，Error ID为一组时取首个；'
+                     '服务修理不建模（由评测者fault.clear表示修好）。'],
+    'fault.clear': ['只消除原因；信息仍须确认（error.acknowledge）。'],
+    'recipe.execute': ['表3-1在文本副本中错乱：各类别的kV/P.C./压力为重建值（镀膜15kV P.C.50、低加速1.0kV P.C.50、低真空BED P.C.60 30–50Pa，高倍20kV P.C.35，有机/生物10kV），'
+                       '需对照原厂表核实。'],
+    'stage.stop': ['只停X/Y电机（Z/T/R为手动轴）。'], 'stage.last_move': ['只记X/Y。'],
+    'stage.click_center': ['按样品台旋转、扫描旋转与倾斜（Y方向1/cosθ）换算；坐标系为运行层的X/Y（视场向右移动时X减小）。'],
+    'stage.memory': ['只记X/Y坐标（Z/T/R为手动轴）。'],
+    'stage.calibrate': ['校准瞬时测出坐标偏差并回到交换位（真实约数十秒的走限位过程未逐步建模）。'],
+    'specimen.set_info': ['软件限位只作用于X/Y电机移动（IT200目录：XY两轴电机台；Z/T/R手动轴由真实几何的碰撞检查拒绝）；软件按所选样品座外廓（32mm座与其插件16mm、10mm圆座7.5mm为假设）'
+                          '与输入高度、假设样品不侧向伸出计算；物理样品座按32mm多用途座建模，输入偏小时由真实几何检查拒绝（未建模真实撞击损坏）。'],
+    'settings.configure': ['各节字段按手册窗口说明整理；扫描速度组合按手册规格表8.2.5.b的帧时间（文本副本合并单元格，像素数按列顺序对应为假设）；拍照组合的像素/时间、Eco默认30min、'
+                           '慢抽气1/10速度到5kPa、ACB目标映射为假设；语言：手册没有日文界面文字，选择Japanese时保存设定、在语言窗口与operation.state中显示，界面文字仍为英文（不自拟译文）；'
+                           'Tilt Mag按cos(校正角)缩小Y扫描（倾斜样品图像纵横比复原），Dynamic Focus沿扫描Y按tan(校正角)改变聚焦，'
+                           '两者作用于实时像、照片、剂量分布、EDS面分析与Click Center；SRT不为0时校正方向不随旋转（手册要求SRT为0）。'],
+    'presets.configure': ['预设默认值为假设。'], 'ui.select': ['只记加速电压窗口的选定值，Apply才设定。'],
+    'image.save': ['文件只记名称、目录、格式、照片数据与缩略图引用；不写真实文件。'], 'image.open': ['只在主屏显示文件的缩略图。'],
+    'image.copy': ['剪贴板只记来源。'], 'image.anaglyph': ['立体图按两张32×24缩略图合成（红=左，青=右）。'],
+    'movie.record': ['只记录时长、帧数与文件名（日期按模拟PC时钟，起点2026-01-01为假设），不保存帧。'],
+    'snapshot.take': ['快照为32×24缩略图与条件。'], 'snapshot.reproduce': ['再现的条件经各自命令设定，被拒的那一项之前已设定的保留。'],
+    'snapshot.save': ['同image.save。'], 'measure.ruler': ['只量两点距离与角度（平行线、直径等其他量测未提供）。'],
+    'eds.transfer_image': ['只记参考图来源。'], 'user.manage': ['用户只改数据目录；没有密码与权限。'],
+    'vacuum.lv_auto': ['Fine↑/↓按设定值±1Pa实现（手册文字中箭头方向与压力升降的对应前后不一，按“↑降压、↓升压”）。'],
+})
+CAP_LIMITS['beam.observation_on'] = CAP_LIMITS['beam.observation_on'] + ['电子枪为auto时开始观察瞬时完成加热与对中（对中到误差参数处）；手动调整后保持手动设定直到AGC/AFS。']
+OBSERVES.update({
+    'beam.blank': ['beam.blanked'], 'beam.set_pc': ['beam.probe_current_pc', 'beam.probe_current_setpoint_a'], 'scan.set_mode': ['scan.mode', 'scan.charge_free'],
+    'scan.set_rotation': ['scan.rotation_rad'], 'scan.rotate_to_line': ['scan.rotation_rad'], 'optics.set_stigmator': ['optics.stigmator_m'],
+    'optics.set_image_adjust': ['optics.image_adjust'], 'optics.set_beam_shift': ['optics.beam_shift_m'], 'optics.wobbler': ['optics.wobbler_on'],
+    'aperture.set_position': ['aperture.position_m'], 'gun.auto_adjust': ['gun.auto_adjust', 'gun.settings'], 'gun.set': ['gun.settings', 'beam.emission_indicated_a'],
+    'gun.bias_memory': ['gun.settings'], 'alignment.configure_error': [], 'fault.inject': ['fault.injected', 'system.error_code'], 'fault.clear': ['fault.injected'],
+    'recipe.execute': ['beam.accelerating_voltage_v', 'beam.probe_current_pc', 'detector.selected', 'vacuum.mode'],
+    'stage.stop': ['stage.moving'], 'stage.last_move': ['stage.x_indicated_m', 'stage.y_indicated_m'], 'stage.click_center': ['stage.x_indicated_m', 'stage.y_indicated_m'],
+    'stage.memory': ['operation.state'], 'stage.calibrate': ['stage.x_indicated_m', 'stage.y_indicated_m'],
+    **{k: ['operation.state'] for k in ('specimen.set_info', 'settings.configure', 'presets.configure', 'ui.select', 'image.save', 'image.open', 'image.copy',
+                                        'image.anaglyph', 'movie.record', 'snapshot.take', 'snapshot.save', 'measure.ruler', 'eds.transfer_image', 'user.manage')},
+    'snapshot.reproduce': ['beam.accelerating_voltage_v', 'scan.magnification', 'optics.focus_wd_m', 'detector.selected'],
+    'vacuum.lv_auto': ['operation.state', 'vacuum.lv_pressure_indicated_pa'],
+})
+CAP_SOURCES.update({k: [_MAN, _SIM] for k in _OP_EFFECTS})
+CAP_SOURCES.update({k: [_MAN, _IA, _SIM] for k in ('specimen.set_info', 'settings.configure', 'user.manage', 'image.save', 'stage.click_center', 'beam.set_pc')})
+CAP_SOURCES['recipe.execute'] = [_MAN, _CAT, _SIM]
+_CONTROL_GUARDED |= {'beam.blank', 'beam.set_pc', 'scan.set_mode', 'scan.set_rotation', 'scan.rotate_to_line', 'optics.set_stigmator', 'optics.set_image_adjust',
+                     'optics.set_beam_shift', 'optics.wobbler', 'aperture.set_position', 'gun.auto_adjust', 'gun.set', 'gun.bias_memory', 'recipe.execute',
+                     'stage.stop', 'stage.last_move', 'stage.click_center', 'stage.memory', 'stage.calibrate', 'settings.configure', 'snapshot.reproduce',
+                     'vacuum.lv_auto'}
+_CONTROL_GUARDED -= _PHYSICAL
+_GUARDED = _CONTROL_GUARDED | _DATA_GUARDED
+LIMITATIONS.append('前面板（1.1.0）：SEM Operation（InTouchScope）界面由panel_ui.json描述，按JSM-IT300同系列说明书（第3–5章）与Iowa State JSM-IT200指南重建（近似）；'
+                   '消隐、扫描模式与旋转、手动消像散/亮度衬度/束位移、Wobbler与可动光阑、电子枪窗口（AGC/AFS、加热、栅偏压、对中）、P.C.刻度与EOS大束流、Recipes、'
+                   '坐标记忆/Last Move/Click Center/校准、各设置窗口、文件、录像、快照、量尺、用户由本运行层的最小模型实现；对中、光阑与样品台坐标的误差参数默认0（理想），'
+                   '真实误差与公差留给后续“标定/仿真到真实差距”任务；Report（需Microsoft Office）、PCD、LLC、AUX、SNS/Chamber Scope、5轴电机台功能（R/T/Z电机、优中心R/T、'
+                   '高分辨率模式）、LSED与3D测量为未装的选配或外部软件，界面显示“未安装”。')
+
 
 def export_jeol_jsmit200_contract_metadata():
     slots, caps = {}, {}
@@ -3321,6 +4809,29 @@ def export_jeol_jsmit200_contract_metadata():
         if k in ON_STEP:
             c['state_effects'] += [dict(state_id=s, timing='on_step', description_zh=ON_STEP_ZH[k]) for s in ON_STEP[k]
                                    if not (k == 'sim.step' and s in v['effects'])]      # a slot set at once may also evolve on the step
+        caps[k] = c
+    called = _panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []
+    imm = sorted({e for k in called for e in CAPS[k]['effects']})
+    later = sorted({e for k in called for e in ON_STEP.get(k, [])})
+    for k, v in PANEL_CAPS.items():
+        gesture = v['kind'] == 'device_command'
+        c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
+        c.update(availability='implemented', implementation={layer: 'implemented' if layer in ('process', 'host') else 'absent' for layer in ['process', 'scene', 'robot', 'hardware', 'host']},
+                 binding=dict(backend='host', artifact_id='runtime', entrypoint='asset_runtime.jeol_jsmit200.JeolJsmit200Session.invoke',
+                              invocation=f'session.invoke(instance_id="jsmit200_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),
+                 preconditions=[dict(description_zh='按panel_ui.json的界面规则：断电时只有MAIN POWER钥匙与机械旋钮/门有效，软件加载中只显示启动画面；被调用的命令各自检查前提，被拒时显示软件的提示且状态不变',
+                                     state_ids=['power.enabled', 'system.state', 'acquisition.started_by_other_agent'], enforced_by='runtime',
+                                     check='JeolJsmit200Session._guard / JeolJsmit200Runtime._panel_entry（面板引擎_panel_ui.py）')] if gesture else [],
+                 state_effects=([dict(state_id=x, timing='immediate', description_zh='手势调用的命令立即改变的状态') for x in imm] +
+                                [dict(state_id=x, timing='on_step', description_zh='手势调用的命令在之后的step中推进的状态') for x in later]) if gesture else [],
+                 observes=[], model_effects=dict(mode='none', description_zh='屏幕画面由panel.capture提供；3D屏幕纹理与按键/旋钮关节触发手势属后续Matterix步骤', binding_ids=[]),
+                 execution=dict(mode='synchronous', time_domain='simulation', completion_criterion='手势瞬时完成（不推进仿真时钟）；被调用命令的过程由step推进',
+                                completion_state_ids=[], timeout_s=None, cancellation='unsupported', retry='same_request_id', resources=['panel'],
+                                partial_failure_zh='一个手势按界面规则可调用多个命令：已被接受的前序命令保留，被拒的命令不改变状态' if gesture else '只读'),
+                 errors=[dict(code=e, meaning_zh=ERROR_ZH[e], side_effects='none') for e in _COMMON_ERRORS + ['ACCESS_DENIED']],
+                 verification=[], limitations=['面板层：panel_ui.json（JSM-IT300同系列说明书与Iowa State JSM-IT200指南页码证据）解释手势并调用本运行层的命令；'
+                                              '同系列手册未写或文本副本错乱之处见panel_ui.json的assumptions（近似）'],
+                 source_ids=[_MAN, _IA, _CAT])
         caps[k] = c
     params = {}
     for name, (val, unit, meaning, src) in {

@@ -897,9 +897,12 @@ class LedgersIsolationSessions(unittest.TestCase):
         self.assertEqual(s1.invoke(instance_id=I, capability_id='image.acquire', arguments=dict(exposure_s=3.0, binning=1), request_id='r1'), r)
         self.assertEqual(s1.invoke(instance_id=I, capability_id='image.acquire', arguments=dict(exposure_s=1.0, binning=1),
                                    request_id='r1')['error']['code'], 'REQUEST_CONFLICT')
-        for cap, args in (('ht.set_voltage', dict(voltage_v=80000.0)), ('filament.set_on', dict(on=False)), ('aperture.set_objective', dict(position=0)),
-                          ('holder.load_grid', dict(holder_id='high_tilt', specimen_id='x'))):
+        for cap, args in (('ht.set_voltage', dict(voltage_v=80000.0)), ('filament.set_on', dict(on=False))):
             self.assertEqual(s2.invoke(instance_id=I, capability_id=cap, arguments=args, request_id='g-' + cap)['error']['code'], 'ACCESS_DENIED')
+        for cap, args, code in (('aperture.set_objective', dict(position=2), None),                      # hand actions (1.1.2): the device's own answer,
+                                ('holder.load_grid', dict(holder_id='high_tilt', specimen_id='x'), 'UNKNOWN_SPECIMEN')):   # no ownership refusal
+            r2 = s2.invoke(instance_id=I, capability_id=cap, arguments=args, request_id='g-' + cap)
+            self.assertEqual(r2['error'] and r2['error']['code'], code)
         o2 = s2.read(instance_id=I)['observations']
         self.assertTrue(o2['acquisition.started_by_other_agent']['value'])
         self.assertIsNone(o2['acquisition.id']['value'])
@@ -1168,6 +1171,7 @@ def _variants(cap):
         'stage.set_tilt': [dict(tilt_rad=-math.radians(15.0))], 'image.acquire': [dict(exposure_s=0.1, binning=2)],
         'diffraction.acquire': [dict(exposure_s=0.1, binning=2)], 'montage.acquire': [dict(rows=1, cols=2, overlap=0.2, exposure_s=0.1, binning=4)],
         'sim.step': [dict(dt_s=2.0)],
+        'deflector.set': [dict(target='cond_stig', x=0.1, y=-0.05)], 'alignment.configure_error': [dict(target='cond_stig', x=0.1, y=-0.05)],   # 1.1.1
     }
     return [ex] + extra.get(cap, [])
 
@@ -1613,6 +1617,115 @@ class ReviewRound2(unittest.TestCase):
         lam = rt.wavelength_m(120000.0)
         self.assertTrue(all(math.exp(-0.5 * (math.pi * lam * rt.focus_spread_m(120000.0)) ** 2 / x ** 4) > 0.05 for x in d), d)
         self.assertNotIn(round(0.144e-9, 12), {round(x, 12) for x in d})
+
+
+class FrontPanelCommands(unittest.TestCase):
+    """1.1.0: the device functions behind the subpanel keys and the TEM Center windows (called through the instrumented runtime API, so each call is
+    checked against its output schema and declared immediate effects); the panel gestures themselves are tested in tests/test_panel_ui_jeol_jem1400flash.py."""
+
+    def test_beam_blank_stops_the_specimen_current_not_the_emission(self):
+        h = inserted()
+        i0, em0 = h._specimen_current(), h._emission()
+        self.assertEqual(h.invoke('beam.blank', on=True), dict(on=True))
+        self.assertEqual(h._specimen_current(), 0.0)
+        self.assertEqual(h._emission(), em0)
+        h.step(2.0)
+        self.assertEqual(h.read('evaluator')['illumination.screen_current_density_a_m2'], 0.0)
+        h.invoke('beam.blank', on=False)
+        self.assertEqual(h._specimen_current(), i0)
+        h.invoke('power.set', enabled=False)
+        self.assertFalse(h.read('agent')['beam.blanked'])
+
+    def test_deflectors_move_the_beam_and_misalign_the_gun(self):
+        h = inserted()
+        i0 = h._specimen_current()
+        h.invoke('deflector.set', target='beam_shift', x=0.5, y=0.0)
+        self.assertEqual(h.read('evaluator')['truth.illumination_offset_m'], [0.5 * BEAM_SHIFT, 0.0])
+        h.invoke('alignment.configure_error', target='gun_tilt', x=0.25, y=0.0)
+        self.assertAlmostEqual(h._specimen_current() / i0, math.exp(-1.0), places=12)
+        h.invoke('deflector.set', target='gun_tilt', x=0.25, y=0.0)
+        self.assertAlmostEqual(h._specimen_current(), i0, places=20)
+        h.invoke('alignment.configure_error', target='cl_shift', x=0.0, y=-0.1)
+        self.assertAlmostEqual(h.read('evaluator')['truth.illumination_offset_m'][1], 0.1 * rt.CL_SHIFT_RANGE_M, places=15)
+        h.invoke('alignment.load')
+        self.assertEqual(h.read('agent')['optics.deflectors']['gun_tilt'], [0.0, 0.0])
+        self.assertEqual(h.read('evaluator')['truth.illumination_offset_m'], [0.0, 0.1 * rt.CL_SHIFT_RANGE_M])
+
+    def test_shifted_beam_darkens_the_view_and_moves_the_dose(self):
+        h = inserted()
+        h.invoke('screen.set', up=True)
+        h.step(1.0)
+        c0 = h._live_counts()
+        d = h._illum_d()
+        h.invoke('deflector.set', target='beam_shift', x=min(1.0, 2.0 * d / BEAM_SHIFT), y=0.0)
+        self.assertLess(h._live_counts(), 0.2 * c0)                              # the illuminated disc left the field of view
+
+    def test_wobblers(self):
+        h = inserted()
+        out = h.invoke('optics.wobbler', mode='image')
+        self.assertAlmostEqual(out['image_shift_m'], 2.0 * rt.WOBBLER_TILT_RAD * abs(h._defocus_true()), places=15)
+        h.invoke('alignment.configure_error', target='voltage_center', x=0.3, y=0.4)
+        self.assertAlmostEqual(h.invoke('optics.wobbler', mode='ht')['image_shift_m'], 0.5 * rt.HT_WOBBLE_M, places=15)
+        self.assertIsNone(h.invoke('optics.wobbler', mode='off')['image_shift_m'])
+
+    def test_magnification_steps_trackball_and_go_here(self):
+        h = inserted()
+        m0 = h._mag()
+        out = h.invoke('optics.step_magnification', steps=2)
+        self.assertEqual(out['magnification'], rt.MAG_STEPS[rt.MAG_STEPS.index(m0) + 2])
+        self.assertEqual(h.invoke('optics.step_magnification', steps=50)['magnification'], rt.MAG_STEPS[-1])
+        h.invoke('optics.set_magnification', magnification=10000.0)
+        x0 = h.stage_target['x']
+        h.invoke('stage.trackball', dx=10, dy=0)
+        self.assertAlmostEqual(h.stage_target['x'] - x0, 10 * rt.TRACKBALL_FOV_FRACTION * rt.CAMERA_PIXELS * rt.CAMERA_PIXEL_M / 1e4, places=15)
+        with self.assertRaisesRegex(rt.ActionRejected, 'NO_IMAGE'):
+            h.invoke('stage.go_here', u=0.5, v=0.5)
+        h.step(5.0)
+        h.invoke('screen.set', up=True)
+        h.step(1.0)
+        h.invoke('image.acquire', exposure_s=0.1, binning=1)
+        h.step(2.0)
+        x1, y1 = h.stage['x'], h.stage['y']
+        fov = rt.CAMERA_PIXELS * rt.CAMERA_PIXEL_M / 1e4
+        h.invoke('stage.go_here', u=1.0, v=0.0)
+        self.assertAlmostEqual(h.stage_target['x'], x1 + 0.5 * fov, places=15)
+        self.assertAlmostEqual(h.stage_target['y'], y1 + 0.5 * fov, places=15)
+
+    def test_tem_center_holder_prompt_and_data_filing(self):
+        h = ready(ht=False)
+        self.assertTrue(h.read('agent')['tem_center.state']['holder_prompt'])
+        h.invoke('tem_center.select_holder', holder_id='high_tilt')
+        st = h.read('agent')['tem_center.state']
+        self.assertEqual((st['holder_prompt'], st['selected_holder']), (False, 'high_tilt'))
+        h.invoke('tem_center.new_project', name='p1', root='F/x')
+        out = h.invoke('tem_center.data_filing', free_text='g', use_free_text=True, use_sequence=True, use_mag=False, file_format='tiff_raw_jpeg_high')
+        self.assertEqual(out['example'], 'g_0001.tif')
+        self.assertEqual(h.invoke('tem_center.camera', exposure_s=0.5, binning=2), dict(exposure_s=0.5, binning=2))
+        h.invoke('specimen.provide', **AU)
+        h.invoke('holder.load_grid', holder_id='quick_change', specimen_id=AU['specimen_id'])
+        h.invoke('holder.insert_to_airlock', holder_id='quick_change')
+        h.step(12.0)
+        h.invoke('airlock.set_pump', pump=True)                                  # the prompt comes back while the airlock pumps
+        self.assertTrue(h.read('agent')['tem_center.state']['holder_prompt'])
+
+
+BEAM_SHIFT = rt.BEAM_SHIFT_RANGE_M
+
+
+class HandAperturesDuringExposure(unittest.TestCase):
+    """Sweep 2026-10-19: the aperture lever and dials are hand actions; nothing stops a hand during an exposure: not refused, the frame sees it."""
+
+    def test_condenser_aperture_pulled_during_an_exposure_brightens_it(self):
+        def frame(pull):
+            h = camera(inserted())
+            op = h.invoke('image.acquire', exposure_s=1.0, binning=1)['operation_id']
+            if pull:
+                self.assertFalse(h.invoke('aperture.set_condenser', inserted=False)['inserted'])
+            h.step(h.operations[op]['duration'] + 1.0)
+            self.assertEqual(h.operations[op]['phase'], 'completed')
+            return h.images[h.operations[op]['record_id']]
+        a, b = frame(False), frame(True)
+        self.assertGreater(b['dose_estimate_e_per_m2'], 2.0 * a['dose_estimate_e_per_m2'])   # about 3x the specimen current without the aperture
 
 
 if __name__ == '__main__':

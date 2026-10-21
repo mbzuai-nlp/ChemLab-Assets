@@ -146,6 +146,41 @@ class IgniteTests(unittest.TestCase):
             h.invoke('syringe.unload',channel=i);h.invoke('syringe.load',**dict(SYRINGE_EXAMPLES[i],capacity_m3=10e-6,volume_m3=10e-6,inner_diameter_m=.0145))
         h.invoke('block.set',opened=False);h.invoke('lid.set',opened=False);h.invoke('acquisition.start');h.step(100)
         self.assertEqual(h.phase,'succeeded');self.assertAlmostEqual(h.dispensed,20e-6,delta=1e-14);self.conserve(h)
+class IgniteTerminalTests(unittest.TestCase):
+    """Touch-screen software through direct calls: recipes, run loading with the selected syringes, history, date and time, syringe list."""
+    def test_capabilities_exported(self):
+        m=export_cytiva_nanoassemblrignite_contract_metadata();self.assertEqual(set(m['capabilities']),set(ALL_CAPS))
+        for k in TERMINAL_CAPS:self.assertTrue(m['capabilities'][k]['state_effects'])
+    def test_recipe_save_delete_and_validation(self):
+        h=prepared();h.invoke('recipe.save',slot=2,name=' LNP ',params=dict(PARAM_EXAMPLE));self.assertEqual(h.read()['term.recipes'][1]['name'],'LNP')
+        for bad in [dict(PARAM_EXAMPLE,total_volume_ml=25.),dict(PARAM_EXAMPLE,dilution_ratio=None),dict(PARAM_EXAMPLE,syringe_c='BD30'),dict(PARAM_EXAMPLE,flow_ratio=None)]:
+            before=h.debug_snapshot()
+            with self.assertRaises(ActionRejected) as e:h.invoke('recipe.save',slot=3,name='x',params=bad)
+            self.assertEqual(str(e.exception),'PARAMETERS_INVALID');self.assertEqual(before,h.debug_snapshot())
+        h.invoke('recipe.delete',slot=2);self.assertIsNone(h.read()['term.recipes'][1])
+        with self.assertRaises(ActionRejected):h.invoke('recipe.delete',slot=2)
+    def test_run_load_sets_the_method_and_history(self):
+        h=prepared();r=h.invoke('run.load',source='quick',name='Quick Run',params=dict(PARAM_EXAMPLE))
+        self.assertAlmostEqual(r['channels']['C']['volume_ml'],1.5);self.assertAlmostEqual(h.method['flow_m3_s'],4e-6/60);self.assertEqual(h.read()['cartridge.state'],'acceptable')
+        h.invoke('acquisition.start');h.step(60);e=h.read()['term.history'][0];self.assertEqual((e['name'],e['result']),('Quick Run','SUCCESS'));self.assertAlmostEqual(sum(h.vols['sample']),3.47e-6,delta=1e-14)
+        self.assertEqual(h.read()['cartridge.state'],'unacceptable')
+    def test_interrupted_run_is_incomplete(self):
+        h=prepared();h.invoke('run.load',source='quick',name='Q',params=dict(PARAM_EXAMPLE));h.invoke('acquisition.start');h.step(5);h.invoke('acquisition.stop')
+        self.assertEqual(h.read()['term.history'][0]['result'],'INCOMPLETE');h.invoke('cycle.reset');h.step(30);self.assertEqual(h.read()['term.history'][0]['result'],'INCOMPLETE')
+    def test_selected_syringe_size_sets_the_pusher_speed(self):
+        h=prepared();h.invoke('run.load',source='quick',name='Q',params=dict(PARAM_EXAMPLE,syringe_r='BD3'));h.invoke('acquisition.start')
+        self.assertAlmostEqual(h.scale[2],(4.7/9.0)**2,places=12);h.step(60);p=h.invoke('product.read')
+        self.assertAlmostEqual(p['initial_m3'][2]-p['syringe_m3'][2],.5e-6*(4.7/9.0)**2,delta=1e-12);self.conserve=IgniteTests.conserve;IgniteTests.conserve(self,h)
+    def test_direct_method_clears_the_terminal_run(self):
+        h=prepared();h.invoke('run.load',source='quick',name='Q',params=dict(PARAM_EXAMPLE,syringe_r='BD3'));h.invoke('method.configure',**METHOD_EXAMPLE)
+        self.assertIsNone(h.read()['term.run']);self.assertEqual(h.scale,[1.,1.,1.])
+    def test_datetime_and_syringe_list(self):
+        h=prepared();r=h.invoke('settings.set_datetime',date='2026-05-01',hour=12,minute=5,second=0,pm=False);self.assertEqual(r['datetime'],'2026-05-01T00:05:00')
+        h.step(10);self.assertEqual(h.read()['term.datetime'],'2026-05-01T00:05:10')
+        with self.assertRaises(ActionRejected):h.invoke('settings.set_datetime',date='2026-02-30',hour=1,minute=0,second=0,pm=True)
+        h.invoke('settings.set_syringes',enabled=['BD3','BD10']);self.assertEqual(h.read()['term.syringes_enabled'],['BD10','BD3'])
+        with self.assertRaises(ActionRejected):h.invoke('recipe.save',slot=1,name='x',params=dict(PARAM_EXAMPLE))      # BD1 no longer offered
+        with self.assertRaises(ActionRejected):h.invoke('settings.set_syringes',enabled=['XX9'])
 if __name__=='__main__':unittest.main()
 
 

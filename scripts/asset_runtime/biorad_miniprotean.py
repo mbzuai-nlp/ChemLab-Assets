@@ -7,7 +7,9 @@ Process model (SI; host clock only - step(dt_s) is the only way time advances):
     from the mains (an outage keeps the supply dark until the mains returns); error codes E1 (no load < 4 mA; ends the run), E2 (over current) and
     E9 (sudden change of the load resistance) hold the run - run/pause resumes it, any other key clears the code and ends it (manual 4.2) -,
     E6 / E7 (power failure in a timed / untimed run), E5 (power failure with detection enabled, the timed run restarted and completed; shown until a
-    key is pressed); power-failure detection is de-activated after each run;
+    key is pressed); power-failure detection is de-activated after each run; held keys (psu.hold_key, manual p.3-5): scroll keys auto-repeat (the first
+    5 units by 1, then by 10), stop held ~2 s switches power-failure detection on (time display, timed runs: Pfd) or the change-in-resistance
+    detection off until the end of the next run (current display: dE9);
   - Tetra cell circuit (manual 10007296): lid (current enters through it - removing it opens the circuit), leads to the supply (normal or reversed
     polarity), electrode assembly (back position, gels 1-2) and companion running module (front position, gels 3-4, electrodes in parallel through
     internal contacts - engineering), each module sealed only with a gel or the buffer dam on both faces; the inner (upper) chamber of a sealed module
@@ -30,6 +32,9 @@ Process model (SI; host clock only - step(dt_s) is the only way time advances):
   - outputs: supply display and state, dye-front distance and prestained marker bands visible through the cassette (gel.observe), run records, the
     separated gel handed to the bench (gel.remove); band truth and densitometry profile for the evaluator (gel.inspect); energy / charge / buffer /
     protein ledgers.
+Front panel (panel.press / panel.switch / panel.capture / panel.frame): the 3-digit LED display, the seven indicator LEDs, the six keys and the power
+switch of the PowerPac Basic manual (panel_ui.json beside the contract) run by the generic engine _panel_ui.py on top of the capabilities below (no
+second copy of the logic).
 Generic schema / capability / session framework follows the CHEM-163 runtime.
 """
 from __future__ import annotations
@@ -39,6 +44,7 @@ import functools
 import hashlib
 import json
 import math
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -92,6 +98,10 @@ DYE_READ_SIGMA_M = 0.5e-3                   # reading the blue dye front through
 TICK_S = 0.5                                # physics advances on a fixed 0.5 s grid of the host clock (exactly step-partition independent)
 E9_RATIO = 3.0                              # load resistance jump that trips E9 within one step
 PANEL_KEYS = ['display_mode', 'up', 'down', 'stop', 'run_pause', 'constant']
+KEY_REPEAT_DELAY_S, KEY_REPEAT_HZ = 0.5, 5.0  # a held scroll key repeats after 0.5 s at 5 steps/s (engineering: the manual gives no timing)
+KEY_FAST_AFTER, KEY_FAST_STEP = 5, 10       # held for more than 5 units the scroll key steps by 10 (manual p.3-4)
+STOP_HOLD_S = 2.0                           # stop held ~2 s: Pfd on the time display, dE9 on the current display (manual p.5)
+ASSET_VERSION = '1.2.1'
 
 
 class ActionRejected(ValueError):
@@ -301,6 +311,10 @@ cap('psu.program', PSU_PROGRAM, PSU_STATE, PSU_EXAMPLE, ['psu_front_panel', 'dis
 cap('psu.press_key', obj(dict(key=enum(PANEL_KEYS))), PSU_STATE, dict(key='run_pause'),
     ['key_display_mode', 'key_up', 'key_down', 'key_stop', 'key_run_pause', 'key_constant', 'psu_front_panel', 'display_digits'],
     '按电源面板键：显示模式（V/mA/min）、上/下调所显示的参数、停止、运行/暂停、恒定参数V/A')
+cap('psu.hold_key', obj(dict(key=enum(PANEL_KEYS), duration_s=number('s', 0.02, 60.0))), PSU_STATE, dict(key='up', duration_s=2.0),
+    ['key_display_mode', 'key_up', 'key_down', 'key_stop', 'key_run_pause', 'key_constant', 'psu_front_panel', 'display_digits'],
+    '按住电源面板键duration_s：上/下键自动连调（0.5 s后每秒5步，前5个单位每步1，之后每步10）；停止键按住约2 s且电源停止时：显示时间且已设定时则开启断电检测（Pfd），'
+    '显示电流则关闭负载电阻突变检测直到下一次运行结束（dE9）；其余键或较短按住同psu.press_key')
 cap('psu.start', obj({}), obj(dict(operation_id=TEXT)), {}, ['key_run_pause', 'psu_output_jacks'],
     '按程序开始运行（等于在停止状态按运行/暂停键）；定时运行到时自动结束；E2/E9中断后等于按运行/暂停键恢复被中断的运行（返回原operation_id）')
 cap('psu.stop', obj({}), PSU_STATE, {}, ['key_stop'], '停止运行（恒定参数与限值保留，计时清零）')
@@ -336,8 +350,16 @@ cap('events.read', obj(dict(since_s=number('s', 0.0))), obj(dict(events=array(EV
 cap('ledger.read', obj({}), obj(dict(ledger=LEDGER)), {}, ['psu_base'], '读守恒账目（输出电能、散热、电量、缓冲液、蛋白去向）', 'evaluator', 'query')
 cap('gel.inspect', obj(dict(gel_id=SID)), BANDS, dict(gel_id='gel_a'), ['electrode_assembly'], '评测者读胶内真值：各泳道条带（物种、表观分子量、量、位置、宽度、状态）与密度曲线', 'evaluator', 'query')
 cap('provenance.read', obj({}), obj(dict(libraries=array(obj(dict(path=TEXT, sha256=TEXT, count=INT)), 3, 3))), {}, ['psu_base'], '模板库与标定模型的路径和sha256', 'agent', 'query')
-cap('fault.inject', obj(dict(fault=enum(['power_loss', 'lead_break', 'inner_leak', 'short_circuit']), active=BOOL)), obj(dict(faults=array(TEXT, 0, 8))),
-    dict(fault='inner_leak', active=True), ['psu_base', 'electrode_assembly'], '评测者故障注入：断电、引线断路、内槽密封泄漏、短路', 'evaluator', 'simulation')
+# supply fault codes of the PowerPac Basic manual (4.2 troubleshooting, p.13-14) and their documented remedy: 'power_cycle' = turn the supply off,
+# then on (E3, E8); 'key' = correct the problem, then any key other than run/pause clears the code (E13-E15); 'service' = contact Bio-Rad (E12, E16,
+# E17, E98, E99: no operator remedy; the evaluator's fault.inject active=false stands for the repair)
+HW_FAULTS = {'E3': ('power_cycle', '过压（负载电压超过300 V）'), 'E8': ('power_cycle', '调节错误'), 'E12': ('service', '内部过流（可能是电源故障）'),
+             'E13': ('key', '内部短路'), 'E14': ('key', '内部过压'), 'E15': ('key', '内部短路'), 'E16': ('service', '硬件故障'), 'E17': ('service', '硬件故障'),
+             'E98': ('service', '内部系统错误'), 'E99': ('service', '内部系统错误')}
+cap('fault.inject', obj(dict(fault=enum(['power_loss', 'lead_break', 'inner_leak', 'short_circuit'] + list(HW_FAULTS)), active=BOOL)), obj(dict(faults=array(TEXT, 0, 8))),
+    dict(fault='inner_leak', active=True), ['psu_base', 'electrode_assembly'],
+    '评测者故障注入：断电、引线断路、内槽密封泄漏、短路；以及手册4.2的电源故障码E3、E8、E12–E17、E98、E99（输出立即关断，运行以该码结束，显示该码；E3/E8关机再开机复位，'
+    'E13–E15按运行/暂停以外的任意键清除，其余须Bio-Rad维修：active=false代表维修；原因未撤销时E3/E8/E13–E15在下次运行开始时再次出现）', 'evaluator', 'simulation')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=1.0), ['psu_base'], '推进宿主时钟', 'evaluator', 'simulation')
 UNSUPPORTED = {
     'blot.transfer': 'Mini Trans-Blot转印模块不在本配置中（湿转需另配模块与冷却）',
@@ -350,6 +372,27 @@ UNSUPPORTED = {
 }
 for _k, _why in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, ['psu_base'], _why, 'agent', 'device_command')
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.biorad_miniprotean (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / switch / capture / frame (kept out of CAPS:
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # CAPS stays the instrument's own command set)
+PANEL_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
 
 SLOTS = {}
 
@@ -367,9 +410,11 @@ slot('psu.active_mode', nullable(enum(['CV', 'CC', 'CP'])), '1', 'derived', 'psu
 slot('psu.voltage_set_v', number('V'), 'V', 'setpoint', 'psu_front_panel', '电压设定值（恒压时为目标，恒流时为限值）')
 slot('psu.current_set_a', number('A'), 'A', 'setpoint', 'psu_front_panel', '电流设定值（恒流时为目标，恒压时为限值；1 mA步进）')
 slot('psu.time_set_s', number('s'), 's', 'setpoint', 'psu_front_panel', '定时（0为不定时；整分钟，面板以min显示）')
+slot('psu.power_failure_detection', BOOL, '1', 'setpoint', 'key_stop', '断电检测已开启（Pfd；仅定时运行；每次运行结束后自动关闭）')
+slot('psu.resistance_check', BOOL, '1', 'setpoint', 'key_stop', '负载电阻突变检测（E9）开启；按住停止键关闭（dE9）后到下一次运行结束自动恢复')
 slot('display.mode', enum(['V', 'mA', 'min']), '1', 'setpoint', 'key_display_mode', '显示模式：电压、电流或时间')
 slot('display.value', nullable(INT), '1', 'sensor', 'display_digits', '3位LED读数（按显示模式为V、mA或min；运行中为实测读数，含厂家精度）', reference='单位随display.mode：V、mA或min')
-slot('display.error_code', nullable(TEXT), '1', 'sensor', 'display_digits', '显示的错误码（E1、E2、E5、E6、E7、E9）')
+slot('display.error_code', nullable(TEXT), '1', 'sensor', 'display_digits', '显示的错误码（E1、E2、E5、E6、E7、E9；评测者注入的电源故障E3、E8、E12–E17、E98、E99）')
 slot('psu.timer_s', number('s'), 's', 'derived', 'psu_front_panel', '定时运行的剩余时间或不定时运行的已运行时间（面板以min显示）')
 slot('psu.output_voltage_v', number('V'), 'V', 'process_truth', 'psu_output_jacks', '输出电压真值', 'evaluator')
 slot('psu.output_current_a', number('A'), 'A', 'process_truth', 'psu_output_jacks', '输出电流真值', 'evaluator')
@@ -424,7 +469,8 @@ class BioradMiniproteanRuntime:
         self.power = False
         self.switch_on = False                     # position of the power switch (the supply is powered when it is on and the mains is present)
         self.psu = dict(state='stopped', constant='voltage', v_set=200.0, i_set=0.400, time_min=0, pfd=False, display='V', error=None, active=None,
-                        run_s=0.0, pending_restart=None, hold=None)
+                        run_s=0.0, pending_restart=None, hold=None, e9_check=True, latch=None)   # latch: remedy of a displayed supply fault code
+        self.hw_fault = None                       # supply fault cause injected by the evaluator (HW_FAULTS), until repaired (active=false)
         self.V = 0.0
         self.I = 0.0
         self.R_last = None
@@ -448,6 +494,9 @@ class BioradMiniproteanRuntime:
         self._bias = None
         self._principals, self._requests, self._owners = {}, {}, {}
         self._caller = None                        # principal of the command being executed (owner of a run it starts)
+        self.power_epoch = 0                       # power-ups seen by the panel (a cycle between two gestures still counts)
+        self.panel_capture_dir = None              # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self)
 
     # ---------------------------------------------------------------- basics
     @property
@@ -534,7 +583,8 @@ class BioradMiniproteanRuntime:
         values = {
             'clock.time_s': self.t, 'plant.configured': self.plant is not None, 'power.enabled': self.power, 'psu.state': p['state'], 'psu.constant': p['constant'],
             'psu.active_mode': self._active_mode(), 'psu.voltage_set_v': p['v_set'], 'psu.current_set_a': p['i_set'],
-            'psu.time_set_s': float(p['time_min'] * 60), 'display.mode': p['display'], 'display.value': self._display(),
+            'psu.time_set_s': float(p['time_min'] * 60), 'psu.power_failure_detection': p['pfd'], 'psu.resistance_check': p['e9_check'],
+            'display.mode': p['display'], 'display.value': self._display(),
             'display.error_code': p['error'] if self.power else None,
             'psu.timer_s': (max(0.0, p['time_min'] * 60.0 - p['run_s']) if p['time_min'] > 0 else p['run_s']) if (p['state'] in ('running', 'paused') or p['hold']) else 0.0,
             'psu.output_voltage_v': self.V, 'psu.output_current_a': self.I, 'lid.on': self.lid, 'lid.z_m': 0.0 if self.lid else 0.12, 'leads.state': self.leads,
@@ -544,7 +594,7 @@ class BioradMiniproteanRuntime:
             'operation.kind': 'run' if self.op else None, 'operation.started_by_other_agent': False, 'result.last_record_id': self._last_record(),
             'truth.buffer_temperature_k': self.Tb if self.Tb is not None else self._room(),
             'truth.gel_temperature_k': max([g.get('T', self._room()) for g in self._installed_gels()] or [self.Tb if self.Tb is not None else self._room()]),
-            'truth.load_resistance_ohm': self.R_last, 'truth.dye_front_fraction': [self._front_frac(q) for q in POSITIONS], 'truth.faults': sorted(self.faults),
+            'truth.load_resistance_ohm': self.R_last, 'truth.dye_front_fraction': [self._front_frac(q) for q in POSITIONS], 'truth.faults': sorted(self.faults) + ([self.hw_fault] if self.hw_fault else []),
         }
         return {k: v for k, v in values.items() if SLOTS[k]['visibility'] == 'agent' or visibility == 'evaluator'}
 
@@ -564,15 +614,15 @@ class BioradMiniproteanRuntime:
 
     # ---------------------------------------------------------------- commands
     def invoke(self, capability_id, **a):
-        if capability_id not in CAPS:
+        if capability_id not in ALL_CAPS:
             raise ActionRejected('UNKNOWN_CAPABILITY')
         if capability_id in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED')
-        validate(CAPS[capability_id]['input_schema'], a)
-        props = CAPS[capability_id]['input_schema'].get('properties', {})
+        validate(ALL_CAPS[capability_id]['input_schema'], a)
+        props = ALL_CAPS[capability_id]['input_schema'].get('properties', {})
         a = {k: (int(v) if props.get(k, {}).get('type') == 'integer' and v is not None else v) for k, v in a.items()}
         out = getattr(self, '_cmd_' + capability_id.replace('.', '_'))(**a)
-        if CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation'):
+        if ALL_CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation'):
             self.revision += 1
         return out
 
@@ -638,6 +688,7 @@ class BioradMiniproteanRuntime:
 
     def _power_up(self):
         self.power = True
+        self.power_epoch += 1
         p = self.psu
         pend, p['pending_restart'] = p['pending_restart'], None
         if pend == 'E5' and p['state'] in ('running', 'paused'):
@@ -649,6 +700,9 @@ class BioradMiniproteanRuntime:
             self._event('alarm', pend, '断电：运行未完成（E6定时/E7不定时或未按停止键关机）')
         else:
             p['state'], p['error'] = 'stopped', None
+        p['latch'] = None                                                     # a power cycle resets E3 / E8 (manual 4.2)
+        if self.hw_fault and HW_FAULTS[self.hw_fault][0] == 'service':         # a hardware failure stays until it is repaired
+            p['state'], p['error'], p['latch'] = 'error', self.hw_fault, 'service'
         self._event('power', 'POWER_ON', 'PowerPac通电（默认恒压显示）')
 
     def _set_power(self, enabled):
@@ -687,7 +741,25 @@ class BioradMiniproteanRuntime:
         if p['state'] == 'error':
             if p['hold'] and self.op:
                 self._end_run('error', p['hold'])
-            p['state'], p['error'], p['hold'] = 'stopped', None, None
+            p['state'], p['error'], p['hold'], p['latch'] = 'stopped', None, None, None
+
+    def _supply_fault_check(self, key):
+        """A displayed supply fault code that this key cannot clear: E3 / E8 need a power cycle, E12 / E16 / E17 / E98 / E99 Bio-Rad service, and
+        run/pause does not clear E13-E15 (manual 4.2); the key is refused and the code stays on the display."""
+        p = self.psu
+        if p['state'] == 'error' and (p['latch'] in ('power_cycle', 'service') or (p['latch'] == 'key' and key == 'run_pause')):
+            raise ActionRejected('SUPPLY_FAULT')
+
+    def _hw_fault_now(self, code):
+        """The supply detects a fault of the manual's table: the output is switched off at once, an open run ends with the code, the display shows it."""
+        p = self.psu
+        if self.op:
+            self._end_run('error', code, display=code)
+        else:
+            p['state'], p['error'], p['hold'] = 'error', code, None
+        p['latch'] = HW_FAULTS[code][0]
+        self.V = self.I = 0.0
+        self._event('alarm', code, '电源故障' + code + '：' + HW_FAULTS[code][1])
 
     def _resume_hold(self):
         p = self.psu
@@ -710,6 +782,7 @@ class BioradMiniproteanRuntime:
                 raise ActionRejected('LIMIT_EDIT_NEEDS_PAUSE')
             if (time_min > 0) != (p['time_min'] > 0) or power_failure_detection != p['pfd']:
                 raise ActionRejected('TIMED_MODE_CHANGE_NEEDS_STOP')
+        self._supply_fault_check('program')
         self._clear_error()                                                   # programming presses keys: a displayed code (and an E2 / E9 hold) is cleared first
         p.update(constant=constant, v_set=float(round(voltage_v)), i_set=round(current_ma) / 1e3, time_min=int(time_min), pfd=bool(power_failure_detection and time_min > 0))
         return self._psu_state()
@@ -717,6 +790,7 @@ class BioradMiniproteanRuntime:
     def _cmd_psu_press_key(self, key):
         self._need_plant()
         self._need_power()
+        self._supply_fault_check(key)
         p = self.psu
         if p['state'] == 'error':                                             # an error code on the display: run/pause resumes an E2 / E9 run
             if key == 'run_pause' and p['hold'] and self.op:
@@ -730,19 +804,7 @@ class BioradMiniproteanRuntime:
         if key == 'display_mode':
             p['display'] = dict(V='mA', mA='min', min='V')[p['display']]
         elif key in ('up', 'down'):
-            d = 1 if key == 'up' else -1
-            if p['display'] == 'V':
-                if p['state'] == 'running' and p['constant'] != 'voltage':
-                    raise ActionRejected('LIMIT_EDIT_NEEDS_PAUSE')
-                p['v_set'] = float(min(V_RANGE[1], max(V_RANGE[0], p['v_set'] + d)))
-            elif p['display'] == 'mA':
-                if p['state'] == 'running' and p['constant'] != 'current':
-                    raise ActionRejected('LIMIT_EDIT_NEEDS_PAUSE')
-                p['i_set'] = min(I_RANGE_A[1], max(I_RANGE_A[0], round(p['i_set'] * 1e3 + d) / 1e3))
-            else:
-                if p['state'] in ('running', 'paused') and p['time_min'] == 0:
-                    raise ActionRejected('TIMED_MODE_CHANGE_NEEDS_STOP')
-                p['time_min'] = int(min(TIMER_MIN[1], max(1 if p['state'] in ('running', 'paused') else 0, p['time_min'] + d)))
+            self._scroll(1 if key == 'up' else -1, 1)
         elif key == 'constant':
             if p['state'] == 'running':
                 raise ActionRejected('LIMIT_EDIT_NEEDS_PAUSE')
@@ -762,12 +824,61 @@ class BioradMiniproteanRuntime:
                 self._start_run()
         return self._psu_state()
 
+    def _scroll(self, d, n):
+        """n steps of a scroll key on the displayed parameter: the first KEY_FAST_AFTER units by 1, the rest by KEY_FAST_STEP (a held key, manual
+        p.3-4); the value stops at its range ends; a time set back to 0 (untimed) drops power-failure detection (timed runs only)."""
+        p = self.psu
+        if p['display'] == 'V' and p['state'] == 'running' and p['constant'] != 'voltage':
+            raise ActionRejected('LIMIT_EDIT_NEEDS_PAUSE')
+        if p['display'] == 'mA' and p['state'] == 'running' and p['constant'] != 'current':
+            raise ActionRejected('LIMIT_EDIT_NEEDS_PAUSE')
+        if p['display'] == 'min' and p['state'] in ('running', 'paused') and p['time_min'] == 0:
+            raise ActionRejected('TIMED_MODE_CHANGE_NEEDS_STOP')
+        for i in range(n):
+            u = d * (1 if i < KEY_FAST_AFTER else KEY_FAST_STEP)
+            if p['display'] == 'V':
+                p['v_set'] = float(min(V_RANGE[1], max(V_RANGE[0], p['v_set'] + u)))
+            elif p['display'] == 'mA':
+                p['i_set'] = min(I_RANGE_A[1], max(I_RANGE_A[0], round(p['i_set'] * 1e3 + u) / 1e3))
+            else:
+                p['time_min'] = int(min(TIMER_MIN[1], max(1 if p['state'] in ('running', 'paused') else 0, p['time_min'] + u)))
+        if p['time_min'] == 0:
+            p['pfd'] = False
+
+    @staticmethod
+    def _repeats(duration_s):
+        """Scroll steps of a key held for duration_s: one at the press, then the auto-repeat (KEY_REPEAT_DELAY_S, KEY_REPEAT_HZ)."""
+        if duration_s < KEY_REPEAT_DELAY_S - 1e-9:
+            return 1
+        return 1 + int(math.floor((duration_s - KEY_REPEAT_DELAY_S) * KEY_REPEAT_HZ + 1e-9))
+
+    def _cmd_psu_hold_key(self, key, duration_s):
+        """A panel key held for duration_s (manual p.3-5): a scroll key auto-repeats; stop held ~2 s with the supply stopped switches power-failure
+        detection on (time display with a time set: the display shows Pfd) or the change-in-resistance detection off until the end of the next run
+        (current display: dE9); otherwise (other keys, a shorter hold, an error code shown, a run open) the hold acts as a press."""
+        self._need_plant()
+        self._need_power()
+        p = self.psu
+        if key in ('up', 'down') and p['state'] != 'error':
+            self._scroll(1 if key == 'up' else -1, self._repeats(duration_s))
+            return self._psu_state()
+        if key == 'stop' and duration_s >= STOP_HOLD_S - 1e-9 and p['state'] == 'stopped':
+            if p['display'] == 'min' and p['time_min'] > 0:
+                p['pfd'] = True
+                self._event('psu', 'PFD_ON', '按住停止键约2 s：断电检测开启（显示Pfd；运行结束后自动关闭）')
+            elif p['display'] == 'mA':
+                p['e9_check'] = False
+                self._event('psu', 'DE9', '按住停止键约2 s：关闭负载电阻突变检测（显示dE9；运行结束后自动恢复）')
+            return self._psu_state()
+        return self._cmd_psu_press_key(key)
+
     def _cmd_psu_start(self):
         self._need_plant()
         self._need_power()
         p = self.psu
         if p['state'] in ('running', 'paused'):
             raise ActionRejected('RUN_IN_PROGRESS')
+        self._supply_fault_check('run_pause')
         if p['hold'] and self.op:                                             # E2 / E9: the start resumes the interrupted run
             return dict(operation_id=self._resume_hold())
         self._clear_error()
@@ -776,6 +887,7 @@ class BioradMiniproteanRuntime:
     def _cmd_psu_stop(self):
         self._need_plant()
         self._need_power()
+        self._supply_fault_check('stop')
         if self.psu['state'] in ('running', 'paused'):
             self._end_run('stopped', None)
         self._clear_error()
@@ -804,7 +916,9 @@ class BioradMiniproteanRuntime:
         R = self._load_resistance()
         self.R_last = R
         V_try = p['v_set'] if p['constant'] == 'voltage' else min(p['v_set'], p['i_set'] * (R or 1e12))
-        if R is None or V_try / R < NO_LOAD_A:                               # no load detected at the start: the run ends at once with E1
+        if self.hw_fault:                                                     # the injected fault persists: it shows again as the output comes on
+            self._hw_fault_now(self.hw_fault)
+        elif R is None or V_try / R < NO_LOAD_A:                             # no load detected at the start: the run ends at once with E1
             self._end_run('error', 'E1', display='E1')
             self._event('alarm', 'E1', '无负载（电流<4 mA）：检查连接、盖与缓冲液', rid=rid)
         return oid
@@ -834,6 +948,7 @@ class BioradMiniproteanRuntime:
         p['run_s'] = 0.0
         p['active'] = None
         p['pfd'] = False                                                      # power-failure detection is de-activated after each run (manual step 7)
+        p['e9_check'] = True                                                  # and the change-in-resistance detection re-activated (manual step 8)
         self.V = self.I = 0.0
 
     def _cancel_op(self, op):
@@ -1209,6 +1324,18 @@ class BioradMiniproteanRuntime:
 
     def _cmd_fault_inject(self, fault, active):
         self._need_plant()
+        if fault in HW_FAULTS:                                                # supply fault codes (manual 4.2)
+            p = self.psu
+            if active:
+                self.hw_fault = fault
+                if self.power:
+                    self._hw_fault_now(fault)
+            elif self.hw_fault == fault:
+                self.hw_fault = None                                          # the cause is gone (service repair for E12 / E16 / E17 / E98 / E99)
+                if p['state'] == 'error' and p['error'] == fault and p['latch'] == 'service':
+                    p['state'], p['error'], p['latch'] = 'stopped', None, None
+            self._event('fault', 'FAULT', f'{fault} {"on" if active else "off"}')
+            return dict(faults=sorted(self.faults) + ([self.hw_fault] if self.hw_fault else []))
         (self.faults.add if active else self.faults.discard)(fault)
         if fault == 'power_loss':
             if active and self.power:
@@ -1216,11 +1343,60 @@ class BioradMiniproteanRuntime:
             elif not active and self.switch_on and not self.power and self._mains_ok():
                 self._power_up()                                                  # mains back with the switch on
         self._event('fault', 'FAULT', f'{fault} {"on" if active else "off"}')
-        return dict(faults=sorted(self.faults))
+        return dict(faults=sorted(self.faults) + ([self.hw_fault] if self.hw_fault else []))
 
     def _cmd_sim_step(self, dt_s):
         self.step(dt_s)
         return dict(time_s=self.t)
+
+    # ---------------------------------------------------------------- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the panel firmware sees: the agent slots plus whether the display is live, the power-up count and the rocker position."""
+        out = self.read('agent')
+        out.update({'host.powered': self.power, 'host.power_epoch': self.power_epoch, 'host.switch_on': self.switch_on})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything).  A gesture made through a
+        session acts as that session's caller: the session's ownership guard applies to the command the key calls (stopping, pausing, changing or
+        switching off another agent's run is refused; the display mode key is free)."""
+        try:
+            if self._caller is not None:
+                BioradMiniproteanSession(self, self._caller)._guard(capability_id, arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args, **kw):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args, **kw)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1, held=()):
+        return self._panel(self.panel.press, input_id, float(duration_s), held=tuple(held))
+
+    def _cmd_panel_switch(self, input_id, position, held=()):
+        return self._panel(self.panel.switch, input_id, position, held=tuple(held))
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
 
     # ---------------------------------------------------------------- physics
     def _elec(self, g, native):
@@ -1390,7 +1566,7 @@ class BioradMiniproteanRuntime:
         p = self.psu
         rec = self.records[self.op['record_id']]
         R = self._load_resistance()
-        if self.R_last is not None and (R is None or R > E9_RATIO * self.R_last):          # open circuit / loose lead mid-run
+        if p['e9_check'] and self.R_last is not None and (R is None or R > E9_RATIO * self.R_last):   # open circuit / loose lead mid-run (not after dE9)
             self._interrupt('E9', '负载电阻突变（盖被取下、引线松脱或缓冲液流失）')
         elif 'short_circuit' in self.faults:
             self._interrupt('E2', '过流（短路或缓冲液过浓）')
@@ -1619,7 +1795,13 @@ class BioradMiniproteanRuntime:
 ASYNC = {'psu.start'}
 _DATA_GUARDED = {'measurement.result'}
 _RECORD_ARG = {'measurement.result': 'record_id'}
-_CONTROL_GUARDED = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] in ('device_command', 'robot_skill') and k not in UNSUPPORTED}
+# the supply's own commands that stop, switch off or change another agent's run; the panel gestures (panel.*) are checked per command in
+# panel_invoke (navigation stays free); the work at the tank (lid, leads, gels, samples, buffer: robot skills) is physical and never refused
+_PHYSICAL = {k for k, v in ALL_CAPS.items() if v['kind'] == 'robot_skill'}
+_HARD_POWER = ('power.set', 'power.press_switch')   # the rocker switch on the right side cuts the mains: physical, never refused (a power failure)
+_CONTROL_GUARDED = {k for k, v in ALL_CAPS.items() if v['visibility'] == 'agent' and v['kind'] == 'device_command' and k not in UNSUPPORTED
+                    and not k.startswith('panel.') and k not in _HARD_POWER}
+_KEY_CAPS = ('psu.press_key', 'psu.hold_key')
 
 
 class BioradMiniproteanSession:
@@ -1654,7 +1836,7 @@ class BioradMiniproteanSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -1688,6 +1870,8 @@ class BioradMiniproteanSession:
         if capability_id in _CONTROL_GUARDED and self._foreign_op():
             if capability_id in ('power.set', 'power.press_switch') and not h.power:
                 return
+            if capability_id in _KEY_CAPS and arguments.get('key') == 'display_mode' and h.psu['state'] != 'error':
+                return                                                        # the display mode key only changes what is shown
             raise ActionRejected('ACCESS_DENIED')
         if capability_id in _DATA_GUARDED and self._foreign(arguments.get(_RECORD_ARG[capability_id])):
             raise ActionRejected('ACCESS_DENIED')
@@ -1709,13 +1893,13 @@ class BioradMiniproteanSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             self._guard(capability_id, arguments)
             before = h.op['op'] if h.op else None
             h._caller = self._principal
@@ -1802,6 +1986,7 @@ ERROR_ZH = {
     'POWER_OFF': '电源未通电', 'RUN_IN_PROGRESS': '运行未结束：电源正在运行、暂停或处于E2/E9保持', 'E10_UNACCEPTABLE_VALUE': 'E10：数值不可接受（电压1 V、电流1 mA、定时1 min步进）',
     'LIMIT_EDIT_NEEDS_PAUSE': '运行中只能改恒定参数与时间；改限值或恒定参数类型需先暂停（厂家规则）',
     'TIMED_MODE_CHANGE_NEEDS_STOP': '定时/不定时切换与断电检测需先停止再重新编程（厂家规则）', 'RECORDS_FULL': '记录数已达上限（200）',
+    'SUPPLY_FAULT': '显示电源故障码：E3/E8须关机再开机，E12/E16/E17/E98/E99须Bio-Rad维修，E13–E15不能用运行/暂停键清除（手册4.2）；按键无效，显示不变',
     'LID_ON': '盖在槽上（先取盖）', 'LID_OFF': '盖不在槽上', 'LEADS_CONNECTED': '引线已插在电源上（先拔引线）', 'LEADS_DISCONNECTED': '引线未连接',
     'COMPANION_INSTALLED': '陪伴模块已在前位', 'COMPANION_ABSENT': '没有陪伴模块（胶位3、4需要它）', 'POSITION_OCCUPIED': '胶位已被占用',
     'POSITION_EMPTY': '胶位为空', 'ITEM_EXISTS': 'ID已存在', 'TOO_MANY_ITEMS': '物件数量超过上限（40）', 'UNKNOWN_GEL_TYPE': '胶模板库中没有该胶型',
@@ -1812,7 +1997,8 @@ ERROR_ZH = {
     'UNKNOWN_OPERATION': '操作不存在', 'NOT_RUNNING': '运行已结束', 'SAMPLES_LOADED': '孔里已有样品：冲洗会把样品冲掉（先冲洗再上样）',
 }
 ERROR_ZH_CAP = {('psu.start', 'RUN_IN_PROGRESS'): '运行未结束：电源正在运行或暂停（E2/E9保持中psu.start恢复被中断的运行，不返回此错误）'}
-_PSU = ['psu.state', 'psu.active_mode', 'display.value', 'display.error_code', 'psu.timer_s', 'psu.output_voltage_v', 'psu.output_current_a']
+_PSU = ['psu.state', 'psu.active_mode', 'display.value', 'display.error_code', 'psu.timer_s', 'psu.output_voltage_v', 'psu.output_current_a',
+        'psu.power_failure_detection', 'psu.resistance_check']
 _RUN = _PSU + ['operation.kind', 'result.last_record_id', 'truth.buffer_temperature_k', 'truth.gel_temperature_k', 'truth.load_resistance_ohm', 'truth.dye_front_fraction',
                'buffer.inner_m3', 'buffer.outer_m3', 'clock.time_s']
 _POS = [f'position_{q}.item' for q in POSITIONS]
@@ -1834,11 +2020,18 @@ EFFECTS = {
     'fault.inject': ['truth.faults', 'power.enabled'] + _PSU + ['operation.kind', 'result.last_record_id'],
     'sim.step': ['clock.time_s'],
 }
+EFFECTS['psu.hold_key'] = list(EFFECTS['psu.press_key'])
+_PANEL_EFFECTS = list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in EFFECTS.get(c, [])))
+for _k in PANEL_GESTURES:
+    EFFECTS[_k] = list(_PANEL_EFFECTS)                                       # a gesture changes what the commands it calls change
 _LEVEL = ['buffer.inner_m3', 'buffer.outer_m3']
 ON_STEP = {'psu.start': _RUN, 'psu.press_key': _RUN, 'psu.program': _RUN, 'psu.stop': _RUN, 'power.set': _RUN, 'power.press_switch': _RUN, 'fault.inject': _RUN,
            'plant.configure': _RUN, 'leads.disconnect': _RUN, 'leads.connect': _RUN, 'lid.remove': _LEVEL, 'gel.install': _LEVEL, 'gel.remove': _LEVEL,
            'companion.install': _LEVEL, 'companion.remove': _LEVEL, 'buffer.drain': _LEVEL + ['truth.buffer_temperature_k', 'truth.gel_temperature_k'],
            'buffer.fill': _LEVEL + ['truth.buffer_temperature_k', 'truth.gel_temperature_k'], 'sim.step': _RUN}
+ON_STEP['psu.hold_key'] = _RUN
+for _k in PANEL_GESTURES:
+    ON_STEP[_k] = _RUN
 ON_STEP_ZH = {'psu.start': '运行中按调节模式输出电压电流；胶电阻随染料前沿与温度变化；定时到或故障时结束', 'psu.press_key': '按运行/暂停键开始、暂停或停止的运行按新状态推进（同psu.start）',
               'psu.program': '运行中改恒定参数：之后的电压/电流、发热与迁移按新设定推进', 'psu.stop': '停止后不再有电场：缓冲液冷却、条带只扩散',
               'plant.configure': '室温或电源电压改变：之后的散热按新室温，电压超范围断电时运行中止', 'leads.disconnect': '运行中拔引线：下一步负载突变报E9，运行结束',
@@ -1846,13 +2039,19 @@ ON_STEP_ZH = {'psu.start': '运行中按调节模式输出电压电流；胶电�
               'companion.remove': '同左', 'buffer.drain': '倒液后空槽（槽体热容）温度向室温弛豫；槽内胶随之', 
               'power.set': '断电使运行中止（E6/E7；定时+断电检测时恢复供电后继续）', 'power.press_switch': '同power.set', 'fault.inject': '断电/断路/短路/泄漏使运行报错或结束',
               'lid.remove': '密封不全的模块内槽缓冲液漏到外槽', 'gel.install': '密封不全的模块内槽缓冲液漏到外槽', 'gel.remove': '同左', 'buffer.fill': '缓冲液温度随环境与焦耳热变化（胶温随之变化）',
-              'sim.step': '时钟推进；运行中推进电泳与发热；静置的胶内条带继续扩散'}
+              'sim.step': '时钟推进；运行中推进电泳与发热；静置的胶内条带继续扩散', 'psu.hold_key': '同psu.press_key（按住停止键可结束运行；dE9关闭后负载突变不再报E9）',
+              **{k: '面板手势调用的运行/暂停/停止或电源开关使运行按新状态推进（同所调用的能力）' for k in PANEL_GESTURES}}
 PRECONDITIONS = {
     'plant.configure': ('噪声种子只能在首次声明时设定', ['plant.configured']),
     'power.set': ('已声明实验室条件；开机时电源电压在90–132或198–264 VAC且未断电', ['plant.configured', 'power.enabled']),
     'power.press_switch': ('已声明实验室条件；断电时按下为开机，通电时按下为关机（运行中按断电处理）', ['plant.configured', 'power.enabled']),
     'psu.program': ('通电；运行中只能改恒定参数与时间，限值在暂停中改，定时模式需停止后改', ['power.enabled', 'psu.state']),
     'psu.press_key': ('通电；运行中改限值或恒定参数类型需暂停', ['power.enabled', 'psu.state']),
+    'psu.hold_key': ('通电；运行中改限值或恒定参数类型需暂停；停止键的Pfd只在电源停止、显示时间且已设定时，dE9只在电源停止、显示电流时（否则按一次按键处理）',
+                     ['power.enabled', 'psu.state', 'display.mode', 'psu.time_set_s']),
+    **{k: ('面板按当前屏幕与手册规则处理手势：断电时只有电源开关起作用；开机显示固件版本期间按键无效；被调用能力的前提同样适用（被拒时显示不变，手势不被接受）',
+           ['power.enabled', 'psu.state', 'display.mode']) for k in PANEL_GESTURES},
+    'panel.capture': ('已声明实验室条件（断电时为暗屏）', ['power.enabled']), 'panel.frame': ('无', []),
     'psu.start': ('通电、未在运行；负载电流≥4 mA（否则E1）', ['power.enabled', 'psu.state', 'lid.on', 'leads.state', 'buffer.inner_m3', 'buffer.outer_m3']),
     'psu.stop': ('通电', ['power.enabled']),
     'lid.place': ('盖不在槽上', ['lid.on']), 'lid.remove': ('盖在槽上且引线已拔下', ['lid.on', 'leads.state']),
@@ -1871,9 +2070,11 @@ _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 _NR = ['PLANT_REQUIRED', 'RUN_IN_PROGRESS']
 CAP_ERRORS = {
     'plant.configure': ['SEED_FIXED'], 'power.set': ['PLANT_REQUIRED', 'MAINS_OUT_OF_RANGE'], 'power.press_switch': ['PLANT_REQUIRED', 'MAINS_OUT_OF_RANGE'],
-    'psu.program': ['PLANT_REQUIRED', 'POWER_OFF', 'E10_UNACCEPTABLE_VALUE', 'LIMIT_EDIT_NEEDS_PAUSE', 'TIMED_MODE_CHANGE_NEEDS_STOP'],
-    'psu.press_key': ['PLANT_REQUIRED', 'POWER_OFF', 'LIMIT_EDIT_NEEDS_PAUSE', 'TIMED_MODE_CHANGE_NEEDS_STOP', 'RECORDS_FULL'],
-    'psu.start': ['PLANT_REQUIRED', 'POWER_OFF', 'RUN_IN_PROGRESS', 'RECORDS_FULL'], 'psu.stop': ['PLANT_REQUIRED', 'POWER_OFF'],
+    'psu.program': ['PLANT_REQUIRED', 'POWER_OFF', 'E10_UNACCEPTABLE_VALUE', 'LIMIT_EDIT_NEEDS_PAUSE', 'TIMED_MODE_CHANGE_NEEDS_STOP', 'SUPPLY_FAULT'],
+    'psu.press_key': ['PLANT_REQUIRED', 'POWER_OFF', 'LIMIT_EDIT_NEEDS_PAUSE', 'TIMED_MODE_CHANGE_NEEDS_STOP', 'RECORDS_FULL', 'SUPPLY_FAULT'],
+    'psu.hold_key': ['PLANT_REQUIRED', 'POWER_OFF', 'LIMIT_EDIT_NEEDS_PAUSE', 'TIMED_MODE_CHANGE_NEEDS_STOP', 'RECORDS_FULL', 'SUPPLY_FAULT'],
+    **{k: ['PLANT_REQUIRED'] for k in PANEL_GESTURES}, 'panel.capture': ['PLANT_REQUIRED'], 'panel.frame': [],
+    'psu.start': ['PLANT_REQUIRED', 'POWER_OFF', 'RUN_IN_PROGRESS', 'RECORDS_FULL', 'SUPPLY_FAULT'], 'psu.stop': ['PLANT_REQUIRED', 'POWER_OFF', 'SUPPLY_FAULT'],
     'lid.place': ['PLANT_REQUIRED', 'LID_ON'], 'lid.remove': ['PLANT_REQUIRED', 'LID_OFF', 'LEADS_CONNECTED'],
     'leads.connect': ['PLANT_REQUIRED', 'LID_OFF', 'LEADS_CONNECTED'], 'leads.disconnect': ['PLANT_REQUIRED', 'LEADS_DISCONNECTED'],
     'companion.install': _NR + ['LID_ON', 'COMPANION_INSTALLED'], 'companion.remove': _NR + ['LID_ON', 'COMPANION_ABSENT', 'POSITION_OCCUPIED'],
@@ -1913,13 +2114,17 @@ EXEC_TEXT = {
     'psu.start': ('运行结束：定时到（completed）、按停止键或psu.stop（stopped）、错误E1/E2/E9（error）或断电E6/E7（power_failed）；写运行记录',
                   '取消=停止：已通过的电量对应的迁移保留；错误或断电时同样保留已完成的迁移，电源显示错误码。'),
 }
-RESOURCES = {'psu.start': ['power_supply', 'cell', 'host_clock'], 'psu.press_key': ['power_supply'], 'psu.program': ['power_supply'], 'psu.stop': ['power_supply'],
+EXEC_TEXT.update({k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，显示须用panel.capture查看',
+                      '同步：被调用的能力被拒时状态不变，显示仪器自己的指示（本机多为显示不变）') for k in PANEL_GESTURES})
+RESOURCES = {'psu.start': ['power_supply', 'cell', 'host_clock'], 'psu.press_key': ['power_supply'], 'psu.hold_key': ['power_supply'],
+             **{k: ['power_supply', 'mains'] for k in PANEL_GESTURES}, 'psu.program': ['power_supply'], 'psu.stop': ['power_supply'],
              'power.set': ['mains'], 'power.press_switch': ['mains'], 'lid.place': ['cell_lid'], 'lid.remove': ['cell_lid'], 'leads.connect': ['leads'],
              'leads.disconnect': ['leads'], 'companion.install': ['tank'], 'companion.remove': ['tank'], 'gel.install': ['tank'], 'gel.remove': ['tank'],
              'buffer.fill': ['tank'], 'buffer.drain': ['tank'], 'sample.load': ['tank'], 'gel.provide': ['bench'], 'gel.prepare': ['bench'], 'sample.prepare': ['bench'],
              'plant.configure': ['room', 'mains'], 'fault.inject': ['evaluator'], 'sim.step': ['host_clock']}
 OBSERVES = {'power.set': ['power.enabled'], 'power.press_switch': ['power.enabled'], 'psu.program': ['display.value', 'psu.state'],
-            'psu.press_key': ['display.mode', 'display.value', 'psu.state'], 'psu.start': ['psu.state', 'display.value', 'display.error_code', 'result.last_record_id'],
+            'psu.press_key': ['display.mode', 'display.value', 'psu.state'], 'psu.hold_key': ['display.mode', 'display.value', 'psu.state'],
+            **{k: ['display.mode', 'display.value', 'display.error_code', 'psu.state'] for k in PANEL_GESTURES}, 'psu.start': ['psu.state', 'display.value', 'display.error_code', 'result.last_record_id'],
             'psu.stop': ['psu.state'], 'lid.place': ['lid.on'], 'lid.remove': ['lid.on'], 'leads.connect': ['leads.state'], 'gel.install': _POS,
             'buffer.fill': ['buffer.inner_m3', 'buffer.outer_m3'], 'sample.load': ['sample.bench_ids']}
 _WB = 'user_workbook'
@@ -1937,7 +2142,10 @@ CAP_SOURCES.update({
     'gel.provide': [_PG, _TM], 'gel.prepare': [_PG], 'gel.install': [_TM, _PG], 'gel.remove': [_TM], 'buffer.fill': [_TM, _PG, _WB], 'buffer.drain': [_TM],
     'sample.prepare': [_UP, _PG, _RT], 'sample.load': [_TM, _PG], 'gel.observe': [_PG, _SIM], 'provenance.read': [_UP, _PG]})
 CAP_SOURCES.update({k: [_TM] for k in UNSUPPORTED})
-PARAM_ZH = {'room_k': '实验室室温（缓冲液初温与散热）', 'mains_voltage_v': '供电电压', 'noise_seed': '噪声随机数种子（只在首次声明时生效）'}
+CAP_SOURCES.update({'psu.hold_key': [_PP, _SIM], **{k: [_PP, _SIM] for k in PANEL_CAPS}})
+PARAM_ZH = {'room_k': '实验室室温（缓冲液初温与散热）', 'mains_voltage_v': '供电电压', 'noise_seed': '噪声随机数种子（只在首次声明时生效）',
+            'key': '面板键', 'duration_s': '按住时间', 'input_id': '面板输入件（按键或电源开关）', 'position': '开关位置', 'held': '同时按住的键',
+            'display_id': '显示件（3位LED或指示灯）'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.electrophoresis_tetra.limitations。'
 CAP_LIMITS = {
     'psu.start': ['胶电阻、前沿电量Q_run、散热UA、胶内热阻与电导温度系数由厂家100/200/300 V电流–时间–温度表拟合（TGX SDS一组，适用于所有TGX规格；'
@@ -1949,7 +2157,7 @@ CAP_LIMITS = {
                   '天然PAGE的热平衡只再现表4.1的1块胶：4块胶时胶温比表值高约4–5 K（厂家注明多块胶时温度应相近，本集总热模型以2胶SDS运行拟合的UA未达到）。',
                   '加液时新液与槽内液体及槽体（一个集总热节点）即时混合；E2/E9保持期间视为运行未结束（不能倒液、换胶、上样），此时断电按E6/E7结束该运行。',
                   '陪伴模块电极经内部触点并联、未封闭的陪伴模块形成约500 Ω（1×、25 °C）的缓冲液旁路（工程估计）：电源因此进入限流/功率限制、胶上电压下降、缓冲液过热，'
-                  '对应说明书“过热并妨碍分离”；电源E3/E8/E12–E17硬件错误与dE9关闭功能未建。',
+                  '对应说明书“过热并妨碍分离”；电源故障码E3/E8/E12–E17/E98/E99只由评测者fault.inject注入（其物理成因未建）；dE9（按住停止键关闭负载电阻突变检测）见psu.hold_key。',
                   '反接引线：阴离子（SDS蛋白、酸性天然蛋白）退回孔并进入上槽缓冲液，阳离子天然蛋白不经浓缩直接进胶迁移（厂家p.12的碱性蛋白做法）；'
                   '溴酚蓝前沿与移动界面位置保持不变（其回退未建模）。'],
     'sample.prepare': ['蛋白质量、链与二硫键来自UniProt序列（推导；胰凝乳蛋白酶原A按单链酶原、伴刀豆球蛋白A按连接后的237残基单链，其少量断裂片段未建）；'
@@ -1960,12 +2168,19 @@ CAP_LIMITS = {
     'gel.prepare': ['未冲洗的孔按条带σ放大1.2倍模拟残留保存液/未聚合丙烯酰胺引起的变形（工程值）；在胶位上加内槽缓冲液不算冲洗；上样后不能再冲洗（SAMPLES_LOADED）。'],
     'sample.load': ['超出孔容量的样品向两侧各溢一半，邻孔装不下的部分与胶边外侧的部分进入内槽缓冲液（账目protein_spilled_kg）。'],
 }
+CAP_LIMITS.update({
+    'psu.hold_key': ['自动连调的起始延迟0.5 s与每秒5步为工程假设（手册只写按住超过5个单位后每步10）；按住停止键的阈值按手册“约2 s”取2 s；'
+                     '运行中、暂停中或显示错误码时按住停止键按一次按键处理（结束运行或清除错误码），Pfd/dE9只在停止状态设定（手册步骤7、8在开始运行之前）。'],
+    **{k: ['面板层按panel_ui.json（手册页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟（按住只按duration_s判断）；手册未写之处的选择见panel_ui.json的assumptions。']
+       for k in PANEL_CAPS}})
 LIMITATIONS = [
     '选定配置：Mini-PROTEAN Tetra电泳槽（电极模块；陪伴模块与缓冲坝为附件）+ PowerPac Basic电源；转印、2-D、电洗脱模块与核酸胶不建模。',
     '胶、缓冲液、样品与陪伴模块在场景中没有几何；装胶、加液、上样与取胶是宿主/机器人抽象，没有接触验证。',
     '迁移模型：Ferguson关系（厂家TGX迁移图的Precision Plus 53个条带拟合，rms 1.3 mm；宽范围标准的48个条带只用于给出其表观质量）用于TGX与手灌Tris-HCl胶；染色与成像在凝胶成像仪中完成。',
     '热模型只在厂家表的温度范围内有依据（见psu.start限制）；缓冲液蒸发不改变其浓度；空闲期条带按室温扩散。',
     '没有真实PowerPac与电泳槽的硬件接口。',
+    '前面板层（panel.*，panel_ui.json）：3位LED、7个指示灯、6个键与电源开关按PowerPac Basic手册；按键调用psu.press_key / psu.hold_key，电源开关调用power.set；'
+    '开机时按住恒定参数键显示固件版本（版本号未公开，显示占位1.00）；指示灯在几何中只是面板贴图（没有单独的发光部件）。',
 ]
 
 
@@ -1979,11 +2194,13 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if (k in _CONTROL_GUARDED or k in _DATA_GUARDED or CAPS[k]['visibility'] != 'agent') else []
+    extra = ['ACCESS_DENIED'] if (k in _CONTROL_GUARDED or k in _DATA_GUARDED or ALL_CAPS[k]['visibility'] != 'agent') else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
 def _foreign_text(k):
+    if k in _KEY_CAPS:
+        return '；另一个agent的运行进行中时，agent的按键被拒（ACCESS_DENIED；显示模式键在未显示故障码时只切换显示，不受限）'
     return '；另一个agent的运行进行中时，agent调用被拒（ACCESS_DENIED；未通电时开机除外）' if k in _CONTROL_GUARDED else ''
 
 
@@ -1994,7 +2211,7 @@ def export_biorad_miniprotean_contract_metadata():
                         reference_conditions=v['reference'], origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'BioradMiniproteanSession.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         async_ = k in ASYNC
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}

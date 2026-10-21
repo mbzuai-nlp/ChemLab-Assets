@@ -32,18 +32,33 @@ Physics owned by the host clock (``step`` is the only entry that advances time):
   * the model has no boiling: Tr/Tj/end/cp targets and Tsafe must stay 2 K below the bubble point, and so must the state and the
     active targets after material is charged or dosed; a mass that still reaches its bubble point (e.g. a runaway or an unpowered
     reactor) raises BOILING_NOT_MODELLED and flags evaluations of that window.
+
+Front panel (1.1.0; panel.touch / panel.press / panel.capture / panel.frame): the RC1mx touchscreen terminal of the User Manual (main
+screen with Reactor, Tj, Tr, R, Experiment and Stop; reactor type and safety settings; the power-on manipulation warning), the ON/OFF,
+stirrer and safeguard (emergency) buttons and the status light, from panel_ui.json beside the contract, run by the shared engine
+_panel_ui.py on top of the capabilities below (no second copy of the instrument logic).
+1.1.1: reaction-mass library water density 997.047 kg/m3 (central water-data fix) and the sync-audit checks (panel gestures keep the caller;
+no runtime logic changed).
+1.2.0 (sweep 2026-10-19): the ON/OFF power button of the electronic cabinet is a hard switch and never refused (power loss: the reaction runs
+on without cooling); evaluator fault.inject / fault.clear for the RC1e error causes of table 5.6 that need a hardware fault (oil level too high
+-> emergency program B2, oil level too low, oil pump, line zero crossing / frequency, control valve zero position, electronics, heater relay -> A,
+PC connection -> C, Tj / Tjs sensor defective and the Tr - Trs / Tj - Tjs deviations -> B1 / A); program B2 cools in Tj mode to Tr min + 3 K
+until the oil level is normal, then lowers Tj by a further 2 K and holds.
 """
 from __future__ import annotations
 
 import bisect
 import copy
+import datetime
 import json
 import math
+import os
 import random
 import re
 from pathlib import Path
 
 PROTOCOL_VERSION = '1.0.0'
+ASSET_VERSION = '1.2.0'
 SLUG = 'mt_rc1mxhfcal'
 ASSET_TYPE_ID = 'instrument.' + SLUG
 CATALOG_ID = 'CHEM-149'
@@ -83,6 +98,15 @@ STIRRER_OFF_DELAY_S = 180.0                     # RC1e 5.6: stirrer switched off
 TC_MAX_DELAY_S = 180.0                          # RC1e 5.4 example: Tc > Tc max for 3 min -> A (table 5.6 prints "3 s": conflict recorded)
 TC_LIMITS_K = (220.15, 313.15)                  # RC1e 5.6: Tc outside limits (Tjoil min ... +40 C) -> C
 TIMED_CAUSES = ('TC_ABOVE_MAX_3MIN', 'STIRRER_OFF_3MIN', 'STIRRER_BELOW_25RPM')   # delayed causes: their delay restarts after a reset
+# RC1e table 5.6 error causes behind a hardware fault (evaluator fault.inject, 1.2.0): fault -> (emergency program, cause code); the delayed
+# deviations are injected as already lasting their documented time (12 s / 1 min)
+RC1E_FAULTS = {'oil_level_high': ('B2', 'OIL_LEVEL_HIGH'), 'oil_level_low': ('A', 'OIL_LEVEL_LOW'), 'oil_pump': ('A', 'OIL_PUMP_POWER_MONITORING'),
+               'pc_connection': ('C', 'PC_CONNECTION_INTERRUPTED_10S'), 'line_zero_crossing': ('A', 'LINE_ZERO_CROSSING'),
+               'line_frequency': ('A', 'LINE_FREQUENCY'), 'valve_unexpected_zero': ('A', 'VALVE_UNEXPECTED_ZERO'),
+               'valve_zero_not_found': ('A', 'VALVE_ZERO_NOT_FOUND'), 'electronics': ('A', 'RAM_ROM_CPU_AD_FAULT'), 'heater_relay': ('A', 'HEATER_RELAY_DEFECTIVE'),
+               'tj_sensor': ('B1', 'TJ_SENSOR_DEFECTIVE'), 'tjs_sensor': ('B1', 'TJS_SENSOR_DEFECTIVE'), 'tr_trs_deviation': ('B1', 'TR_TRS_ABOVE_6K_12S'),
+               'tj_tjs_deviation': ('A', 'TJ_TJS_ABOVE_14K_1MIN')}
+B2_EXTRA_COOLING_K = 2.0                        # RC1e 5.5 footnote 2: once the oil level is normal, Tj is lowered by a further 2 C and held
 NOMINAL_VOLUME_M3 = 2.5e-3                      # RC1e 9.5 AP01-2
 OPERATING_VOLUME_M3 = (0.5e-3, 2.0e-3)          # RC1e 9.5 AP01-2
 PT100_MAX_ERROR_K = 0.5                         # RC1mx 7.2 class A: max. permissible error 0.5 C (-20...100 C)
@@ -109,6 +133,11 @@ REACTION_DT_K = 0.1                             # adaptive sub-step: adiabatic r
 MAX_POINTS = 20000
 MAX_EVENTS = 1000
 MAX_RECORDS = 200
+MAX_NOTES = 200                                  # touchscreen notes per experiment (engineering limit)
+PANEL_EPOCH = datetime.datetime(2026, 1, 5, 8, 0)  # touchscreen date / time at simulation time 0 (assumption)
+PANEL_TREND_POINTS = 1800                         # Graph page: last 1800 points (1 h at the 2 s cycle)
+PANEL_TREND_SPAN_MIN = 60.0
+PANEL_EVENTS = 100
 WATER_REF = dict(rho=997.0, cp=4181.0, k=0.607, mu=0.00089)      # film-coefficient reference (water 25 C, engineering constants)
 PURGE_MIN_FLOW_M3_S = 80e-6 / 60.0              # RC1mx 7.4 (not in the process model)
 PURGE_MAX_INLET_PA = 0.5e5                      # RC1mx 7.4 (not in the process model)
@@ -128,6 +157,11 @@ EVAL_END_SIGMA, EVAL_START_SIGMA = 1.0, 2.0     # edge levels in units of the q_
 
 class ActionRejected(ValueError):
     pass
+
+
+def _hms(seconds):
+    s = int(seconds)
+    return f'{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}'
 
 
 # ---------------------------------------------------------------- schema helpers
@@ -176,8 +210,8 @@ def validate(s, v):
             raise ActionRejected('INVALID_ARGUMENT')
         if not s.get('minimum', -math.inf) <= v <= s.get('maximum', math.inf):
             raise ActionRejected('INVALID_ARGUMENT')
-    elif k == 'object':
-        if not isinstance(v, dict) or set(v) != set(s['properties']):
+    elif k == 'object':                                   # optional properties only where 'required' leaves them out (panel.* gestures)
+        if not isinstance(v, dict) or not set(s.get('required', s['properties'])) <= set(v) <= set(s['properties']):
             raise ActionRejected('INVALID_ARGUMENT')
         for key, value in v.items():
             validate(s['properties'][key], value)
@@ -188,7 +222,7 @@ def validate(s, v):
             validate(s['items'], x)
     elif k == 'boolean' and type(v) is not bool:
         raise ActionRejected('INVALID_ARGUMENT')
-    elif k == 'string' and not isinstance(v, str):
+    elif k == 'string' and (not isinstance(v, str) or not s.get('minLength', 0) <= len(v) <= s.get('maxLength', math.inf)):
         raise ActionRejected('INVALID_ARGUMENT')
     elif k == 'null' and v is not None:
         raise ActionRejected('INVALID_ARGUMENT')
@@ -498,7 +532,7 @@ def extent_backward_euler(rx, cfg, n, V, T, h):
 
 # ---------------------------------------------------------------- schemas
 MODE = enum(['off', 'tj', 'tr'])
-PROGRAM = enum(['A', 'B1', 'C'])
+PROGRAM = enum(['A', 'B1', 'B2', 'C'])
 PHASE = enum(['idle', 'running', 'succeeded', 'cancelled', 'failed'])
 COOLANTS = {'water': 4.18e6, 'ethanol': 1.92e6, 'silicone_oil': 1.44e6}     # volumetric heat capacity J/(m3 K) at ~20 C (engineering constants)
 PLANT_EXAMPLE = dict(ambient_k=295.15, coolant_kind='water', coolant_inlet_k=289.15, coolant_flow_m3_s=10e-3 / 60.0, cal_heater_power_w=10.0,
@@ -583,6 +617,8 @@ cap('reaction.configure', REACTIONS, CONFIGURED, REACTION_EXAMPLE, ['reactor_ves
     '宿主为库中反应（反应焓由NIST生成焓导出）给出Arrhenius动力学先验（lg A、Ea、各反应物级数，须显式接受）；库中反应不含动力学', 'evaluator', 'configuration')
 cap('experiment.start', obj(dict(name=TEXT)), obj(dict(experiment_id=TEXT)), dict(name='hydrolysis_run_1'), ['touch_display', 'electronics_cabinet'],
     '开始实验（手册5.3）：此后每2s记录Tr/Tj/Tc/转速/设定值/加料/校准加热器与事件，可导出与评价')
+cap('experiment.note', obj(dict(text={'type': 'string', 'minLength': 1, 'maxLength': 120})), obj(dict(notes=INT)), dict(text='dosing started'), 'touch_display',
+    '触摸屏Notes：给运行中的实验加一条带时间的备注（随实验保存，事件日志中也记录）')
 cap('experiment.end', obj(dict(end_mode=enum(['keep', 'cool_to']), end_temperature_k=nullable(number('K', TJ_DEVICE_MIN_K, TJ_MAX_K)))), obj(dict(experiment_id=TEXT, points=INT)),
     dict(end_mode='keep', end_temperature_k=None), 'touch_display', '结束实验（手册5.7）：停止记录并保存；end_mode=cool_to时Tj模式跳到给定温度，keep保持当前设定')
 cap('thermostat.set_tj', TASK, obj(dict(tj_setpoint_k=number('K'))), dict(end_k=323.15, ramp_s=600.0), ['oil_heater', 'control_valve', 'reactor_jacket'],
@@ -607,7 +643,16 @@ cap('experiment.data', obj(dict(experiment_id=TEXT)), obj(dict(experiment_id=TEX
     'touch_display', '导出实验记录（示值，每2s；超过20000点时抽稀并加倍间隔）', 'agent', 'query')
 cap('events.read', obj(dict(since_s=number('s', 0.0))), obj(dict(events=array(EVENT, 0, MAX_EVENTS), dropped=INT)), dict(since_s=0.0), 'touch_display', '读取事件日志（任务、警告、急停、标定、加料）', 'agent', 'query')
 cap('emergency.trigger', obj({}), obj(dict(program=PROGRAM)), {}, 'button_emergency', '急停按钮：触发急停程序A（加热关、控制阀全开、安全阀开、安全继电器断开、切到Tj模式、校准加热器关、加料停止）')
+cap('fault.inject', obj(dict(fault=enum(list(RC1E_FAULTS)))), obj(dict(injected=array(TEXT, 0, 14))), dict(fault='oil_level_high'), 'electronics_cabinet',
+    '评测者：注入RC1e表5.6中需要硬件故障的错误原因（油位过高→B2；油位过低、油泵功率监控、电源过零/频率、控制阀零位、电子RAM/ROM/CPU/AD、加热器继电器、Tj−Tjs>14K持续1min→A；'
+    '与PC通信中断10s→C；Tj或Tjs传感器损坏、Tr−Trs>6K持续12s→B1；两个以上原因→A），按急停程序动作；原因在时不能复位', 'evaluator', 'simulation')
+cap('fault.clear', obj(dict(fault=enum(list(RC1E_FAULTS)))), obj(dict(injected=array(TEXT, 0, 14))), dict(fault='oil_level_high'), 'electronics_cabinet',
+    '评测者：消除故障原因（补油/放油、服务修理、恢复通信）；急停程序仍须复位；B2中油位恢复正常时Tj再降2K并保持（RC1e 5.5注2）', 'evaluator', 'simulation')
 cap('emergency.reset', obj({}), obj(dict(reset=BOOL)), {}, 'touch_display', '复位急停程序：须立即触发的条件（Tr/Tj/Tc限值）已消除；带延时的原因（Tc>Tc max、搅拌停转/低速）复位后重新计时；复位后A或Tj模式保持当前夹套温度，安全继电器闭合')
+cap('warning.respond', obj(dict(accept=BOOL)), obj(dict(accepted=BOOL)), dict(accept=True), 'touch_display',
+    '触摸屏开机时的操作篡改警告（manipulation warning）：确认（accept=True）或拒绝；之后警告消失（手册4.7）')
+cap('manipulation.flag', obj(dict(active=BOOL)), obj(dict(active=BOOL)), dict(active=True), 'electronics_cabinet',
+    '受信任宿主：标记设备被改动（下次通电时触摸屏显示操作篡改警告，须确认或拒绝）', 'evaluator', 'configuration')
 cap('reactor.discharge', obj(dict(open=BOOL)), obj(dict(target_rad=number('rad'))), dict(open=True), ['drain_valve_body', 'drain_valve_handle'],
     '宿主开/关反应器底阀（手柄有限速度）：打开时料液按已声明的放料流量流出，直到排空', 'evaluator', 'robot_skill')
 cap('ledger.read', obj({}), LEDGER, {}, 'column_body', '受限：能量账（加热、泵热、搅拌、校准、反应、加料与放料显热、散热、冷却水带走、储热与残差）与质量账', 'evaluator', 'query')
@@ -623,7 +668,7 @@ UNSUPPORTED = {
     'stirrer.high_torque': '未选高转矩搅拌电机（1–625rpm、4N·m）',
     'reactor.select_type': '只建模AP01-2玻璃反应器（手册5.1的其他反应器类型未建模）',
     'purge.set': '惰性吹扫（≥80mL/min、≤0.5bar）未进入过程模型',
-    'oil.fill_or_change': '导热油加注/更换、油位浮子开关与急停程序B2未建模（油位恒定）',
+    'oil.fill_or_change': '导热油加注/更换未建模（油位恒定）；油位浮子报警（过高→B2、过低→A）由评测者fault.inject注入（1.2.0）',
     'hardware.connect': '无真实USB/以太网/CAN与iControl软件通信',
     'robot.assemble_reactor': '无机器人装反应器、对开法兰、盖与探头的接触验证',
     'accuracy.certification': '无厂家标定、Pt100季度校准或不确定度实验',
@@ -663,9 +708,11 @@ slot('calibration.heat_capacity_j_k', nullable(number('J/K')), 'J/K', 'derived',
 slot('dosing.indicated_mass_kg', nullable(number('kg')), 'kg', 'sensor', 'dip_tube', '当前（或最近一次）加料已加入质量（加料天平0.1g示值）；无加料记录为null')
 slot('dosing.rate_kg_s', number('kg/s'), 'kg/s', 'setpoint', 'dip_tube', '当前加料速率设定（无加料为0）')
 slot('reactor.charged_mass_kg', number('kg'), 'kg', 'derived', 'reactor_vessel', '按操作记录累计的加入−放出质量（加料天平与装料记录，不是称量真值）')
-slot('emergency.program', nullable(PROGRAM), '1', 'derived', 'electronics_cabinet', '当前急停程序A/B1/C；无为null')
+slot('emergency.program', nullable(PROGRAM), '1', 'derived', 'electronics_cabinet', '当前急停程序A/B1/B2/C；无为null')
+slot('fault.injected', array(TEXT, 0, 14), '1', 'setpoint', 'electronics_cabinet', '评测者注入且尚未消除的RC1e硬件故障原因（fault.inject）', 'evaluator')
 slot('emergency.cause', nullable(TEXT), '1', 'derived', 'electronics_cabinet', '触发急停的原因代码；无为null')
 slot('experiment.id', nullable(TEXT), '1', 'derived', 'touch_display', '当前实验ID；无为null')
+slot('touchscreen.warning', BOOL, '1', 'derived', 'touch_display', '触摸屏显示开机操作篡改警告（待确认或拒绝）')
 for k, sch, u, c, m in [('safety.tsafe_k', number('K'), 'K', 'electronics_cabinet', '安全温度Tsafe（急停程序B1/C的目标）'),
                         ('safety.tr_min_k', number('K'), 'K', 'tr_sensor', 'Tr下限（低于→急停程序C）'), ('safety.tr_max_k', number('K'), 'K', 'tr_sensor', 'Tr上限（高于→急停程序A）'),
                         ('safety.tj_min_k', number('K'), 'K', 'reactor_jacket', 'Tj下限（低于→C）'), ('safety.tj_max_k', number('K'), 'K', 'reactor_jacket', 'Tj上限（高于→A）'),
@@ -773,6 +820,7 @@ class MtRc1mxhfcalRuntime:
         self.tj_set = None
         self.tr_set = None
         self.emergency = None
+        self.faults = []                                # evaluator-injected RC1e hardware faults (1.2.0)
         self.relay_closed = True
         self.heater_w, self.valve_u, self.safety_valve = 0.0, 0.0, False
         self.tj_ctrl = TjController(self.fit)
@@ -807,6 +855,11 @@ class MtRc1mxhfcalRuntime:
         self._boiling, self._boil_log = False, []          # bubble-point crossings [start, end] (the model has no boiling)
         self._reaction_power = 0.0
         self._principals, self._requests, self._owners = {}, {}, {}
+        self.manipulation, self.warning_pending = False, False   # power-on manipulation warning of the touchscreen (manual 4.7)
+        self.power_epoch = 0
+        self.panel_capture_dir = None
+        self._panel_session = None                             # the session whose panel gesture is running (access rules, ownership)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self) if PANEL_SPEC else None
 
     # ---------------------------------------------------------------- basics
     @property
@@ -886,7 +939,8 @@ class MtRc1mxhfcalRuntime:
             'dosing.indicated_mass_kg': quantize(self.dosing['dosed'], DOSING_RESOLUTION_KG) if self.dosing else (self.dose_log[-1]['indicated'] if self.dose_log else None),
             'dosing.rate_kg_s': self.dosing['rate'] if self.dosing else 0.0, 'reactor.charged_mass_kg': self.charged_kg,
             'emergency.program': self.emergency['program'] if self.emergency else None, 'emergency.cause': self.emergency['cause'] if self.emergency else None,
-            'experiment.id': self.experiment['id'] if self.experiment else None,
+            'fault.injected': list(self.faults),
+            'experiment.id': self.experiment['id'] if self.experiment else None, 'touchscreen.warning': self.power and self.warning_pending,
             'safety.tsafe_k': self.safety['tsafe_k'], 'safety.tr_min_k': self.safety['tr_min_k'], 'safety.tr_max_k': self.safety['tr_max_k'],
             'safety.tj_min_k': self.safety['tj_min_k'], 'safety.tj_max_k': self.safety['tj_max_k'], 'safety.tdiff_max_k': self.safety['tdiff_max_k'],
             'safety.rsafe_rpm': self.safety['rsafe_rpm'], 'safety.rmin_rpm': self.safety['rmin_rpm'], 'safety.rmax_rpm': self.safety['rmax_rpm'],
@@ -966,6 +1020,8 @@ class MtRc1mxhfcalRuntime:
             self.tj_task = dict(start=target, end=target, t0=self.time_s, duration=0.0)
             self.tj_set = target
             self.stir_set = self._stir_at_power_off                       # RC1e 5.9: stirrer back to the last defined set value
+            self.warning_pending = self.manipulation                      # manual 4.7: the touchscreen may show a manipulation warning
+            self.power_epoch += 1
             self._event('power', 'POWER_ON', f'通电：泵运行，Tj模式把夹套调到Tsafe {target - 273.15:.2f}°C，搅拌回到断电前设定{self.stir_set:.0f}rpm（RC1e 5.9）')
         elif not enabled and self.power:
             self._power_off('POWER_OFF')
@@ -1088,6 +1144,18 @@ class MtRc1mxhfcalRuntime:
         self._event('experiment', 'EXPERIMENT_STARTED', f'实验{name}开始')
         self._record_point(force=True)
         return dict(experiment_id=eid)
+
+    def _cmd_experiment_note(self, text):
+        if self.experiment is None:
+            raise ActionRejected('NO_EXPERIMENT')
+        if not text.strip():
+            raise ActionRejected('INVALID_ARGUMENT')
+        notes = self.experiment.setdefault('notes', [])
+        if len(notes) >= MAX_NOTES:
+            raise ActionRejected('MEMORY_FULL')
+        notes.append(dict(time_s=self.time_s, text=text))
+        self._event('experiment', 'NOTE', f'备注：{text}')
+        return dict(notes=len(notes))
 
     def _cmd_experiment_end(self, end_mode, end_temperature_k):
         if self.experiment is None:
@@ -1339,6 +1407,22 @@ class MtRc1mxhfcalRuntime:
         self._enter_emergency('A', 'EMERGENCY_BUTTON')
         return dict(program=self.emergency['program'])
 
+    def _cmd_fault_inject(self, fault):
+        self._need_plant()
+        if fault not in self.faults:
+            self.faults.append(fault)                                       # the safety cycle reacts at its next 2 s check
+        return dict(injected=list(self.faults))
+
+    def _cmd_fault_clear(self, fault):
+        self._need_plant()
+        if fault in self.faults:
+            self.faults.remove(fault)
+            if fault == 'oil_level_high' and self.emergency is not None and self.emergency['program'] == 'B2' and self.meas is not None:
+                hold = self.meas['tj'] - B2_EXTRA_COOLING_K                  # oil level normal again: Tj a further 2 C lower, held
+                self.tj_task = dict(start=self.meas['tj'], end=hold, t0=self.time_s, duration=B2_EXTRA_COOLING_K / EMERGENCY_GRADIENT_K_S)
+                self._event('emergency', 'B2_OIL_LEVEL_NORMAL', '油位恢复正常：Tj再降2K并保持')
+        return dict(injected=list(self.faults))
+
     def _cmd_emergency_reset(self):
         self._need_power()
         if self.emergency is None:
@@ -1371,6 +1455,103 @@ class MtRc1mxhfcalRuntime:
             self._event('warning', 'TC_ABOVE_MAX', 'Tc仍高于Tc max：3min内未消除将再次触发急停程序A')
         if self._stir_off_since is not None:
             self._event('warning', 'STIRRER_OFF', '搅拌仍关闭（Rmin>0）：3min内未恢复将再次触发B1')
+
+    def _cmd_warning_respond(self, accept):
+        self._need_power()
+        if not self.warning_pending:
+            raise ActionRejected('NO_WARNING')
+        self.warning_pending = False
+        if accept:
+            self.manipulation = False
+        self._event('safety', 'MANIPULATION_WARNING_ACKNOWLEDGED' if accept else 'MANIPULATION_WARNING_DECLINED',
+                    '操作篡改警告已确认' if accept else '操作篡改警告被拒绝（下次通电再次显示）')
+        return dict(accepted=accept)
+
+    def _cmd_manipulation_flag(self, active):
+        self.manipulation = active
+        return dict(active=active)
+
+    # ---------------------------------------------------------------- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the touchscreen shows: the agent slots plus the clock, the active task, the experiment (timer, notes, trend), the stored
+        experiments, the event list and the dosing progress."""
+        out = self.read('agent')
+        t = self.time_s
+        ctl = next((k for k, (p, i) in TR_CONTROLLER.items() if p == self.tr_ctrl.p and i == self.tr_ctrl.i_s), 'aqueous')
+        task = (self.tr_task if self.mode == 'tr' else self.tj_task) if self.power else None
+        rem = max(0.0, task['t0'] + task['duration'] - t) if task else 0.0
+        e = self.experiment
+        shown = e if e is not None else (self.records[next(reversed(self.records))] if self.records else None)
+        pts = shown['points'][-PANEL_TREND_POINTS:] if shown else []
+        trend = {k: [[(p['time_s'] - shown['t0']) / 60.0, p[k] - 273.15] for p in pts if p[k] is not None] for k in ('tr_k', 'tj_k')}
+        x1 = (t - shown['t0']) / 60.0 if shown else 0.0
+        stored = [dict(id=r['id'], name=r['name'], start_s=r['t0'], points=len(r['points']), status='stored') for r in reversed(list(self.records.values()))]
+        if e is not None:
+            stored.insert(0, dict(id=e['id'], name=e['name'], start_s=e['t0'], points=len(e['points']), status='running'))
+        d = self.dosing
+        clock = PANEL_EPOCH + datetime.timedelta(seconds=int(t))
+        out.update({'host.power_epoch': self.power_epoch, 'host.tr_controller': ctl,
+                    'host.clock': f'{clock.month}/{clock.day}/{clock.year} {(clock.hour - 1) % 12 + 1}:{clock.minute:02d} {"AM" if clock.hour < 12 else "PM"}',
+                    'host.task': dict(mode=self.mode, end_k=task['end'], remaining=_hms(rem), ramping=rem > 0.0) if task else None,
+                    'host.experiment': dict(id=e['id'], name=e['name'], elapsed=_hms(t - e['t0']), notes=list(reversed(e.get('notes', []))))
+                    if e is not None else None,
+                    'host.trend': dict(name=shown['name'] if shown else None, tr=trend['tr_k'], tj=trend['tj_k'], span=max(1.0, min(PANEL_TREND_SPAN_MIN, x1)), x_end=x1),
+                    'host.experiments': stored,
+                    'host.events': [dict(time=_hms(ev['time_s']), kind=ev['kind'], code=ev['code']) for ev in reversed(self.events[-PANEL_EVENTS:])],
+                    'host.dosing': dict(substance=d['substance'], dosed_g=quantize(d['dosed'], DOSING_RESOLUTION_KG) * 1e3, total_g=d['total'] * 1e3,
+                                        rate_g_min=d['rate'] * 6e4) if d else None})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A touchscreen action calls the same command a direct call would (these commands check before they change anything); a gesture
+        made through a session keeps that caller's access rules and owns what it starts (experiment, dose)."""
+        sess = self._panel_session
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            if sess is not None:
+                sess._guard(capability_id, arguments)
+            result = self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+        if sess is not None:
+            if capability_id in ASYNC and result.get('operation_id'):
+                self._owners[result['operation_id']] = sess._principal
+            if capability_id == 'experiment.start':
+                self._owners[result['experiment_id']] = sess._principal
+        return result
+
+    def panel_time(self):
+        return self.time_s
+
+    def _panel(self, gesture, *args):
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_touch(self, display_id, x, y, duration_s=0.1, to_x=None, to_y=None):
+        if (to_x is None) != (to_y is None):
+            raise ActionRejected('INVALID_ARGUMENT')
+        return self._panel(self.panel.touch, display_id, x, y, float(duration_s), (to_x, to_y) if to_x is not None else None)
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        import hashlib
+        import tempfile
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.time_s, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
 
     def _cmd_reactor_discharge(self, open):
         self._need_plant()
@@ -1590,6 +1771,7 @@ class MtRc1mxhfcalRuntime:
             causes.append(('C', 'TC_OUTSIDE_LIMITS'))
         if self._tc_high_since is not None and t - self._tc_high_since >= TC_MAX_DELAY_S - 1e-9:
             causes.append(('A', 'TC_ABOVE_MAX_3MIN'))
+        causes += [RC1E_FAULTS[f] for f in self.faults]                    # injected hardware faults (table 5.6)
         if sf['rmin_rpm'] > 0.0:
             if self._stir_off_since is not None and t - self._stir_off_since >= STIRRER_OFF_DELAY_S - 1e-9:
                 causes.append(('B1', 'STIRRER_OFF_3MIN'))
@@ -1658,6 +1840,15 @@ class MtRc1mxhfcalRuntime:
             self.tj_task = dict(start=cur, end=end, t0=self.time_s, duration=(cur - end) / EMERGENCY_GRADIENT_K_S)
             self.tj_set = cur
             self.tj_ctrl.reset(min(self.tj_ctrl.i, 0.0))                    # B1 cools: a stored heating demand is dropped
+        elif program == 'B2':                                               # RC1e 5.5: Tj mode, Tj to (Tr min + 3 K) at -0.1 K/s until the oil
+            if self.mode == 'tr':                                            # level is normal (Tj maintained if already lower, footnote 2)
+                self.tr_task, self.tr_set = None, None
+            self.mode = 'tj'
+            cur = m['tj']
+            end = min(cur, self.safety['tr_min_k'] + 3.0)
+            self.tj_task = dict(start=cur, end=end, t0=self.time_s, duration=(cur - end) / EMERGENCY_GRADIENT_K_S)
+            self.tj_set = cur
+            self.tj_ctrl.reset(min(self.tj_ctrl.i, 0.0))
         else:                                                                # C: Tj or Tr from the current value to Tsafe at +-0.1 K/s
             ts = self.safety['tsafe_k']
             if self.mode == 'tr':
@@ -1976,7 +2167,8 @@ class MtRc1mxhfcalRuntime:
 
 # ---------------------------------------------------------------- host session: identity filter, request binding, ownership
 _CONTROL_GUARDED = {'experiment.end', 'thermostat.set_tj', 'thermostat.set_tr', 'stirrer.set', 'stirrer.toggle', 'dosing.start', 'dosing.stop', 'calibration.run',
-                    'calibration.cp', 'safety.configure', 'emergency.reset', 'power.set', 'power.toggle'}
+                    'calibration.cp', 'safety.configure', 'emergency.reset', 'experiment.note', 'warning.respond'}
+# the ON/OFF power button of the electronic cabinet (power.set / power.toggle) is a hard switch: never refused (1.2.0, lead rule 10-19)
 _DATA_GUARDED = {'experiment.data', 'calorimetry.evaluate', 'calibration.result'}
 
 
@@ -2001,7 +2193,7 @@ class MtRc1mxhfcalSession:
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID:
             raise ActionRejected('UNKNOWN_INSTANCE')
         meta = copy.deepcopy(export_mt_rc1mxhfcal_contract_metadata())
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION,
                     capabilities={k: v for k, v in meta['capabilities'].items() if v['visibility'] == 'agent' or self._role != 'agent'},
                     state_slots={k: v for k, v in meta['state_slots'].items() if v['visibility'] == 'agent' or self._role != 'agent'})
 
@@ -2073,7 +2265,11 @@ class MtRc1mxhfcalSession:
                 raise ActionRejected('INVALID_ARGUMENT')
             validate(CAPS[capability_id]['input_schema'], arguments)
             self._guard(capability_id, arguments)
-            result = h.invoke(capability_id, **arguments)
+            h._panel_session = self if capability_id in PANEL_CAPS else None
+            try:
+                result = h.invoke(capability_id, **arguments)
+            finally:
+                h._panel_session = None
             operation = result.get('operation_id') if capability_id in ASYNC else None
             if operation:
                 h._owners[operation] = self._principal
@@ -2146,13 +2342,13 @@ EFFECTS = {
     'power.set': ['power.enabled', 'status.ok', 'thermostat.mode', 'thermostat.tj_setpoint_k', 'thermostat.tr_setpoint_k', 'thermostat.ramp_active', 'reactor.indicated_k',
                   'jacket.indicated_k', 'cooling_oil.indicated_k', 'stirrer.indicated_rpm', 'stirrer.setpoint_rpm', 'safety_relay.closed', 'cal_heater.on', 'calibration.running',
                   'dosing.active', 'dosing.rate_kg_s', 'dosing.indicated_mass_kg', 'calorimetry.heat_flow_w', 'emergency.active', 'emergency.program', 'emergency.cause',
-                  'truth.heater_power_w', 'truth.valve_opening'],
+                  'truth.heater_power_w', 'truth.valve_opening', 'touchscreen.warning'],
     'safety.configure': ['safety.tsafe_k', 'safety.tr_min_k', 'safety.tr_max_k', 'safety.tj_min_k', 'safety.tj_max_k', 'safety.tdiff_max_k', 'safety.rsafe_rpm',
                          'safety.rmin_rpm', 'safety.rmax_rpm', 'safety.tc_max_k'],
     'reactor.charge': ['reactor.charged_mass_kg', 'truth.volume_m3', 'truth.mass_kg', 'truth.heat_capacity_j_k', 'truth.composition_mol', 'truth.reactor_k',
                        'truth.bubble_point_k', 'truth.ua_w_k'],
     'reaction.configure': [],
-    'experiment.start': ['experiment.running', 'experiment.id', 'experiment.started_by_other_agent'],
+    'experiment.start': ['experiment.running', 'experiment.id', 'experiment.started_by_other_agent'], 'experiment.note': [],
     'experiment.end': ['experiment.running', 'experiment.id', 'experiment.started_by_other_agent', 'thermostat.mode', 'thermostat.tj_setpoint_k', 'thermostat.tr_setpoint_k',
                        'thermostat.ramp_active'],
     'thermostat.set_tj': ['thermostat.mode', 'thermostat.tj_setpoint_k', 'thermostat.tr_setpoint_k', 'thermostat.ramp_active', 'calibration.running', 'cal_heater.on'],
@@ -2167,12 +2363,41 @@ EFFECTS = {
     'emergency.reset': ['emergency.active', 'emergency.program', 'emergency.cause', 'status.ok', 'safety_relay.closed', 'thermostat.mode', 'thermostat.tj_setpoint_k',
                         'thermostat.tr_setpoint_k', 'thermostat.ramp_active'],
     'reactor.discharge': ['calibration.running', 'cal_heater.on', 'thermostat.ramp_active'],
+    'warning.respond': ['touchscreen.warning'], 'manipulation.flag': [],
+    'fault.inject': ['fault.injected'], 'fault.clear': ['fault.injected', 'thermostat.tj_setpoint_k', 'thermostat.ramp_active'],
     'sim.step': list(SLOTS),
 }
 EFFECTS['power.toggle'] = EFFECTS['power.set']
 EFFECTS['stirrer.toggle'] = EFFECTS['stirrer.set']
 for _k, _v in EFFECTS.items():
     CAPS[_k]['effects'] = _v
+
+
+# ---------------------------------------------------------------- front panel: engine, spec and panel capabilities
+def _panel_engine():
+    try:
+        from asset_runtime import _panel_ui as engine
+        return engine
+    except ImportError:
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+_PANEL_BUILD = os.environ.get('RC1MX_PANEL_BUILD') == '1'               # the spec builder imports the tables before the spec exists
+PANEL_SPEC = (_panel_ui.load_spec(ASSET / 'panel_ui.json', capabilities=set(CAPS))
+              if (ASSET / 'panel_ui.json').exists() and not _PANEL_BUILD else None)
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+_PANEL_FX = sorted({e for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for e in CAPS[c]['effects']})
+for _k, _d in PANEL_CAPS.items():
+    CAPS[_k] = dict(input_schema=_d['input_schema'], output_schema=_d['output_schema'], example_arguments=_d['example_arguments'],
+                    component_ids=list(_d['component_ids']), function_zh=_d['function_zh'], visibility=_d['visibility'], kind=_d['kind'],
+                    effects=[] if _d['kind'] == 'query' else list(_PANEL_FX))
 ERRORS = sorted(set(re.findall(r"ActionRejected\('([A-Z_0-9]+)'", Path(__file__).read_text())))
 PRECONDITIONS = {
     'plant.configure': ('只能声明一次并显式接受；水冷时进口温度1–25°C（厂家：约15°C、最高25°C），流量≥10L/min', ['plant.configured']),
@@ -2207,6 +2432,9 @@ PRECONDITIONS = {
     'emergency.reset': ('须通电、有急停程序且立即触发的条件（Tr/Tj/Tc限值、Tc>Tj+5K）已消除；带延时的原因复位后重新计时', ['power.enabled', 'emergency.active',
                                                                                                       'reactor.indicated_k', 'jacket.indicated_k', 'cooling_oil.indicated_k']),
     'reactor.discharge': ('须已声明工程参数；打开时无进行中的加料', ['plant.configured', 'dosing.active']),
+    'warning.respond': ('须通电且触摸屏正显示操作篡改警告', ['power.enabled', 'touchscreen.warning']),
+    'experiment.note': ('有运行中的实验；备注1–120字符，每个实验最多200条', ['experiment.running']),
+    'manipulation.flag': ('无', []),
 }
 ERROR_ZH = {
     'INVALID_ARGUMENT': '参数不符合输入结构、类型或范围', 'ACCESS_DENIED': '该角色无权调用，或当前实验/操作属于另一个agent', 'REQUEST_CONFLICT': '同一request_id已用于不同的请求',
@@ -2226,6 +2454,7 @@ ERROR_ZH = {
     'CONDITIONS_CHANGED': '标定期间条件改变（任务、搅拌、加料、放料或急停）：标定失败', 'EMERGENCY': '急停程序中止了操作', 'USER_CANCEL': '操作被停止或取消（已完成部分保留）',
     'NO_CALIBRATION_RESPONSE': '标定信号无响应（温差变化非正，或比热斜坡的实测升温速率低于设定的20%）', 'NOT_RUNNING': '操作不在进行中',
     'CALIBRATION_NOT_STEADY': '标定各段后半(Tr−Tj)的显著漂移（超过其3倍标准误差）超过信号的5%：未达稳态，请加长各段时长',
+    'NO_WARNING': '触摸屏没有待确认的操作篡改警告', 'MEMORY_FULL': '该实验的备注已达上限（200条）',
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 CAP_ERRORS = {
@@ -2253,6 +2482,7 @@ CAP_ERRORS = {
     'calorimetry.evaluate': ['UNKNOWN_EXPERIMENT', 'WINDOW_TOO_SHORT', 'UA_CALIBRATION_REQUIRED', 'HEAT_CAPACITY_REQUIRED'],
     'emergency.trigger': ['PLANT_REQUIRED', 'POWER_OFF'], 'emergency.reset': ['PLANT_REQUIRED', 'POWER_OFF', 'NO_EMERGENCY', 'CAUSE_PERSISTS'],
     'reactor.discharge': ['PLANT_REQUIRED', 'DOSING_ACTIVE'],
+    'warning.respond': ['PLANT_REQUIRED', 'POWER_OFF', 'NO_WARNING'], 'manipulation.flag': [], 'experiment.note': ['NO_EXPERIMENT', 'MEMORY_FULL'],
 }
 _PARTIAL = {'USER_CANCEL', 'EMERGENCY', 'POWER_OFF', 'CONDITIONS_CHANGED'}
 MODEL_NONE_ZH = {
@@ -2260,7 +2490,8 @@ MODEL_NONE_ZH = {
     'safety.configure': '只写入安全限值与急停参数；越限引起的急停在sim.step中由状态灯段表现',
     'reactor.charge': '装料只改变过程物料账；Matterix场景与Blender模型都没有液位或料液的可见表示（玻璃反应器按空釜外观建模）',
     'reaction.configure': '只写入宿主动力学先验，没有可见模型变化',
-    'experiment.start': '只开始实验记录，没有可见模型变化',
+    'experiment.start': '只开始实验记录，没有可见模型变化', 'experiment.note': '只在实验记录中加备注，没有可见模型变化',
+    'warning.respond': '只关闭触摸屏上的警告，没有模型部件变化', 'manipulation.flag': '只标记下次通电显示警告，没有可见模型变化',
     'experiment.end': '结束实验记录；cool_to写入Tj目标，读数随sim.step演化（Tr/Tj读数绑定已在set_tr流程中验证）',
     'thermostat.set_tj': '只写入Tj目标；Tr/Tj读数随sim.step演化（display_tr_sim/display_tj_sim绑定已在set_tr流程中验证），本能力未在场景流程中单独执行',
     'dosing.start': '加料只改变过程物料账与放热；场景没有加料泵或液位的可见绑定，Tr/Tj读数随sim.step演化',
@@ -2294,6 +2525,7 @@ OBSERVES = {
     'calorimetry.evaluate': ['calibration.ua_w_k', 'calibration.heat_capacity_j_k'], 'experiment.data': ['experiment.running'], 'events.read': ['emergency.active'],
     'emergency.trigger': ['emergency.active', 'emergency.program', 'status.ok', 'safety_relay.closed'], 'emergency.reset': ['emergency.active', 'status.ok'],
     'reactor.discharge': ['drain.open', 'reactor.charged_mass_kg'], 'sim.step': ['clock.time_s'],
+    'warning.respond': ['touchscreen.warning'], 'manipulation.flag': [], 'experiment.note': ['experiment.running'],
 }
 _MAN, _PRE, _WB = 'manufacturer_primary', 'manufacturer_predecessor_manual', 'user_workbook'
 CAP_SOURCES = {
@@ -2307,7 +2539,8 @@ CAP_SOURCES = {
     'ledger.read': ['runtime_code'], 'provenance.read': ['reaction_mass_library'], 'sim.step': ['runtime_code', 'thermal_calibration'],
     'rtcal.enable': ['rtcal_brochure'], 'mode.adiabatic': [_PRE], 'mode.distillation': [_PRE], 'mode.crystallization': [_PRE], 'stirrer.high_torque': [_MAN],
     'reactor.select_type': [_MAN], 'purge.set': [_MAN], 'oil.fill_or_change': [_MAN, _PRE], 'hardware.connect': [_MAN], 'robot.assemble_reactor': ['simulation_assumption'],
-    'accuracy.certification': [_MAN]}
+    'accuracy.certification': [_MAN], 'warning.respond': [_MAN], 'manipulation.flag': [_MAN, 'simulation_assumption'],
+    'experiment.note': [_MAN, 'simulation_assumption'], 'fault.inject': [_PRE, 'simulation_assumption'], 'fault.clear': [_PRE, 'simulation_assumption']}
 PARAM_ZH = {
     'ambient_k': '实验室环境温度', 'coolant_kind': '冷却介质（水或低温槽乙醇/硅油）', 'coolant_inlet_k': '冷却介质进口温度（水约15°C、最高25°C）',
     'coolant_flow_m3_s': '冷却介质流量（≥10L/min）', 'cal_heater_power_w': 'HFCal校准加热器功率（先验；厂家未公开）',
@@ -2319,6 +2552,10 @@ PARAM_ZH = {
     'pre_s': '标定前基线时长', 'heat_s': '校准加热时长', 'post_s': '标定后基线时长', 'delta_k': '比热测定升温幅度', 'rate_k_min': '比热测定升温速率', 'hold_s': '比热测定前后保持时长',
     'limiting_reagent_mol': '评价用限量试剂摩尔数（给出反应焓）', 'heat_capacity_j_k': '评价用热容（null=用比热测定）',
 }
+for _k in PANEL_CAPS:
+    CAP_SOURCES[_k] = [_MAN, 'runtime_code']
+    MODEL_NONE_ZH[_k] = ('只读触摸屏画面' if CAPS[_k]['kind'] == 'query' else
+                         '触摸屏/面板键操作调用已有能力（同一套检查与状态变化）；可见变化见被调用能力与状态灯、按键关节绑定')
 LIMITATIONS = [
     '选定RC1mx + HFCal、标准转矩搅拌电机、MidTemp油与AP01-2玻璃反应器（玻璃锚式搅拌桨）；未选RTCal、高转矩搅拌与其他反应器，不实现绝热/蒸馏/结晶模式、惰性吹扫、油位与B2程序、iControl通信与真实硬件。',
     '恒温器为三节点集总模型（反应物料+插件、热油回路+夹套+玻璃、冷油箱），加热器2000W与约100W稳态冷却取自前代RC1e MidTemp；热油回路热容、散热、控制阀与安全阀交换系数、冷油箱热容、冷却盘管、冷回路泵热、顶部散热与蒸发系数、水在200rpm的总传热系数由RC1e厂家AP01-2典型曲线（空釜、1L/2L水、1L甘油+急停A）数字化后拟合（thermal_calibration.json，模型升温时间为厂家曲线的0.97–1.08倍、降温时间为0.87–1.08倍）；插件热容150J/K为工程值；RC1mx厂家未给同类曲线，这些常数是前代型号的集总工程值。',
@@ -2326,13 +2563,18 @@ LIMITATIONS = [
     '反应物料为库中液体的摩尔账（NIST液体比热与生成焓、PubChem密度，理想混合体积、无热膨胀）；反应焓由生成焓导出，能量按生成焓+显热守恒更新（含Kirchhoff修正）；动力学（lg A、Ea、级数）全是宿主先验，库中没有；不含可逆平衡、多相、溶解热/混合热、蒸发吸热与回流。',
     '顶部散热=(L_R+K_EV·p_vap)(Tr−Ta)，p_vap用Raoult定律与由NIST正常沸点按Clausius–Clapeyron/Trouton规则（88J/(mol·K)）估算的纯物质蒸气压（水在40°C高估约一倍）；模型不含沸腾：Tr/Tj任务、结束冷却、比热斜坡、Tsafe以及加料与装料后的状态和目标都必须低于料液泡点−2K（AP01-2只允许常压以下）；料液仍达到泡点时（例如失控）发出BOILING_NOT_MODELLED警告并在评价中标记，温度不受沸腾限制。',
     '仪器按RC1e文档2s周期采样（0.01K分辨率、A级偏差≤0.5K、相关噪声）并执行Tj PI（工程增益Kp 1000W/K、Ti 60s，Kp·2s/C_j=0.22）与Tr串级控制（RC1e软件默认只用P：水溶液9、有机4.5；*_pi选项加I 180s），|Tj−Tr|≤T diff max，冷却中Tr仍上升（示值Tr近30s最小二乘斜率大于0.06K/min与0.24/s×声明噪声中的较大者，且超过其4倍自相关修正标准误差，工程阈值）时下限不起作用（RC1e 9.6）；串级输出保持在Tj min+1K…Tj max−1K之内（工程裕量，避免读数噪声误触发C/A）；Tj设定低于冷却介质+10K只记警告（厂家：控制质量要求）；通电与正常开机相同：Tj模式到Tsafe、搅拌回到断电前设定（RC1e 5.9）。',
-    '急停程序按RC1e表：A（加热关、控制阀全开、安全阀旁通、安全继电器断开、切Tj模式）、B1（Tj模式从当前Tj示值以0.1K/s降到Tsafe，已低于Tsafe则保持）、C（Tj或Tr从当前示值以±0.1K/s到Tsafe），均关校准加热器、按Rsafe或保持转速并停止加料（加料停止为“安全联动”的工程解释）；触发：Tr>Tr max、Tj>Tj max（A），Tr<Tr min、Tj<Tj min、Tj超出油温限、Tc>Tj+5K、Tc超出(Tjoil min…40°C)（C），Tc>Tc max持续3min（A；RC1e表5.6印为3s、示例文字与报错为3min，采用3min），Rmin>0时手动停转搅拌3min或低于25rpm持续1min（B1；Rsafe=0由程序停转不算手动停转），同一周期两个以上原因→A；复位须立即原因已消除，带延时的原因复位后重新计时；油位、传感器失配、Tc跳变与通信故障未建模；冷油箱Tc只随拟合曲线间接校核，Tc>40°C触发C的时机为近似。',
+    '急停程序按RC1e表：A（加热关、控制阀全开、安全阀旁通、安全继电器断开、切Tj模式）、B1（Tj模式从当前Tj示值以0.1K/s降到Tsafe，已低于Tsafe则保持）、C（Tj或Tr从当前示值以±0.1K/s到Tsafe），均关校准加热器、按Rsafe或保持转速并停止加料（加料停止为“安全联动”的工程解释）；触发：Tr>Tr max、Tj>Tj max（A），Tr<Tr min、Tj<Tj min、Tj超出油温限、Tc>Tj+5K、Tc超出(Tjoil min…40°C)（C），Tc>Tc max持续3min（A；RC1e表5.6印为3s、示例文字与报错为3min，采用3min），Rmin>0时手动停转搅拌3min或低于25rpm持续1min（B1；Rsafe=0由程序停转不算手动停转），同一周期两个以上原因→A；复位须立即原因已消除，带延时的原因复位后重新计时；油位、油泵、电源、控制阀、电子、加热器继电器、PC通信与温度传感器故障由评测者fault.inject注入（1.2.0；B2：Tj模式以0.1K/s降到Tr min+3K，油位恢复后再降2K保持），Tc跳变未建模；冷油箱Tc只随拟合曲线间接校核，Tc>40°C触发C的时机为近似。',
     'HFCal：校准加热器功率为宿主先验（厂家未公开HFCal灵敏度）；UA标定取前后基线与加热段后半的(Tr−Tj)平均，不确定度按残差自相关修正的有效样本数计算，后半的显著漂移（>3倍标准误差）计入不确定度，超过信号5%判为未达稳态而失败（阈值为工程值）；比热由Tr斜坡求得，除以斜坡后半示值Tr的实测斜率；评价q_r=UA(Tr−Tj)+C·dTr/dt+ṁcp(Tr−T_feed)−q_cal−q_base，UA、基线与热容在前后标定之间按加料量（有加料时）或时间内插，只用示值；放热积分、反应焓、绝热温升、热转化率、累积度与MTSR不读取过程真值，都按窗口内放热归一，窗口末端热流未回到基线（窗口最后三分之一（≤10min）的平均值大于峰值5%与1倍q_r散度中的较大者）、窗口开始前150–30s已在放热（大于峰值5%与2倍散度）或窗口内达到泡点时给出质量标记；散度阈值按基线仿真标定（32040个基线窗口的最大值为0.83与1.63倍，evaluation_statistics_calibration.json），高噪声下低于该水平的残余热流检测不到（0.8kg水、0.02K噪声时约1.3–1.5W）；不含Stoessel危险等级（需要MTT与TMRad）。',
     '搅拌：锚式桨功率数Np=330/Re+0.35（工程关联式），转矩受玻璃搅拌器0.3N·m限制（超过则降速），电机加速100rpm/s；搅拌功率计入基线；未含涡流、液面变形与固体悬浮。',
     '外部加料单元（泵/天平）由宿主声明最大速率，经浸管恒速加入；底阀放料按宿主声明的流量与手柄开度线性流出；加料天平0.1g示值（加料结果、轮询与事件都按此示值）。',
     'agent只看到示值（Tr/Tj/Tc、转速、在线热流、标定结果、加料量、设定、安全与急停状态）；真实温度、UA、组成、反应功率、泡点与能量账只对evaluator可见，但以泡点或体积为界的拒绝可被用来逐步试探这些界限；某个agent启动的实验或正在进行的加料/标定，其他agent不能改任务、停止、取消或读取其数据；同一request_id无论被接受或被拒都绑定到第一次请求；急停按钮任何人都可按。',
     '时间推进：2s仪器周期内按反应放热（每子步绝热升温≤0.1K）与加料（每子步≤1%质量）自适应子步；热方程用Crank–Nicolson（能量流与状态更新一致），反应用隐式欧拉，加料与放料为精确混合；能量账残差为舍入量级，检查的是各子步状态更新与记账的一致性（热流在同一中点温度下积分、混合与反应按焓账），不是与独立积分的比较；搅拌轴转角按匀加速精确积分。',
     '没有真实硬件、iControl导出文件或厂家HFCal准确度验证；反应动力学不是经验证的反应数据（调研表：HFCal灵敏度、具体玻璃反应器容积与传热系数需附件资料与实验校准）。',
+    '触摸屏（panel_ui.json，共享引擎_panel_ui.py）按RC1mx用户手册第5章截图重建主界面（Tr、Tr−Tj、Tj、R、Dose/Charge、Sample，实验名与开始/停止，Reactor AP01-2）、反应器设置与安全设置页、'
+    'Tj/Tr/R任务与实验开始/结束流程以及开机操作篡改警告；不是像素级界面。手册未给出的内容按假设实现并在规格中标注：屏幕800×600、任务斜坡时间与Tr控制参数组字段、实验结束条件的三个选项、Notes/Graph/实验列表、'
+    'Info事件列表、工具页（仪器配置只读）、Dose/Charge加料页；Task Sequence（手册未描述）、其他反应器类型、EasySampler、蒸馏/回流、USB导出与服务菜单不支持（显示相应提示）。'
+    '面板只调用已有能力，权限检查（另一个agent的实验/操作）与直接调用相同；油型开关与吹扫针阀不是面板输入（油位/换油与吹扫不在模型中）。'
+    '触摸屏原有三行仿真七段读数部件（tr_digits/tj_digits/speed_digits）仍是Matterix场景中的显示绑定，与面板画面并存。',
 ]
 
 

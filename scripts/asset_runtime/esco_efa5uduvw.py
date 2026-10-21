@@ -24,16 +24,22 @@ written as base + rate x ticks; SI units: m, m3/s, Pa, kg, s):
   * Vapour sources (open liquid surfaces on the worktop, the gas fixture's methane, an SF6 tracer): evaporation k_m(u) A p_vap M / (R T);
     the escaped fraction e(v_eff) (engineering curve calibrated to the ASHRAE 110 certificate) goes to the operator's breathing zone, the
     rest to the exhaust; breathing-zone and exhaust concentrations against the NIOSH REL and the lower flammable limit (truth).
-  * Ledgers: liquid placed = remaining + evaporated + removed; evaporated = exhausted + escaped (per substance); water and gas delivered."""
+  * Ledgers: liquid placed = remaining + evaporated + removed; evaporated = exhausted + escaped (per substance); water and gas delivered.
+
+Front panel (panel.press / panel.switch / panel.capture / panel.frame): the Sentinel XL keypad, LCD and LEDs, the rocker switches and the sash key
+lock (panel_ui.json beside the contract; approximate - no user manual is saved) run by the generic engine _panel_ui.py on the capabilities below."""
 import copy
+import hashlib
 import json
 import math
 import re
+import tempfile
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
 ASSET_TYPE_ID = "instrument.esco_efa5uduvw"
 CATALOG_ID = "CHEM-199"
+ASSET_VERSION = '1.1.1'
 ROOT = Path(__file__).resolve().parents[2]
 ASSET_DIR = ROOT / 'assets/expansion_batch05/t2_vacuum/esco_efa5uduvw'
 LIBS = {'instrument': 'instrument_model.json', 'vapours': 'vapour_templates.json'}
@@ -275,6 +281,33 @@ UNSUPPORTED = {
 for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, ['body'], _v)
 
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.esco_efa5uduvw (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+def _hook_pin(panel, ctx, s):
+    """The four PIN digits typed on the keypad as the PIN text ('0000' removes the PIN, given as '')."""
+    text = ''.join(str(int(panel._src({'field': f}, ctx) or 0)) for f in s['fields'])
+    return '' if text == '0000' else text
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / switch / capture / frame (kept out of CAPS:
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # CAPS stays the instrument's own command set)
+PANEL_HOOKS = {'sxl_pin': _hook_pin}
+
 # ---------------------------------------------------------------- state slots
 SLOTS = {}
 
@@ -357,6 +390,9 @@ class EscoEfa5uduvwRuntime:
         self.placed, self.removed = {}, {}
         self.flags = set()
         self._principals, self._requests, self._caller = {}, {}, None
+        self.power_epoch = 0                                                 # power-ups of the hood supply seen by the panel
+        self.panel_capture_dir = None                                        # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self, hooks=PANEL_HOOKS)
 
     # ---- sessions
     @property
@@ -518,7 +554,7 @@ class EscoEfa5uduvwRuntime:
         if capability_id in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED')
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
-        query = capability_id in ('events.read', 'truth.inspect', 'ledger.read')
+        query = capability_id in ('events.read', 'truth.inspect', 'ledger.read', 'panel.capture', 'panel.frame')
         if not query and capability_id != 'sim.step':
             self._rebase()
         out = fn(**args)
@@ -782,14 +818,63 @@ class EscoEfa5uduvwRuntime:
 
     def _cmd_fault_inject(self, fault, active):
         self._need_plant()
+        was = self._mains()
         (self.faults.add if active else self.faults.discard)(fault)
         if not self._mon_on():
             self._mon_power_off()                                             # the monitor goes dark with the mains, not on the next tick
+        elif not was:
+            self.power_epoch += 1
         self._event('fault', 'FAULT_' + fault.upper(), f'故障{fault}' + ('：注入' if active else '：清除'))
         return dict(faults=sorted(self.faults))
 
     def _cmd_sim_step(self, dt_s):
         return dict(time_s=self.step(dt_s))
+
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the panel sees: the agent slots plus whether the hood (and the monitor) has supply and the power-up count."""
+        out = self.read('agent')
+        out.update({'host.powered': self._mains(), 'host.power_epoch': self.power_epoch})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything)."""
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_switch(self, input_id, position):
+        return self._panel(self.panel.switch, input_id, position)
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
 
     # ---- time
     def _creeping(self):
@@ -1073,7 +1158,7 @@ class EscoEfa5uduvwSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -1107,13 +1192,13 @@ class EscoEfa5uduvwSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             h._caller = self._principal
             snapshot = copy.deepcopy({k: v for k, v in h.__dict__.items() if k not in ('_principals', '_requests', '_caller')})
             try:
@@ -1172,6 +1257,7 @@ CAP_ERRORS = {
     'monitor.calibrate': _P + ['MONITOR_OFF', 'PIN_INVALID', 'NOT_CALIBRATABLE'], 'anemometer.measure': _P + ['SASH_TOO_LOW'], 'monitor.night_setback': _P, 'source.place': _P + ['DUPLICATE_ID', 'NOT_LIQUID'],
     'source.remove': _P + ['NO_SOURCE'], 'fixture.set': _P, 'disturbance.configure': _P, 'tracer.release': _P, 'events.read': [], 'truth.inspect': _P, 'ledger.read': [],
     'fault.inject': _P, 'sim.step': [],
+    **{k: ([] if k == 'panel.frame' else _P) for k in PANEL_CAPS},
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 _MONP = ('柜体有电（Sentinel由柜体电源供电）', ['mains.on'])
@@ -1188,6 +1274,10 @@ PRECONDITIONS = {
     'source.remove': ('来源存在', ['sources.placed']), 'fixture.set': ('无（供给压力为0时没有流量）', ['fixtures.state']),
     'disturbance.configure': ('无', ['plant.configured']), 'tracer.release': ('无', ['plant.configured']), 'truth.inspect': ('无', ['plant.configured']),
     'fault.inject': ('无', ['plant.configured']),
+    **{k: ('面板按当前画面处理手势（近似：没有用户手册）：无电时只有翘板开关与钥匙锁起作用；MENU进入设置（设了PIN时先输入4位PIN），上/下调整，SET存入，30 s无操作退出；'
+           'TEST/MUTE调用monitor.press；被调用能力的前提同样适用（被拒时显示仪器提示，手势不被接受）', ['mains.on', 'monitor.settings', 'keylock.mode', 'sash.height_m'])
+       for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
+    'panel.capture': ('无（无电时为暗屏）', ['mains.on']), 'panel.frame': ('无', ['plant.configured']),
 }
 _MON = ['monitor.reading_m_s', 'monitor.alarm', 'monitor.muted', 'monitor.menu', 'display.velocity', 'display.text', 'display.lcd_cells', 'indicator.safe',
         'indicator.unsafe', 'indicator.mute', 'buzzer.on']
@@ -1210,10 +1300,16 @@ _STEPPED = ('plant.configure', 'facility.configure', 'exhaust.configure', 'dampe
             'tracer.release', 'fault.inject')
 ON_STEP = {k: list(_EVOLVE) for k in _STEPPED}
 ON_STEP['sim.step'] = _EVOLVE + ['clock.time_s']
+_PANEL_FX = list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in EFFECTS.get(c, [])))
+_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+for _k in _GESTURES:
+    EFFECTS[_k] = list(_PANEL_FX)                                           # a gesture changes what the commands it calls change
+    ON_STEP[_k] = list(_EVOLVE)
 ON_STEP_ZH = {'sim.step': '按0.1 s网格积分：移门自降、排风量一阶响应、传感器滞后、Sentinel报警延时、自检与菜单计时、走动扰动；蒸发、泄漏、排风与公用量按速率累计；'
                           '排风与传感器已稳定且没有计时在走时整段跳过（线性量写成基值+速率×格数，跳过与逐格完全一致）'}
-EXEC_TEXT = {}
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+EXEC_TEXT = {k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看',
+                  '一个手势可依次调用多个能力，前面已提交的不回滚；被拒的能力不改变状态') for k in _GESTURES}
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 for _k in ('sash.set', 'sash.release', 'keylock.set', 'anemometer.measure', 'damper.set', 'light.set', 'light.toggle', 'fan.set', 'fan.toggle', 'monitor.press', 'source.place', 'source.remove',
            'fixture.set'):
     RESOURCES[_k] = ['host_clock', 'robot_or_operator']
@@ -1224,14 +1320,18 @@ CAP_SOURCES.update({'plant.configure': [_WB, _SIM], 'facility.configure': [_BRO,
                     'monitor.press': [_SXL, _SIM], 'monitor.configure': [_SXL], 'monitor.calibrate': [_SXL, _BRO], 'anemometer.measure': [_SIM], 'monitor.night_setback': [_SXL],
                     'source.place': [_LIB, _PC, _SIM], 'source.remove': [_SIM], 'disturbance.configure': [_SIM], 'tracer.release': [_BRO, _PC, _SIM],
                     'events.read': [_SIM], 'truth.inspect': [_SIM], 'ledger.read': [_SIM], 'fault.inject': [_SIM], 'sim.step': [_SIM]})
+CAP_SOURCES.update({k: [_SXL, _BRO, _SIM] for k in PANEL_CAPS})
 PARAM_ZH = {'ambient_k': '室温', 'pressure_pa': '大气压', 'noise_seed': '噪声种子', 'water_supply_pa': '供水表压', 'gas_supply_pa': '供气表压', 'mode': '方式',
             'suction_pa': '建筑排风负压', 'duct_k': '风管阻力系数', 'damper_open': '风阀开度', 'blower_speed': '风机转速比', 'flow_m3_s': '定风量', 'open_fraction': '开度',
             'speed': '转速比', 'on': '开或关', 'height_m': '移门开度', 'hold': '扶住', 'key': '面板键', 'low_alarm_m_s': '低报警设定', 'high_alarm_m_s': '高报警设定',
             'units': '显示单位', 'pin': '当前PIN', 'new_pin': '新PIN', 'reference_m_s': '参考面风速', 'closed': '继电器闭合', 'source_id': '来源编号', 'liquid_id': '液体（模板库）',
             'mass_kg': '液体质量', 'area_m2': '液面面积', 'fixture': '龙头', 'cross_draft_m_s': '横向气流', 'walk_by_s': '走动时长', 'rate_l_min': 'SF6释放速率',
-            'since_s': '起始时间', 'fault': '故障名', 'active': '注入或清除', 'dt_s': '推进时间'}
+            'since_s': '起始时间', 'fault': '故障名', 'active': '注入或清除', 'dt_s': '推进时间', 'input_id': '面板输入件（按键、翘板开关、钥匙锁）',
+            'duration_s': '按住时间', 'position': '开关位置', 'display_id': '显示件（LCD或指示灯）'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.fume_hood_process.limitations。'
 CAP_LIMITS = {
+    **{k: ['面板层按panel_ui.json解释手势并调用本运行层的同名能力；近似面板（没有Sentinel XL用户手册）：键序、LCD文字与超时为工程选择，见panel_ui.json的assumptions；手势不推进仿真时钟。']
+       for k in PANEL_CAPS},
     'monitor.press': ['Sentinel XL的菜单文字与键序厂家资料未给出：MENU依次进入低报警、高报警、单位设置，上/下调整（0.01 m/s），SET存入，30 s无操作退出（工程表示）；'
                       '设了PIN时键盘显示PIN LOCKED，PIN只经monitor.configure给出。'],
     'exhaust.configure': ['本柜不含风机：排风量由外部系统决定（建筑排风负压+风管+风阀、专用风机曲线或定风量；均为工程模型，非厂家曲线）；风机开关只在专用风机方式下接通风机回路；'
@@ -1267,7 +1367,7 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if CAPS[k]['visibility'] != 'agent' else []
+    extra = ['ACCESS_DENIED'] if ALL_CAPS[k]['visibility'] != 'agent' else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1339,7 +1439,7 @@ def export_esco_efa5uduvw_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'EscoEfa5uduvwSession.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',

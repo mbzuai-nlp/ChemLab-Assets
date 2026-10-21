@@ -12,7 +12,7 @@ class HCubeTest(unittest.TestCase):
   v=h.read('evaluator');self.assertAlmostEqual(v['truth.input_mass_kg'],sum(v['truth.'+k+'_mass_kg'] for k in ['retained','product','waste','removed','vent']),11);self.assertAlmostEqual(h.initial_a,h._species(0)+h._species(1),12);self.assertAlmostEqual(h.h2_generated,h._species(2)+h.h2_reacted+h.h2_vented,12);self.assertAlmostEqual(h.h2_generated/2,h.o2_vented,12);self.assertAlmostEqual(h.water_input_kg,h.water_kg+h.h2_generated*MW,12)
   for c in h.cells:self.assertGreaterEqual(min(c),-1e-16)
  def test_contract_schemas(self):
-  m=export_thalesnano_hcube_contract_metadata();self.assertEqual(len(m['capabilities']),17);self.assertEqual(len(m['state_slots']),41)
+  m=export_thalesnano_hcube_contract_metadata();self.assertEqual(len(m['capabilities']),17+2+len(PANEL_CAPS));self.assertEqual(len(m['state_slots']),42)
   for c in m['capabilities'].values():
    self.assertFalse(asset_tool.lint_schema(c['input_schema']));self.assertFalse(asset_tool.lint_schema(c['output_schema']));self.assertFalse(asset_tool.validate_value(c['example_arguments'],c['input_schema']))
  def test_all_78_real_templates_drive_query(self):
@@ -87,6 +87,10 @@ class HCubeTest(unittest.TestCase):
   ck('clamp.set_lift',{'lift_m':0.});ck('water_lid.set_lift',{'lift_m':0.});ck('acquisition.start');h.step(1.)
   for k in ['hydrogenation.measure','history.read','product.read','thermo.lookup','calibration.reference','acquisition.stop','collector.unload']:ck(k)
   for k,v in h.read('evaluator').items():self.assertFalse(asset_tool.validate_value(v,SLOTS[k][0]),k)
+ def test_method_storage(self):
+  h=prepared();self.assertEqual(h.read()['methods.stored'],[None]*5);self.assertRaises(ActionRejected,h.invoke,'methods.load',slot=3);h.invoke('methods.save',slot=3)
+  self.assertEqual(h.read()['methods.stored'][2],h.method);h.invoke('method.configure',**dict(METHOD_EXAMPLE,temperature_k=323.15));h.invoke('methods.load',slot=3);self.assertEqual(h.method['temperature_k'],METHOD_EXAMPLE['temperature_k'])
+  self.assertRaises(ActionRejected,h.invoke,'methods.save',slot=2.5);h.invoke('acquisition.start');self.assertRaises(ActionRejected,h.invoke,'methods.load',slot=3)
  def test_bad_dt(self):
   h=prepared()
   for dt in [0,-1,True,float('nan'),float('inf')]:

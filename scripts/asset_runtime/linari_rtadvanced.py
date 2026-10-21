@@ -1,10 +1,19 @@
-"""CHEM-059 two HV groups, eight finite syringe drives; explicitly uncalibrated electrospinning."""
+"""CHEM-059 two HV groups, eight finite syringe drives; explicitly uncalibrated electrospinning.
+
+Front panel (panel.touch / panel.press / panel.switch / panel.capture / panel.frame): the WiFi tablet application, the emergency stop, the
+main switch and the status light (panel_ui.json beside the contract, approximate: no operating manual is public) run by the generic engine
+_panel_ui.py on top of the capabilities below.  1.1.0 adds what the tablet application offers beyond the process commands: named users with
+roles, recipes, the audit trail, the per-run telemetry log and the chamber light.  1.1.1: a job started from the tablet belongs to the
+calling session, and an agent cannot stop, switch off or change the high voltage / climate of another agent's running job (tablet or direct).
+1.1.2 (sweep 2026-10-19): the main switch on top of the machine (power.set / power.toggle) is a hard switch and never refused; switching off
+stops the job as a power loss."""
 from __future__ import annotations
-import copy, importlib.util, json, math
+import copy, hashlib, importlib.util, json, math, tempfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='linari_rtadvanced'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-059'; PROTOCOL_VERSION='1.0.0'
+SLUG='linari_rtadvanced'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-059'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.1.2'
+ASSET_DIR=ROOT/'assets/expansion_batch04/t5_automation/linari_rtadvanced'
 TEMPLATE_REL='assets/reactions/linari_rtadvanced_fiber_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -87,6 +96,22 @@ CAPS['vent.set'][7].append('safety.fault')
 CAPS['safety.trip'][7].append('safety.fault')
 CAPS['product.collect'][7].append('fiber.mean_diameter_m')
 for k in ['solution.load','solution.drain']:CAPS[k][7].extend(['plunger.pump_'+str(i)+'_m' for i in range(8)])
+# Tablet application functions (product page lines 258-264 and 302: named users with roles, audit trail, telemetry, recipes; photo: light key).
+NAME=dict(type='string',minLength=1,maxLength=32)
+ROLE=dict(type='string',enum=['Administrator','Operator'])
+cap('lights.set',obj({'on':BOOL}),obj({'on':BOOL}),['ceiling_lights','tablet'],'平板灯泡键：腔内照明开关（需整机通电）',ex={'on':True},effects=['lights.on'])
+cap('recipe.save',obj({'name':NAME}),obj({'saved':BOOL}),['tablet'],'把当前工艺参数（两组高压、8泵流量、转速、针组行程、间距、时长）与温湿度目标存为命名配方（同名覆盖）',ex={'name':'PCL_10pct'},effects=['recipes.list','audit.trail'])
+cap('recipe.load',obj({'name':NAME}),obj({'loaded':BOOL}),['tablet','needle_group_0','needle_group_1','collector','uta_port'],'载入命名配方：同method.configure与climate.set_targets的检查（运行中/有高压时BUSY）',ex={'name':'PCL_10pct'},effects=['method.configured','thermal.target_k','climate.target_rh','audit.trail'])
+cap('recipe.delete',obj({'name':NAME}),obj({'deleted':BOOL}),['tablet'],'删除命名配方',ex={'name':'PCL_10pct'},effects=['recipes.list','audit.trail'])
+cap('user.login',obj({'name':NAME}),obj({'user':TEXT}),['tablet'],'以命名账户登录平板应用（操作记入审计追踪；无密码模型）',ex={'name':'Administrator'},effects=['users.state','audit.trail'])
+cap('user.logout',obj({}),obj({'user':TEXT}),['tablet'],'注销当前用户（平板回到登录页）',effects=['users.state','audit.trail'])
+cap('user.add',obj({'name':NAME,'role':ROLE}),obj({'added':BOOL}),['tablet'],'管理员新增命名账户（Administrator / Operator）',ex={'name':'Operator 1','role':'Operator'},effects=['users.state','audit.trail'])
+cap('user.remove',obj({'name':NAME}),obj({'removed':BOOL}),['tablet'],'管理员删除命名账户（不能删除自己）',ex={'name':'Operator 1'},effects=['users.state','audit.trail'])
+for k in ['power.set','power.toggle']:CAPS[k][7].append('lights.on')
+for k in CAPS:
+    if CAPS[k][4]!='query' and k not in ('plant.configure','collector.configure','solution.load','solution.drain','product.collect','vent.set','door.set'):
+        CAPS[k][7].append('audit.trail')
+CAPS['acquisition.start'][7].append('telemetry.log')
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,z,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=z
 for k in ['plant','method']:slot(k+'.configured',BOOL,'1',k+'已配置','setpoint')
@@ -111,7 +136,36 @@ slot('cycle.phase',PHASE,'1','异步电纺状态')
 slot('cycle.elapsed_s',number('s',0),'s','该次运行累计时长')
 slot('fiber.mean_diameter_m',number('m',0),'m','文学参考缩放的合成直径')
 slot('truth.ledger',PRODUCT,'1','双组分/显热/HV账本，只供evaluator','process_truth','evaluator','collector')
+ENTRY=obj({'t_s':number('s',0),'user':TEXT,'event':TEXT,'detail':TEXT})
+RECIPE=obj({'name':TEXT,'saved_by':TEXT,'t_s':number('s',0),'method':METHOD,'temperature_k':number('K',288.15,323.15),'humidity':number('1',.2,.7)})
+SAMPLE=obj({'t_s':number('s',0),'voltage_v':arr(number('V',0,60000),2),'rpm':number('1/min',-5000,5000),'temperature_k':number('K',1,400),'humidity':number('1',0,1)})
+slot('lights.on',BOOL,'1','腔内照明（平板灯泡键）','setpoint',c='ceiling_lights',w=('lights.set','on'))
+slot('users.state',obj({'current':dict(type=['string','null']),'accounts':dict(type='array',items=obj({'name':TEXT,'role':ROLE}),minItems=1,maxItems=32)}),'1','平板应用命名账户与当前登录用户（角色Administrator/Operator）','setpoint',c='tablet')
+slot('recipes.list',dict(type='array',items=RECIPE,minItems=0,maxItems=64),'1','命名配方（工艺参数与温湿度目标）','setpoint',c='tablet')
+slot('audit.trail',dict(type='array',items=ENTRY,minItems=0,maxItems=1000),'1','审计追踪：参数变更、运行启停、报警与干预（时间、用户、事件；保留最近1000条）','setpoint',c='tablet')
+slot('telemetry.log',obj({'operation_id':TEXT,'rows':dict(type='array',items=SAMPLE,minItems=0,maxItems=600)}),'1','本次运行遥测：运行时间每1 s记录两组电压、转速、温度、湿度（t_s为运行已进行时间；保留最近600行）','setpoint',c='tablet')
+MAX_AUDIT=1000;MAX_TELEMETRY=600;MAX_RECIPES=64;MAX_USERS=32
 
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.linari_rtadvanced
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=_panel_ui.load_spec(ASSET_DIR/'panel_ui.json',capabilities=set(CAPS))
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC)                     # panel.touch / press / switch / capture / frame
+_PANEL_FX=sorted({e for c in _panel_ui.spec_capabilities(PANEL_SPEC) for e in CAPS[c][7]})
+for _k,_d in PANEL_CAPS.items():
+    cap(_k,_d['input_schema'],_d['output_schema'],_d['component_ids'],_d['function_zh'],_d['kind'],_d['visibility'],_d['example_arguments'],
+        [] if _d['kind']=='query' else _PANEL_FX)
+
+RUN_GUARDED=('acquisition.stop','hv.set','climate.set','climate.set_targets')   # foreign running job: refused for agents (the main switch, power.set /
+# power.toggle, is a hard switch: never refused, switching off stops the job as a power loss; 1.1.2, lead rule 10-19)
 class LinariRtadvancedRuntime:
     def __init__(self,instance_id='rtadvanced_01'):
         self.instance_id=instance_id;self.templates={r['substance_id']:r for r in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']}
@@ -122,6 +176,11 @@ class LinariRtadvancedRuntime:
         self.volts=[0.,0.];self.rpm=0.;self.angle=0.;self.needle=[0.,0.];self.direction=[1.,1.];self.temperature=298.15;self.target_k=298.15;self.rh=.4;self.target_rh=.4
         self.heater_input=0.;self.thermal_loss=0.;self.hv_source=0.;self.hv_dissipated=0.;self.instability=[0.]*8;self.phase='idle';self.elapsed_s=0.
         self.operation_id='';self._operation_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+        self._caller=None                                                    # principal of the session call in progress (direct or tablet action)
+        self.lights=False;self.users={'current':None,'accounts':[{'name':'Administrator','role':'Administrator'}]};self.recipes=[];self.audit=[]
+        self.telemetry={'operation_id':'','rows':[]};self._next_sample=0.;self._last_fault=''
+        self.panel_capture_dir=None                                          # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel=_panel_ui.PanelUI(PANEL_SPEC,self)
     def register_principal(self,principal_id,visibility='agent'):
         if visibility not in ('agent','debug','evaluator') or not isinstance(principal_id,str) or not principal_id:raise ActionRejected('INVALID_ARGUMENT')
         if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -130,7 +189,7 @@ class LinariRtadvancedRuntime:
         if principal_id not in self._principals:raise ActionRejected('ACCESS_DENIED')
         return LinariRtadvancedSession(self,principal_id)
     def describe(self):return self.session().describe(instance_id=self.instance_id)
-    def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k!='templates'})
+    def debug_snapshot(self):return copy.deepcopy({k:(v.ui if k=='panel' else v) for k,v in self.__dict__.items() if k!='templates'})
     def _volume(self,m,c):return m[0]/c['solvent_density_kg_m3']+m[1]/c['polymer_density_kg_m3']
     def _safe(self):return self.phase!='running' and not self.hv and max(self.volts)<1e-3 and abs(self.rpm)<1e-3
     def _product(self):
@@ -146,7 +205,8 @@ class LinariRtadvancedRuntime:
     def _diameter(self):return self.diameter_moment/self.fiber_mass if self.fiber_mass>0 else 0.
     def read(self,visibility='agent'):
         if visibility not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
-        v={'plant.configured':self.plant is not None,'method.configured':self.method is not None,'power.enabled':self.powered,'vent.enabled':self.vent,'hv.enabled':self.hv,'climate.enabled':self.climate,'collector.present':self.collector_present,'door.opened':self.door,'door.angle_rad':1.3 if self.door else 0.,'safety.latched':self.latched,'safety.fault':self.fault,'collector.angle_rad':self.angle,'collector.rpm':self.rpm,'thermal.temperature_k':self.temperature,'thermal.target_k':self.target_k,'climate.humidity':self.rh,'climate.target_rh':self.target_rh,'cycle.phase':self.phase,'cycle.elapsed_s':self.elapsed_s,'fiber.mean_diameter_m':self._diameter(),'truth.ledger':self._product()}
+        v={'plant.configured':self.plant is not None,'method.configured':self.method is not None,'power.enabled':self.powered,'vent.enabled':self.vent,'hv.enabled':self.hv,'climate.enabled':self.climate,'collector.present':self.collector_present,'door.opened':self.door,'door.angle_rad':1.3 if self.door else 0.,'safety.latched':self.latched,'safety.fault':self.fault,'collector.angle_rad':self.angle,'collector.rpm':self.rpm,'thermal.temperature_k':self.temperature,'thermal.target_k':self.target_k,'climate.humidity':self.rh,'climate.target_rh':self.target_rh,'cycle.phase':self.phase,'cycle.elapsed_s':self.elapsed_s,'fiber.mean_diameter_m':self._diameter(),'truth.ledger':self._product(),
+           'lights.on':self.lights,'users.state':self.users,'recipes.list':self.recipes,'audit.trail':self.audit,'telemetry.log':self.telemetry}
         for i in range(2):v['hv.group_'+str(i)+'_v']=self.volts[i];v['needle.group_'+str(i)+'_m']=self.needle[i]
         for i,c in enumerate(self.solutions):v['plunger.pump_'+str(i)+'_m']=max(0.,self.loaded_volumes[i]-self._volume(self.syringes[i],c))/(math.pi*self.plant['syringe_id_m']**2/4) if c else 0.
         return copy.deepcopy({k:x for k,x in v.items() if visibility!='agent' or SLOTS[k][3]=='agent'})
@@ -155,15 +215,36 @@ class LinariRtadvancedRuntime:
     def invoke(self,capability_id,**a):
         if capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
         validate(CAPS[capability_id][0],a)
-        # Entire validation/mutation is transactional, including cross-parameter guards.
-        old=copy.deepcopy({k:v for k,v in self.__dict__.items() if k!='templates'})
-        try:r=self._invoke(capability_id,a)
-        except Exception:
-            for k in list(self.__dict__):
-                if k!='templates':del self.__dict__[k]
-            self.__dict__.update(old);raise
+        r=self._apply(capability_id,a)
         if CAPS[capability_id][4]!='query':self.revision+=1
         return copy.deepcopy(r)
+    def _apply(self,k,a):
+        # Entire validation/mutation is transactional, including cross-parameter guards (the panel's UI state is not rolled back: a refused
+        # command shows the device's message).
+        keep=('templates','panel')
+        old=copy.deepcopy({x:v for x,v in self.__dict__.items() if x not in keep});who=self.users['current']
+        try:self._check_caller(k,a);r=self._invoke(k,a)
+        except Exception:
+            for x in list(self.__dict__):
+                if x not in keep:del self.__dict__[x]
+            self.__dict__.update(old);raise
+        if 'audit.trail' in CAPS[k][7] and not k.startswith('panel.'):self._log(k,self._detail(k,a,r),who if k=='user.logout' else None)
+        return r
+    def _check_caller(self,k,a):
+        """An agent may not stop or change the high voltage / climate of another agent's running job (direct call or tablet action alike: the
+        session sets _caller around both); the emergency stop and the main switch (a hard switch) stay open to everyone."""
+        who=self._caller
+        if who is None or self._principals.get(who)!='agent' or self.phase!='running':return
+        owner=self._owners.get(self.operation_id)
+        if owner is None or owner==who or k not in RUN_GUARDED:return
+        if k in ('hv.set','climate.set') and a.get('enabled'):return      # switching on does not disturb the run
+        raise ActionRejected('ACCESS_DENIED')
+    def _log(self,event,detail,user=None):
+        self.audit=(self.audit+[dict(t_s=self.time_s,user=user or self.users['current'] or '-',event=event,detail=detail)])[-MAX_AUDIT:]
+    @staticmethod
+    def _detail(k,a,r):
+        def f(v):return '/'.join(f(x) for x in v) if isinstance(v,list) else (f'{v:.6g}' if isinstance(v,float) else str(v))
+        return ', '.join(f'{x}={f(v)}' for x,v in a.items())[:120]
     def _invoke(self,k,a):
         if k=='reference.lookup':
             r=self.templates.get(a['substance_id'])
@@ -179,7 +260,7 @@ class LinariRtadvancedRuntime:
         if k=='power.set':
             if a['enabled'] and (self.plant is None or self.latched):raise ActionRejected('PRECONDITION_FAILED')
             self.powered=a['enabled']
-            if not self.powered:self._stop();self.hv=False;self.climate=False
+            if not self.powered:self._stop();self.hv=False;self.climate=False;self.lights=False
             return a
         if k=='vent.set':
             self.vent=a['enabled']
@@ -230,6 +311,7 @@ class LinariRtadvancedRuntime:
             if not self.powered or not self.vent or not self.hv or self.door or self.latched or not self.collector_present or not self.method or self.phase=='running':raise ActionRejected('PRECONDITION_FAILED')
             if any(q>0 and (self.solutions[i] is None or sum(self.syringes[i])<=0) for i,q in enumerate(self.method['flows_m3_s'])):raise ActionRejected('SYRINGE_EMPTY')
             self.phase='running';self.elapsed_s=0.;self._operation_count+=1;self.operation_id=self.instance_id+':job:'+str(self._operation_count);self.fault=''
+            self.telemetry={'operation_id':self.operation_id,'rows':[]};self._next_sample=0.;self._last_fault=''
             return dict(phase=self.phase,operation_id=self.operation_id)
         if k=='acquisition.stop':self._stop();return {'phase':self.phase}
         if k=='needle.clean':
@@ -244,14 +326,83 @@ class LinariRtadvancedRuntime:
                 for j in range(2):self.collected[j]+=x[j]
             self.mat=[[0.,0.] for _ in range(32)];self.mat_volume=[0.]*32;self.collector_present=False;self.diameter_moment=0.;self.fiber_mass=0.
             return dict(recipient_id=a['recipient_id'],attachment_event='host_release_fiber_collector')
+        if k=='lights.set':
+            if a['on'] and not self.powered:raise ActionRejected('PRECONDITION_FAILED')
+            self.lights=a['on'];return a
+        if k=='recipe.save':
+            if self.method is None:raise ActionRejected('NO_METHOD')
+            rest=[x for x in self.recipes if x['name']!=a['name']]
+            if len(rest)>=MAX_RECIPES:raise ActionRejected('MEMORY_FULL')
+            self.recipes=rest+[dict(name=a['name'],saved_by=self.users['current'] or '-',t_s=self.time_s,method=copy.deepcopy(self.method),temperature_k=self.target_k,humidity=self.target_rh)]
+            return {'saved':True}
+        if k=='recipe.load':
+            r=next((x for x in self.recipes if x['name']==a['name']),None)
+            if r is None:raise ActionRejected('NOT_FOUND')
+            self._invoke('method.configure',copy.deepcopy(r['method']));self._invoke('climate.set_targets',{'temperature_k':r['temperature_k'],'humidity':r['humidity']})
+            return {'loaded':True}
+        if k=='recipe.delete':
+            if not any(x['name']==a['name'] for x in self.recipes):raise ActionRejected('NOT_FOUND')
+            self.recipes=[x for x in self.recipes if x['name']!=a['name']];return {'deleted':True}
+        if k=='user.login':
+            if not any(u['name']==a['name'] for u in self.users['accounts']):raise ActionRejected('NOT_FOUND')
+            self.users['current']=a['name'];return {'user':a['name']}
+        if k=='user.logout':
+            if self.users['current'] is None:raise ActionRejected('LOGIN_REQUIRED')
+            who=self.users['current'];self.users['current']=None;return {'user':who}
+        if k in ('user.add','user.remove'):
+            me=next((u for u in self.users['accounts'] if u['name']==self.users['current']),None)
+            if me is None or me['role']!='Administrator':raise ActionRejected('PERMISSION_DENIED')
+            if k=='user.add':
+                if any(u['name']==a['name'] for u in self.users['accounts']):raise ActionRejected('DUPLICATE')
+                if len(self.users['accounts'])>=MAX_USERS:raise ActionRejected('MEMORY_FULL')
+                self.users['accounts'].append(dict(name=a['name'],role=a['role']));return {'added':True}
+            if not any(u['name']==a['name'] for u in self.users['accounts']):raise ActionRejected('NOT_FOUND')
+            if a['name']==self.users['current']:raise ActionRejected('IN_USE')
+            self.users['accounts']=[u for u in self.users['accounts'] if u['name']!=a['name']];return {'removed':True}
+        if k=='panel.press':return self._panel(self.panel.press,a['input_id'],float(a.get('duration_s',.1)))
+        if k=='panel.switch':return self._panel(self.panel.switch,a['input_id'],a['position'])
+        if k=='panel.touch':
+            if ('to_x' in a)!=('to_y' in a):raise ActionRejected('INVALID_ARGUMENT')
+            return self._panel(self.panel.touch,a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),(a['to_x'],a['to_y']) if 'to_x' in a else None)
+        if k=='panel.capture':
+            data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest()
+            d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id
+            d.mkdir(parents=True,exist_ok=True);path=d/f"{a['display_id']}_{sha[:16]}.png"
+            if not path.exists():path.write_bytes(data)
+            return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+        if k=='panel.frame':return dict(frame=self.panel.frame())
         raise ActionRejected('UNKNOWN_CAPABILITY')
+    # ---- front panel: host protocol of the engine (_panel_ui.py)
+    def panel_read(self):
+        """What the tablet application shows: the agent slots plus the stored method (set values) and the newest audit / telemetry rows first."""
+        out=self.read('agent')
+        out.update({'host.method':copy.deepcopy(self.method),'host.audit_recent':list(reversed(self.audit))[:200],'host.telemetry_recent':list(reversed(self.telemetry['rows'])),
+                    'host.alarm':bool(self.latched or self.fault),'host.role':next((u['role'] for u in self.users['accounts'] if u['name']==self.users['current']),None)})
+        return out
+    def panel_invoke(self,capability_id,arguments):
+        """A tablet action calls the same command a direct call would (transactional: a refusal changes nothing)."""
+        try:
+            validate(CAPS[capability_id][0],arguments);return self._apply(capability_id,arguments)
+        except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+    def panel_time(self):return self.time_s
+    def _panel(self,gesture,*args):
+        try:return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
     def step(self,dt):
         validate(number('s',0,36000),dt)
         if dt==0:return
         hmax=min(.02,self.plant['thermal_capacity_j_k']/(2*(self.plant['controller_w_k']+self.plant['loss_w_k']))) if self.plant else .02
         n=math.ceil(dt/hmax);h=dt/n
-        for _ in range(n):self._substep(h);self.time_s+=h
+        for _ in range(n):self._substep(h);self.time_s+=h;self._sample()
         self.revision+=1
+    def _sample(self):
+        """Telemetry every 1 s of a run and alarms (faults raised by the process) into the audit trail."""
+        if self.phase=='running' and self.elapsed_s>=self._next_sample-1e-9:
+            row=dict(t_s=self.elapsed_s,voltage_v=list(self.volts),rpm=self.rpm,temperature_k=self.temperature,humidity=self.rh)
+            self.telemetry['rows']=(self.telemetry['rows']+[row])[-MAX_TELEMETRY:];self._next_sample+=1.
+        if self.fault!=self._last_fault:
+            if self.fault:self._log('alarm',self.fault)
+            self._last_fault=self.fault
     def _substep(self,h):
         p=self.plant
         if not p:return
@@ -324,7 +475,7 @@ class LinariRtadvancedSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_linari_rtadvanced_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_linari_rtadvanced_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -342,8 +493,12 @@ class LinariRtadvancedSession:
                 old,result=h._requests[key]
                 if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(result)
-            result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+            before=h.operation_id;h._caller=self._principal
+            try:result=h.invoke(capability_id,**arguments)
+            finally:h._caller=None
+            op=result.get('operation_id')
             if op:h._owners[op]=self._principal
+            elif h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a job started by the tablet's Start belongs to the caller
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
         except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
     def write(self,*,instance_id,state_id,value,request_id):
@@ -393,7 +548,7 @@ def export_linari_rtadvanced_contract_metadata():
       'axial_thickness=polymer_volume/(pi*collector_diameter*(length/32)*(1-porosity)); no radial morphology solve',
       'plunger_consumed=(loaded_volume-remaining_volume)/(pi*syringe_id^2/4)'],
       parameters={},source_ids=['manufacturer_primary','fiber_dataset','simulation_assumption'],
-      limitations=['泰勒锥/射流仅停留体积、Maxwell-毛细应力门限与直径缩放，未解粘弹/电荷/弯曲不稳定性CFD。','153保守归一材料系统标签含共混、别名；1823实测文献均径不等于50纯物质或本机实测。','显式宿主密度、表面张力、热容/功率、场增强、衰减常数/孔隙率未标定。','RH规定控制，不解湿空气质量/潜热；高压电容仅教学RC不证明安全。','8有限针筒、两高压组、单滚筒；可选收集器偏置、吹纺、激光闭环、带式收集、完整GUI、硬件机器人未实现。'])
+      limitations=['泰勒锥/射流仅停留体积、Maxwell-毛细应力门限与直径缩放，未解粘弹/电荷/弯曲不稳定性CFD。','153保守归一材料系统标签含共混、别名；1823实测文献均径不等于50纯物质或本机实测。','显式宿主密度、表面张力、热容/功率、场增强、衰减常数/孔隙率未标定。','RH规定控制，不解湿空气质量/潜热；高压电容仅教学RC不证明安全。','8有限针筒、两高压组、单滚筒；可选收集器偏置、吹纺、激光闭环、带式收集、硬件机器人未实现；平板GUI按产品页与厂家照片近似（前面板层，approximate）。'])
     spec=importlib.util.spec_from_file_location('_linari_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann)
     ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH)
     ann.annotate_export(SLUG,caps,slots,{'electrospinning':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'solution.load':(SOLUTION,SOLUTION_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE)})

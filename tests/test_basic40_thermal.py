@@ -240,15 +240,18 @@ class NaberthermL9RuntimeTests(unittest.TestCase):
         self.assertEqual(self.value("program.phase"), "stopped")
         self.assertEqual(self.value("thermal.temperature_k"), hot)
 
-    def test_program_pauses_at_open_door_and_holds_only_when_reached(self):
+    def test_program_runs_on_at_open_door_and_holds_only_when_reached(self):
+        # Fixed 2026-10-19 (G02 front panel): the door is physical, so every path follows the B510 controller manual - the open door cuts the
+        # heating (F p.51) and the running program keeps its time (warning W19, p.123); it was a pause of this API before.
         self.program([{"temperature_K": 303.15, "ramp_rate_K_s": 1, "hold_s": 20}])
         self.host.step(2)
         self.assertEqual(self.value("program.hold_elapsed_s"), 0)
         self.ok("door.open")
-        target = self.value("thermal.target_k")
+        self.assertFalse(self.value("heater.enabled"))
+        self.assertIn("W19", [w["code"] for w in self.value("b510.warnings")])
         self.host.step(100)
-        self.assertEqual(self.value("program.phase"), "paused_door")
-        self.assertEqual(self.value("thermal.target_k"), target)
+        self.assertEqual(self.value("program.phase"), "ramp")
+        self.assertEqual(self.value("thermal.target_k"), 303.15)
         self.assertEqual(self.value("program.hold_elapsed_s"), 0)
         self.ok("door.close")
         self.host.step(25)
@@ -379,11 +382,15 @@ class CarboliteTF1RuntimeTests(_tf1_test_unittest.TestCase):
         self.host.step(2099)
         self.assertLess(self.value('thermal.temperature_k', debug=True), 1373.15)
         self.assertGreater(self.value('thermal.temperature_k', debug=True), 1372)
+        # Fixed 2026-10-19 (G02 front panel): the 3016 PID (0.25 s samples, input filter FILT.T 1.6 s) drives the heater instead of the ideal hold;
+        # it lands on the set point a few seconds after the full-power curve reaches it, so the exact-landing checks at 2100 s allow 0.2 K / 0.1 %.
         self.host.step(1)
-        self.assertAlmostEqual(self.value('thermal.temperature_k', debug=True), 1373.15, places=9)
+        self.assertAlmostEqual(self.value('thermal.temperature_k', debug=True), 1373.15, delta=0.2)
         self.assertEqual(self.host.time_s, 2100)
-        self.assertAlmostEqual(self.value('thermal.heater_energy_j', debug=True), 1500 * 2100, places=6)
-        self.assertAlmostEqual(self.value('thermal.indicated_temperature_k') - 273.15, 1100.0, places=8)
+        self.assertAlmostEqual(self.value('thermal.heater_energy_j', debug=True), 1500 * 2100, delta=1e-3 * 1500 * 2100)
+        self.assertAlmostEqual(self.value('thermal.indicated_temperature_k') - 273.15, 1100.0, delta=0.2)
+        self.host.step(60)
+        self.assertEqual(self.value('thermal.temperature_k', debug=True), 1373.15)
 
     def test_independent_full_power_analytic_solution_and_energy_balance(self):
         self.assemble_temperature(1473.15)
@@ -403,22 +410,32 @@ class CarboliteTF1RuntimeTests(_tf1_test_unittest.TestCase):
         heater_before = self.value('thermal.heater_energy_j', debug=True)
         lost_before = self.value('thermal.heat_loss_energy_j', debug=True)
         stored_before = self.value('thermal.stored_energy_j', debug=True)
-        self.host.step(1000)
+        # Fixed 2026-10-19 (G02 front panel): the 3016 PID (0.25 s samples, input filter FILT.T 1.6 s) drives the heater instead of the ideal hold;
+        # it lands on the set point a few seconds after the full-power curve reaches it, so the exact-landing checks at 2100 s allow 0.2 K / 0.1 %.
+        capacity = CARBOLITE_TF1_PARAMETERS['thermal_capacity_J_K']['value']
+        landing = capacity * 1373.15 - capacity * self.value('thermal.temperature_k', debug=True)
+        peak = 0.0
+        for _ in range(100):
+            self.host.step(10)
+            peak = max(peak, self.value('thermal.temperature_k', debug=True))
+        self.assertLessEqual(peak, 1373.15)                                         # no target overshoot
         self.assertEqual(self.value('thermal.temperature_k', debug=True), 1373.15)
-        self.assertAlmostEqual(self.value('thermal.heater_energy_j', debug=True) - heater_before, 540_000, places=6)
-        self.assertAlmostEqual(self.value('thermal.heat_loss_energy_j', debug=True) - lost_before, 540_000, places=6)
-        self.assertEqual(self.value('thermal.stored_energy_j', debug=True), stored_before)
+        heater, lost = self.value('thermal.heater_energy_j', debug=True) - heater_before, self.value('thermal.heat_loss_energy_j', debug=True) - lost_before
+        self.assertAlmostEqual(heater, 540_000, delta=1e-3 * 540_000)               # hold power equals the losses
+        self.assertAlmostEqual(heater - lost, self.value('thermal.stored_energy_j', debug=True) - stored_before, places=6)
+        self.assertAlmostEqual(heater - lost, landing, places=6)
 
     def test_power_off_cooling_releases_energy_without_heating(self):
         self.assemble_temperature()
         self.host.step(2100)
         self.ok('power.set', enabled=False)
+        hot = self.value('thermal.temperature_k', debug=True)                       # 2026-10-19: the PID lands near, not exactly on, 1373.15 at 2100 s
         heater_before = self.value('thermal.heater_energy_j', debug=True)
         stored_before = self.value('thermal.stored_energy_j', debug=True)
         loss_before = self.value('thermal.heat_loss_energy_j', debug=True)
         self.host.step(1800)
         capacity = CARBOLITE_TF1_PARAMETERS['thermal_capacity_J_K']['value']
-        expected = 293.15 + 1080 * _tf1_test_math.exp(-0.5 * 1800 / capacity)
+        expected = 293.15 + (hot - 293.15) * _tf1_test_math.exp(-0.5 * 1800 / capacity)
         self.assertAlmostEqual(self.value('thermal.temperature_k', debug=True), expected, places=10)
         self.assertEqual(self.value('thermal.heater_energy_j', debug=True), heater_before)
         self.assertAlmostEqual(self.value('thermal.heat_loss_energy_j', debug=True) - loss_before, stored_before - self.value('thermal.stored_energy_j', debug=True), places=6)
@@ -427,8 +444,10 @@ class CarboliteTF1RuntimeTests(_tf1_test_unittest.TestCase):
     def test_downward_setpoint_cools_then_holds_and_conserves(self):
         self.assemble_temperature()
         self.host.step(2100)
+        hot = self.value('thermal.temperature_k', debug=True)                       # 2026-10-19: the PID lands near, not exactly on, 1373.15 at 2100 s
+        self.assertAlmostEqual(hot, 1373.15, delta=0.2)
         self.ok('thermal.set_temperature', temperature_K=1200)
-        self.assertEqual(self.value('thermal.temperature_k', debug=True), 1373.15)
+        self.assertEqual(self.value('thermal.temperature_k', debug=True), hot)
         self.host.step(3600)
         self.assertEqual(self.value('thermal.temperature_k', debug=True), 1200)
         self.assertAlmostEqual(self.value('thermal.heater_energy_j', debug=True) - self.value('thermal.heat_loss_energy_j', debug=True), self.value('thermal.stored_energy_j', debug=True), places=6)
@@ -712,6 +731,15 @@ class BinderVD56RuntimeTests(_vd56_test_unittest.TestCase):
 
     def connect(self, instance="vd56_a", boundary=5000.0, tau=120.0):
         self.host.configure_external_vacuum(instance, connected=True, boundary_pressure_pa=boundary, time_constant_s=tau, evidence="Synthetic explicit external boundary; private_configuration_marker")
+        self.direct_valves(instance)
+
+    def direct_valves(self, instance="vd56_a"):
+        # Fixed 2026-10-19 (G02 front panel): pressure control is on by default (manual p.64-65) and standby closes all valves (p.49); the
+        # original direct valve commands work with pressure control off outside standby, so these tests switch on, turn pressure control off
+        # and close the vent valve that the controller opened when it ventilated the chamber.
+        self.ok("power.set", instance=instance, enabled=True)
+        self.ok("pressure.set_control", instance=instance, enabled=False)
+        self.ok("vent.set_valve", instance=instance, opened=False)
 
     def evacuate(self):
         self.connect()
@@ -796,16 +824,20 @@ class BinderVD56RuntimeTests(_vd56_test_unittest.TestCase):
         self.assertGreater(self.value("pressure.pressure_pa", truth=True), 5000)
         self.assertLess(self.value("pressure.pressure_pa", truth=True), 50000)
 
-    def test_vd56_power_leaves_external_pump_and_valves_independent(self):
+    def test_vd56_standby_closes_all_valves_and_keeps_the_pump_connection(self):
+        # Fixed 2026-10-19: standby closes all valves and de-energizes the pump socket (manual p.49); it left the valves open before.
         self.connect()
-        self.ok("power.set", enabled=True)
         self.ok("vacuum.set_valve", opened=True)
+        self.host.step(60)
+        low = self.value("pressure.pressure_pa", truth=True)
         self.ok("power.set", enabled=False)
-        self.assertTrue(self.value("vacuum.valve_open"))
+        self.assertFalse(self.value("vacuum.valve_open"))
+        self.assertFalse(self.value("vent.valve_open"))
         self.assertTrue(self.value("vacuum.external_connected"))
+        self.assertEqual(self.invoke("vacuum.set_valve", opened=True)["error"]["code"], "PRECONDITION_FAILED")
         self.host.step(120)
+        self.assertGreaterEqual(self.value("pressure.pressure_pa", truth=True), low)   # isolated: only the leak acts
         self.assertLess(self.value("pressure.pressure_pa", truth=True), 101325)
-        self.assertEqual(self.value("thermal.temperature_k", truth=True), 295.15)
 
     def test_vd56_isolated_leak_and_backfill_are_time_driven(self):
         self.evacuate()
@@ -994,7 +1026,8 @@ class BinderVD56RuntimeTests(_vd56_test_unittest.TestCase):
         session = second.session("agent")
         self.connect()
         second.configure_external_vacuum("vd56_other", connected=True, boundary_pressure_pa=5000, time_constant_s=120, evidence="synthetic partition fixture")
-        for cap, args in (("power.set", {"enabled": True}), ("thermal.set_temperature", {"temperature_K": 373.15}), ("vacuum.set_valve", {"opened": True})):
+        for cap, args in (("power.set", {"enabled": True}), ("pressure.set_control", {"enabled": False}), ("vent.set_valve", {"opened": False}),
+                          ("thermal.set_temperature", {"temperature_K": 373.15}), ("vacuum.set_valve", {"opened": True})):
             self.ok(cap, **args)
             self.assertEqual(session.invoke(instance_id="vd56_other", capability_id=cap, arguments=args, request_id=cap)["status"], "succeeded")
         self.host.step(120)
@@ -1024,6 +1057,12 @@ class JulaboCorioCD200FRuntimeTests(unittest.TestCase):
         self.host.register_principal('julabo_learner', visibility='agent', instance_ids=['julabo_a'])
         self.host.register_principal('julabo_evaluator', visibility='evaluator')
         self.agent, self.judge = self.host.session('julabo_learner'), self.host.session('julabo_evaluator')
+        # Sweep 2026-10-19 (lead rule 5; manual p.63, p.83-84): the agent's direct device commands stand for the USB interface and need remote
+        # mode rOn; the operator switches it on once before the checks (the setting survives switching off).  Setup only: the unit is off again.
+        for iid in ('julabo_a', 'julabo_b'):
+            for n, (cap, args) in enumerate((('power.set', {'enabled': True}), ('interface.set_remote', {'enabled': True}), ('power.set', {'enabled': False}))):
+                assert self.judge.invoke(instance_id=iid, capability_id=cap, arguments=args, request_id=f'remote_{iid}_{n}')['status'] == 'succeeded'
+        self.calls.clear()
         self.request = 0
 
     def invoke(self, capability, **arguments):
@@ -1143,7 +1182,8 @@ class JulaboCorioCD200FRuntimeTests(unittest.TestCase):
         host = _JulaboTestRuntime(ambient_temperature_K=298.15)
         host.create_instance('different_ambient')
         host.configure_bath_model('different_ambient', effective_heat_capacity_J_K=8000, heat_loss_W_K=0, lid_open_loss_W_K=0, initial_temperature_K=293.15, minimum_temperature_K=253.15, maximum_temperature_K=423.15, evidence='Synthetic different-ambient fixture')
-        for i, (capability, args) in enumerate((('power.set', {'enabled': True}), ('circulation.set_running', {'running': True}), ('thermal.set_temperature', {'temperature_K': 273.15}))):
+        for i, (capability, args) in enumerate((('power.set', {'enabled': True}), ('interface.set_remote', {'enabled': True}),   # remote mode rOn (sweep 2026-10-19)
+                                                ('circulation.set_running', {'running': True}), ('thermal.set_temperature', {'temperature_K': 273.15}))):
             self.assertEqual(host.invoke(instance_id='different_ambient', capability_id=capability, arguments=args, request_id=str(i))['status'], 'succeeded')
         host.step(60)
         self.assertFalse(host.read(instance_id='different_ambient')['observations']['thermal.cooling_curve_supported']['value'])
@@ -1305,7 +1345,8 @@ class JulaboCorioCD200FRuntimeTests(unittest.TestCase):
         host = _JulaboTestRuntime()
         host.create_instance('other')
         host.configure_bath_model('other', effective_heat_capacity_J_K=8000, heat_loss_W_K=1, lid_open_loss_W_K=0, initial_temperature_K=293.15, minimum_temperature_K=253.15, maximum_temperature_K=423.15, evidence='Synthetic partition fixture')
-        for cap, args in (('power.set', {'enabled': True}), ('circulation.set_running', {'running': True}), ('thermal.set_temperature', {'temperature_K': 253.15})):
+        for cap, args in (('power.set', {'enabled': True}), ('interface.set_remote', {'enabled': True}),   # remote mode rOn (sweep 2026-10-19)
+                          ('circulation.set_running', {'running': True}), ('thermal.set_temperature', {'temperature_K': 253.15})):
             host.invoke(instance_id='other', capability_id=cap, arguments=args, request_id=cap)
         self.host.step(1800)
         for _ in range(180): host.step(10)
@@ -2355,8 +2396,9 @@ class RadleysMya4RuntimeTests(unittest.TestCase):
         self.ok('thermal.set_temperature',zone_index=0,temperature_K=248.15)
         self.assertEqual(self.call('thermal.set_probe_mode',zone_index=0,mode='liquid')['error']['code'],'PRECONDITION_FAILED')
         self.ok('thermal.set_temperature',zone_index=0,temperature_K=253.15);self.ok('thermal.set_probe_mode',zone_index=0,mode='liquid')
-        self.assertEqual(self.call('thermal.set_temperature',zone_index=0,temperature_K=423.151)['error']['code'],'PRECONDITION_FAILED')
-        self.ok('thermal.set_temperature',zone_index=0,temperature_K=423.15)
+        # Fixed 2026-10-19 (G02 front panel): the solution (Tr) range is the manual's -20/-25..175 C (OM p.105, p.161); it was 150 C (brochure "at least").
+        self.assertEqual(self.call('thermal.set_temperature',zone_index=0,temperature_K=448.151)['error']['code'],'PRECONDITION_FAILED')
+        self.ok('thermal.set_temperature',zone_index=0,temperature_K=448.15)
     def test_mya4_four_zone_independent_controls_with_explicit_weak_cross_conduction(self):
         self.setup_thermal()
         for i,target in enumerate((373.15,353.15,333.15,313.15)):self.enable(i,target)

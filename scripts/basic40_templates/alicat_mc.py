@@ -41,7 +41,7 @@ CAPABILITY_IDS = ("template.list", "template.read", "flow.read_template")
 LINE_KEY = "template_line_gas_id"
 TOTALIZER_KEY = "template_totalizer"
 ENABLED_ATTR = "_amc_template_enabled_gases"
-CONTRACT_ASSET_VERSION = "1.1.0"
+CONTRACT_ASSET_VERSION = "1.4.0"   # 1.2.0: front panel (panel_ui.json) and the device functions behind it; 1.3.0: valve-drive control (2026-10-19); 1.4.0: status alarms ADC/POV/TOV, fault.inject (2026-10-19 sweep)
 
 LIMITATIONS = [
     "Pure-gas density/viscosity are NIST SRD 69 reference-correlation values on a 253.15-343.15 K x 0.01-1.2 MPa grid; values between nodes are linear interpolations of Z and viscosity (derived).",
@@ -221,9 +221,10 @@ def _mixture_state(rec, temperature_K, pressure_Pa):
     return {"density_kg_m3": density, "viscosity_Pa_s": mu, "compressibility_factor": z, "molar_mass_kg_mol": molar_mass}
 
 
-def gas_state(gas_id, temperature_K, pressure_Pa):
-    """Density, viscosity and Z of a library gas at (T, P); None when outside the data or condensed."""
-    rec = record(gas_id)
+def gas_state(gas_id, temperature_K, pressure_Pa, records=None):
+    """Density, viscosity and Z of a library gas (or of a record in ``records``, e.g. a COMPOSER user mix) at (T, P); None when outside the
+    data or condensed."""
+    rec = (records or {}).get(gas_id) or record(gas_id)
     if rec is None:
         return None
     try:
@@ -232,6 +233,31 @@ def gas_state(gas_id, temperature_K, pressure_Pa):
         return _mixture_state(rec, temperature_K, pressure_Pa)
     except (ZeroDivisionError, OverflowError, ValueError):
         return None
+
+
+# ----------------------------------------------------------------------------- COMPOSER user mixes (front panel / gas.create_mix)
+COMPOSER_KEY = "gas.user_mixes"
+
+
+def composer_id(number):
+    return "composer_%d" % number
+
+
+def composer_record(mix):
+    """A COMPOSER mix the operator defined on the instance, as a mixture record: library components (Gas Select mixtures expanded into their
+    pure gases), evaluated like the library mixtures (Dalton density, Wilke viscosity; evidence derived)."""
+    composition = {}
+    for part in mix["components"]:
+        rec = record(part["gas_id"])
+        for gas_id, x in (rec.get("composition_mole_fraction") or {rec["substance_id"]: 1.0}).items():
+            composition[gas_id] = composition.get(gas_id, 0.0) + part["percent"] / 100.0 * x
+    return {"substance_id": composer_id(mix["mix_number"]), "name": mix["long_name"] or mix["short_name"], "kind": "mixture",
+            "composition_mole_fraction": composition, "molar_mass_kg_mol": sum(x * record(g)["molar_mass_kg_mol"] for g, x in composition.items()),
+            "source": "COMPOSER user mix: operator-defined molar composition of library gases", "evidence": "derived"}
+
+
+def user_records(values):
+    return {composer_id(m["mix_number"]): composer_record(m) for m in (values.get(COMPOSER_KEY) or [])}
 
 
 # ----------------------------------------------------------------------------- runtime hooks
@@ -279,14 +305,15 @@ def indication_factor(host, values, inst):
     if selected in host._gases:
         return 1.0 if line is None else None
     temperature, pressure = values["truth.temperature_K"], values["truth.upstream_pressure_Pa"]
-    selected_actual = gas_state(selected, temperature, pressure)
+    users = user_records(values)
+    selected_actual = gas_state(selected, temperature, pressure, users)
     if selected_actual is None:
         return None
     if line is None or line == selected:
         return 1.0
     t_ref, p_ref = values["gas.reference_temperature_K"], values["gas.reference_pressure_Pa"]
     line_actual = gas_state(line, temperature, pressure)
-    selected_std, line_std = gas_state(selected, t_ref, p_ref), gas_state(line, t_ref, p_ref)
+    selected_std, line_std = gas_state(selected, t_ref, p_ref, users), gas_state(line, t_ref, p_ref)
     states = (selected_actual, line_actual, selected_std, line_std)
     if any(s is None for s in states) or selected_actual["viscosity_Pa_s"] is None or line_actual["viscosity_Pa_s"] is None:
         return None
@@ -313,8 +340,9 @@ def refresh_readings(host, values, inst):
     values["measurement.standard_flow_m3_s"] = q
     selected = values["gas.selected_id"]
     if q is not None and selected not in host._gases:
-        actual = gas_state(selected, values["truth.temperature_K"], values["truth.upstream_pressure_Pa"])
-        standard = gas_state(selected, values["gas.reference_temperature_K"], values["gas.reference_pressure_Pa"])
+        users = user_records(values)
+        actual = gas_state(selected, values["truth.temperature_K"], values["truth.upstream_pressure_Pa"], users)
+        standard = gas_state(selected, values["gas.reference_temperature_K"], values["gas.reference_pressure_Pa"], users)
         if actual is not None and standard is not None:
             values["measurement.actual_flow_m3_s"] = _finite(float(q * standard["density_kg_m3"] / actual["density_kg_m3"]))
         if standard is not None:
@@ -467,13 +495,14 @@ def invoke(session, host, inst, capability_id, arguments, request_id):
         return session._envelope(sid, request_id, result=_public_record(rec))
     values = inst["values"]
     selected = values["gas.selected_id"]
-    if selected is None or selected in host._gases or record(selected) is None:
+    users = user_records(values)
+    if selected is None or selected in host._gases or (users.get(selected) or record(selected)) is None:
         return fail("PRECONDITION_FAILED")
-    rec = record(selected)
+    rec = users.get(selected) or record(selected)
     actual = standard = None
     if values["measurement.pressure_Pa"] is not None and values["measurement.temperature_K"] is not None:
-        actual = gas_state(selected, values["measurement.temperature_K"], values["measurement.pressure_Pa"])
-    standard = gas_state(selected, values["gas.reference_temperature_K"], values["gas.reference_pressure_Pa"])
+        actual = gas_state(selected, values["measurement.temperature_K"], values["measurement.pressure_Pa"], users)
+    standard = gas_state(selected, values["gas.reference_temperature_K"], values["gas.reference_pressure_Pa"], users)
     result = {"gas_id": selected, "gas_name": rec["name"], "kind": rec["kind"]}
     for key in ("measurement.standard_flow_m3_s", "measurement.actual_flow_m3_s", "measurement.mass_flow_kg_s",
                 "measurement.total_standard_volume_m3", "measurement.pressure_Pa", "measurement.temperature_K"):

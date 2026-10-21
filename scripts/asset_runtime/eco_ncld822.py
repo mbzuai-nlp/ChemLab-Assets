@@ -30,7 +30,10 @@ import copy
 import hashlib
 import json
 import math
+import os
 import random
+import sys
+import tempfile
 from collections import deque
 from pathlib import Path
 
@@ -525,6 +528,35 @@ def _clean_composition(comp):
     return out
 
 
+ASSET_VERSION = '1.2.0'  # 1.2.0 (2026-10-21): no soft-key caps on the screen (on-screen icons only), the GUI icon column on the right
+ASSET_DIR = ROOT / 'assets/expansion_batch04/t3_analytical/eco_ncld822'
+
+
+# ---------------------------------------------------------------- front panel (APPROXIMATE: the touch GUI is shown only in a brochure screenshot)
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.eco_ncld822 (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+if os.environ.get('NCLD_PANEL_BUILD'):                                       # the spec builder imports this module before the spec exists
+    PANEL_SPEC = dict(spec_version=_panel_ui.SPEC_VERSION, inputs={}, displays={'screen': dict(kind='touch_tft', size=[800, 480])},
+                      screens={'off': dict(style='static')})
+else:
+    PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.touch / switch / capture / frame (kept out of CAPS)
+PANEL_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+ALL_CAPS = list(CAPS) + list(UNSUPPORTED) + list(PANEL_CAPS)
+
+
 class EcoNcld822Runtime:
     """Process model + host clock state for one analyzer instance (the host is the clock authority: step(dt_s) only)."""
 
@@ -565,8 +597,12 @@ class EcoNcld822Runtime:
         self.label = None
         self._principals = {'__public_agent__': 'agent'}
         self._requests, self._owners = {}, {}
+        self._caller = None                                                  # session principal while a session call runs (panel gestures act as that caller)
         self._arrived = self._transport(self.comp)
         self.queue.append((0.0, self._arrived))                           # the line is already filled with room air
+        self.power_epoch = 0                                                 # power-ups seen by the panel
+        self.panel_capture_dir = None                                       # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self)
 
     # -------------------------------------------------------------------------------------------------------------- helpers
     def _ambient_air(self):
@@ -749,6 +785,8 @@ class EcoNcld822Runtime:
                     template_records=MODEL_RECORDS, evidence='simulated_from_cited_response_parameters')
 
     def invoke(self, capability, **a):
+        if capability in PANEL_CAPS:
+            return self._pinvoke(capability, a)
         if capability in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED_OPTION')
         if capability not in CAPS:
@@ -760,6 +798,8 @@ class EcoNcld822Runtime:
             raise ActionRejected('BUSY')
         if capability == 'power.set' or capability == 'power.toggle':
             on = a['enabled'] if capability == 'power.set' else not self.powered
+            if on and not self.powered:
+                self.power_epoch += 1
             self.powered = on
             if not on:
                 self.measuring = False
@@ -857,6 +897,59 @@ class EcoNcld822Runtime:
         self._last_event = self.time_s
         return copy.deepcopy(result)
 
+    # -------------------------------------------------------------------------------------------------------------- front panel
+    def panel_read(self):
+        """What the GUI shows: the agent slots, the power-up count and the recorded series (trend page)."""
+        out = self.read('agent')
+        out.update({'host.powered': self.powered, 'host.power_epoch': self.power_epoch,
+                    'host.series': [[p['time_s'], None if p[k] is None else p[k] / PPM] for p in self.series[-300:] for k in ('no_mol_mol',)],
+                    'host.series_nox': [[p['time_s'], None if p['nox_mol_mol'] is None else p['nox_mol_mol'] / PPM] for p in self.series[-300:]],
+                    'host.series_no2': [[p['time_s'], None if p['no2_mol_mol'] is None else p['no2_mol_mol'] / PPM] for p in self.series[-300:]]})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would.  A gesture made through a session acts as that session's caller: the
+        session's ownership guard applies (cancelling or switching off another agent's calibration is refused) and a calibration started from
+        the screen belongs to the caller."""
+        try:
+            caller = self._caller
+            if caller is not None:
+                EcoNcld822Session(self, caller)._guard(capability_id, arguments)
+            out = self.invoke(capability_id, **arguments)
+            op = out.get('operation_id') if isinstance(out, dict) else None
+            if caller is not None and op:
+                self._owners[op] = caller
+            return out
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.time_s
+
+    def _pinvoke(self, capability, a):
+        validate(PANEL_CAPS[capability]['input_schema'], a)
+        try:
+            if capability == 'panel.touch':
+                to = None if a.get('to_x') is None or a.get('to_y') is None else (int(a['to_x']), int(a['to_y']))
+                out = dict(accepted=bool(self.panel.touch(a['display_id'], int(a['x']), int(a['y']), float(a.get('duration_s', 0.1)), to=to)))
+            elif capability == 'panel.switch':
+                out = dict(accepted=bool(self.panel.switch(a['input_id'], a['position'])))
+            elif capability == 'panel.frame':
+                return dict(frame=self.panel.frame())
+            else:
+                data, w, hh = self.panel.png_bytes(a['display_id'])
+                sha = hashlib.sha256(data).hexdigest()
+                d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+                d.mkdir(parents=True, exist_ok=True)
+                path = d / f'{a["display_id"]}_{sha[:16]}.png'
+                if not path.exists():
+                    path.write_bytes(data)
+                return dict(display_id=a['display_id'], time_s=self.time_s, image=dict(path=str(path), format='png', width=w, height=hh, sha256=sha))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        self.revision += 1
+        return out
+
     def _enqueue(self):
         self.queue.append((self.time_s + self._residence(), self._arrived))
 
@@ -944,6 +1037,9 @@ class EcoNcld822Runtime:
                 self._record()
 
 
+_CONTROL_GUARDED = {'calibration.cancel'}   # end another agent's calibration (the inlet gas lines and the rocker power switch are physical: not refused)
+
+
 class EcoNcld822Session:
     """Identity-filtered protocol facade (registered principals; public calls have no visibility override)."""
 
@@ -966,7 +1062,7 @@ class EcoNcld822Session:
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID:
             raise ActionRejected('UNKNOWN_INSTANCE')
         meta = export_eco_ncld822_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION,
                     capabilities={k: v for k, v in meta['capabilities'].items() if v['visibility'] == 'agent' or self._role != 'agent'},
                     state_slots={k: v for k, v in meta['state_slots'].items() if v['visibility'] == 'agent' or self._role != 'agent'})
 
@@ -995,15 +1091,16 @@ class EcoNcld822Session:
     def _invoke(self, *, instance_id, capability_id, arguments, request_id):
         self._target(instance_id)
         h = self._host
-        if not isinstance(capability_id, str) or (capability_id not in CAPS and capability_id not in UNSUPPORTED):
+        if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
             raise ActionRejected('UNKNOWN_CAPABILITY')
         if capability_id in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED_OPTION')
-        if self._role == 'agent' and CAPS[capability_id][5] != 'agent':
+        vis = PANEL_CAPS[capability_id]['visibility'] if capability_id in PANEL_CAPS else CAPS[capability_id][5]
+        if self._role == 'agent' and vis != 'agent':
             raise ActionRejected('ACCESS_DENIED')
         if not isinstance(request_id, str) or not request_id:
             raise ActionRejected('INVALID_ARGUMENT')
-        validate(CAPS[capability_id][0], arguments)
+        validate(PANEL_CAPS[capability_id]['input_schema'] if capability_id in PANEL_CAPS else CAPS[capability_id][0], arguments)
         key = (self._principal, instance_id, request_id)
         digest = json.dumps([capability_id, arguments], sort_keys=True, allow_nan=False)
         if key in h._requests:
@@ -1011,7 +1108,12 @@ class EcoNcld822Session:
             if old != digest:
                 raise ActionRejected('REQUEST_CONFLICT')
             return copy.deepcopy(result)
-        result = h.invoke(capability_id, **arguments)
+        self._guard(capability_id, arguments)
+        h._caller = self._principal
+        try:
+            result = h.invoke(capability_id, **arguments)
+        finally:
+            h._caller = None
         op = result.get('operation_id') if isinstance(result, dict) else None
         if op:
             h._owners[op] = self._principal
@@ -1020,6 +1122,18 @@ class EcoNcld822Session:
                         result=result, observations={}, error=None)
         h._requests[key] = (digest, copy.deepcopy(response))
         return response
+
+    def _guard(self, capability_id, arguments):
+        """An agent may not cancel another agent's running zero / span calibration (direct call or panel Cancel); unowned calibrations and the
+        evaluator are not restricted.  Changing the gas line at the inlet and the rocker power switch are physical actions and are not refused: the
+        analyser calibrates on the gas that arrives, and switching off is a power loss (the calibration ends)."""
+        h = self._host
+        if self._role != 'agent' or capability_id not in _CONTROL_GUARDED or h.cal_phase == 'idle':
+            return
+        if capability_id == 'power.set' and (arguments.get('enabled') or not h.powered):
+            return
+        if h._owners.get(h.cal_op) not in (None, self._principal):
+            raise ActionRejected('ACCESS_DENIED')
 
     def write(self, *, instance_id, state_id, value, request_id):
         self._target(instance_id)
@@ -1109,6 +1223,28 @@ def export_eco_ncld822_contract_metadata():
                                         timeout_s=None, cancellation='unsupported', retry='never_automatic', resources=[], partial_failure_zh='无副作用'),
                          errors=[dict(code='UNSUPPORTED_OPTION', meaning_zh='选件或接口未实现', side_effects='none')], example_arguments={},
                          verification=[], limitations=[meaning], source_ids=['manufacturer_primary'])
+    for key, d in PANEL_CAPS.items():                                       # front panel (approximate GUI from the brochure screenshot)
+        query = key in ('panel.capture', 'panel.frame')
+        fx = [] if query else (['power.enabled', 'status.phase', 'measurement.phase'] if key == 'panel.switch' else
+                               sorted({e for c in _panel_ui.spec_capabilities(PANEL_SPEC) if c in CAPS for e in CAPS[c][7]}))
+        caps[key] = dict(function_zh=d['function_zh'], kind=d['kind'], visibility=d['visibility'], component_ids=list(d['component_ids']), availability='implemented',
+                         input_schema=copy.deepcopy(d['input_schema']), output_schema=copy.deepcopy(d['output_schema']),
+                         implementation=dict(process='implemented', scene='absent', robot='absent', hardware='absent', host='implemented'),
+                         binding=dict(backend='host', artifact_id='runtime', entrypoint='asset_runtime.eco_ncld822.EcoNcld822Session.invoke',
+                                      invocation=f'session.invoke(instance_id="ncld822_01", capability_id={key!r}, arguments={d["example_arguments"]!r}, request_id="unique")'),
+                         preconditions=[] if query else [dict(description_zh='面板按panel_ui.json（近似）处理手势：断电时只有电源开关起作用；被调用能力的前提同样适用（被拒时手势不被接受）',
+                                                              state_ids=['power.enabled', 'status.phase', 'calibration.phase'], enforced_by='runtime', check='EcoNcld822Runtime._pinvoke')],
+                         state_effects=[dict(state_id=k, timing='immediate', description_zh='手势调用的能力改变的设定或状态') for k in fx],
+                         observes=[], model_effects=dict(mode='none', description_zh='面板层：画面由render()给出，没有几何联动', binding_ids=[]),
+                         execution=dict(mode='synchronous', time_domain='simulation', completion_criterion='手势瞬时完成（不推进仿真时钟）', completion_state_ids=[],
+                                        timeout_s=None, cancellation='unsupported', retry='same_request_id', resources=['touchscreen'],
+                                        partial_failure_zh='被调用的能力被拒时其效果不发生'),
+                         errors=[dict(code=e, meaning_zh=e, side_effects='none') for e in
+                                 ['UNKNOWN_INSTANCE', 'UNKNOWN_CAPABILITY', 'ACCESS_DENIED', 'INVALID_ARGUMENT', 'REQUEST_CONFLICT']],
+                         example_arguments=copy.deepcopy(d['example_arguments']), verification=[],
+                         limitations=['近似面板：厂家操作手册需客户登录，未取得；画面按产品册截图（NO/NOx/NO2 ppm读数、标题栏、右侧图标列）与特性列表（四个量程、滤波、自动校准）建模，'
+                                      '图标功能与其余页面为假设。'],
+                         source_ids=['manufacturer_primary', 'simulation_assumption'])
     lib = 'template_library'
     mechanisms = {
         'chemiluminescence_detection': dict(

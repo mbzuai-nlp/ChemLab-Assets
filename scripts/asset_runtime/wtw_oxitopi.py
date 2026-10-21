@@ -25,6 +25,7 @@ import zlib
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
+ASSET_VERSION = "1.1.1"
 ASSET_TYPE_ID = "instrument.wtw_oxitopi"
 CATALOG_ID = "CHEM-171"
 ROOT = Path(__file__).resolve().parents[2]
@@ -155,10 +156,11 @@ def henry_o2(T):
     return do_saturation_1atm(T) / (AIR_O2 * (P_STD - p_vapour(T)))
 
 
-def bod_factor(volume_ml):
-    """WTW BOD equation: mg/l per hPa of oxygen partial-pressure difference for the selected sample volume (510 ml bottle, 20 C)."""
+def bod_factor(volume_ml, bottle_ml=None):
+    """WTW BOD equation: mg/l per hPa of oxygen partial-pressure difference for the selected sample volume (510 ml bottle, 20 C; the head's
+    Service > Intern > Bottle volume setting replaces the 510 ml)."""
     M, R, T0, Tm, a = EQ['M_O2_mg_mol'], EQ['R_l_hpa_mol_k'], EQ['T0_k'], EQ['Tm_k'], EQ['alpha_bunsen']
-    return M / (R * Tm) * ((V_TOT_ML - volume_ml) / volume_ml + a * Tm / T0)
+    return M / (R * Tm) * (((bottle_ml or V_TOT_ML) - volume_ml) / volume_ml + a * Tm / T0)
 
 
 DIGIT_HPA = 1.0 / bod_factor(432.0)          # 1 digit = mg/l at the 432 ml setting (manual table factor 1): about 3.56 hPa
@@ -413,6 +415,19 @@ UNSUPPORTED = {
 }
 for k, v in UNSUPPORTED.items():
     cap(k, obj({}), obj({}), {}, ['head_1'], v, 'agent', 'device_command')
+BASE_CAPS = list(CAPS)
+# ---- head menu settings of the operating manual ba77059e04 (section 4.6.2) that the earlier command set lacked; the front panel calls them
+LANGUAGES = ['de', 'en', 'fr', 'es']
+EPOCH = '2026-10-19T08:00:00'                                               # head clocks at t = 0
+_HEADS_C = ['head_1', 'head_2', 'head_3', 'head_4', 'head_5', 'head_6']
+cap('head.set_language', obj(dict(head=HEAD, language=enum(LANGUAGES))), obj(dict(head=TEXT, language=TEXT)), dict(head='h1', language='de'), _HEADS_C,
+    '系统设置 > General > Language：Deutsch / English / Français / Español（确认后测头重启）', 'agent', 'device_command')
+cap('head.set_clock', obj(dict(head=HEAD, date=dict(type='string', pattern='^[0-9]{2}[.][0-9]{2}[.][0-9]{4}$'), time=dict(type='string', pattern='^[0-9]{2}:[0-9]{2}$')),
+                          optional=('date', 'time')), obj(dict(head=TEXT, clock=TEXT)), dict(head='h1', date='20.10.2026', time='09:30'), _HEADS_C,
+    '系统设置 > Clock function：日期DD.MM.YYYY与时间HH:MM（测量数据带日期时间；换电池后须重新输入日期）', 'agent', 'device_command')
+cap('head.set_bottle_volume', obj(dict(head=HEAD, bottle_volume_m3=number('m3', 250e-6, 2000e-6))), obj(dict(head=TEXT, bottle_volume_m3=number('m3'))),
+    dict(head='h1', bottle_volume_m3=510e-6), _HEADS_C, '系统设置 > Service > Intern > Bottle volume：BOD公式所用的瓶容积（默认510 ml）', 'agent', 'device_command')
+APP_CAPS = [k for k in CAPS if k not in BASE_CAPS]
 
 
 # ---------------------------------------------------------------- state slots
@@ -444,8 +459,61 @@ slot('truth.incubator_air_k', number('K'), 'K', 'process_truth', 'inductive_plat
 slot('truth.bottles', dict(type='object'), '1', 'process_truth', 'bottle_1', '各瓶真值：液体体积与温度、溶解氧、气相分压与总压、累计耗氧、真实BOD、剩余可降解量、氨氮与硝化、CO2与NaOH', 'evaluator')
 slot('truth.heads', dict(type='object'), '1', 'process_truth', 'head_1', '各测头真值：真实压力、传感器增益与零点误差、零点压力、电池剩余', 'evaluator')
 slot('truth.faults', array(TEXT, 0, 32), '1', 'process_truth', 'inductive_platform', '已注入的故障', 'evaluator')
+BASE_SLOTS = list(SLOTS)
+slot('heads.settings', dict(type='object'), '1', 'setpoint', 'head_1', '各测头的菜单设置：语言、日期时间（无效时为空）、瓶容积、照明、状态灯、自动关闭时间、显示是否亮、最近一次PT检测结果')
 SCENE_MIRRORED = ({f'head.{h}_lift_m' for h in HEADS} | {f'led.{h}_{c}' for h in HEADS for c in ('blue', 'red', 'green')} | {f'display.{h}_value' for h in HEADS}
                   | {'platform.stir_velocity_rad_s'})
+
+
+# ---------------------------------------------------------------- front panel (panel_ui.json beside the contract, run by the shared engine _panel_ui.py)
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.wtw_oxitopi (tests, bridges)
+        return engine
+    except ImportError:                                                     # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+import os  # noqa: E402
+_panel_ui = _panel_engine()
+PANEL_SPEC = None if os.environ.get('OXITOP_PANEL_BUILD') else _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}   # panel.press / capture / frame (kept out of CAPS:
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                                # CAPS stays the instrument's own command set)
+
+
+def _hook_digits(panel, ctx, a):
+    """Texts / numbers of head a['part'] built from its digit variables (date DD.MM.YYYY, time HH:MM, ID / bottle volume) and its stored-value cursor."""
+    i, v = a['part'], panel.ui['vars']
+    e = [int(v[f'e{i}_{j}']) for j in range(8)]
+    w = a['which']
+    if w == 'date':
+        return f'{e[0]}{e[1]}.{e[2]}{e[3]}.{e[4]}{e[5]}{e[6]}{e[7]}'
+    if w == 'time':
+        return f'{e[0]}{e[1]}:{e[2]}{e[3]}'
+    if w == 'number':
+        n = 3 if v[f's{i}'] == 'id' else 4
+        return float(int(''.join(str(x) for x in e[:n])))
+    stored = panel._state().get(f'host.h{i}', {}).get('stored') or []
+    if not stored:
+        return ''
+    s = stored[min(int(v[f't{i}']), len(stored) - 1)]
+    return str(s['day']) if w == 'stored_day' else s['text']
+
+
+PANEL_HOOKS = {'digits': _hook_digits}
+
+
+class _Panel(_panel_ui.PanelUI):
+    """The panel's UI state belongs to the instrument: two panels are equal when their UI states are (state snapshots compare runtimes)."""
+    def __eq__(self, o):
+        return isinstance(o, _panel_ui.PanelUI) and self.ui == o.ui
+    __hash__ = None
 
 
 # ---------------------------------------------------------------- runtime
@@ -479,6 +547,7 @@ class WtwOxitopiRuntime:
         self._owners = {}
         self._caller = None
         self.pm_lot = None
+        self.panel = _Panel(PANEL_SPEC, self, PANEL_HOOKS) if PANEL_SPEC else None
 
     # ---- construction helpers
     def _empty_bottle(self, pos):
@@ -488,7 +557,8 @@ class WtwOxitopiRuntime:
     def _new_head(self, h, i):
         return dict(id=10 + i, color=HEAD_COLOR[h], duration=5, unit='mg/l', volume_ml=432.0, illumination=True, signal_led=True, switch_off_s=120.0,
                     battery=1.0, state='off', display_on=False, display_off_at=None, screen='off', menu_item=0, stored=[], position=None, lift=HEAD_LIFT_M,
-                    t_start=None, t0=None, t_end=None, p_zero=None, next_test=None, gain=0.0, offset=0.0, stored_idx=None, led_done=False)
+                    t_start=None, t0=None, t_end=None, p_zero=None, next_test=None, gain=0.0, offset=0.0, stored_idx=None, led_done=False,
+                    language='en', clock_offset_s=0.0, clock_valid=True, bottle_ml=V_TOT_ML, pt_last=None)
 
     # ---- sessions
     @property
@@ -818,7 +888,7 @@ class WtwOxitopiRuntime:
             return None
         dp_hpa = dp_pa / 100.0
         if unit == 'mg/l':
-            return round(bod_factor(hd['volume_ml']) * dp_hpa, 1)
+            return round(bod_factor(hd['volume_ml'], hd['bottle_ml']) * dp_hpa, 1)
         if unit == 'dhPa':
             return float(round(dp_hpa))
         if unit == 'hPa':
@@ -920,6 +990,9 @@ class WtwOxitopiRuntime:
                 out[f'led.{h}_{c}'] = bool(lit and color == c)
         out['heads.status'] = heads_status
         out['heads.stored_values'] = stored
+        out['heads.settings'] = {h: dict(language=hd['language'], date=self._head_clock(hd)[0], time=self._head_clock(hd)[1], bottle_volume_m3=hd['bottle_ml'] * 1e-6,
+                                         illumination=hd['illumination'], signal_led=hd['signal_led'], switch_off_s=hd['switch_off_s'], display_on=hd['display_on'],
+                                         pt_last=copy.deepcopy(hd['pt_last'])) for h, hd in self.heads.items()}
         out['warnings.active'] = sorted(self.warnings)
         if visibility != 'agent':
             out['truth.incubator_air_k'] = self.T_air
@@ -1437,9 +1510,11 @@ class WtwOxitopiRuntime:
             if measuring:
                 self._wake(hd, 'confirm_off')
             else:
+                self._key_guard(head)
                 self._stop(head, hd)
         elif sc == 'confirm_off':
             if key == 'M':
+                self._key_guard(head)
                 self._stop(head, hd)
             else:
                 self._wake(hd, 'value')
@@ -1450,6 +1525,7 @@ class WtwOxitopiRuntime:
                 if measuring:
                     self._wake(hd, 'value')
                 else:
+                    self._key_guard(head)
                     self._start(head, hd)
             elif sc in ('menu_meas', 'menu_sys'):
                 self._wake(hd, 'info' if sc == 'menu_meas' else 'id')
@@ -1466,6 +1542,8 @@ class WtwOxitopiRuntime:
                 hd['menu_item'] = (hd['menu_item'] + 1) % 3
                 self._wake(hd)
             elif sc == 'menu_sys':
+                if hd['menu_item'] in (0, 1):
+                    self._key_guard(head)
                 if hd['menu_item'] == 0:
                     hd['illumination'] = not hd['illumination']
                 elif hd['menu_item'] == 1:
@@ -1475,6 +1553,8 @@ class WtwOxitopiRuntime:
             else:
                 self._wake(hd)
         else:                                               # navigation key
+            if sc in ('menu_meas', 'menu_sys') and (sc == 'menu_meas' or hd['menu_item'] in (2, 3)):
+                self._key_guard(head)                           # a setting changes
             if sc == 'menu_meas':
                 if hd['menu_item'] == 0:
                     hd['duration'] = hd['duration'] % 7 + 1
@@ -1494,6 +1574,142 @@ class WtwOxitopiRuntime:
         d = self._display(head, hd)
         return dict(head=head, screen=d['screen'], lines=d['lines'])
 
+    # ---- head menu settings (operating manual ba77059e04, 4.6.2)
+    def _head_clock(self, hd):
+        """The head's date ('DD.MM.YYYY') and time ('HH:MM'); (None, None) without a valid date (after a battery exchange)."""
+        import datetime
+        if not hd['clock_valid']:
+            return None, None
+        w = datetime.datetime.fromisoformat(EPOCH + '+00:00') + datetime.timedelta(seconds=self.t + hd['clock_offset_s'])
+        return w.strftime('%d.%m.%Y'), w.strftime('%H:%M')
+
+    def _cmd_head_set_language(self, head, language):
+        self._need_plant()
+        hd = self._head(head)
+        if hd['state'] == 'dead':
+            raise ActionRejected('BATTERY_EMPTY')
+        hd['language'] = language
+        self._wake(hd, 'id')                                # the head restarts with the start display (ID)
+        return dict(head=head, language=language)
+
+    def _cmd_head_set_clock(self, head, date=None, time=None):
+        import datetime
+        self._need_plant()
+        hd = self._head(head)
+        if hd['state'] == 'dead':
+            raise ActionRejected('BATTERY_EMPTY')
+        if date is None and not hd['clock_valid']:
+            raise ActionRejected('NO_VALID_DATE')
+        d0, t0 = self._head_clock(hd)
+        t0 = t0 or '00:00'                                                  # a new date after a battery exchange starts at 00:00
+        try:
+            new = datetime.datetime.strptime((date or d0) + ' ' + (time or t0), '%d.%m.%Y %H:%M').replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            raise ActionRejected('BAD_DATE') from None
+        sec = (self.t + hd['clock_offset_s']) % 60.0                        # the seconds keep running
+        hd['clock_offset_s'] = new.timestamp() + sec - datetime.datetime.fromisoformat(EPOCH + '+00:00').timestamp() - self.t
+        hd['clock_valid'] = True
+        self._wake(hd)
+        d, t = self._head_clock(hd)
+        return dict(head=head, clock=f'{d} {t}')
+
+    def _cmd_head_set_bottle_volume(self, head, bottle_volume_m3):
+        self._need_plant()
+        hd = self._head(head)
+        if hd['state'] in ('adaption', 'test', 'measuring'):
+            raise ActionRejected('MEASUREMENT_RUNNING')
+        if hd['state'] == 'dead':
+            raise ActionRejected('BATTERY_EMPTY')
+        if bottle_volume_m3 * 1e6 <= hd['volume_ml'] + 1.0:
+            raise ActionRejected('INVALID_ARGUMENT')                        # the bottle must hold the sample and a gas space
+        hd['bottle_ml'] = round(bottle_volume_m3 * 1e6, 1)
+        self._wake(hd)
+        return dict(head=head, bottle_volume_m3=hd['bottle_ml'] * 1e-6)
+
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the six measuring heads show: the agent slots plus per head the start-display lines, the clock text and the stored values."""
+        out = self.read('agent')
+        unit_txt = dict(zip(UNITS, ['mg/l', 'dhPa', 'hPa', 'digit']))
+        for h, hd in self.heads.items():
+            d = self._display(h, hd)
+            lines = list(d['lines']) + ['', '', '']
+            word = {'de': 'BSB', 'en': 'BOD', 'fr': 'DBO', 'es': 'DBO'}[hd['language']]
+            date, tm = self._head_clock(hd)
+            low = hd['battery'] < self._low_battery_fraction(hd)
+            stored = [dict(day=x['day'], value=x['value'], text='OFL' if x['value'] is None else f"{x['value']:g}") for x in self._stored_list(hd)]
+            out[f'host.{h}'] = dict(
+                on=hd['display_on'], state=hd['state'], measuring=hd['state'] in ('adaption', 'test', 'measuring'),
+                line1=lines[0] + ('  [BAT]' if low else ''), line2=lines[1].replace('BOD', word), line3=lines[2],
+                clock=f'{date} {tm}' if date else 'Error: new date!', date=date, time=tm, word=word, unit=unit_txt[hd['unit']], unit_key=hd['unit'],
+                duration=hd['duration'], volume=hd['volume_ml'], id=hd['id'], id_digits=[hd['id'] // 100, hd['id'] // 10 % 10, hd['id'] % 10],
+                illumination=hd['illumination'], signal_led=hd['signal_led'], switch_off_min=int(round(hd['switch_off_s'] / 60.0)), language=hd['language'],
+                bottle_ml=hd['bottle_ml'], bottle_digits=[int(hd['bottle_ml']) // 1000, int(hd['bottle_ml']) // 100 % 10, int(hd['bottle_ml']) // 10 % 10, int(hd['bottle_ml']) % 10],
+                date_digits=[int(c) for c in (date or '01.01.2026').replace('.', '')], time_digits=[int(c) for c in (tm or '00:00').replace(':', '')],
+                stored=stored, nstored=len(stored), series=[[x['day'], x['value']] for x in stored if x['value'] is not None],
+                pressure_hpa=round(self._head_pressure(h, hd) / 100.0) if self.plant else None, pt=copy.deepcopy(hd['pt_last']),
+                led=self._led(h, hd)[0], lit=self._led(h, hd)[1])
+        out['host.time'] = self.t
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (each command checks before it changes anything); a gesture made through a
+        session keeps that caller's access rules (another agent's head, bottle or sample is refused, as for the direct call)."""
+        try:
+            self._caller_guard(self._caller, capability_id, arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def _caller_guard(self, principal, capability_id, arguments):
+        """Access rules of an agent caller, the same for session calls and panel gestures: no use of another agent's samples, and no command that
+        stops, (re)starts or changes the measurement of another agent's head (viewing and hand / robot handling of samples, bottles and heads stay
+        free: only the device's own preconditions refuse them)."""
+        if principal is None or self._principals.get(principal) != 'agent':
+            return
+
+        def foreign(object_id):
+            owner = self._owners.get(object_id)
+            return owner is not None and owner != principal and self._principals.get(owner) == 'agent'
+        head = arguments.get('head')
+        if capability_id in _CONTROL_GUARDED and isinstance(head, str) and foreign('head:' + head):
+            raise ActionRejected('ACCESS_DENIED')
+
+    def _key_guard(self, head):
+        """A key that stops, (re)starts or changes a setting acts as that command of the caller (_caller_guard); wake-up and navigation keys
+        stay free."""
+        self._caller_guard(self._caller, 'head.stop', dict(head=head))
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args):
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1, held=()):
+        return self._panel(self.panel.press, input_id, float(duration_s), tuple(held))
+
+    def _cmd_panel_capture(self, display_id):
+        import hashlib
+        import tempfile
+        try:
+            data, w, h = self.panel.png_bytes(display_id)
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(getattr(self, 'panel_capture_dir', None) or Path(__import__('tempfile').gettempdir()) / 'chemistry_sim_panel' / self.instance_id)
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
+
     def _cmd_head_read(self, head):
         self._need_plant()
         hd = self._head(head)
@@ -1509,12 +1725,18 @@ class WtwOxitopiRuntime:
         self._need_plant()
         hd = self._head(head)
         hd['battery'] = 1.0
+        hd['clock_valid'] = False                           # the head has no valid date / time after a battery exchange ('Error: new date!')
         if hd['state'] == 'dead':
             hd['state'] = 'off'
         self.faults.discard(('battery_drain', head))
         return dict(head=head)
 
     def _cmd_head_pt_test(self, head):
+        out = self._pt_test(head)
+        self.heads[head]['pt_last'] = dict(out)
+        return out
+
+    def _pt_test(self, head):
         self._need_plant()
         hd = self._head(head)
         if hd['position'] is not None:
@@ -1616,13 +1838,13 @@ class WtwOxitopiRuntime:
 
     # ---------------------------------------------------------------- invoke
     def invoke(self, capability_id, **a):
-        if capability_id not in CAPS:
+        if capability_id not in ALL_CAPS:
             raise ActionRejected('UNKNOWN_CAPABILITY')
         if capability_id in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED')
-        validate(CAPS[capability_id]['input_schema'], a)
+        validate(ALL_CAPS[capability_id]['input_schema'], a)
         snap = None
-        if CAPS[capability_id]['kind'] not in ('query', 'analysis') and capability_id != 'sim.step':
+        if ALL_CAPS[capability_id]['kind'] not in ('query', 'analysis') and capability_id != 'sim.step':
             snap = self._snapshot()
         try:
             out = getattr(self, '_cmd_' + capability_id.replace('.', '_'))(**a)
@@ -1630,11 +1852,11 @@ class WtwOxitopiRuntime:
             if snap is not None:
                 self._restore(snap)
             raise
-        if CAPS[capability_id]['kind'] not in ('query', 'analysis') and capability_id != 'sim.step':
+        if ALL_CAPS[capability_id]['kind'] not in ('query', 'analysis') and capability_id != 'sim.step':
             self.revision += 1
         return out
 
-    _NOCOPY = ('_principals', '_requests')
+    _NOCOPY = ('_principals', '_requests', 'panel')                         # a refused command inside a panel gesture keeps the live panel object
 
     def _snapshot(self):
         return {k: copy.deepcopy(v) for k, v in self.__dict__.items() if k not in self._NOCOPY}
@@ -1645,8 +1867,10 @@ class WtwOxitopiRuntime:
 
 
 # ---------------------------------------------------------------- session (agent / evaluator isolation, idempotency)
-_CONTROL_GUARDED = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] in ('device_command', 'robot_skill') and k not in UNSUPPORTED
-                    and k != 'sample.prepare'}
+# Caller rules (final sync 2026-10-19): the head commands that stop, (re)start or change the measurement of another agent's head are refused;
+# viewing (head.read, keys that only wake or navigate) and physical handling (robot skills: screwing, battery, bottles, PT check) stay free, the
+# device reacting as it does (an unscrewed head loses its pressure).  head.press_key is checked per key in _cmd_head_press_key.
+_CONTROL_GUARDED = {'head.start', 'head.stop', 'head.configure', 'head.set_system', 'head.set_clock', 'head.set_bottle_volume', 'head.set_language'}
 
 
 class WtwOxitopiSession:
@@ -1681,7 +1905,7 @@ class WtwOxitopiSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -1691,8 +1915,6 @@ class WtwOxitopiSession:
         self._target(instance_id)
         h = self._host
         values = h.read(self._role)
-        if self._role == 'agent':
-            values['samples.available'] = [x for x in values['samples.available'] if not self._foreign('sample:' + x)]
         ids = list(values) if state_ids is None else state_ids
         if not isinstance(ids, list) or any(not isinstance(k, str) for k in ids):
             raise ActionRejected('INVALID_ARGUMENT')
@@ -1705,19 +1927,7 @@ class WtwOxitopiSession:
                                   for k in ids})
 
     def _guard(self, capability_id, arguments):
-        if self._role != 'agent':
-            return
-        for key in ('sample_id',):
-            sid = arguments.get(key)
-            if isinstance(sid, str) and self._foreign('sample:' + sid):
-                raise ActionRejected('ACCESS_DENIED')
-        if capability_id == 'sample.prepare' and any(self._foreign('sample:' + s['source_id']) for s in arguments.get('sources', [])):
-            raise ActionRejected('ACCESS_DENIED')
-        pos, head = arguments.get('position'), arguments.get('head')
-        if capability_id in _CONTROL_GUARDED and isinstance(pos, str) and self._foreign('bottle:' + pos):
-            raise ActionRejected('ACCESS_DENIED')
-        if capability_id in _CONTROL_GUARDED and isinstance(head, str) and self._foreign('head:' + head):
-            raise ActionRejected('ACCESS_DENIED')
+        self._host._caller_guard(self._principal, capability_id, arguments)   # the panel path runs the same rules (panel_invoke)
 
     def invoke(self, *, instance_id, capability_id, arguments, request_id):
         h = self._host
@@ -1736,13 +1946,13 @@ class WtwOxitopiSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             self._guard(capability_id, arguments)
             h._caller = self._principal
             try:
@@ -1785,6 +1995,7 @@ ERROR_ZH = {
     'NO_SEED': '没有接种液（先kit.provide settled_sewage_seed）', 'HEAD_ON_BOTTLE': '测头还拧在瓶上', 'SLEEVE_IN_NECK': '橡胶套已插入瓶颈', 'BOTTLE_NOT_EMPTY': '瓶中已有样品',
     'BOTTLE_EMPTY': '瓶中没有样品', 'ALREADY_PRESENT': '已经放入', 'POSITION_OCCUPIED': '该瓶已拧上另一个测头', 'HEAD_NOT_ON_BOTTLE': '测头不在瓶上',
     'MEASUREMENT_RUNNING': '测量进行中（先停止）', 'BATTERY_EMPTY': '电池耗尽（先更换电池）', 'HEAD_OFF': '测头已关闭',
+    'BAD_DATE': '日期或时间无效', 'NO_VALID_DATE': '测头没有有效日期（先输入日期，Error: new date!）',
 }
 _P = ['PLANT_REQUIRED']
 _HD = ['BATTERY_EMPTY']
@@ -1799,6 +2010,8 @@ CAP_ERRORS = {
     'head.set_system': _P + _HD, 'head.start': _P + ['MEASUREMENT_RUNNING'] + _HD, 'head.stop': _P + ['HEAD_OFF'], 'head.press_key': _P + _HD + ['MEASUREMENT_RUNNING'], 'head.read': _P,
     'head.replace_battery': _P, 'head.pt_test': _P + ['HEAD_ON_BOTTLE', 'MEASUREMENT_RUNNING'] + _HD, 'platform.set_power': _P, 'incubator.set_door': _P,
     'eval.bod': [], 'events.read': [], 'provenance.read': [], 'bottle.inspect': [], 'data.trace': [], 'ledger.read': [], 'fault.inject': _P, 'sim.step': [],
+    'head.set_language': _P + _HD, 'head.set_clock': _P + _HD + ['BAD_DATE', 'NO_VALID_DATE'], 'head.set_bottle_volume': _P + _HD + ['MEASUREMENT_RUNNING'],
+    **{k: [] for k in PANEL_CAPS},
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 PRECONDITIONS = {
@@ -1815,6 +2028,8 @@ PRECONDITIONS = {
     'head.press_key': ('电池未耗尽', ['heads.status']), 'head.read': ('已声明实验室条件', ['plant.configured']), 'head.replace_battery': ('已声明实验室条件', ['plant.configured']),
     'head.pt_test': ('测头不在瓶上、不在测量中；电池未耗尽', ['heads.status']), 'platform.set_power': ('已声明实验室条件', ['plant.configured']),
     'incubator.set_door': ('已声明实验室条件', ['plant.configured']), 'eval.bod': ('样品体积不大于总体积', []), 'fault.inject': ('已声明实验室条件；瓶类故障须给工位、电池故障须给测头', ['plant.configured']),
+    'head.set_language': ('电池未耗尽', ['heads.status']), 'head.set_clock': ('电池未耗尽；日期与时间有效；没有有效日期时须先输入日期', ['heads.status', 'heads.settings']),
+    'head.set_bottle_volume': ('不在测量中；电池未耗尽；瓶容积大于样品体积', ['heads.status', 'heads.settings']),
 }
 _LEDS = [f'led.{h}_{c}' for h in HEADS for c in ('blue', 'red', 'green')]
 _DISP = [f'display.{h}_value' for h in HEADS]
@@ -1834,12 +2049,21 @@ EFFECTS = {
     'platform.set_power': ['platform.powered', 'platform.stir_velocity_rad_s'], 'incubator.set_door': ['incubator.door_open'],
     'fault.inject': ['truth.faults', 'truth.bottles'], 'sim.step': ['clock.time_s'],
 }
+for _k in ('head.configure', 'head.set_system', 'head.start', 'head.stop', 'head.press_key', 'head.read', 'head.replace_battery', 'head.pt_test'):
+    EFFECTS[_k] = EFFECTS[_k] + ['heads.settings']                          # display on / off, settings and the PT result shown by the heads
+EFFECTS.update({'head.set_language': ['heads.status', 'heads.settings'] + _DISP, 'head.set_clock': ['heads.status', 'heads.settings'] + _DISP,
+                'head.set_bottle_volume': ['heads.status', 'heads.settings', 'heads.stored_values'] + _DISP})
+_PANEL_EFFECTS = sorted(set(s for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for s in EFFECTS.get(c, [])))
+for _k in PANEL_CAPS:
+    EFFECTS[_k] = [] if _k in ('panel.capture', 'panel.frame') else list(_PANEL_EFFECTS)   # a gesture changes what the commands it calls change
 _PHYS = ['incubator.temperature_k', 'truth.incubator_air_k', 'truth.bottles', 'truth.heads', 'heads.status', 'heads.stored_values', 'warnings.active'] + _DISP + _LEDS
 ON_STEP = {
     'plant.configure': _PHYS, 'sim.step': _PHYS + ['clock.time_s'], 'fault.inject': _PHYS, 'head.start': _PHYS, 'head.stop': _PHYS,
     'head.screw_on': _PHYS, 'head.unscrew': _PHYS, 'bottle.fill': _PHYS, 'bottle.insert_sleeve': _PHYS, 'bottle.add_reagent': _PHYS, 'bottle.add_stir_bar': _PHYS,
     'platform.set_power': ['truth.bottles', 'truth.heads', 'heads.stored_values'] + _DISP, 'incubator.set_door': _PHYS,
     'head.configure': _PHYS, 'head.press_key': _PHYS, 'head.read': ['heads.status'] + _DISP, 'head.set_system': _PHYS, 'head.replace_battery': _PHYS,
+    'head.set_language': ['heads.status', 'heads.settings'] + _DISP, 'head.set_clock': ['heads.settings'], 'head.set_bottle_volume': _PHYS,
+    **{k: _PHYS + ['heads.settings'] for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
 }
 ON_STEP_ZH = {
     'plant.configure': '声明后恒温箱温度、瓶内温度与压力按宿主网格演化', 'sim.step': '按60 s网格积分：温度、气液交换、生物耗氧、CO2吸收、测头AutoTemp与存值',
@@ -1849,19 +2073,21 @@ ON_STEP_ZH = {
     'bottle.add_stir_bar': '感应搅拌时气液传质加快', 'platform.set_power': '通电后搅拌子转动，气液传质加快；断电只靠扩散', 'incubator.set_door': '开门时箱内温度向室温变化，关门后恢复',
     'head.configure': '显示约2 min后自动关闭', 'head.press_key': '显示约2 min后自动关闭；开始测量后同head.start', 'head.read': '显示约2 min后自动关闭',
     'head.set_system': '设置在随后的显示与状态灯上生效', 'head.replace_battery': '电量恢复，状态灯恢复颜色',
+    'head.set_language': '显示约2 min后自动关闭', 'head.set_clock': '测头时钟随宿主时钟走', 'head.set_bottle_volume': '之后的显示与存储值按新瓶容积换算',
+    **{k: '手势调用的测头命令随后按step演化（显示自动关闭、测量）' for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
 }
 EXEC_TEXT = {
     'head.start': ('测量状态adaption→test→measuring→finished（heads.status），每24 h一个存储值', '重新开始删除之前的存储值；拧下测头或漏气时压力回到环境，数值偏低；电池耗尽时测量停止（已存值保留）'),
     'head.press_key': ('按菜单逻辑立即切换显示页或设置（见lines）', '同步原子操作：成功时一次写入全部效果，被拒时状态不变'),
 }
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 OBSERVES = {'head.start': ['heads.status'] + _DISP + _LEDS, 'head.read': ['heads.status', 'heads.stored_values'] + _DISP, 'head.press_key': ['heads.status'] + _DISP,
             'bottle.fill': ['setup.positions'], 'head.screw_on': ['setup.positions'] + _LIFT, 'head.unscrew': ['setup.positions'] + _LIFT,
             'platform.set_power': ['platform.powered'], 'incubator.set_door': ['incubator.door_open', 'incubator.temperature_k']}
 _WB, _PR, _M4, _BP, _CAT, _PRES, _AR, _IS6, _SET, _PF, _USGS, _PUB, _SIM = (
     'user_workbook', 'manufacturer_primary', 'manufacturer_manual_e04', 'manufacturer_bod_primer', 'manufacturer_catalog', 'manufacturer_presentation',
     'manufacturer_application_report', 'distributor_is6', 'distributor_is6_set', 'distributor_pf600', 'usgs_oxygen_solubility', 'pubchem_hsdb', 'simulation_assumption')
-CAP_SOURCES = {k: [_SIM] for k in CAPS}
+CAP_SOURCES = {k: [_SIM] for k in ALL_CAPS}
 CAP_SOURCES.update({'plant.configure': [_PR, _BP, _SIM], 'stock.provide': [_PUB, _SIM], 'kit.provide': [_BP, _CAT, _PR, _SIM], 'substance.define': [_SIM],
                     'sample.prepare': [_BP, _PR, _SIM], 'bottle.fill': [_PR, _BP, _CAT], 'bottle.add_stir_bar': [_PR, _BP, _CAT], 'bottle.add_reagent': [_PR, _BP, _CAT],
                     'bottle.insert_sleeve': [_PR, _BP, _CAT], 'bottle.empty': [_BP], 'head.screw_on': [_PR, _BP], 'head.unscrew': [_PR], 'head.configure': [_PR, _M4],
@@ -1869,12 +2095,18 @@ CAP_SOURCES.update({'plant.configure': [_PR, _BP, _SIM], 'stock.provide': [_PUB,
                     'head.pt_test': [_PR, _BP], 'platform.set_power': [_IS6, _CAT, _BP], 'incubator.set_door': [_BP, _SIM], 'eval.bod': [_BP],
                     'provenance.read': [_PUB, _USGS], 'fault.inject': [_PR, _SIM]})
 CAP_SOURCES.update({k: [_PR, _CAT] for k in UNSUPPORTED})
+CAP_SOURCES.update({k: [_M4, _SIM] for k in APP_CAPS + list(PANEL_CAPS)})
 PARAM_ZH = {'incubator_k': '恒温箱设定温度', 'room_k': '实验室室温（开门时箱内温度趋向它）', 'ambient_pressure_pa': '环境气压（海拔）', 'noise_seed': '噪声随机数种子（只在首次声明时生效）'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.respirometric_bod_process.limitations。'
 CAP_LIMITS = {
     'head.start': ['AutoTemp：60 min适应期（不评估压力）后置零；测试间隔BOD5为30 min，其它时长按天数等比例（假设）；压力升高时重新置零，最迟3 h（或3 %的测量时长）开始；'
                    'BOD按WTW公式由压降换算（510 ml、20 °C、α=0.03103），与真实耗氧之差来自温度、瓶容积公差、CO2未完全吸收与传感器误差。'],
-    'head.press_key': ['菜单为简化等价实现：信息页、测量设置（天数/单位/体积）、系统设置（照明/状态灯/自动关闭/ID）、存储值浏览、关机确认；日期时间与语言菜单未建模。'],
+    'head.press_key': ['菜单为简化等价实现：信息页、测量设置（天数/单位/体积）、系统设置（照明/状态灯/自动关闭/ID）、存储值浏览、关机确认；手册的完整菜单（含语言、日期时间、服务、图形显示）见前面板层panel.press。'],
+    'head.set_language': ['语言只改变显示的BOD标记（BSB/BOD/DBO）；其它菜单文字的译文手册未给，保持英文（假设）。BSB见手册；法语、西班牙语的DBO为自写译文，不是手册内容（假设）。'],
+    'head.set_clock': ['每个测头各有时钟；换电池后没有有效日期，须先输入日期；存储值不单独记录日期。'],
+    'head.set_bottle_volume': ['瓶容积只进入显示与存储值的BOD换算（WTW公式中的V_tot）；物理瓶容积仍为宿主的瓶（含公差）。'],
+    **{k: ['面板层按panel_ui.json（操作手册ba77059e04页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟；手册未写之处的选择见panel_ui.json的assumptions。']
+       for k in PANEL_CAPS},
     'head.pt_test': ['PT检测器与测头的气体体积9.4 ml由入门手册的控制值反推（derived）；只检查传感器读数，不检查长期密封（厂家）。'],
     'sample.prepare': ['混合按体积分数线性相加；纯蒸馏水稀释作为渗透压抑制（工程模型）；充氧到饱和、预调温与去氯为理想操作；pH按设定值（不模拟缓冲容量）。'],
     'bottle.fill': ['溢流量瓶体积为7档之一（厂家）；装样温度不在15–21 °C时给提示（AutoTemp只能补偿有限温差）；瓶的实际容积按σ=2 ml的公差偏离510 ml（假设）。'],
@@ -1887,7 +2119,7 @@ LIMITATIONS = [
     '硝化：氨氮按4.57 mg O2/mg N，硝化菌活性按0.45 1/d增长，ATU按Ki 0.05 mg/l抑制；亚硝酸积累与反硝化不建模。',
     'CO2：呼吸商1；液相溶解无机碳按碳酸第一解离分配（pH固定为样品设定值），与气相交换；NaOH颗粒按900 s时间常数吸收气相CO2（容量按0.12 g/粒）；颗粒受潮溶解不建模。',
     '温度：瓶内液体按自然对流向恒温箱空气松弛（换热系数8 W/(m²·K)）；恒温箱温度在设定值±0.3 K周期波动，开门趋向室温；不建模瓶间温差与搅拌发热。',
-    '测头：传感器增益/零点/噪声在厂家精度内随机（按种子）；显示与存储按所选单位换算；电池按厂家寿命折算的线性放电；状态灯每5 s闪0.5 s（闪烁时长为假设）；菜单为简化等价实现。',
+    '测头：传感器增益/零点/噪声在厂家精度内随机（按种子）；显示与存储按所选单位换算；电池按厂家寿命折算的线性放电；状态灯每5 s闪0.5 s（闪烁时长为假设）；head.press_key的菜单为简化等价实现，手册的完整菜单由前面板层（panel_ui.json）实现。',
     '样品瓶、样品液体、试剂与颗粒在场景中只作为静态几何（瓶、橡胶套、颗粒与搅拌子）；装样、加试剂、拧测头为宿主/机器人抽象，没有液体与接触仿真；测头拧上/取下用测头抬起关节（0/0.09 m）表示。',
 ]
 
@@ -1903,7 +2135,7 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if (k in _CONTROL_GUARDED or k == 'sample.prepare' or CAPS[k]['visibility'] != 'agent') else []
+    extra = ['ACCESS_DENIED'] if (k in _CONTROL_GUARDED or k == 'head.press_key' or ALL_CAPS[k]['visibility'] != 'agent') else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1921,12 +2153,9 @@ def _pre_slots(k):
 
 
 def _foreign_text(k):
-    if k in _CONTROL_GUARDED and k.startswith('bottle.'):
-        return '；agent只能操作自己装样的瓶与自己的样品（ACCESS_DENIED）'
-    if k in _CONTROL_GUARDED and k.startswith('head.'):
-        return '；另一个agent正在使用的测头（拧在瓶上或测量中）与它装样的瓶不能操作（ACCESS_DENIED）'
-    if k == 'sample.prepare':
-        return '；agent只能用自己配的样品与评测者给的水样（ACCESS_DENIED）'
+    if k in _CONTROL_GUARDED or k == 'head.press_key':
+        return ('；另一个agent的测头（它拧上或开始测量、尚未释放）不能被停止、重新开始或改设置（ACCESS_DENIED；按键时只拒绝这些键，唤醒、翻看与导航不受限）；'
+                '查看（head.read）与手工操作（拧上/拧下、换电池、瓶子操作）不受归属限制，仪器按自身物理反应')
     return ''
 
 
@@ -2018,7 +2247,7 @@ def export_wtw_oxitopi_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'WtwOxitopiSession.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',

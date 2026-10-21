@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast,copy,csv,hashlib,importlib.util,io,json,math
 from pathlib import Path
 import numpy as np
-ROOT=Path(__file__).resolve().parents[2];SLUG='milestone_dma80';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-086';PROTOCOL_VERSION=ASSET_VERSION='1.0.0'
+ROOT=Path(__file__).resolve().parents[2];SLUG='milestone_dma80';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-086';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.3.0'  # 1.3.0: EasyCONTROL terminal and main-switch rocker 3D parts (2026-10-20)
 TEMPLATE_REL='assets/expansion_batch04/t3_analytical/milestone_dma80/output_templates/library.json'
 R_GAS=8.31446261815324;M_O2=.031998;WAVELENGTH_M=253.65e-9;MAX_RESULTS=512;MAX_CURVES=32;MAX_WINDOWS=10000;SLOT_COUNT=40
 class ActionRejected(ValueError):pass
@@ -29,8 +29,10 @@ def validate(s,v):
  elif t=='boolean' and type(v) is not bool:raise ActionRejected('INVALID_ARGUMENT')
  elif t=='string' and not isinstance(v,str):raise ActionRejected('INVALID_ARGUMENT')
  elif t=='object':
-  if not isinstance(v,dict) or set(v)!=set(s['required']):raise ActionRejected('INVALID_ARGUMENT')
-  for k,x in v.items():validate(s['properties'][k],x)
+  if not isinstance(v,dict):raise ActionRejected('INVALID_ARGUMENT')
+  if 'properties' in s:
+   if not set(s['required'])<=set(v)<=set(s['properties']):raise ActionRejected('INVALID_ARGUMENT')
+   for k,x in v.items():validate(s['properties'][k],x)
  elif t=='array':
   if not isinstance(v,list) or not s.get('minItems',0)<=len(v)<=s.get('maxItems',math.inf):raise ActionRejected('INVALID_ARGUMENT')
   for x in v:validate(s['items'],x)
@@ -44,7 +46,7 @@ SAMPLE_EXAMPLE=dict(slot_index=0,template_id='nist_2448_certified',kind='sample'
 STANDARD_EXAMPLE=SAMPLE_EXAMPLE|dict(template_id='nist_1641f_certified',kind='standard',input_form='liquid',boat_material='quartz',mass_kg=.0001,volume_m3=1e-7)
 BLANK_EXAMPLE=SAMPLE_EXAMPLE|dict(kind='blank',template_id='',host_mercury_mass_kg=None)
 POINT=obj(dict(start_s=number('s',0),end_s=number('s',0),absorbance=nullable(number('1')),sample_relative=number('1'),reference_relative=number('1'),transmission_ratio=nullable(number('1',0)),saturated=BOOL))
-RESULT=obj(dict(record_id=TEXT,slot_index=integer(0,39),kind=TEXT,status=TEXT,complete=BOOL,windows=arr(POINT,0,MAX_WINDOWS),integrated_absorbance_s=nullable(number('s')),blank_corrected_integral_s=nullable(number('s')),mercury_mass_kg=nullable(number('kg')),mercury_mass_fraction_kg_kg=nullable(number('1')),mercury_concentration_kg_m3=nullable(number('kg/m^3')),uncertainty_kg=nullable(number('kg',0)),sample_mass_kg=number('kg'),sample_volume_m3=number('m^3'),acquisition_signature=TEXT,acquisition_method_json=TEXT,evidence=TEXT,template_source=TEXT,quality=arr(TEXT,0,20)))
+RESULT=obj(dict(record_id=TEXT,slot_index=integer(0,39),kind=TEXT,status=TEXT,complete=BOOL,windows=arr(POINT,0,MAX_WINDOWS),integrated_absorbance_s=nullable(number('s')),blank_corrected_integral_s=nullable(number('s')),mercury_mass_kg=nullable(number('kg')),mercury_mass_fraction_kg_kg=nullable(number('1')),mercury_concentration_kg_m3=nullable(number('kg/m^3')),uncertainty_kg=nullable(number('kg',0)),sample_mass_kg=number('kg'),entered_amount_kg=nullable(number('kg',0,.0015)),sample_volume_m3=number('m^3'),acquisition_signature=TEXT,acquisition_method_json=TEXT,evidence=TEXT,template_source=TEXT,quality=arr(TEXT,0,20)))
 LEDGER=obj(dict(sample_registered_kg=number('kg',0),sample_remaining_kg=number('kg',0),sample_returned_kg=number('kg',0),residue_kg=number('kg',0),residue_removed_kg=number('kg',0),reaction_products_kg=number('kg',0),oxygen_reacted_kg=number('kg',0),mass_residual_kg=number('kg'),mercury_ledger_json=TEXT,volume_ledger_json=TEXT,gas_ledger_json=TEXT,electrical_energy_j=number('J',0),thermal_stored_j=number('J'),thermal_lost_j=number('J',0),energy_residual_j=number('J')))
 CAPS={}
 def cap(k,i,o,c,z,kind='device_command',vis='agent',example=None):CAPS[k]=(i,o,c,z,kind,vis,example or {})
@@ -76,8 +78,37 @@ cap('records.remove',obj({'record_id':TEXT}),obj({'removed':BOOL}),['display_pan
 cap('template.read',obj({'substance_id':TEXT}),obj({'template_json':TEXT}),['display_panel'],'真实/名义/理论/缺量记录分开原样查询','query',example={'substance_id':'nist_2448_certified'})
 cap('product.read',obj({}),LEDGER,['decomposition_furnace','catalyst','amalgamator','absorption_cell'],'受限Hg/样品/氧气/体积/热账本','query','evaluator')
 cap('product.drain',obj({'recipient_id':TEXT}),obj({'removed_mercury_kg':number('kg',0)}),['catalyst','amalgamator','absorption_cell'],'冷断电宿主清理实际残留到废物，不归还原样','device_command','evaluator',{'recipient_id':'hazardous_waste'})
+# EasyCONTROL sample table (operator entries per tray position; Start runs the positions without a result, [ug/kg] uses the entered amount)
+ENTRY=obj(dict(slot_index=integer(0,39),name=TEXT,amount_kg=number('kg',0,.0015),in_statistics=BOOL))
+cap('table.set_entry',ENTRY,obj({'slot_index':integer(0,39)}),['control_terminal'],'终端样品表：写入舟位行的样品名、称样量与统计勾选（结果按此称样量折算ug/kg；不改宿主装样）','configuration',example=dict(slot_index=0,name='blank',amount_kg=0.,in_statistics=False))
+cap('table.clear_entry',obj({'slot_index':integer(0,39)}),obj({'cleared':BOOL}),['control_terminal'],'终端样品表：清除舟位行（含其结果链接；已保存记录保留）','configuration',example={'slot_index':0})
 UNSUPPORTED={'sample.on_the_fly','sample.preprocess','gas.collect','speciation.identify','hardware.connect','software.gui'}
 for k in sorted(UNSUPPORTED):cap(k,obj({}),obj({}),['body'],'当前未实现或未安装：'+k)
+
+
+def _panel_engine():
+ try:
+  from . import _panel_ui as engine                                   # imported as asset_runtime.milestone_dma80
+  return engine
+ except ImportError:                                                     # loaded from its file path
+  import sys
+  if '_chemsim_panel_ui' not in sys.modules:
+   spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=_panel_ui.load_spec(ROOT/'assets/expansion_batch04/t3_analytical/milestone_dma80/panel_ui.json',capabilities=set(CAPS))
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC)                  # panel.switch / touch / capture / frame of the EasyCONTROL terminal
+for k,d in PANEL_CAPS.items():cap(k,d['input_schema'],d['output_schema'],d['component_ids'],d['function_zh'],d['kind'],d['visibility'],d['example_arguments'])
+class _Panel(_panel_ui.PanelUI):
+ """Terminal UI whose state dict lives in the runtime (panel_ui), so copies and comparisons of a runtime include the screen it shows."""
+ def __init__(self,host):
+  saved=host.__dict__.get('panel_ui');super().__init__(PANEL_SPEC,host)
+  if saved is not None:self.ui=saved
+ @property
+ def ui(self):return self.host.panel_ui
+ @ui.setter
+ def ui(self,value):self.host.panel_ui=value
+TRAIL_MAX=1000
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,z,origin='derived',vis='agent',parts=('display_panel',),write=None):SLOTS[k]=(s,u,origin,vis,list(parts),write);SLOT_ZH[k]=z
 slot('plant.configured',BOOL,'1','宿主已配置');slot('power.enabled',BOOL,'1','电源目标','setpoint',parts=('decomposition_furnace',),write=('power.set','enabled'));slot('gas.enabled',BOOL,'1','载氧目标','setpoint',parts=('carrier_gas_inlet',),write=('gas.set','enabled'))
@@ -86,7 +117,8 @@ for k,z in [('temperature.actual_k','炉温理想热反馈'),('temperature.targe
 slot('instrument.ready',BOOL,'1','电源/气体/罩/热台就绪');slot('measurement.phase',TEXT,'1','操作终态或running');slot('measurement.stage',TEXT,'1','选位/送舟/干燥/分解/捕集释放/返舟步骤');slot('measurement.elapsed_s',number('s',0),'s','当前样品真实模拟已用时间');slot('measurement.progress',number('1',0,1),'1','单样步骤进度');slot('sequence.progress',number('1',0,1),'1','序列已完成及当前样品步骤进度');slot('sequence.completed_count',integer(0,40),'1','本序列已完成记录数');slot('sequence.current_slot',nullable(integer(0,39)),'1','当前处理舟位或null')
 for k,z in [('detector.absorbance','最近真实窗口双光束净吸光度'),('detector.sample_relative','样品光束窗口平均相对光强'),('detector.reference_relative','参考光束窗口平均相对光强'),('detector.transmission_ratio','扣宿主暗信号及已知光束比后的透射比')]:slot(k,nullable(number('1')),'1',z+'；synthetic且非W',parts=('sample_photodiode','reference_photodiode'))
 slot('detector.integrated_absorbance_s',nullable(number('s')),'s','实际窗口吸光度累积面积',parts=('absorption_cell',));slot('detector.last_sample_time_s',nullable(number('s',0)),'s','最近光学窗口终点')
-slot('result.mercury_mass_kg',nullable(number('kg')),'kg','空白扣除及实际标准峰面积反演Hg质量；未校准/量程外null');slot('result.mass_fraction_kg_kg',nullable(number('1')),'1','观测Hg质量除宿主公开实际称样量');slot('result.concentration_kg_m3',nullable(number('kg/m^3')),'kg/m^3','液样观测Hg质量除实际体积，固体不输出假浓度');slot('blank.valid',BOOL,'1','匹配当前方法的已完成空白');slot('calibration.ready',BOOL,'1','已选择相容标线');slot('storage.result_count',integer(0,MAX_RESULTS),'1','512实例结果工程缓存非OEM容量');slot('storage.curve_count',integer(0,MAX_CURVES),'1','32条实例标线工程缓存');slot('safety.warning',TEXT,'1','公开错误不含隐藏组成');slot('truth.ledger',LEDGER,'1','受限物料与Hg各仓守恒','process_truth','evaluator',('decomposition_furnace','amalgamator'))
+slot('result.mercury_mass_kg',nullable(number('kg')),'kg','空白扣除及实际标准峰面积反演Hg质量；未校准/量程外null');slot('result.mass_fraction_kg_kg',nullable(number('1')),'1','观测Hg质量除终端所用称样量：样品表有该舟位行时为录入称样量（entered_amount_kg，录入0则无），否则为宿主公开实际称样量');slot('result.concentration_kg_m3',nullable(number('kg/m^3')),'kg/m^3','液样观测Hg质量除实际体积，固体不输出假浓度');slot('blank.valid',BOOL,'1','匹配当前方法的已完成空白');slot('calibration.ready',BOOL,'1','已选择相容标线');slot('storage.result_count',integer(0,MAX_RESULTS),'1','512实例结果工程缓存非OEM容量');slot('storage.curve_count',integer(0,MAX_CURVES),'1','32条实例标线工程缓存');slot('safety.warning',TEXT,'1','公开错误不含隐藏组成');slot('truth.ledger',LEDGER,'1','受限物料与Hg各仓守恒','process_truth','evaluator',('decomposition_furnace','amalgamator'))
+slot('table.entries',arr(obj(dict(slot_index=integer(0,39),name=TEXT,amount_kg=number('kg',0,.0015),in_statistics=BOOL,record_id=nullable(TEXT))),0,40),'1','终端样品表各行（样品名、录入称样量、统计勾选、本行测得结果记录）','setpoint',parts=('control_terminal',))
 
 def _library():
  p=ROOT/TEMPLATE_REL
@@ -108,6 +140,8 @@ def _amount(r,a):
 class MilestoneDma80Runtime:
  def __init__(self,instance_id='dma80_01',library=None):
   self.instance_id=instance_id;self.library=copy.deepcopy(library) if library is not None else _library();self.templates=self.library.get('compounds',{});self.plant=None;self.method=copy.deepcopy(METHOD_EXAMPLE);self.time_s=0.;self.revision=0;self.powered=False;self.gas=False;self.cover=0.;self.dust_cover=0.;self.carousel=0.;self.selected_slot=0;self.lift=0.;self.injection=0.;self.samples={};self.phase='idle';self.stage='idle';self.elapsed_s=0.;self.stage_elapsed=0.;self.warning='';self.temps={k:298.15 for k in ['furnace','catalyst','gold','cell']};self.target=298.15;self.queue=[];self.queue_index=0;self.current_slot=None;self.completed=[];self.windows=[];self._last_point=None;self._pending_s=0.;self._pending_r=0.;self._pending_dt=0.;self._pending_end=0.;self.area=0.;self._result_cache=None;self._run_method=None;self._run_key='';self._run_blank=None;self._run_curve=None;self._run_kind='';self._records={};self._curves={};self._blanks={};self._standards={};self._selected_curve=None;self._record_counter=0;self._operation_counter=0;self.operation_id=None;self._operation_records={};self._owners={};self._requests={};self._principals={'__public_agent__':'agent'}
+  self.table={};self.trail=[];self.power_epoch=0;self.panel_ui=None;self.panel_capture_dir=None;_Panel(self)   # terminal: sample table, audit trail, UI state
+  self._caller=None;self._record_owners={}   # 1.1.1: principal of the session call in progress (panel gestures act as it) / owner of each saved record
   self.registered=0.;self.returned=0.;self.residue_removed=0.;self.products=0.;self.hg_registered=0.;self.hg_returned=0.;self.hg_transport=0.;self.hg_gold=0.;self.hg_cell=0.;self.hg_exhaust=0.;self.hg_unrecovered=0.;self.hg_removed=0.;self.vol_registered=0.;self.vol_consumed=0.;self.vol_returned=0.;self.oxygen_remaining=0.;self.oxygen_exhaust=0.;self.oxygen_reacted=0.;self.electrical=0.;self.thermal_lost=0.
  def register_principal(self,principal_id,visibility):
   if not isinstance(principal_id,str) or not principal_id or visibility not in ['agent','debug','evaluator']:raise ActionRejected('INVALID_ARGUMENT')
@@ -117,6 +151,43 @@ class MilestoneDma80Runtime:
   if principal_id not in self._principals:raise ActionRejected('ACCESS_DENIED')
   return MilestoneDma80Session(self,principal_id)
  def describe(self):return self.session().describe(instance_id=self.instance_id)
+ @property
+ def panel(self):return _Panel(self)
+ # ---- EasyCONTROL terminal: audit trail, panel-host protocol of the engine (_panel_ui.py) and the panel.* commands
+ def _log(self,category,text):
+  self.trail.append(dict(time_s=self.time_s,category=category,text=text));del self.trail[:-TRAIL_MAX]
+ def _trail_command(self,k,a):
+  text={'method.configure':'Method changed','calibration.fit':f"Calibration created: {a.get('curve_id')}",'calibration.select':f"Calibration selected: {a.get('curve_id')}",'records.remove':f"Result deleted: {a.get('record_id')}",'table.set_entry':f"Sample table: Pos {a.get('slot_index',0)+1} {a.get('name','')}",'table.clear_entry':f"Sample table: Pos {a.get('slot_index',0)+1} cleared",'measurement.start':'Sequence started (1 sample)','sequence.start':f"Sequence started ({len(a.get('slot_indices',[]))} samples)"}.get(k)
+  if k=='power.set':self._log('System','Power on' if a['enabled'] else 'Power off')
+  elif text:self._log('Application',text)
+ def panel_read(self):
+  """What the terminal software shows: the agent slots plus the sample-table rows, method, calibrations, run summary and audit trail ('host.*')."""
+  v=self.read('agent');key=self._key();rows=[]
+  for i in range(SLOT_COUNT):
+   e=self.table.get(i);r=self._records.get(e['record_id']) if e and e.get('record_id') else None;hg=r['mercury_mass_kg'] if r else None
+   state='' if not e else 'running' if self.phase=='running' and self.current_slot==i else r['status'] if r else 'new'
+   rows.append(dict(slot_index=i,pos=i+1,entry=bool(e),name=e['name'] if e else '',amount_g=e['amount_kg']*1e3 if e else None,in_statistics=bool(e and e['in_statistics']),state=state,record_id=r['record_id'] if r else None,done_s=r['windows'][-1]['end_s'] if r and r['windows'] else None,height=max((w['absorbance'] for w in r['windows'] if w['absorbance'] is not None),default=None) if r else None,area=r['integrated_absorbance_s'] if r else None,net=r['blank_corrected_integral_s'] if r else None,hg_ng=hg*1e12 if hg is not None else None,ug_kg=r['mercury_mass_fraction_kg_kg']*1e9 if r and r['mercury_mass_fraction_kg_kg'] is not None else None,quality=r['quality'][0] if r and r['quality'] else ''))
+  vals=[x['ug_kg'] for x in rows if x['in_statistics'] and x['ug_kg'] is not None];n=len(vals);mean=sum(vals)/n if n else None;sd=math.sqrt(sum((x-mean)**2 for x in vals)/(n-1)) if n>1 else None
+  ok=lambda r:r['acquisition_signature']==key and r['status']=='succeeded' and r['blank_corrected_integral_s'] is not None and not any(w['saturated'] for w in r['windows']) and not any('tail unresolved' in q for q in r['quality'])
+  v.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,'host.method':copy.deepcopy(self.method),'host.table':rows,'host.queue':[i for i in sorted(self.table) if not self.table[i].get('record_id')],
+            'host.stats':dict(n=n,mean=mean,sd=sd,rsd=sd/mean*100 if sd is not None and mean else None),'host.peak':max((w['absorbance'] for w in self.windows if w['absorbance'] is not None),default=None),
+            'host.curves':[dict(id=c,points=len(x['observations']),slope=x['slope_s_kg']*1e-12,r2=x['r_squared'],valid=x['acquisition_signature']==key,selected=c==self._selected_curve) for c,x in self._curves.items()],
+            'host.standards':[rid for rid in self._standards if rid in self._records and ok(self._records[rid])],'host.next_curve_id':next(f'cal_{n}' for n in range(1,MAX_CURVES+2) if f'cal_{n}' not in self._curves),
+            'host.trail':copy.deepcopy(self.trail)})
+  return v
+ def panel_invoke(self,capability_id,arguments):
+  """A terminal action calls the same command a direct call would (these commands check before they change anything)."""
+  try:return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _capture(self,display_id):
+  """Close-up camera of the terminal screen: a PNG file named by its content (large data is returned as a file reference)."""
+  import tempfile
+  try:data,w,h=self.panel.png_bytes(display_id)
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);path=d/f'{display_id}_{sha[:16]}.png'
+  if not path.exists():path.write_bytes(data)
+  return dict(display_id=display_id,time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
  def _idle(self):
   if self.phase=='running':raise ActionRejected('BUSY')
  def _home(self):return self.injection<1e-9 and self.lift<1e-9
@@ -139,7 +210,7 @@ class MilestoneDma80Runtime:
  def read(self,visibility='agent'):
   if visibility not in ['agent','debug','evaluator']:raise ActionRejected('ACCESS_DENIED')
   last=self._last_point;result=self._result();progress=self._progress();seq=(self.queue_index+progress)/len(self.queue) if self.queue else 0.
-  v={'plant.configured':self.plant is not None,'power.enabled':self.powered,'gas.enabled':self.gas,'cover.angle_rad':self.cover,'dust_cover.angle_rad':self.dust_cover,'carousel.angle_rad':self.carousel,'transfer.lift_m':self.lift,'injection.position_m':self.injection,'carousel.selected_slot':self.selected_slot,'sample.count':len(self.samples),'temperature.actual_k':self.temps['furnace'],'temperature.target_k':self.target,'catalyst.actual_k':self.temps['catalyst'],'amalgamator.actual_k':self.temps['gold'],'cell.actual_k':self.temps['cell'],'instrument.ready':self._ready(),'measurement.phase':self.phase,'measurement.stage':self.stage,'measurement.elapsed_s':self.elapsed_s,'measurement.progress':progress,'sequence.progress':1. if self.phase=='succeeded' else min(1.,seq),'sequence.completed_count':len(self.completed),'sequence.current_slot':self.current_slot,'detector.absorbance':last['absorbance'] if last else None,'detector.sample_relative':last['sample_relative'] if last else None,'detector.reference_relative':last['reference_relative'] if last else None,'detector.transmission_ratio':last['transmission_ratio'] if last else None,'detector.integrated_absorbance_s':self.area if self.windows else None,'detector.last_sample_time_s':last['end_s'] if last else None,'result.mercury_mass_kg':result['mercury_mass_kg'],'result.mass_fraction_kg_kg':result['mercury_mass_fraction_kg_kg'],'result.concentration_kg_m3':result['mercury_concentration_kg_m3'],'blank.valid':self._blank() is not None,'calibration.ready':self._curve() is not None,'storage.result_count':len(self._records),'storage.curve_count':len(self._curves),'safety.warning':self.warning}
+  v={'plant.configured':self.plant is not None,'power.enabled':self.powered,'gas.enabled':self.gas,'cover.angle_rad':self.cover,'dust_cover.angle_rad':self.dust_cover,'carousel.angle_rad':self.carousel,'transfer.lift_m':self.lift,'injection.position_m':self.injection,'carousel.selected_slot':self.selected_slot,'sample.count':len(self.samples),'temperature.actual_k':self.temps['furnace'],'temperature.target_k':self.target,'catalyst.actual_k':self.temps['catalyst'],'amalgamator.actual_k':self.temps['gold'],'cell.actual_k':self.temps['cell'],'instrument.ready':self._ready(),'measurement.phase':self.phase,'measurement.stage':self.stage,'measurement.elapsed_s':self.elapsed_s,'measurement.progress':progress,'sequence.progress':1. if self.phase=='succeeded' else min(1.,seq),'sequence.completed_count':len(self.completed),'sequence.current_slot':self.current_slot,'detector.absorbance':last['absorbance'] if last else None,'detector.sample_relative':last['sample_relative'] if last else None,'detector.reference_relative':last['reference_relative'] if last else None,'detector.transmission_ratio':last['transmission_ratio'] if last else None,'detector.integrated_absorbance_s':self.area if self.windows else None,'detector.last_sample_time_s':last['end_s'] if last else None,'result.mercury_mass_kg':result['mercury_mass_kg'],'result.mass_fraction_kg_kg':result['mercury_mass_fraction_kg_kg'],'result.concentration_kg_m3':result['mercury_concentration_kg_m3'],'blank.valid':self._blank() is not None,'calibration.ready':self._curve() is not None,'storage.result_count':len(self._records),'storage.curve_count':len(self._curves),'safety.warning':self.warning,'table.entries':[dict(slot_index=i,**copy.deepcopy(e)) for i,e in sorted(self.table.items())]}
   if visibility!='agent':v['truth.ledger']=self._ledger()
   return v
  def _ledger(self):
@@ -154,7 +225,7 @@ class MilestoneDma80Runtime:
   validate(CAPS[capability][0],arguments)
   if capability in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
   result=self._invoke(capability,arguments);validate(CAPS[capability][1],result)
-  if CAPS[capability][4]!='query':self.revision+=1
+  if CAPS[capability][4]!='query':self.revision+=1;self._trail_command(capability,arguments)
   return copy.deepcopy(result)
  def _invoke(self,k,a):
   if k=='plant.configure':
@@ -182,16 +253,35 @@ class MilestoneDma80Runtime:
   if k=='calibration.read':
    if a['curve_id'] not in self._curves:raise ActionRejected('UNKNOWN_CURVE')
    return {'curve_json':json.dumps(self._curves[a['curve_id']],allow_nan=False)}
+  if k=='panel.frame':return {'frame':self.panel.frame()}
   if self.plant is None:raise ActionRejected('PLANT_NOT_CONFIGURED')
-  if k=='power.set':
+  if k in ['panel.switch','panel.touch']:
+   try:return {'accepted':bool(self.panel.switch(a['input_id'],a['position']) if k=='panel.switch' else self.panel.touch(a['display_id'],a['x'],a['y'],a.get('duration_s',.1),[a['to_x'],a['to_y']] if 'to_x' in a and 'to_y' in a else None))}
+   except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  if k=='panel.capture':return self._capture(a['display_id'])
+  if k=='table.set_entry':
+   if not a['name'].strip() or len(a['name'])>40:raise ActionRejected('INVALID_ARGUMENT')
+   old=self.table.get(a['slot_index'],{})
+   if old.get('record_id') and self._foreign(self._record_owners.get(old['record_id'])):raise ActionRejected('ACCESS_DENIED')   # reprocessing changes that record
+   if self._foreign_run() and a['slot_index'] in self.queue[self.queue_index:]:raise ActionRejected('ACCESS_DENIED')   # a row of another agent's running sequence
+   self.table[a['slot_index']]=dict(name=a['name'],amount_kg=a['amount_kg'],in_statistics=a['in_statistics'],record_id=old.get('record_id'))
+   if old.get('record_id'):self._reprocess(old['record_id'],a['amount_kg'])   # data reprocessing: [ug/kg] of the stored result follows the new weight
+   return {'slot_index':a['slot_index']}
+  if k=='table.clear_entry':
+   if self._foreign_run() and a['slot_index'] in self.queue[self.queue_index:]:raise ActionRejected('ACCESS_DENIED')   # a row of another agent's running sequence
+   return {'cleared':self.table.pop(a['slot_index'],None) is not None}
+  if k=='power.set':                                                     # the main switch is a hard switch: physical, never refused (lead rule 10-19)
    if a['enabled'] and self.cover!=0:raise ActionRejected('COVER_OPEN')
    if not a['enabled'] and self.phase=='running':self._stop('cancelled','power removed')
+   if a['enabled'] and not self.powered:self.power_epoch+=1
    self.powered=a['enabled'];return {'enabled':self.powered}
   if k=='gas.set':
+   if not a['enabled'] and self._foreign_run():raise ActionRejected('ACCESS_DENIED')
    if a['enabled'] and self.oxygen_remaining<=0:raise ActionRejected('OXYGEN_UNAVAILABLE')
    if not a['enabled'] and self.phase=='running':self._stop('cancelled','carrier removed')
    self.gas=a['enabled'];return {'enabled':self.gas}
   if k=='measurement.stop':
+   if self._foreign_run():raise ActionRejected('ACCESS_DENIED')
    if self.phase=='running':self._stop('cancelled','host stop')
    return {'phase':self.phase}
   if k in ['measurement.start','sequence.start']:return self._start([a['slot_index']] if k=='measurement.start' else a['slot_indices'])
@@ -249,12 +339,35 @@ class MilestoneDma80Runtime:
    self._selected_curve=a['curve_id'];return {'selected':a['curve_id']}
   if k=='records.remove':
    if a['record_id'] not in self._records:raise ActionRejected('UNKNOWN_RECORD')
+   if self._foreign(self._record_owners.get(a['record_id'])):raise ActionRejected('ACCESS_DENIED')
    del self._records[a['record_id']];return {'removed':True}
   if k=='product.drain':
    if not self._cold() or self.gas or not self._home():raise ActionRejected('COLD_MAINTENANCE_REQUIRED')
    if not a['recipient_id']:raise ActionRejected('INVALID_ARGUMENT')
    amount=self.hg_transport+self.hg_gold+self.hg_cell;self.hg_removed+=amount;self.hg_transport=self.hg_gold=self.hg_cell=0.;return {'removed_mercury_kg':amount}
   raise ActionRejected('UNKNOWN_CAPABILITY')
+ def _foreign(self,owner):
+  """The session caller is an agent and the run or record belongs to another principal (direct calls and terminal gestures alike: both run with
+  the session caller in _caller); unowned runs and records, the evaluator and host-internal calls are not restricted."""
+  c=self._caller
+  return c is not None and self._principals.get(c)=='agent' and owner is not None and owner!=c
+ def _foreign_run(self):
+  """An agent may not stop (terminal STOP, measurement.stop) or end (main switch / power.set off, carrier gas off) another agent's running sequence."""
+  return self.phase=='running' and self._foreign(self._owners.get(self.operation_id))
+ def _fraction(self,mass,amount,cfg):
+  """Mass fraction the terminal reports: Hg mass over the weight entered in the sample table when the row exists (EasyCONTROL, ug/kg), else over the
+  host's declared boat mass; a zero entered weight gives none."""
+  basis=cfg['mass_kg'] if amount is None else amount
+  return mass/basis if mass is not None and basis>0 else None
+ def _reprocess(self,record_id,amount):
+  """A new weight for a row with a result recalculates that stored result everywhere it is kept (record, current result, sequence, operation snapshots)."""
+  def fix(r):
+   if r and r.get('record_id')==record_id:
+    s=self.samples.get(r['slot_index']);cfg=s['cfg'] if s else dict(mass_kg=r['sample_mass_kg'])
+    r.update(entered_amount_kg=amount,mercury_mass_fraction_kg_kg=self._fraction(r['mercury_mass_kg'],amount,cfg))
+  for r in [self._records.get(record_id),self._result_cache,*self.completed]:fix(r)
+  for snap in self._operation_records.values():
+   for r in [snap.get('current_result'),*snap.get('result',[])]:fix(r)
  def _start(self,indices):
   self._idle()
   if not self._ready() or not self._home():raise ActionRejected('NOT_READY')
@@ -277,7 +390,7 @@ class MilestoneDma80Runtime:
  def _result(self):
   if self._result_cache:return copy.deepcopy(self._result_cache)
   s=self.samples.get(self.current_slot);cfg=s['cfg'] if s else SAMPLE_EXAMPLE
-  return dict(record_id='',slot_index=self.current_slot if self.current_slot is not None else 0,kind=self._run_kind,status=self.phase,complete=False,windows=copy.deepcopy(self.windows),integrated_absorbance_s=self.area if self.windows else None,blank_corrected_integral_s=None,mercury_mass_kg=None,mercury_mass_fraction_kg_kg=None,mercury_concentration_kg_m3=None,uncertainty_kg=None,sample_mass_kg=cfg['mass_kg'],sample_volume_m3=cfg['volume_m3'],acquisition_signature=self._run_key,acquisition_method_json=json.dumps(self._run_method,sort_keys=True),evidence='synthetic dual-beam current-window optical observations; source scalar Hg references are not raw curves',template_source=TEMPLATE_REL,quality=['no complete observed result'])
+  return dict(record_id='',slot_index=self.current_slot if self.current_slot is not None else 0,kind=self._run_kind,status=self.phase,complete=False,windows=copy.deepcopy(self.windows),integrated_absorbance_s=self.area if self.windows else None,blank_corrected_integral_s=None,mercury_mass_kg=None,mercury_mass_fraction_kg_kg=None,mercury_concentration_kg_m3=None,uncertainty_kg=None,sample_mass_kg=cfg['mass_kg'],sample_volume_m3=cfg['volume_m3'],entered_amount_kg=None,acquisition_signature=self._run_key,acquisition_method_json=json.dumps(self._run_method,sort_keys=True),evidence='synthetic dual-beam current-window optical observations; source scalar Hg references are not raw curves',template_source=TEMPLATE_REL,quality=['no complete observed result'])
  def _window(self):
   if self._pending_dt<=1e-12:return
   p=self.plant;dt=self._pending_dt;sample=self._pending_s/dt;ref=self._pending_r/dt
@@ -302,11 +415,14 @@ class MilestoneDma80Runtime:
   if status=='succeeded' and self.windows and self._run_blank:
    last=self.windows[-1];b=self._run_blank['windows'][-1]['absorbance'];value=last['absorbance'];threshold=max(1e-5,10*self.plant['beam_noise_density_sqrt_s']/math.sqrt(last['end_s']-last['start_s']))
    if value is not None and b is not None and abs(value-b)>threshold:mass=sd=None;quality.append('observable absorption tail unresolved; recorded window complete but quantitative recovery not established')
-  self._record_counter+=1;r.update(record_id=f'record_{self._record_counter}',status=status,complete=status=='succeeded',windows=copy.deepcopy(self.windows),integrated_absorbance_s=self.area if self.windows else None,blank_corrected_integral_s=net,mercury_mass_kg=mass,mercury_mass_fraction_kg_kg=mass/s['cfg']['mass_kg'] if mass is not None else None,mercury_concentration_kg_m3=mass/s['cfg']['volume_m3'] if mass is not None and s['cfg']['input_form']=='liquid' else None,uncertainty_kg=sd,quality=quality or ['conditioned total Hg from observed dual-beam peak; no molecular speciation']);self._result_cache=r;self._records[r['record_id']]=copy.deepcopy(r);self.completed.append(copy.deepcopy(r));self._record_saved=True;s['processed']=True
+  entered=self.table[self.current_slot]['amount_kg'] if self.current_slot in self.table else None   # the weight typed into the sample table, as the terminal uses it
+  self._record_counter+=1;r.update(record_id=f'record_{self._record_counter}',status=status,complete=status=='succeeded',windows=copy.deepcopy(self.windows),integrated_absorbance_s=self.area if self.windows else None,blank_corrected_integral_s=net,mercury_mass_kg=mass,mercury_mass_fraction_kg_kg=self._fraction(mass,entered,s['cfg']),entered_amount_kg=entered,mercury_concentration_kg_m3=mass/s['cfg']['volume_m3'] if mass is not None and s['cfg']['input_form']=='liquid' else None,uncertainty_kg=sd,quality=quality or ['conditioned total Hg from observed dual-beam peak; no molecular speciation']);self._result_cache=r;self._records[r['record_id']]=copy.deepcopy(r);self._record_owners[r['record_id']]=self._owners.get(self.operation_id);self.completed.append(copy.deepcopy(r));self._record_saved=True;s['processed']=True
+  if self.current_slot in self.table:self.table[self.current_slot]['record_id']=r['record_id']
   if status=='succeeded' and self._run_kind=='blank' and self.windows and not any(w['saturated'] for w in self.windows):self._blanks[self._run_key]=copy.deepcopy(r)
   if status=='succeeded' and self._run_kind=='standard':self._standards[r['record_id']]=dict(reference_id=s['reference_id'],reference_mass_kg=s['hg'])
  def _stop(self,status,warning):
   self._saved_progress=self._progress();self.warning=warning;self._save(status);self.phase=status;self._operation_records[self.operation_id]=self._operation_snapshot()
+  self._log('Errors' if status=='failed' else 'Application',('Device error: ' if status=='failed' else 'Measurement stopped: ')+warning)
  def _operation_snapshot(self):return dict(operation_id=self.operation_id,status=self.phase,result=copy.deepcopy(self.completed),current_result=self._result(),clock={'domain':'simulation','time_s':self.time_s},state_revision=self.revision)
  def _fit(self,a):
   if not a['curve_id'] or a['curve_id'] in self._curves:raise ActionRejected('CURVE_EXISTS')
@@ -385,7 +501,7 @@ class MilestoneDma80Runtime:
    self.lift=self._approach(self.lift,0.,p['injection_speed_m_s'],dt)
    if self.lift<=1e-10:
     self.queue_index+=1
-    if self.queue_index==len(self.queue):self.phase='succeeded';self.stage='complete';self._saved_progress=1.;self._operation_records[self.operation_id]=self._operation_snapshot()
+    if self.queue_index==len(self.queue):self.phase='succeeded';self.stage='complete';self._saved_progress=1.;self._operation_records[self.operation_id]=self._operation_snapshot();self._log('Application',f'Sequence completed ({len(self.completed)} samples)')
     else:self._begin_assay(self.queue[self.queue_index])
   # Catalyst/transport separates mobile Hg from gold-retained Hg. Uncaptured capacity overflow is never hidden success.
   self._transport_mercury(dt)
@@ -448,8 +564,12 @@ class MilestoneDma80Session:
                 old,result=h._requests[key]
                 if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(result)
-            result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+            before=h.operation_id;h._caller=self._principal
+            try:result=h.invoke(capability_id,**arguments)
+            finally:h._caller=None
+            op=result.get('operation_id')
             if op:h._owners[op]=self._principal
+            elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a sequence started from the terminal belongs to the caller
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
         except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
     def write(self,*,instance_id,state_id,value,request_id):
@@ -496,9 +616,9 @@ PLANT['properties']['cell_pressure_pa']['description']='Explicit absolute optica
 
 def export_milestone_dma80_contract_metadata():
  caps={};slots={};run=['measurement.phase','measurement.stage','measurement.elapsed_s','measurement.progress','sequence.progress','sequence.current_slot','sequence.completed_count'];motion=['carousel.angle_rad','transfer.lift_m','injection.position_m'];thermal=['temperature.actual_k','temperature.target_k','catalyst.actual_k','amalgamator.actual_k','cell.actual_k'];obs=['detector.absorbance','detector.sample_relative','detector.reference_relative','detector.transmission_ratio','detector.integrated_absorbance_s','detector.last_sample_time_s'];res=['result.mercury_mass_kg','result.mass_fraction_kg_kg','result.concentration_kg_m3'];ready=['instrument.ready','blank.valid','calibration.ready'];end=[*run,*obs,*res,'storage.result_count','truth.ledger','safety.warning']
- immediate={'plant.configure':['plant.configured',*thermal,'truth.ledger'],'power.set':['power.enabled',*end,'instrument.ready'],'gas.set':['gas.enabled',*end,'instrument.ready'],'cover.set':['cover.angle_rad','instrument.ready'],'dust_cover.set':['dust_cover.angle_rad','instrument.ready'],'sample.load':['sample.count','truth.ledger'],'sample.unload':['sample.count','truth.ledger'],'carousel.select':['carousel.selected_slot'],'method.configure':ready,'measurement.start':[*run,*obs,*res,'carousel.selected_slot','safety.warning'],'sequence.start':[*run,*obs,*res,'carousel.selected_slot','safety.warning'],'measurement.stop':end,'calibration.fit':['storage.curve_count'],'calibration.select':['calibration.ready'],'records.remove':['storage.result_count'],'product.drain':['truth.ledger']}
- onstep={'power.set':[*thermal,*motion,'truth.ledger','instrument.ready'],'gas.set':['truth.ledger',*end,'instrument.ready'],'method.configure':[*thermal,'truth.ledger','instrument.ready'],'carousel.select':['carousel.angle_rad'],'measurement.start':[*run,*thermal,*motion,*obs,*res,'storage.result_count','truth.ledger','blank.valid','carousel.selected_slot','safety.warning'],'sequence.start':[*run,*thermal,*motion,*obs,*res,'storage.result_count','truth.ledger','blank.valid','carousel.selected_slot','safety.warning'],'measurement.stop':['transfer.lift_m','injection.position_m',*thermal,'truth.ledger']}
- observes={'plant.configure':['plant.configured'],'power.set':['power.enabled'],'gas.set':['gas.enabled'],'cover.set':['cover.angle_rad'],'dust_cover.set':['dust_cover.angle_rad'],'sample.load':['sample.count'],'sample.inventory':['sample.count'],'carousel.select':['carousel.selected_slot'],'measurement.start':['measurement.phase'],'sequence.start':['measurement.phase'],'measurement.stop':['measurement.phase'],'process.measure':['measurement.phase','measurement.stage','measurement.elapsed_s','measurement.progress','detector.absorbance','detector.integrated_absorbance_s',res[0]],'result.read':[*res,'detector.integrated_absorbance_s'],'sequence.read':['measurement.phase','sequence.completed_count'],'signal.read':obs,'blank.read':['blank.valid'],'records.list':['storage.result_count','storage.curve_count'],'product.read':['truth.ledger']}
+ immediate={'plant.configure':['plant.configured',*thermal,'truth.ledger'],'power.set':['power.enabled',*end,'instrument.ready'],'gas.set':['gas.enabled',*end,'instrument.ready'],'cover.set':['cover.angle_rad','instrument.ready'],'dust_cover.set':['dust_cover.angle_rad','instrument.ready'],'sample.load':['sample.count','truth.ledger'],'sample.unload':['sample.count','truth.ledger'],'carousel.select':['carousel.selected_slot'],'method.configure':ready,'measurement.start':[*run,*obs,*res,'carousel.selected_slot','safety.warning'],'sequence.start':[*run,*obs,*res,'carousel.selected_slot','safety.warning'],'measurement.stop':end,'calibration.fit':['storage.curve_count'],'calibration.select':['calibration.ready'],'records.remove':['storage.result_count'],'product.drain':['truth.ledger'],'table.set_entry':['table.entries'],'table.clear_entry':['table.entries']}
+ onstep={'power.set':[*thermal,*motion,'truth.ledger','instrument.ready'],'gas.set':['truth.ledger',*end,'instrument.ready'],'method.configure':[*thermal,'truth.ledger','instrument.ready'],'carousel.select':['carousel.angle_rad'],'measurement.start':[*run,*thermal,*motion,*obs,*res,'storage.result_count','truth.ledger','blank.valid','carousel.selected_slot','safety.warning','table.entries'],'sequence.start':[*run,*thermal,*motion,*obs,*res,'storage.result_count','truth.ledger','blank.valid','carousel.selected_slot','safety.warning','table.entries'],'measurement.stop':['transfer.lift_m','injection.position_m',*thermal,'truth.ledger']}
+ observes={'plant.configure':['plant.configured'],'power.set':['power.enabled'],'gas.set':['gas.enabled'],'cover.set':['cover.angle_rad'],'dust_cover.set':['dust_cover.angle_rad'],'sample.load':['sample.count'],'sample.inventory':['sample.count'],'carousel.select':['carousel.selected_slot'],'measurement.start':['measurement.phase'],'sequence.start':['measurement.phase'],'measurement.stop':['measurement.phase'],'process.measure':['measurement.phase','measurement.stage','measurement.elapsed_s','measurement.progress','detector.absorbance','detector.integrated_absorbance_s',res[0]],'result.read':[*res,'detector.integrated_absorbance_s'],'sequence.read':['measurement.phase','sequence.completed_count'],'signal.read':obs,'blank.read':['blank.valid'],'records.list':['storage.result_count','storage.curve_count'],'product.read':['truth.ledger'],'table.set_entry':['table.entries'],'table.clear_entry':['table.entries']}
  for k,(s,u,origin,vis,parts,write) in SLOTS.items():
   mode='integral' if k=='detector.integrated_absorbance_s' else 'interval_mean' if k in obs[:4] else 'instant'
   slots[k]=dict(meaning_zh=SLOT_ZH[k],component_ids=parts,value_schema=copy.deepcopy(s),unit=u,reference_conditions=None,origin=origin,visibility=vis,access='read_write' if write else 'read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'MilestoneDma80Session.read(state_ids=[{k!r}])'),write_via=dict(capability_id=write[0],argument=write[1],fixed_arguments={}) if write else None,sampling=dict(mode=mode,time_domain='simulation',window_description='Actual completed window or cumulative recorded optical interval; query clock never substitutes for sample time.' if mode!='instant' else None),source_ids=['simulation_assumption'])

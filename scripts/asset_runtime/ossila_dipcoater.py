@@ -4,7 +4,8 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='ossila_dipcoater'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-054'; PROTOCOL_VERSION='1.0.0'
+SLUG='ossila_dipcoater'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-054'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.3.1'
+ASSET_DIR=ROOT/'assets/expansion_batch04/t5_automation/ossila_dipcoater'
 TEMPLATE_REL='assets/reactions/ossila_dipcoater_film_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -76,6 +77,69 @@ cap('reference.properties',obj({'substance_id':TEXT}),PROPS_OUT,['bath'],'298.15
 BATH_REF=obj({k:v for k,v in BATH['properties'].items() if k not in ('solvent_density_kg_m3', 'viscosity_pa_s', 'surface_tension_n_m')})
 BATH_REF_EXAMPLE=dict({k:v for k,v in BATH_EXAMPLE.items() if k in BATH_REF['properties']},solvent_id='toluene')
 cap('bath'+'.configure_from_reference',BATH_REF,obj(dict({k:number(BATH['properties'][k]['x-unit'],0) for k in ('solvent_density_kg_m3', 'viscosity_pa_s', 'surface_tension_n_m')},configured=BOOL,evidence=TEXT)),['bath'],'液浴溶剂密度/黏度/表面张力取自库内298.15K真实物性（LLD用）；宿主温度须为298.15±0.5K','configuration','evaluator',BATH_REF_EXAMPLE,['bath.configured', 'truth.ledger'])
+# front panel 1.2.0 (manual 8.2-8.4): Settings (coating length, ruler positions, Advanced), Manual (speeds, jog, Free Motion), Program mode with 20
+# stored programs; the selected program plus the coating length and drying gap compose the method that runs
+PROGRAMS=20
+SETTINGS_DEFAULT=dict(coating_length_m=.05,drying_gap_m=.005,substrate_position_m=None,solution_height_m=None,speed_unit='mm/s',default_page='settings',
+                      default_program='last',brightness_pct=70,manual_immersion_speed_m_s=.01,manual_withdrawal_speed_m_s=.01,free_speed_m_s=.01)
+PROGRAM_DEFAULT=dict(cycles=1,immersion_speed_m_s=.01,dwell_s=0.,withdrawal_initial_m_s=.001,withdrawal_final_m_s=.001,dry_s=0.)
+RULER=number('m',0,.3)
+def _nul(x):return {'anyOf':[x,{'type':'null'}]}
+SETTINGS_IN=dict(type='object',properties=dict(coating_length_m=number('m',.0001,.175),drying_gap_m=number('m',0,.05),substrate_position_m=RULER,solution_height_m=RULER,
+                 speed_unit=dict(type='string',enum=['mm/s','mm/min']),default_page=dict(type='string',enum=['settings','program','manual']),
+                 default_program=dict(type='string',enum=['last','first']),brightness_pct=dict(type='integer',minimum=0,maximum=100,**{'x-unit':'1'}),
+                 manual_immersion_speed_m_s=SPEED,manual_withdrawal_speed_m_s=SPEED,free_speed_m_s=SPEED),required=[],additionalProperties=False)
+SETTINGS_VIEW=obj(dict(coating_length_m=number('m',0,.175),drying_gap_m=number('m',0,.05),substrate_position_m=_nul(RULER),solution_height_m=_nul(RULER),speed_unit=TEXT,
+                       default_page=TEXT,default_program=TEXT,brightness_pct=dict(type='integer',minimum=0,maximum=100,**{'x-unit':'1'}),manual_immersion_speed_m_s=SPEED,
+                       manual_withdrawal_speed_m_s=SPEED,free_speed_m_s=SPEED,warning=_nul(TEXT)))
+PROGRAM_FIELDS=dict(cycles=dict(type='integer',minimum=1,maximum=1000,**{'x-unit':'1'}),immersion_speed_m_s=SPEED,dwell_s=number('s',0,359999),withdrawal_initial_m_s=SPEED,
+                    withdrawal_final_m_s=SPEED,dry_s=number('s',0,359999))
+PROGRAM_VIEW=obj(dict(program=dict(type='integer',minimum=1,maximum=PROGRAMS,**{'x-unit':'1'}),last_run=dict(type='integer',minimum=1,maximum=PROGRAMS,**{'x-unit':'1'}),**PROGRAM_FIELDS))
+PROGRAM_CAPS={}
+def pcap(k,i,o,c,z,ex,effects,kind='configuration'):PROGRAM_CAPS[k]=(i,o,c,z,kind,'agent',ex,effects)
+pcap('settings.configure',SETTINGS_IN,SETTINGS_VIEW,['display_digits'],'面板设定：涂覆长度（与干燥间隙之和超过175 mm时自动修正并警告）、基片位置与液面高度（标尺读数；两者都设后按其计算浸入行程）、单位、默认页/程序、亮度、手动与自由速度',
+     {'coating_length_m':.05},['settings.state','method.configured'])
+pcap('program.select',obj({'program':dict(type='integer',minimum=1,maximum=PROGRAMS,**{'x-unit':'1'})}),PROGRAM_VIEW,['display_digits'],'选择程序1–20（所选程序与涂覆长度、干燥间隙组成运行的方法）',
+     {'program':2},['programs.state','method.configured'])
+pcap('program.configure',dict(type='object',properties=PROGRAM_FIELDS,required=[],additionalProperties=False),PROGRAM_VIEW,['display_digits'],
+     '所选程序的循环数、浸入速度、停留时间、初始/最终提拉速度与干燥时间',{'cycles':5,'immersion_speed_m_s':.065},['programs.state','method.configured'])
+pcap('stage.jog',obj({'direction':dict(type='string',enum=['up','down']),'duration_s':number('s',.02,60),'mode':dict(type='string',enum=['manual','free'])}),
+     obj({'phase':PHASE,'operation_id':TEXT}),['carriage','motor'],'手动模式点动：按住方向键的时间×设定速度（手动：上=提拉速度、下=浸入速度；自由运动：自由速度），限175 mm行程',
+     {'direction':'up','duration_s':1.,'mode':'manual'},['cycle.phase','stage.target_m'],'device_command')
+# 1.3.0 (sync audit): the troubleshooting table's "System error" (manual p.34-35: the secondary safety switch was triggered) through an evaluator
+# fault injection; the error stays on the screen until the cause is removed (the arm moved towards the centre of travel by hand, or the switch
+# repaired: fault.clear) and the unit is switched off and on again
+FAULT_CAPS={}
+def fcap(k,i,o,c,z,ex,effects):FAULT_CAPS[k]=(i,o,c,z,'simulation','evaluator',ex,effects)
+fcap('fault.inject',obj({'code':dict(type='string',enum=['system_error'])}),obj({'code':TEXT,'phase':PHASE}),['motor','display_digits'],
+     '评测者注入手册故障排除表的System error（次级安全开关被触发，p.34-35）：运动立即停止（运行失败），屏幕显示System error，回零/移动/点动/启动被拒，直到原因排除（fault.clear）且关开电源',
+     {'code':'system_error'},['safety.system_error','truth.secondary_switch','cycle.phase'])
+fcap('fault.clear',obj({}),obj({'cause':_nul(TEXT)}),['motor'],'评测者：原因已排除（手动把浸渍臂移向行程中部，或次级安全开关已修复）；System error仍须关开电源才消失（手册p.35）',{},['truth.secondary_switch'])
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.ossila_dipcoater
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=_panel_ui.load_spec(ASSET_DIR/'panel_ui.json',capabilities=set(CAPS)|set(PROGRAM_CAPS))
+PANEL_CAPS={k:(d['input_schema'],d['output_schema'],d['component_ids'],d['function_zh'],d['kind'],d['visibility'],d['example_arguments'],[]) for k,d in _panel_ui.capability_definitions(PANEL_SPEC).items()}
+ALL_CAPS={**CAPS,**PROGRAM_CAPS,**FAULT_CAPS,**PANEL_CAPS}
+
+class _Panel(_panel_ui.PanelUI):
+    """Front-panel UI whose state dict lives in the runtime (panel_ui), so copies and snapshots of a runtime include the screen it shows."""
+    def __init__(self,host):
+        saved=host.__dict__.get('panel_ui');super().__init__(PANEL_SPEC,host)
+        if saved is not None:self.ui=saved
+    @property
+    def ui(self):return self.host.panel_ui
+    @ui.setter
+    def ui(self,value):self.host.panel_ui=value
+
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,z,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=z
 for key in ['plant','method','bath','substrate']:slot(key+'.configured',BOOL,'1',key+'配置或存在标记','setpoint')
@@ -93,6 +157,10 @@ slot('cycle.stage',TEXT,'1','浸入/停留/抽离/干燥等阶段',c='display_di
 slot('cycle.index',dict(type='integer',minimum=0,maximum=1000,**{'x-unit':'1'}),'1','当前循环编号',c='display_digits')
 slot('cycle.elapsed_s',number('s',0),'s','当前操作的宿主累计时间',c='display_digits')
 slot('truth.ledger',PRODUCT,'1','有限浴、64段双面膜、干固体和环境账本；不提供给代理','process_truth','evaluator','substrate')
+slot('settings.state',SETTINGS_VIEW,'1','面板设定（涂覆长度、干燥间隙、标尺上的基片位置与液面高度、单位、默认页/程序、亮度、手动/自由速度）与最近的设定警告','setpoint',c='display_digits')
+slot('programs.state',PROGRAM_VIEW,'1','面板所选程序（1–20）及其参数、上次运行的程序','setpoint',c='display_digits')
+slot('safety.system_error',BOOL,'1','屏幕上的System error（次级安全开关触发，手册p.34）；原因排除后关开电源才消失',c='display_digits')
+slot('truth.secondary_switch',BOOL,'1','次级安全开关仍被触发（评测者注入的原因；fault.clear排除前每次开机都显示System error）','process_truth','evaluator','motor')
 
 class OssilaDipcoaterRuntime:
     """A trusted host owns time, attachments and collision events. No device truth leaks."""
@@ -104,6 +172,44 @@ class OssilaDipcoaterRuntime:
         self.initial=[0.,0.];self.bath=[0.,0.];self.evaporated=[0.,0.];self.collected=[0.,0.]
         self.film=[[0.,0.] for _ in range(64)];self.solid=[0.]*64;self.submerged=[0.]*64;self.evap_flux=0.
         self.operation_id='';self._operation_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+        self.settings=dict(SETTINGS_DEFAULT,warning=None);self.programs={str(n):dict(PROGRAM_DEFAULT) for n in range(1,PROGRAMS+1)};self.program_no=1;self.last_run=1
+        self.power_epoch=0;self.panel_ui=None;self.panel_capture_dir=None;_Panel(self)
+        self.system_error=False;self.secondary=False   # 1.3.0: System error on the screen / secondary safety switch still triggered
+        self._caller=None   # principal of the session call in progress (set by OssilaDipcoaterSession.invoke; panel keys act as that caller)
+    @property
+    def panel(self):return _Panel(self)
+    # ---- panel settings and program store (manual 8.4): the selected program + coating length + drying gap compose the method
+    def _compose(self):
+        p=self.programs[str(self.program_no)];st=self.settings
+        m=dict(coating_length_m=st['coating_length_m'],immersion_speed_m_s=p['immersion_speed_m_s'],withdrawal_initial_m_s=p['withdrawal_initial_m_s'],
+               withdrawal_final_m_s=p['withdrawal_final_m_s'],dwell_s=p['dwell_s'],dry_s=p['dry_s'],drying_gap_m=st['drying_gap_m'],cycles=p['cycles'])
+        try:validate(METHOD,m);self.method=m
+        except ActionRejected:self.method=None
+    def _program_view(self):return dict(program=self.program_no,last_run=self.last_run,**copy.deepcopy(self.programs[str(self.program_no)]))
+    def _settings_warning(self):
+        st=self.settings;pos,sol=st['substrate_position_m'],st['solution_height_m']
+        if pos is None or sol is None:return None
+        if pos<sol:return 'below_solution'                                   # manual 8.4.2 note: substrate position below the solution height
+        if pos-sol+st['coating_length_m']+st['drying_gap_m']>.175+1e-12:return 'travel_position'
+        return None
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        v=self.read('agent');v.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,'host.coating':self.phase=='running' and self.stage not in ('homing','manual','idle')})
+        return v
+    def panel_invoke(self,capability_id,arguments):
+        try:return self.invoke(capability_id,**arguments)
+        except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+    def panel_time(self):return self.time_s
+    def _gesture(self,fn,*args):
+        try:return {'accepted':bool(fn(*args))}
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+    def _capture(self,display_id):
+        import hashlib,tempfile
+        try:data,w,h=self.panel.png_bytes(display_id)
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+        sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);path=d/f'{display_id}_{sha[:16]}.png'
+        if not path.exists():path.write_bytes(data)
+        return dict(display_id=display_id,time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
     def register_principal(self,principal_id,visibility='agent'):
         if visibility not in ('agent','debug','evaluator') or not isinstance(principal_id,str) or not principal_id:raise ActionRejected('INVALID_ARGUMENT')
         if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -150,6 +256,9 @@ class OssilaDipcoaterRuntime:
         return .94*math.sqrt(b['surface_tension_n_m']/(rho*9.80665))*ca**(2/3)
     def _targets(self):
         s=self.sample;m=self.method;zero=s['clamp_zero_z_m']-s['length_m']
+        pos,sol=self.settings['substrate_position_m'],self.settings['solution_height_m']
+        if pos is not None and sol is not None:                               # 1.2.0: the ruler readings entered on the panel (substrate bottom at the top position)
+            return .175-(pos-sol+m['coating_length_m']),.175-(pos-sol)+m['drying_gap_m']
         low=self._surface()-zero-m['coating_length_m']
         # Exact bath-surface/displacement fixed point; positive footprint << bath area.
         for _ in range(8):low=self._surface(low)-zero-m['coating_length_m']
@@ -164,26 +273,48 @@ class OssilaDipcoaterRuntime:
             evidence='synthetic_64strip_LLD_complete_wetting;real_NIST_reference;NOT_measured_thickness',template_source=TEMPLATE_REL);return p
     def read(self,visibility='agent'):
         if visibility not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
-        v={'plant.configured':self.plant is not None,'method.configured':self.method is not None,'bath.configured':self.bath_cfg is not None,'substrate.configured':self.sample_present,'power.enabled':self.powered,'stage.homed':self.homed,'stage.target_m':self.target,'stage.position_m':self.q,'stage.speed_m_s':self.speed,'clamp.target_m':self.gap_target,'clamp.gap_m':self.gap,'safety.crash':self.crash,'safety.fault':self.fault,'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.index':self.cycle_index,'cycle.elapsed_s':self.elapsed_s,'truth.ledger':self._product()}
+        v={'settings.state':copy.deepcopy(self.settings),'programs.state':self._program_view(),'plant.configured':self.plant is not None,'method.configured':self.method is not None,'bath.configured':self.bath_cfg is not None,'substrate.configured':self.sample_present,'power.enabled':self.powered,'stage.homed':self.homed,'stage.target_m':self.target,'stage.position_m':self.q,'stage.speed_m_s':self.speed,'clamp.target_m':self.gap_target,'clamp.gap_m':self.gap,'safety.crash':self.crash,'safety.fault':self.fault,'safety.system_error':self.system_error,'truth.secondary_switch':self.secondary,'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.index':self.cycle_index,'cycle.elapsed_s':self.elapsed_s,'truth.ledger':self._product()}
         return copy.deepcopy({k:x for k,x in v.items() if visibility!='agent' or SLOTS[k][3]=='agent'})
+    def _foreign_run(self):
+        """An agent may not stop (Stop key, acquisition.stop) or switch off (power switch, power.set / power.toggle) another agent's running operation (program,
+        homing, jog); the same check for the direct call and the panel key, because both run with the session caller in _caller.  Unowned operations and
+        the evaluator are not restricted."""
+        c=self._caller;o=self._owners.get(self.operation_id)
+        return self.phase=='running' and c is not None and self._principals.get(c)=='agent' and o is not None and o!=c
     def _stop(self,result='cancelled'):
         if self.phase=='running':self.phase=result;self.stage='stopped';self.target=self.q;self.speed=0.
     def _new_operation(self,stage,target):
         self.phase='running';self.stage=stage;self.target=target;self.elapsed_s=0.;self.wait_elapsed=0.;self._operation_count+=1
         self.operation_id=self.instance_id+':motion:'+str(self._operation_count);return dict(phase=self.phase,operation_id=self.operation_id)
     def invoke(self,capability,**a):
-        if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][0],a);orig=capability;used=None
+        if capability not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+        validate(ALL_CAPS[capability][0],a);orig=capability;used=None
+        if capability=='panel.frame':return {'frame':self.panel.frame()}
+        if capability=='panel.capture':return self._capture(a['display_id'])
+        if capability=='panel.press':out=self._gesture(self.panel.press,a['input_id'],float(a.get('duration_s',.1)));self.revision+=1;return out
+        if capability=='panel.switch':out=self._gesture(self.panel.switch,a['input_id'],a['position']);self.revision+=1;return out
         if capability=='bath.configure_from_reference':
             if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
             if abs(self.plant['temperature_k']-REF_T)>REF_TOL:raise ActionRejected('REFERENCE_OUT_OF_RANGE')
             props=self._properties(a['solvent_id']);fill={'solvent_density_kg_m3':props['density_kg_m3'],'viscosity_pa_s':props['viscosity_pa_s'],'surface_tension_n_m':props['surface_tension_n_m']}
             used=dict(fill,evidence='library_298.15K:'+props['evidence']);a=dict(a,**fill);validate(BATH,a);capability='bath.configure'
-        if capability.endswith('.configure') and self.phase=='running':raise ActionRejected('BUSY')
+        if (capability.endswith('.configure') or capability=='program.select') and self.phase=='running':raise ActionRejected('BUSY')
         if capability=='plant.configure':
             if self.plant or not a['accept_uncalibrated_model']:raise ActionRejected('PRECONDITION_FAILED')
             self.plant=copy.deepcopy(a);out={'configured':True}
-        elif capability=='method.configure':self.method=copy.deepcopy(a);out={'configured':True}
+        elif capability=='method.configure':
+            self.method=copy.deepcopy(a);self.settings.update(coating_length_m=a['coating_length_m'],drying_gap_m=a['drying_gap_m'])   # also stored as the panel shows it
+            self.programs[str(self.program_no)].update({k:a[k] for k in ('cycles','immersion_speed_m_s','dwell_s','withdrawal_initial_m_s','withdrawal_final_m_s','dry_s')});out={'configured':True}
+        elif capability=='settings.configure':
+            new=dict(self.settings,**a)
+            if 'brightness_pct' in a and a['brightness_pct']%5:raise ActionRejected('INVALID_ARGUMENT')            # manual 8.4.2: steps of 5
+            new['warning']=None
+            if new['coating_length_m']+new['drying_gap_m']>.175+1e-12:new['coating_length_m']=round(.175-new['drying_gap_m'],9);new['warning']='coating_corrected'   # auto-corrected
+            self.settings=new;self.settings['warning']=self.settings['warning'] or self._settings_warning();self._compose();out=copy.deepcopy(self.settings)
+        elif capability=='program.select':
+            self.program_no=a['program'];self._compose();out=self._program_view()
+        elif capability=='program.configure':
+            self.programs[str(self.program_no)].update(a);self._compose();out=self._program_view()
         elif capability=='bath.configure':
             if not self.plant or self.bath_cfg or self.sample_present or not a['accept_complete_wetting_and_compatibility']:raise ActionRejected('PRECONDITION_FAILED')
             pressure=self._reference(a['solvent_id'],self.plant['temperature_k'])['vapor_pressure_pa']
@@ -196,8 +327,14 @@ class OssilaDipcoaterRuntime:
             if a['width_m']*a['thickness_m']>=.5*self.bath_cfg['cross_section_m2'] or a['clamp_zero_z_m']+.175-a['length_m']<=self._surface():raise ActionRejected('INVALID_GEOMETRY')
             self.sample=copy.deepcopy(a);self.sample_present=True;out={'configured':True}
         elif capability in ('power.set','power.toggle'):
-            self.powered=a['enabled'] if capability=='power.set' else not self.powered
+            # lead rule 10-19: the rear power switch (power.set / power.toggle model it) is a hard switch - physical, never refused (a power loss)
+            was=self.powered;self.powered=a['enabled'] if capability=='power.set' else not self.powered
             if not self.powered:self._stop();self.homed=False
+            if was and not self.powered and self.settings['drying_gap_m']!=.005:   # manual 8.4.2: the drying gap resets to 5 mm when switched off
+                self.settings['drying_gap_m']=.005;self._compose() if self.method is not None else None
+            if self.powered and not was:
+                self.power_epoch+=1;self.system_error=self.secondary          # manual p.35: switch off and on to see if the warning remains
+                if self.settings['default_program']=='first' and self.program_no!=1:self.program_no=1;self._compose() if self.method is not None else None
             out={'enabled':self.powered}
         elif capability=='clamp.set_gap':
             if not self.plant or self.phase=='running' or (self.sample_present and a['gap_m']>self.sample['thickness_m']):raise ActionRejected('PRECONDITION_FAILED')
@@ -206,11 +343,21 @@ class OssilaDipcoaterRuntime:
             self.crash=a['triggered']
             if self.crash:self.fault=True;self._stop('failed')
             out=a.copy()
+        elif capability=='fault.inject':
+            self.secondary=True;self.system_error=True;self._stop('failed');out={'code':a['code'],'phase':self.phase}
+        elif capability=='fault.clear':
+            out={'cause':'system_error' if self.secondary else None};self.secondary=False
         elif capability=='fault.acknowledge':
             if self.crash or self.phase=='running':raise ActionRejected('PRECONDITION_FAILED')
             self.fault=False;self.phase='idle';out={'acknowledged':True}
+        elif capability=='stage.jog':
+            if not self.plant or not self.powered or self.crash or self.fault or self.system_error or self.phase=='running' or not self.homed:raise ActionRejected('PRECONDITION_FAILED')
+            st=self.settings;up=a['direction']=='up'
+            speed=st['free_speed_m_s'] if a['mode']=='free' else st['manual_withdrawal_speed_m_s' if up else 'manual_immersion_speed_m_s']
+            if self.sample_present:self._lld(speed)
+            self.manual_speed=speed;out=self._new_operation('manual',min(.175,max(0.,self.q+(speed if up else -speed)*a['duration_s'])))
         elif capability in ['stage.home','stage.move_to','acquisition.start']:
-            if not self.plant or not self.powered or self.crash or self.fault or self.phase=='running':raise ActionRejected('PRECONDITION_FAILED')
+            if not self.plant or not self.powered or self.crash or self.fault or self.system_error or self.phase=='running':raise ActionRejected('PRECONDITION_FAILED')
             if capability=='stage.home':
                 if self.sample_present:raise ActionRejected('PRECONDITION_FAILED')
                 out=self._new_operation('homing',.175)
@@ -224,8 +371,10 @@ class OssilaDipcoaterRuntime:
                 if not 0<=lo<hi<=.175 or m['coating_length_m']>self.sample['length_m'] or self._bottom(lo)<=b['bottom_z_m']+.001:raise ActionRejected('INVALID_GEOMETRY')
                 if self.bath[0]<=1e-12:raise ActionRejected('BATH_EXHAUSTED')
                 self._lld(max(m['withdrawal_initial_m_s'],m['withdrawal_final_m_s']))
-                self.cycle_index=1;out=self._new_operation('immersing',lo)
-        elif capability=='acquisition.stop':self._stop();out={'phase':self.phase}
+                self.cycle_index=1;self.last_run=self.program_no;out=self._new_operation('immersing',lo)
+        elif capability=='acquisition.stop':
+            if self._foreign_run():raise ActionRejected('ACCESS_DENIED')
+            self._stop();out={'phase':self.phase}
         elif capability=='coating.measure':return dict(phase=self.phase,stage=self.stage,position_m=self.q,speed_m_s=self.speed,cycle_index=self.cycle_index,elapsed_s=self.elapsed_s,evidence='ideal_panel_proxy_not_thickness_sensor',template_source=TEMPLATE_REL)
         elif capability=='product.read':return self._product()
         elif capability=='reference.lookup':return self._reference(a['substance_id'],a['temperature_k'])
@@ -236,7 +385,7 @@ class OssilaDipcoaterRuntime:
             self.film=[[0.,0.] for _ in range(64)];self.solid=[0.]*64;self.sample_present=False;self.gap_target=.012
             out=dict(recipient_id=a['recipient_id'],attachment_event='host_release_substrate')
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability][1],out)
+        validate(ALL_CAPS[capability][1],out)
         if used is not None:out=dict(out,**used);validate(CAPS[orig][1],out)
         self.revision+=1;return copy.deepcopy(out)
 
@@ -331,7 +480,7 @@ class OssilaDipcoaterSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_ossila_dipcoater_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_ossila_dipcoater_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -341,16 +490,20 @@ class OssilaDipcoaterSession:
         h=self._host
         try:
             self._target(instance_id)
-            if not isinstance(capability_id,str) or capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role=='agent' and CAPS[capability_id][5]!='agent':raise ActionRejected('ACCESS_DENIED')
+            if not isinstance(capability_id,str) or capability_id not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+            if self._role=='agent' and ALL_CAPS[capability_id][5]!='agent':raise ActionRejected('ACCESS_DENIED')
             if not isinstance(request_id,str) or not request_id:raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id][0],arguments);key=(self._principal,instance_id,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+            validate(ALL_CAPS[capability_id][0],arguments);key=(self._principal,instance_id,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
             if key in h._requests:
                 old,result=h._requests[key]
                 if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(result)
-            result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+            before=h.operation_id;h._caller=self._principal
+            try:result=h.invoke(capability_id,**arguments)
+            finally:h._caller=None
+            op=result.get('operation_id')
             if op:h._owners[op]=self._principal
+            elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a run, homing or jog started by a key belongs to the caller
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
         except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
     def write(self,*,instance_id,state_id,value,request_id):
@@ -373,8 +526,8 @@ def export_ossila_dipcoater_contract_metadata():
             read_binding=dict(backend='host',artifact_id='runtime',accessor=f'OssilaDipcoaterSession.read(state_ids=[{k!r}])'),write_via=dict(capability_id=w[0],argument=w[1],fixed_arguments={}) if w else None,
             sampling=dict(mode='instant',time_domain='simulation',window_description=None),source_ids=['simulation_assumption'])
     evolving=['stage.position_m','stage.speed_m_s','stage.target_m','stage.homed','clamp.gap_m','cycle.phase','cycle.stage','cycle.index','cycle.elapsed_s','truth.ledger','safety.crash','safety.fault']
-    for k,(inp,out,c,z,kind,vis,ex,effects) in CAPS.items():
-        asynchronous=k in ['acquisition.start','stage.home','stage.move_to'];query=kind=='query'
+    for k,(inp,out,c,z,kind,vis,ex,effects) in ALL_CAPS.items():
+        asynchronous=k in ['acquisition.start','stage.home','stage.move_to','stage.jog'];query=kind=='query'
         caps[k]=dict(function_zh=z,kind=kind,visibility=vis,component_ids=c,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),
             implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),
             binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.ossila_dipcoater.OssilaDipcoaterSession.invoke',invocation=f'session.invoke(instance_id="dipcoater_01",capability_id={k!r},arguments={ex!r},request_id="unique")'),

@@ -23,15 +23,23 @@ a running timer / counter is advanced analytically over them; SI units: K, W, J,
     decides whether the bar follows or decouples (the coupling torque limits the load, so viscosity alone never overloads the 9 W motor); a
     blocked motor gives Err. 4; the viscosity trend is the load torque relative to the torque when the speed had settled (100 %).
   * Ledgers: electric heater + magnet energy = change of the plate and charge enthalpy + losses + latent heat; liquid mass = remaining +
-    evaporated + boiled off + removed with the vessel."""
+    evaporated + boiled off + removed with the vessel.
+  * External PT1000: the probe's systematic error (offset + gain error, settable by the evaluator; ideal 0 by default, kept for the later
+    calibration / sim-to-real gap work) is in what the electronics measure; the two-point calibration of the menu (manual p.19-20) stores a linear correction that the display,
+    IN_PV_1, the controller and the Error 5 check use, as the device does.  The buzzer sounds (menu Beep on) at 00:00:00 and with an error.
+Front panel (panel.press / panel.turn / panel.switch / panel.capture / panel.frame): the segment LCD, knobs, keys and menu tree of the manual
+(panel_ui.json beside the contract) run by the generic engine _panel_ui.py on top of the capabilities below (no second copy of the logic)."""
 import copy
+import hashlib
 import json
 import math
 import re
+import tempfile
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
 ASSET_TYPE_ID = "instrument.ika_plate_rctdigital"
+ASSET_VERSION = '1.3.0'
 CATALOG_ID = "CHEM-008"
 ROOT = Path(__file__).resolve().parents[2]
 ASSET_DIR = ROOT / 'assets/expansion_batch05/t4_measure/ika_plate_rctdigital'
@@ -44,6 +52,10 @@ RPM = 2.0 * math.pi / 60.0
 MAX_EVENTS_LOG = 3000
 TEMP_PER_RAD = 100.0 / (2.0 * math.pi)                                  # temperature knob: 100 K per turn (encoder; engineering)
 SPEED_PER_RAD = 500.0 / (2.0 * math.pi)                                 # speed knob: 500 rpm per turn (engineering)
+CAL_MIN_SPAN_K = 10.0                                                    # two-point calibration plausibility (assumptions: the manual gives none)
+CAL_GAIN_RANGE = (0.9, 1.1)
+CAL_MAX_OFFSET_K = 10.0
+STABLE_BAND_K, STABLE_TIME_S, STABLE_AT_SET_K = 0.1, 60.0, 1.0          # 'actual temperature stable' (SAFE symbol of the calibration screens)
 
 
 def _step_round(x, step):
@@ -209,7 +221,16 @@ VESSEL = obj(dict(vessel=enum(sorted(VESSELS)), substance_id=enum(LIQ_IDS), volu
 MENU = obj(dict(operating_mode=enum(['A', 'B', 'D']), beep=BOOL, unit=enum(['C', 'F']), err5_timeout_s=number('s', 0.0, 1800.0), expiry_stop_heating=BOOL,
                 expiry_stop_stirring=BOOL, display=enum(['safe', 'visc'])),
            optional=('operating_mode', 'beep', 'unit', 'err5_timeout_s', 'expiry_stop_heating', 'expiry_stop_stirring', 'display'))
-FAULTS = ['mains_outage', 'motor_blocked', 'sensor_short', 'triac_short', 'heater_switch_fault', 'safety_test_fault']
+FAULTS = ['mains_outage', 'motor_blocked', 'sensor_short', 'triac_short', 'heater_switch_fault', 'safety_test_fault',
+          'safety_circuit_open', 'safety_check_fault', 'control_sensor_drift', 'safety_sensor_disconnected', 'safety_sensor_drift']
+# Faults the switched-on device detects at once (and again at every power-up): fault -> (Err. code, cause; manual p.27-28).  The power-up safety
+# test finds safety_test_fault (Err. 21) and safety_check_fault (Err. 22) only when the device is switched on.
+MONITORED_FAULTS = {'safety_circuit_open': (13, '加热盘安全传感器回路开路（可调安全回路的目标值与实际值不同）'),
+                    'control_sensor_drift': (26, '加热盘温度比加热盘安全温度高40 K以上（控制温度传感器失效）'),
+                    'safety_sensor_disconnected': (44, '加热盘安全温度高于设定的安全温度（安全温度传感器断开）'),
+                    'safety_sensor_drift': (46, '加热盘安全温度比加热盘温度高40 K以上（安全温度传感器失效）')}
+SELFTEST_FAULTS = {'safety_test_fault': (21, '加热盘安全自检失败（安全继电器不断开）'), 'safety_check_fault': (22, '加热盘安全自检失败（S_CHECK不能产生H_S_TEMP）')}
+FAULT_OF_ERROR = {code: f for f, (code, _) in list(MONITORED_FAULTS.items()) + list(SELFTEST_FAULTS.items())}
 cap('plant.configure', PLANT, obj(dict(configured=BOOL)), PLANT_EXAMPLE, ['housing'], '声明环境：室温、大气压、电源电压、相对湿度（默认0.5）与噪声种子（之后可改环境，种子不可改）',
     'evaluator', 'configuration')
 cap('power.set', obj(dict(on=BOOL)), obj(dict(on=BOOL)), dict(on=True), ['power_switch'], '侧面电源开关（左开右关）')
@@ -220,7 +241,8 @@ cap('heating.set', obj(dict(on=BOOL)), obj(dict(on=BOOL)), dict(on=True), ['temp
 cap('heating.toggle', obj({}), obj(dict(on=BOOL)), {}, ['temp_push_key'], '按温度旋钮：切换加热功能')
 cap('heating.set_mode', obj(dict(mode=enum(['pid', '2p']))), obj(dict(mode=enum(['pid', '2p']))), dict(mode='pid'), ['housing'], '菜单：外接传感器控温方式（PID或两点）', 'agent', 'configuration')
 cap('safety.set_limit', obj(dict(limit_k=number('K', *SAFE_RANGE_K))), obj(dict(limit_k=number('K'))), dict(limit_k=C0 + 200.0), ['safety_screw'],
-    '用螺丝刀调安全温度螺钉（50–370 °C，任意位置；加热中调到加热盘温度以下即Err. 25切断加热，不加热时Err. 24）', 'agent', 'robot_skill')
+    '用螺丝刀调安全温度螺钉（50–370 °C，任意位置；加热中调到加热盘安全温度以下即Err. 25切断加热；不加热时调到加热盘温度以下为Err. 24、只低于安全传感器温度为Err. 44；'
+    'Err. 13时改为另一值即排除安全回路故障）', 'agent', 'robot_skill')
 cap('stirring.set_speed', obj(dict(speed_rad_s=SPEED_RAD)), obj(dict(speed_rad_s=SPEED_RAD)), dict(speed_rad_s=600 * RPM), ['knob_speed'],
     '转速旋钮：设定转速（0或50–1500 rpm，10 rpm步进）')
 cap('stirring.set', obj(dict(on=BOOL)), obj(dict(on=BOOL)), dict(on=True), ['speed_push_key'], '开/关搅拌功能')
@@ -238,6 +260,16 @@ cap('lock.toggle', obj({}), obj(dict(locked=BOOL)), {}, ['lock_key'], '按住Loc
 cap('viscosity.reset', obj({}), obj(dict(visc_trend=nullable(number('%')))), {}, ['menu_key'], '按住Menu键2 s：黏度趋势复位为100 %')
 cap('sensor.set', obj(dict(connected=BOOL, immersed=BOOL)), obj(dict(sensor=FREE_OBJ)), dict(connected=True, immersed=True), ['sensor_jack'],
     '插拔PT1000温度传感器并放入或取出介质（插入深度≥20 mm）', 'agent', 'robot_skill')
+CAL_T = number('K', C0 - 10.0, C0 + 350.0)
+cap('sensor.calibrate_two_point', obj(dict(device_1_k=CAL_T, reference_1_k=CAL_T, device_2_k=CAL_T, reference_2_k=CAL_T)), obj(dict(calibration=FREE_OBJ)),
+    dict(device_1_k=C0 + 51.3, reference_1_k=C0 + 50.0, device_2_k=C0 + 102.1, reference_2_k=C0 + 100.0), ['sensor_jack'],
+    '菜单Probe calibration–set（两点）：两个稳定点的设备读数与参考温度计读数（EXT）；保存线性校正，之后显示07、IN_PV_1、控温与Error 5都用校正后的介质温度',
+    'agent', 'configuration')
+cap('sensor.reset_calibration', obj({}), obj(dict(calibration=FREE_OBJ)), {}, ['sensor_jack'], '菜单Probe calibration–re-set：删除用户校准，回到出厂校准（须停加热与搅拌）',
+    'agent', 'configuration')
+cap('sensor.configure_error', obj(dict(offset_k=number('K', -5.0, 5.0), gain=number('1', -0.05, 0.05))), obj(dict(sensor_error=FREE_OBJ)),
+    dict(offset_k=0.8, gain=0.004), ['sensor_jack'],
+    '评测者：外接PT1000探头的系统误差（测得值 = T + 偏置 + 增益误差×T(°C)；默认0即理想传感器）', 'evaluator', 'simulation')
 cap('vessel.place', VESSEL, obj(dict(vessel=FREE_OBJ)), dict(vessel='h1500', substance_id='water', volume_m3=1e-3, stir_bar_length_m=0.04), ['heating_plate'],
     '把装有液体（模板库）与搅拌子的容器放到加热盘中央', 'agent', 'robot_skill')
 cap('vessel.remove', obj({}), obj(dict(vessel=FREE_OBJ)), {}, ['heating_plate'], '取下容器：返回液体温度、剩余质量与蒸发量', 'agent', 'robot_skill')
@@ -250,7 +282,8 @@ cap('events.read', obj(dict(since_s=number('s', 0.0)), optional=('since_s',)), o
 cap('truth.inspect', obj({}), obj(dict(process=FREE_OBJ, faults=array(TEXT, 0, 16))), {}, ['housing'], '评测者：加热盘、介质、传感器、搅拌子的真实状态', 'evaluator', 'query')
 cap('ledger.read', obj({}), obj(dict(ledger=FREE_OBJ)), {}, ['housing'], '评测者：能量与液体质量守恒账', 'evaluator', 'query')
 cap('fault.inject', obj(dict(fault=enum(FAULTS), active=BOOL)), obj(dict(faults=array(TEXT, 0, 16))), dict(fault='motor_blocked', active=True), ['housing'],
-    '评测者：注入或清除故障（停电、电机卡死、传感器短路、加热TRIAC短路、加热开关元件故障、安全自检失败）', 'evaluator', 'simulation')
+    '评测者：注入或清除故障（停电、电机卡死、传感器短路、加热TRIAC短路、加热开关元件故障、安全自检失败Err. 21；安全传感器回路开路Err. 13、S_CHECK自检失败Err. 22、'
+    '控制传感器失效Err. 26、安全传感器断开Err. 44、安全传感器失效Err. 46）；开机时检测到的故障立即显示错误码并关加热，自检故障在下次开机显示；清除后关机再开机排除错误', 'evaluator', 'simulation')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 30 * 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=10.0), ['housing'], '推进宿主时钟', 'evaluator', 'simulation')
 UNSUPPORTED = {
     'stirbar.detect_break': '搅拌子脱落检测：本型号没有（技术数据Break detection stirring bar: no）。',
@@ -260,6 +293,26 @@ UNSUPPORTED = {
 }
 for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, ['housing'], _v)
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.ika_plate_rctdigital (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / turn / switch / capture / frame (kept out of CAPS:
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # CAPS stays the instrument's own command set)
 
 # ---------------------------------------------------------------- state slots
 SLOTS = {}
@@ -283,6 +336,7 @@ slot('timer.state', FREE_OBJ, '1', 'derived', 'timer_key', '定时/计数：模�
 slot('menu.state', FREE_OBJ, '1', 'setpoint', 'menu_key', '菜单：工作模式、提示音、单位、Error 5时限、定时结束动作、SAFE/VISC')
 slot('lock.on', BOOL, '1', 'setpoint', 'lock_key', '是否锁定')
 slot('sensor.state', FREE_OBJ, '1', 'setpoint', 'sensor_jack', 'PT1000：是否插入接口、是否在介质中')
+slot('sensor.calibration', FREE_OBJ, '1', 'setpoint', 'sensor_jack', '外接传感器校准：calibrated（用户两点校准或出厂）、points_k（[设备读数, 参考温度] K）、gain与offset_k（校正：T = gain×测得值(°C) + offset）')
 slot('vessel.state', nullable(FREE_OBJ), '1', 'setpoint', 'heating_plate', '加热盘上的容器：型号、液体、搅拌子（无则为空）')
 slot('interface.state', FREE_OBJ, '1', 'setpoint', 'usb_port', '数据线与看门狗：是否连接、看门狗模式与时间、WD安全值')
 slot('error.code', nullable(integer(1, 99)), '1', 'derived', 'lcd', '当前错误码（Err. n；关机后排除原因再开机清除）')
@@ -298,7 +352,8 @@ for _k, _zh in (('heating', '加热符号（06）'), ('motor', '电机转动符�
                 ('lock', '锁定符号（15）'), ('sensor', 'PT1000已连接符号（13）')):
     slot(f'indicator.{_k}', BOOL, '1', 'derived', {'heating': 'heating_lamp', 'motor': 'motor_lamp', 'standby': 'standby_led', 'hot': 'hot_lamp',
                                                    'lock': 'lock_lamp', 'sensor': 'sensor_lamp'}[_k], _zh + '是否点亮')
-slot('truth.process', FREE_OBJ, '1', 'process_truth', 'heating_plate', '加热盘、介质、传感器真实温度，搅拌子转速与耦合，扭矩，功率', 'evaluator')
+slot('indicator.beep', BOOL, '1', 'derived', 'housing', '蜂鸣器是否在响（菜单Beep开时：定时到00:00:00后直到清除或重设，或有错误码时）')
+slot('truth.process', FREE_OBJ, '1', 'process_truth', 'heating_plate', '加热盘、介质、传感器真实温度与探头系统误差，搅拌子转速与耦合，扭矩，功率', 'evaluator')
 slot('truth.faults', array(TEXT, 0, 16), '1', 'process_truth', 'housing', '已注入的故障', 'evaluator')
 SCENE_MIRRORED = {'heating.set_k', 'stirring.set_rad_s', 'indicator.heating', 'indicator.motor', 'indicator.standby', 'indicator.hot', 'indicator.lock',
                   'indicator.sensor', 'display.temperature', 'display.set_temperature', 'display.speed', 'display.set_speed', 'display.message', 'display.visc_trend',
@@ -319,6 +374,9 @@ class IkaPlateRctdigitalRuntime:
         self.heat = dict(set_k=C0 + 25.0, on=False, mode='pid', safe_k=C0 + DOC['safety_circuit_c'][1])
         self.stir = dict(set_rpm=0.0, on=False, direction='cw', auto_reverse=False, run_s=0.0, pause_s=3.0)
         self.sensor = dict(connected=False, immersed=False)
+        self.sensor_err = dict(offset_k=0.0, gain=0.0)                     # probe systematic error (truth)
+        self.cal = None                                                      # stored two-point calibration (None: factory calibration)
+        self.stab = dict(ref=None, since=None)                               # sensor reading stability band
         self.vessel = None
         self.iface = dict(connected=False, wd_mode=0, wd_time_s=None, wd_last=None, wd_temp_k=None, wd_speed_rpm=None, wd2_active=False)
         self.timer = dict(mode=None, duration_s=0.0, value_s=0.0, running=False, expired=False)
@@ -336,6 +394,9 @@ class IkaPlateRctdigitalRuntime:
         self.revision = 0
         self.led = None
         self._principals, self._requests, self._caller = {}, {}, None
+        self.power_epoch = 0                                                 # power-ups seen by the panel (a cycle between two gestures still counts)
+        self.panel_capture_dir = None                                        # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self)
 
     # ---- sessions
     @property
@@ -413,7 +474,7 @@ class IkaPlateRctdigitalRuntime:
             raise ActionRejected('UNSUPPORTED')
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
         out = fn(**args)
-        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read'):
+        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'panel.capture', 'panel.frame'):
             self.revision += 1
         return out
 
@@ -438,13 +499,19 @@ class IkaPlateRctdigitalRuntime:
 
     def _mains_restored(self):
         """Power back (switch on or mains restored): mode A / D start with heating and stirring off, mode B continues (manual)."""
+        self.power_epoch += 1
         if self.menu['operating_mode'] != 'B':
             self.heat['on'] = False
             self.stir['on'] = False
-        if 'safety_test_fault' in self.faults:
-            self._set_error(21, '加热盘安全自检失败（安全继电器不断开）')
+        if self.error is not None and self._error_cleared():               # the error is not kept over a power cycle once its cause is gone
+            self._event('system', 'ERROR_CLEARED', f'开机：Err. {self.error}的原因已排除')
+            self.error = None
+        for fault, (code, why) in SELFTEST_FAULTS.items():                    # the power-up safety test
+            if fault in self.faults:
+                self._set_error(code, why)
         if self.sensor['connected'] and 'sensor_short' in self.faults:
             self._set_error(14, '外接温度传感器短路')
+        self._check_monitored()
         self._event('system', 'POWER_ON', f'开机，工作模式{self.menu["operating_mode"]}')
 
     def _power_off(self):
@@ -467,13 +534,26 @@ class IkaPlateRctdigitalRuntime:
             return 'motor_blocked' not in self.faults
         if e == 14:
             return 'sensor_short' not in self.faults
-        if e in (21,):
-            return 'safety_test_fault' not in self.faults
         if e in (24, 25):
-            return self.Tp + ENG['safety_sensor_offset_k'] < self.heat['safe_k'] and 'triac_short' not in self.faults
+            return self._safety_k() < self.heat['safe_k'] and 'triac_short' not in self.faults
+        if e == 44:                                                           # leave the plate to cool or set SAFE TEMP higher; or the sensor repaired
+            return self._safety_k() < self.heat['safe_k'] and 'safety_sensor_disconnected' not in self.faults
+        if e in FAULT_OF_ERROR:                                               # 13, 21, 22, 26, 46: the fault removed (repair)
+            return FAULT_OF_ERROR[e] not in self.faults
         if e == 31:
             return 'heater_switch_fault' not in self.faults
         return True
+
+    def _safety_k(self):
+        """The heating-plate safety temperature sensor (plate centre, ENG safety_sensor_offset_k above the control sensor)."""
+        return self.Tp + ENG['safety_sensor_offset_k']
+
+    def _check_monitored(self):
+        """Sensor and safety-circuit faults that the switched-on device detects at once (manual p.27-28): Err. 13 / 26 / 44 / 46, heating off."""
+        if self._on():
+            for fault, (code, why) in MONITORED_FAULTS.items():
+                if fault in self.faults:
+                    self._set_error(code, why)
 
     def _cmd_power_set(self, on):
         self._need_plant()
@@ -529,15 +609,25 @@ class IkaPlateRctdigitalRuntime:
             raise ActionRejected('FUNCTIONS_RUNNING')                         # manual: the menu can only be entered with stirring and heating off
 
     def _cmd_safety_set_limit(self, limit_k):
-        """The screw B (manual p.27): any position in 50-370 C; set-up procedure and functional test turn it below the hot plate -> Err. 25."""
+        """The screw B (manual p.27): any position in 50-370 C; set-up procedure and functional test turn it below the hot plate -> Err. 25.
+        Not heating: below the control sensor -> Err. 24, below the safety sensor only -> Err. 44.  With Err. 13 shown, a different SAFE TEMP
+        is the manual's remedy (p.27): the safety circuit is checked again at the new value and the fault is gone (assumption: it always helps)."""
         self._need_plant()
+        changed = float(limit_k) != self.heat['safe_k']
         self.heat['safe_k'] = float(limit_k)
         self.heat['set_k'] = min(self.heat['set_k'], max(C0, limit_k - DOC['safe_margin_k']))   # the set point follows the knob maximum (limit - 15 K)
-        if self._on() and self.Tp + ENG['safety_sensor_offset_k'] >= limit_k:
+        if changed and self._on() and 'safety_circuit_open' in self.faults:
+            self.faults.discard('safety_circuit_open')
+            if self.error == 13:
+                self.error = None
+                self._event('system', 'ERROR_CLEARED', 'SAFE TEMP改为另一值：Err. 13排除')
+        if self._on() and self._safety_k() >= limit_k:
             if self.heat['on'] or 'triac_short' in self.faults:
                 self._set_error(25, '安全回路切断加热（安全温度调到加热盘温度以下）')
-            else:
+            elif self.Tp >= limit_k:
                 self._set_error(24, '加热盘温度高于新设的安全温度')
+            else:
+                self._set_error(44, '加热盘安全温度高于新设的安全温度')
         self._event('operation', 'SAFE_TEMP', f'安全温度{limit_k - C0:.0f} °C')
         return dict(limit_k=self.heat['safe_k'])
 
@@ -664,6 +754,41 @@ class IkaPlateRctdigitalRuntime:
             self.ctrl.update(i_med=0.0, e_prev=None, on2p=True, d_filt=0.0)
             self.err5 = None
         return dict(sensor=dict(self.sensor))
+
+    def _cmd_sensor_calibrate_two_point(self, device_1_k, reference_1_k, device_2_k, reference_2_k):
+        """Menu Probe calibration - set (manual p.19-20): at two stable points the device reading and the reference (EXT) are paired; the line
+        through them corrects every later reading.  Offered only with the factory calibration (else re-set first)."""
+        self._need_on()
+        self._need_unlocked()
+        if not self.sensor['connected']:
+            raise ActionRejected('NO_SENSOR')
+        if self.cal is not None:
+            raise ActionRejected('CALIBRATION_ACTIVE')
+        if abs(device_2_k - device_1_k) < CAL_MIN_SPAN_K:
+            raise ActionRejected('CAL_POINTS_TOO_CLOSE')
+        gain = (reference_2_k - reference_1_k) / (device_2_k - device_1_k)
+        offset = (reference_1_k - C0) - gain * (device_1_k - C0)
+        if not CAL_GAIN_RANGE[0] <= gain <= CAL_GAIN_RANGE[1] or abs(offset) > CAL_MAX_OFFSET_K:
+            raise ActionRejected('CAL_OUT_OF_RANGE')
+        self.cal = dict(points_k=[[float(device_1_k), float(reference_1_k)], [float(device_2_k), float(reference_2_k)]], gain=gain, offset_c=offset)
+        self._event('operation', 'PROBE_CALIBRATED', f'探头两点校准：斜率{gain:.4f}，偏置{offset:+.2f} K')
+        return dict(calibration=self._cal_view())
+
+    def _cmd_sensor_reset_calibration(self):
+        """Menu Probe calibration - re-set: back to the factory calibration (a menu item: heating and stirring off)."""
+        self._need_on()
+        self._need_unlocked()
+        self._need_menu_idle()
+        if self.cal is None:
+            raise ActionRejected('NOT_CALIBRATED')
+        self.cal = None
+        self._event('operation', 'PROBE_CALIBRATION_RESET', '探头校准恢复出厂')
+        return dict(calibration=self._cal_view())
+
+    def _cmd_sensor_configure_error(self, offset_k, gain):
+        self._need_plant()
+        self.sensor_err = dict(offset_k=float(offset_k), gain=float(gain))
+        return dict(sensor_error=dict(self.sensor_err))
 
     def _cmd_vessel_place(self, vessel, substance_id, volume_m3, initial_k=None, stir_bar_length_m=0.04):
         self._need_plant()
@@ -832,11 +957,63 @@ class IkaPlateRctdigitalRuntime:
             self._set_error(31, '加热开关元件故障')
         if active and fault == 'motor_blocked' and self._on() and self.stir['on']:
             self._set_error(4, '电机卡住')
+        if active and fault in MONITORED_FAULTS:
+            self._check_monitored()
         self._event('fault', 'FAULT_' + fault.upper(), f'故障{fault}' + ('：注入' if active else '：清除'))
         return dict(faults=sorted(self.faults))
 
     def _cmd_sim_step(self, dt_s):
         return dict(time_s=self.step(dt_s))
+
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the panel firmware sees: the agent slots plus whether the LCD is live, the power-up count and the stored control mode."""
+        out = self.read('agent')
+        out.update({'host.powered': self._on(), 'host.power_epoch': self.power_epoch, 'host.heating_mode': self.heat['mode'],
+                    'host.sensor_stable': self._sensor_stable()})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything)."""
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_turn(self, input_id, detents):
+        return self._panel(self.panel.turn, input_id, int(detents))
+
+    def _cmd_panel_switch(self, input_id, position):
+        return self._panel(self.panel.switch, input_id, position)
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
 
     # ---- errors
     def _set_error(self, code, why):
@@ -905,8 +1082,28 @@ class IkaPlateRctdigitalRuntime:
     def _plate_reading(self):
         return self.Tp + ENG['plate_sensor_noise_k'] * _gauss(self.seed, self.tick, 1)
 
+    def _sensor_raw(self):
+        """What the PT1000 electronics measure: the tip temperature with the probe's systematic error and the noise."""
+        ts, e = self.Ts, self.sensor_err
+        if e['offset_k'] or e['gain']:
+            ts = ts + e['offset_k'] + e['gain'] * (ts - C0)
+        return ts + ENG['sensor_noise_k'] * _gauss(self.seed, self.tick, 2)
+
     def _sensor_reading(self):
-        return self.Ts + ENG['sensor_noise_k'] * _gauss(self.seed, self.tick, 2)
+        """The medium temperature the device works with (display 07, IN_PV_1, control, Error 5): the measured value through the stored two-point
+        calibration (factory calibration: as measured)."""
+        raw, c = self._sensor_raw(), self.cal
+        return raw if c is None else C0 + c['gain'] * (raw - C0) + c['offset_c']
+
+    def _sensor_stable(self):
+        """Calibration screens: the reading has stayed within 0.1 K for 60 s at the set temperature (within 1 K; assumed criterion)."""
+        return bool(self.sensor['connected'] and self.stab['since'] is not None and self.t - self.stab['since'] >= STABLE_TIME_S - 1e-9
+                    and abs(self._sensor_reading() - self.heat['set_k']) <= STABLE_AT_SET_K)
+
+    def _cal_view(self):
+        c = self.cal
+        return dict(calibrated=c is not None, points_k=None if c is None else [list(x) for x in c['points_k']], gain=1.0 if c is None else c['gain'],
+                    offset_k=0.0 if c is None else c['offset_c'])
 
     def _plate_max(self):
         return min(PLATE_MAX_K, self.heat['safe_k'] - DOC['safe_margin_k'])
@@ -1110,6 +1307,12 @@ class IkaPlateRctdigitalRuntime:
             self.Ts = ta + (self.Ts - ta) * math.exp(-h / ENG['sensor_tau_air_s'])
             if abs(self.Ts - ta) < ENG['ambient_snap_k']:
                 self.Ts = None
+        st = self.stab
+        if self.sensor['connected'] and self.Ts is not None:
+            if st['ref'] is None or abs(self.Ts - st['ref']) > STABLE_BAND_K:
+                st.update(ref=self.Ts, since=self.t + h)
+        else:
+            st.update(ref=None, since=None)
         # ---- safety and errors
         if self._on():
             if (self.heat['on'] or 'triac_short' in self.faults) and self.error != 25 and self.Tp + ENG['safety_sensor_offset_k'] >= self.heat['safe_k']:
@@ -1214,9 +1417,12 @@ class IkaPlateRctdigitalRuntime:
                'display.timer': d['timer'],
                'indicator.heating': bool(on and self.heat['on']), 'indicator.motor': bool(on and abs(self.omega) > 0),
                'indicator.standby': bool(pc and self._mains() and not self.power), 'indicator.hot': bool(pc and self._mains() and self.Tp > C0 + ENG['hot_surface_warn_c']),
-               'indicator.lock': bool(on and self.locked), 'indicator.sensor': bool(on and self.sensor['connected'])}
+               'indicator.lock': bool(on and self.locked), 'indicator.sensor': bool(on and self.sensor['connected']),
+               'sensor.calibration': self._cal_view(),
+               'indicator.beep': bool(on and self.menu['beep'] and (self.timer['expired'] or self.error is not None))}
         if visibility != 'agent':
-            out['truth.process'] = (dict(plate_k=self.Tp, charge_k=self.Tl, sensor_k=self.Ts, internal_k=self._internal_k(), motor_rad_s=self.omega,
+            out['truth.process'] = (dict(plate_k=self.Tp, charge_k=self.Tl, sensor_k=self.Ts, sensor_error=dict(self.sensor_err), internal_k=self._internal_k(),
+                                         motor_rad_s=self.omega,
                                          bar_rad_s=self.bar['omega'], bar_coupled=self.bar['coupled'], torque_nm=self.bar['torque'], heater_duty=self.ctrl['duty'],
                                          plate_target_k=self.ctrl['target_p'],
                                          liquid=None if self.vessel is None else dict(substance_id=self.vessel['sid'], mass_kg=self.vessel['mass_kg'],
@@ -1283,7 +1489,7 @@ class IkaPlateRctdigitalSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -1317,13 +1523,13 @@ class IkaPlateRctdigitalSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             h._caller = self._principal
             snapshot = copy.deepcopy({k: v for k, v in h.__dict__.items() if k not in ('_principals', '_requests', '_caller')})
             try:
@@ -1367,6 +1573,8 @@ ERROR_ZH = {
     'POWER_OFF': '电源开关关或停电', 'LOCKED': '已锁定（先按住Lock键2 s解锁）', 'ERROR_ACTIVE': '有错误码（关机排除原因后再开机）',
     'ABOVE_SAFETY_LIMIT': '设定温度须比安全温度至少低15 K', 'FUNCTIONS_RUNNING': '须先停加热与搅拌才能进菜单',
     'NEEDS_INTERVAL': '自动换向须设间歇运行时间（每次暂停后换向）', 'TIMER_NOT_SET': '尚未设定定时/计数', 'TIMER_EXPIRED': '定时已结束（重新设定）',
+    'NO_SENSOR': '未接外接温度传感器', 'CALIBRATION_ACTIVE': '已有用户校准（先re-set再校准）', 'NOT_CALIBRATED': '没有用户校准（出厂校准）',
+    'CAL_POINTS_TOO_CLOSE': '两个校准点的设备读数至少相差10 K', 'CAL_OUT_OF_RANGE': '校准超出合理范围（斜率0.9–1.1，偏置不超过10 K）',
     'NOT_VISC_MODE': '显示不在VISC（菜单Safe/Visc设为VISC）', 'NOT_IMMERSIBLE': '没有容器或液深不足20 mm，传感器不能插入介质', 'SENSOR_FAULT': '外接传感器故障（短路）',
     'OCCUPIED': '加热盘上已有容器', 'OVERFILL': '液体体积超过容器容量', 'NOT_LIQUID': '该物质在此温度下不是液体（低于熔点或高于沸点；改环境时：盘上液体会凝固，凝固未建模）',
     'BAR_LENGTH': '搅拌子长度须在30–80 mm且小于容器内径', 'NO_VESSEL': '加热盘上没有容器', 'SENSOR_IMMERSED': '先把传感器从介质中取出',
@@ -1382,10 +1590,13 @@ CAP_ERRORS = {
     'stirring.set_speed': _PL, 'stirring.set': _PL + ['ERROR_ACTIVE'], 'stirring.toggle': _PL + ['ERROR_ACTIVE'],
     'stirring.configure': _PL + ['FUNCTIONS_RUNNING', 'NEEDS_INTERVAL'], 'timer.set': _PL, 'timer.toggle': _PL + ['TIMER_NOT_SET', 'TIMER_EXPIRED'], 'timer.clear': _PL,
     'menu.configure': _PL + ['FUNCTIONS_RUNNING'], 'lock.toggle': _PO, 'viscosity.reset': _PL + ['NOT_VISC_MODE'],
-    'sensor.set': _P + ['NOT_IMMERSIBLE'], 'vessel.place': _P + ['OCCUPIED', 'OVERFILL', 'NOT_LIQUID', 'BAR_LENGTH'], 'vessel.remove': _P + ['NO_VESSEL', 'SENSOR_IMMERSED'],
+    'sensor.set': _P + ['NOT_IMMERSIBLE'],
+    'sensor.calibrate_two_point': _PL + ['NO_SENSOR', 'CALIBRATION_ACTIVE', 'CAL_POINTS_TOO_CLOSE', 'CAL_OUT_OF_RANGE'],
+    'sensor.reset_calibration': _PL + ['FUNCTIONS_RUNNING', 'NOT_CALIBRATED'], 'sensor.configure_error': _P, 'vessel.place': _P + ['OCCUPIED', 'OVERFILL', 'NOT_LIQUID', 'BAR_LENGTH'], 'vessel.remove': _P + ['NO_VESSEL', 'SENSOR_IMMERSED'],
     'interface.set': _P,
     'namur.send': _PO + ['NO_CONNECTION', 'UNKNOWN_COMMAND', 'LOCKED', 'ABOVE_SAFETY_LIMIT', 'ERROR_ACTIVE', 'SENSOR_FAULT', 'FUNCTIONS_RUNNING'],
     'medium.modify': _P + ['NO_VESSEL'], 'events.read': [], 'truth.inspect': _P, 'ledger.read': [], 'fault.inject': _P, 'sim.step': [],
+    **{k: ([] if k == 'panel.frame' else _P) for k in PANEL_CAPS},
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 PRECONDITIONS = {
@@ -1394,7 +1605,8 @@ PRECONDITIONS = {
     'heating.set': ('开机；未锁定；开加热时无错误码且传感器无故障', ['power.on', 'lock.on', 'error.code']),
     'heating.toggle': ('开机；未锁定；开加热时无错误码且传感器无故障', ['power.on', 'lock.on', 'error.code']),
     'heating.set_mode': ('开机；未锁定；加热与搅拌关闭（菜单）', ['power.on', 'lock.on', 'heating.on', 'stirring.on']),
-    'safety.set_limit': ('已声明环境；螺钉任意位置50–370 °C；设定温度高于新安全温度−15 K时降到该值；调到加热盘温度以下：加热中Err. 25、不加热时Err. 24',
+    'safety.set_limit': ('已声明环境；螺钉任意位置50–370 °C；设定温度高于新安全温度−15 K时降到该值；调到加热盘温度以下：加热中Err. 25、不加热时Err. 24；'
+                         '不加热时只低于加热盘安全传感器读数：Err. 44；Err. 13时改为另一值即排除安全回路故障',
                          ['heating.on', 'heating.set_k', 'safety.limit_k']),
     'stirring.set_speed': ('开机；未锁定', ['power.on', 'lock.on']), 'stirring.set': ('开机；未锁定；开搅拌时无错误码', ['power.on', 'lock.on', 'error.code']),
     'stirring.toggle': ('开机；未锁定；开搅拌时无错误码', ['power.on', 'lock.on', 'error.code']),
@@ -1404,14 +1616,22 @@ PRECONDITIONS = {
     'menu.configure': ('开机；未锁定；除SAFE/VISC显示外须加热与搅拌关闭', ['power.on', 'lock.on', 'heating.on', 'stirring.on']),
     'lock.toggle': ('开机', ['power.on']), 'viscosity.reset': ('开机；未锁定；显示在VISC', ['power.on', 'lock.on', 'menu.state']),
     'sensor.set': ('放入介质须有容器且液深≥20 mm', ['vessel.state', 'sensor.state']),
+    'sensor.calibrate_two_point': ('开机；未锁定；已接外接传感器；当前为出厂校准；两点设备读数相差≥10 K；校正斜率0.9–1.1、偏置≤10 K',
+                                   ['power.on', 'lock.on', 'sensor.state', 'sensor.calibration']),
+    'sensor.reset_calibration': ('开机；未锁定；加热与搅拌关闭（菜单）；已有用户校准', ['power.on', 'lock.on', 'heating.on', 'stirring.on', 'sensor.calibration']),
+    'sensor.configure_error': ('无', ['plant.configured']),
     'vessel.place': ('加热盘空；体积不超过容量；物质在初温为液体；搅拌子30–80 mm且小于内径', ['vessel.state']),
     'vessel.remove': ('有容器；传感器不在介质中', ['vessel.state', 'sensor.state']), 'interface.set': ('无', ['interface.state']),
     'namur.send': ('开机；已连接数据线；设定类命令同对应能力的前提', ['power.on', 'interface.state']),
     'medium.modify': ('有容器', ['vessel.state']), 'truth.inspect': ('无', ['plant.configured']), 'fault.inject': ('无', ['plant.configured']),
+    **{k: ('面板按当前屏幕与手册规则处理手势：关机（或停电）时只有电源开关与安全螺钉起作用，锁定时其他键与旋钮只让锁定符号闪5次，'
+           '菜单只能在加热与搅拌都关时进入；被调用能力的前提同样适用（被拒时显示仪器自己的指示，手势不被接受）', ['power.on', 'lock.on', 'heating.on', 'stirring.on'])
+       for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
+    'panel.capture': ('无（关机时为暗屏或HOT!）', ['power.on']),
 }
 _DISPLAY = ['display.temperature', 'display.set_temperature', 'display.speed', 'display.set_speed', 'display.message', 'display.visc_trend', 'display.safe_temperature',
             'display.timer']
-_IND = ['indicator.heating', 'indicator.motor', 'indicator.standby', 'indicator.hot', 'indicator.lock', 'indicator.sensor']
+_IND = ['indicator.heating', 'indicator.motor', 'indicator.standby', 'indicator.hot', 'indicator.lock', 'indicator.sensor', 'indicator.beep']
 _EVOLVE = _DISPLAY + _IND + ['heating.on', 'stirring.on', 'error.code', 'timer.state', 'sensor.state', 'interface.state', 'truth.process',
                               'heating.set_k', 'stirring.set_rad_s']   # the set points change on a step only through watchdog 2 (WD safety values)
 EFFECTS = {
@@ -1421,13 +1641,17 @@ EFFECTS = {
     'heating.set_temperature': ['heating.set_k', 'display.set_temperature'],
     'heating.set': ['heating.on', 'indicator.heating', 'truth.process'], 'heating.toggle': ['heating.on', 'indicator.heating', 'truth.process'],
     'heating.set_mode': ['heating.control'],
-    'safety.set_limit': ['safety.limit_k', 'heating.set_k', 'display.set_temperature', 'heating.on', 'error.code', 'indicator.heating', 'display.message', 'display.safe_temperature', 'truth.process'],
+    'safety.set_limit': ['safety.limit_k', 'heating.set_k', 'display.set_temperature', 'heating.on', 'error.code', 'indicator.heating', 'display.message', 'display.safe_temperature', 'truth.process',
+                         'indicator.beep', 'truth.faults'],
     'stirring.set_speed': ['stirring.set_rad_s', 'display.set_speed', 'display.visc_trend'],
     'stirring.set': ['stirring.on', 'display.visc_trend', 'truth.process'], 'stirring.toggle': ['stirring.on', 'display.visc_trend', 'truth.process'],
-    'stirring.configure': ['stirring.pattern', 'truth.process'], 'timer.set': ['timer.state', 'display.timer'], 'timer.toggle': ['timer.state', 'display.timer'], 'timer.clear': ['timer.state', 'display.timer'],
-    'menu.configure': ['menu.state', 'display.visc_trend', 'display.safe_temperature'], 'lock.toggle': ['lock.on', 'indicator.lock'], 'viscosity.reset': ['display.visc_trend'],
+    'stirring.configure': ['stirring.pattern', 'truth.process'], 'timer.set': ['timer.state', 'display.timer', 'indicator.beep'], 'timer.toggle': ['timer.state', 'display.timer'],
+    'timer.clear': ['timer.state', 'display.timer', 'indicator.beep'],
+    'menu.configure': ['menu.state', 'display.visc_trend', 'display.safe_temperature', 'indicator.beep'], 'lock.toggle': ['lock.on', 'indicator.lock'], 'viscosity.reset': ['display.visc_trend'],
     'sensor.set': ['sensor.state', 'heating.control', 'heating.on', 'error.code', 'indicator.sensor', 'indicator.heating', 'display.temperature', 'display.message',
-                   'truth.process'],
+                   'truth.process', 'indicator.beep'],
+    'sensor.calibrate_two_point': ['sensor.calibration', 'display.temperature'], 'sensor.reset_calibration': ['sensor.calibration', 'display.temperature'],
+    'sensor.configure_error': ['truth.process', 'display.temperature'],
     'vessel.place': ['vessel.state', 'truth.process', 'display.visc_trend'],
     'vessel.remove': ['vessel.state', 'truth.process', 'display.visc_trend'],
     'interface.set': ['interface.state'],
@@ -1439,34 +1663,49 @@ EFFECTS = {
 }
 _STEPPED = ('plant.configure', 'power.set', 'power.toggle', 'heating.set_temperature', 'heating.set', 'heating.toggle', 'heating.set_mode', 'safety.set_limit',
             'stirring.set_speed', 'stirring.set', 'stirring.toggle', 'stirring.configure', 'timer.set', 'timer.toggle', 'menu.configure', 'sensor.set', 'vessel.place',
-            'vessel.remove', 'namur.send', 'medium.modify', 'fault.inject')
+            'vessel.remove', 'namur.send', 'medium.modify', 'fault.inject', 'sensor.calibrate_two_point', 'sensor.reset_calibration', 'sensor.configure_error')
 ON_STEP = {k: list(_EVOLVE) for k in _STEPPED}
+_PANEL_EFFECTS = list(dict.fromkeys(s for c in _panel_ui.spec_capabilities(PANEL_SPEC) for s in EFFECTS.get(c, [])))
+for _k in PANEL_CAPS:
+    if _k not in ('panel.capture', 'panel.frame'):
+        EFFECTS[_k] = list(_PANEL_EFFECTS)                                   # a gesture changes what the commands it calls change
+        ON_STEP[_k] = list(_EVOLVE)
 ON_STEP['sim.step'] = _EVOLVE + ['clock.time_s']
 ON_STEP_ZH = {'sim.step': '按0.1 s网格积分：加热盘与介质温度、蒸发与沸腾、传感器滞后、控温、电机转速与搅拌子耦合、安全回路与错误、定时器、黏度趋势、看门狗；'
                           '全部在室温、停止且盘上没有敞口液体时整段跳过（运行中的定时/计数解析推进，到时那一步照常积分）'}
-EXEC_TEXT = {}
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+EXEC_TEXT = {k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看',)
+             for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')}
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 for _k in ('sensor.set', 'vessel.place', 'vessel.remove', 'interface.set', 'safety.set_limit'):
     RESOURCES[_k] = ['host_clock', 'robot_or_operator']
-OBSERVES = {'heating.set': ['display.temperature'], 'stirring.set': ['display.speed'], 'namur.send': ['display.temperature', 'display.speed']}
+OBSERVES = {'heating.set': ['display.temperature'], 'stirring.set': ['display.speed'], 'namur.send': ['display.temperature', 'display.speed'],
+            'sensor.calibrate_two_point': ['sensor.calibration'], 'sensor.reset_calibration': ['sensor.calibration']}
 _WB, _DS, _MAN, _NIST, _PC, _LIB, _SIM = ('user_workbook', 'manufacturer_datasheet', 'manufacturer_manual_2018', 'nist_webbook', 'pubchem', 'liquid_libraries',
                                           'simulation_assumption')
 CAP_SOURCES = {k: [_DS, _MAN] for k in CAPS}
 CAP_SOURCES.update({'plant.configure': [_DS, _WB, _SIM], 'vessel.place': [_MAN, _NIST, _PC, _LIB, _SIM], 'vessel.remove': [_SIM], 'medium.modify': [_SIM],
                     'events.read': [_MAN, _SIM], 'truth.inspect': [_SIM], 'ledger.read': [_SIM], 'fault.inject': [_MAN, _SIM], 'sim.step': [_SIM],
-                    'namur.send': [_MAN], 'interface.set': [_DS, _MAN]})
+                    'namur.send': [_MAN], 'interface.set': [_DS, _MAN], 'sensor.configure_error': [_SIM], 'sensor.calibrate_two_point': [_MAN, _SIM],
+                    'sensor.reset_calibration': [_MAN, _SIM]})
+CAP_SOURCES.update({k: [_MAN, _SIM] for k in PANEL_CAPS})
 PARAM_ZH = {'ambient_k': '室温', 'pressure_pa': '大气压', 'mains_v': '电源电压', 'noise_seed': '噪声种子', 'on': '开或关', 'temperature_k': '设定温度',
             'mode': '控温方式', 'limit_k': '安全温度', 'speed_rad_s': '设定转速', 'direction': '转向（cw顺时针、ccw逆时针）', 'auto_reverse': '自动换向',
             'run_s': '间歇运行时间（0为连续）', 'pause_s': '间歇暂停时间', 'duration_s': '定时（0为计数器）', 'operating_mode': '工作模式A/B/D', 'beep': '提示音',
             'unit': '温度单位', 'err5_timeout_s': 'Error 5时限（0关闭）', 'expiry_stop_heating': '定时结束停加热', 'expiry_stop_stirring': '定时结束停搅拌',
             'display': 'SAFE或VISC显示', 'connected': '已插入', 'immersed': '传感器在介质中', 'vessel': '容器型号', 'substance_id': '液体（模板库）',
             'volume_m3': '液体体积', 'initial_k': '液体初温', 'stir_bar_length_m': '搅拌子长度（0为无）', 'command': 'NAMUR命令', 'viscosity_factor': '黏度倍数',
-            'since_s': '起始时间', 'fault': '故障名', 'active': '注入或清除', 'dt_s': '推进时间'}
+            'since_s': '起始时间', 'fault': '故障名', 'active': '注入或清除', 'dt_s': '推进时间', 'input_id': '面板输入件（按键、旋钮、开关）',
+            'detents': '转动格数（带符号）', 'position': '开关位置', 'display_id': '显示件', 'device_1_k': '第一点设备读数', 'reference_1_k': '第一点参考温度（EXT）',
+            'device_2_k': '第二点设备读数', 'reference_2_k': '第二点参考温度（EXT）', 'offset_k': '探头偏置误差', 'gain': '探头增益误差（相对）'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.hotplate_process.limitations。'
 CAP_LIMITS = {
     'vessel.place': ['液体为模板库中的单一纯物质；物性除蒸气压外不随温度变化；容器尺寸与质量为工程目录值；没有溶质、反应或混合物。'],
     'namur.send': ['实现手册列出的NAMUR命令；命令回应格式按手册示例简化（值加通道号）；labworldsoft的图形与斜坡不在本机内。'],
-    'menu.configure': ['菜单的两点探头校准与固件版本未建模；单位只影响显示说明（接口一律SI）。'],
+    'menu.configure': ['单位只影响显示（接口一律SI）；探头校准见sensor.calibrate_two_point / sensor.reset_calibration；固件版本只作显示。'],
+    'sensor.calibrate_two_point': ['两点线性校正（IKA固件算法未公开）；两点相差≥10 K、斜率0.9–1.1、偏置≤10 K的合理性检查为假设；只作用于外接传感器；恢复出厂（Factory reset）不删除探头校准（假设）。'],
+    'sensor.configure_error': ['探头系统误差为线性模型（偏置+相对增益误差），由评测者设定；默认0（理想传感器），真实测量误差留给后续“校准/仿真与现实差距”任务。'],
+    **{k: ['面板层按panel_ui.json（手册页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟（长按只按duration_s判断）；手册未写之处的选择见panel_ui.json的assumptions。']
+       for k in PANEL_CAPS},
 }
 LIMITATIONS = [
     '所选配置：IKA Plate (RCT digital) 25004601（220–230 V），附PT1000.60传感器；ETS-D5/D6接触温度计未单独建模（按PT1000处理，精度见数据表）。',
@@ -1474,12 +1713,19 @@ LIMITATIONS = [
     '自升温：磁体涡流发热与转速平方成正比，按数据表“最高转速1 h自升温+13 K”标定（手册写+8 °C，见冲突）。',
     '控温：加热盘PI、介质PID或两点控制为工程实现，复核数据表精度（PT1000±0.5 K、加热盘±5 K）；IKA固件的实际控制算法未公开。',
     '搅拌：磁力耦合扭矩、搅拌子阻力系数为工程值；脱耦时搅拌子只摆动（约电机转速的15 %），传热与混合按此降低；黏度趋势为相对扭矩。',
-    '错误码：实现Err. 1、3、4、5、6、14、21、24、25、31（手册列表）；Err. 2按NAMUR看门狗2的“改为安全值并显示WD”实现；看门狗1手册正文写“显示ER 2”、错误表写Err. 1，按错误表显示Err. 1（E01）；'
-    'Err. 13、22、26、44、46需要内部传感器失效细节，未实现。',
+    '错误码：实现Err. 1、3、4、5、6、13、14、21、22、24、25、26、31、44、46（手册列表）；Err. 2按NAMUR看门狗2的“改为安全值并显示WD”实现；看门狗1手册正文写“显示ER 2”、错误表写Err. 1，'
+    '按错误表显示Err. 1（E01）。Err. 13 / 22 / 26 / 44 / 46的原因（安全回路开路、S_CHECK自检失败、控制或安全温度传感器失效、安全温度传感器断开）由评测者fault.inject注入：开机状态下'
+    '立即显示错误码并关加热（自检故障21 / 22在开机自检时显示），有错误码时拒绝开加热与搅拌；排除按手册：故障清除后关机再开机，Err. 13改SAFE TEMP为另一值即排除（假设总能排除），'
+    'Err. 44在冷却或调高SAFE TEMP后排除。26 / 46的另一原因（加热盘温度分布不均、散热不规则）不建模。',
     'Err. 4：磁耦合能传的扭矩小于电机扭矩，介质过黏时搅拌子先脱耦，电机不会因黏度过载；Err. 4只在评测者注入motor_blocked且搅拌开启时出现。',
-    '工作模式D：存储并显示D，开机与A相同（加热、搅拌关）；手册中“开机须按旋钮确认安全温度”和“新设定值闪5 s、按旋钮确认否则恢复”未建模，设定立即生效。',
-    '安全温度：螺钉可调到50–370 °C任意位置（手册设定步骤与功能检查）；最高设定温度仍比安全温度低15 K；调到加热盘温度以下时加热中为Err. 25、不加热时为Err. 24（手册设定步骤写Err. 25，错误表Err. 24为“加热盘温度高于安全温度”）。',
+    '工作模式D：存储并显示D，开机与A相同（加热、搅拌关）；直接调用能力时设定立即生效；手册中“开机须按旋钮确认安全温度”和“新设定值闪5 s、按旋钮确认否则恢复”'
+    '在前面板层（panel.*，panel_ui.json）实现，是面板层的门槛，不拦截直接能力调用。',
+    '安全温度：螺钉可调到50–370 °C任意位置（手册设定步骤与功能检查）；最高设定温度仍比安全温度低15 K；调到加热盘温度以下时加热中为Err. 25、不加热时为Err. 24（手册设定步骤写Err. 25，错误表Err. 24为“加热盘温度高于安全温度”）；'
+    '不加热时只低于加热盘安全温度传感器的读数（比控制传感器高一个工程偏置）时为Err. 44（错误表“加热盘安全温度高于设定的安全温度”）。',
     '蒸发：敞口液面按传质系数与蒸气压差计算；水的背景蒸气压按相对湿度（plant.configure，默认0.5）；其他溶剂背景为0。液体不会凝固（凝固未建模）：放上与改环境时温度须高于熔点。',
+    '外接传感器：探头系统误差模型默认理想（偏置与增益误差均为0），可由评测者sensor.configure_error设定（测得值=T+偏置+增益误差×T(°C)），真实测量误差留给后续“校准/仿真与现实差距”任务；菜单两点校准（set/re-set）保存线性校正，作用于显示07、'
+    'NAMUR IN_PV_1、介质控温与Error 5判断；校准画面的稳定判据（读数60 s内变化不超过0.1 K且与设定温度相差不超过1 K时SAFE符号亮）为假设。',
+    '提示音：菜单Beep开时，定时到00:00:00后直到定时被清除或重设、或有错误码时蜂鸣器响（indicator.beep）；手册未写响声节奏与时长，按持续响处理。',
     '显示文字按七段字形给出：HOT!写作HOt、Err. n写作Enn、看门狗2的WD写作SAFE（七段字形画不出T与W）；含义与手册一致。',
     '场景：本体、加热盘、旋钮、按键、显示与接口有几何；容器、液体与搅拌子没有几何（运行层状态）；LCD的实际/设定温度、实际/设定转速、安全温度或黏度趋势、定时/计数与文字按运行层状态显示，'
     '指示符号按状态点亮，旋钮为双向关节。',
@@ -1497,7 +1743,7 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if CAPS[k]['visibility'] != 'agent' else []
+    extra = ['ACCESS_DENIED'] if ALL_CAPS[k]['visibility'] != 'agent' else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1569,7 +1815,7 @@ def export_ika_plate_rctdigital_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'IkaPlateRctdigitalSession.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',

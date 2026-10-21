@@ -1,9 +1,12 @@
-"""CHEM-063 single-zone P CVD: finite gases, NASA7 energy and explicit uncalibrated CH4 deposition."""
+"""CHEM-063 single-zone P CVD: finite gases, NASA7 energy and explicit uncalibrated CH4 deposition.
+Front panel (1.1.0; panel_ui.json beside the contract, run by the shared engine _panel_ui.py; approximate: the controllers' manuals are not public): the
+five-key PV/SV program controller (set value, control mode, curve, steps, segment target / ramp / hold, PV correction), the green / red buttons, the
+MFC channel selectors (close / control / purge) with their flow displays, the vacuum controller (set value, auto / manual, pump) and the manual valves."""
 from __future__ import annotations
-import copy,importlib.util,json,math
+import copy,hashlib,importlib.util,json,math,os,tempfile,weakref
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='laboao_cvdltf12p50';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-063';PROTOCOL_VERSION='1.0.0'
+SLUG='laboao_cvdltf12p50';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-063';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.2'
 TEMPLATE_REL='assets/reactions/laboao_cvdltf12p50_thermo_library/templates.json'
 R=8.31446261815324;STD_T=273.15;STD_P=101325.;SPECIES=['CH4','H2','N2','AR','O2'];ELEMENTS=['C','H','N','Ar','O']
 ATOMS={'CH4':[1,4,0,0,0],'H2':[0,2,0,0,0],'N2':[0,0,2,0,0],'AR':[0,0,0,1,0],'O2':[0,0,0,0,2]};CARBON_KG_MOL=.012011
@@ -71,11 +74,23 @@ cap('acquisition.start',obj({'mode':dict(type='string',enum=['purge','cvd'])}),o
 cap('acquisition.stop',obj({}),obj({'phase':PHASE}),['control_panel'],'保留部分膜和残余气体；风机按炉体余温运行')
 cap('process.measure',obj({}),MEASURE,['display_temperature','display_pressure','mfc_0','mfc_1','mfc_2'],'理想温压流量时间日志；真实膜厚不可直接从面板读出','query')
 cap('product.read',obj({}),LEDGER,['sample_boat'],'私有元素/能量账本和模拟膜厚','query','evaluator')
+# front panel (1.1.0): the controller parameters an operator sets on the keys (each rewrites the selected curve through method.configure)
+INT=lambda lo,hi:{'type':'integer','minimum':lo,'maximum':hi,'x-unit':'1'}
+CHANNEL_MODE=dict(type='string',enum=['close','control','purge'])
+cap('controller.set_sv',obj({'target_k':number('K',573.15,1473.15)}),obj({'target_k':number('K')}),['control_panel','display_setpoint'],'定值运行时▲/▼改SV（定值曲线唯一一段的目标温度；300–1200°C）',ex={'target_k':1173.15})
+cap('controller.set_mode',obj({'mode':dict(type='string',enum=['fixed','program'])}),obj({'mode':TEXT}),['control_panel'],'控制参数CtrL：定值/程序运行；转定值时保留程序段，转回程序时恢复',ex={'mode':'program'})
+cap('controller.set_steps',obj({'steps':INT(1,40)}),obj({'steps':INT(1,40)}),['control_panel'],'程序段数StEP（4条曲线合计≤40段）：增加的段复制最后一段',ex={'steps':2})
+cap('controller.set_segment',obj({'index':INT(0,39),'target_k':number('K',573.15,1473.15),'ramp_k_s':number('K/s',0,20/60),'hold_s':number('s',0,999.9*3600)}),obj({'index':INT(0,39)}),['control_panel','display_setpoint'],'程序段参数t/r/h：目标温度、升温速率（0–20°C/min）、保温时间（0–999.9h）',ex={'index':0,'target_k':1173.15,'ramp_k_s':5/60,'hold_s':60.})
+cap('controller.set_correction',obj({'offset_k':number('K',-50,50)}),obj({'offset_k':number('K')}),['control_panel','display_temperature'],'修正参数Pb：PV示值修正（加到热电偶读数上，控制按修正后的PV）；默认0',ex={'offset_k':0.})
+cap('gas.set_channel',obj({'channel':INT(0,2),'mode':CHANNEL_MODE}),obj({'channel':INT(0,2),'mode':TEXT}),['gas_valve_0','gas_valve_1','gas_valve_2'],'每路MFC选择钮：关闭（流量0）/阀控（跟随设定）/清洗（阀全开，满量程×气体系数）',ex={'channel':0,'mode':'control'})
+PANEL_DEVICE={'controller.set_sv','controller.set_mode','controller.set_steps','controller.set_segment','controller.set_correction','gas.set_channel'}
 cap('thermo.evaluate',obj({'substance_id':TEXT,'temperature_k':number('K',1,6000)}),THERMO,['control_panel'],'54条NASA7离线热物性；不执行其他物质沉积','query','agent',{'substance_id':'gri_CH4','temperature_k':1173.15})
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,z,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=z
 for k in ['plant','method']:slot(k+'.configured',BOOL,'1',k+'配置完成','setpoint')
 slot('power.enabled',BOOL,'1','总电源','setpoint',c='mains_switch',w=('power.set','enabled'))
+slot('controller.correction_k',number('K',-50,50),'K','温控器PV修正Pb（默认0）','setpoint',c='control_panel')
+slot('gas.channel_modes',arr(CHANNEL_MODE,3),'1','三路MFC选择钮位置（close/control/purge）','setpoint',c='gas_valve_0')
 slot('furnace.opened',BOOL,'1','翻盖炉盖','scene',c='furnace_lid',w=('furnace.set','opened'))
 slot('flange.opened',BOOL,'1','两端炉管密封法兰','scene',c='flange_left',w=('flange.set','opened'))
 slot('lid.angle_rad',number('rad',0,math.radians(100)),'rad','炉盖后翻100°代理','scene',c='furnace_lid')
@@ -106,6 +121,20 @@ slot('safety.warning',TEXT,'1','模型告警，不是安全认证')
 slot('truth.ledger',LEDGER,'1','有限气源/元素/能量与膜厚真值','process_truth','evaluator','sample_boat')
 for k in CAPS:
     if CAPS[k][4]!='query':CAPS[k][7].extend(SLOTS)
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.laboao_cvdltf12p50 (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            s=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(s);s.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine();ASSET=ROOT/'assets/expansion_batch04/t5_automation'/SLUG
+if os.environ.get('LTF12P50_PANEL_BUILD'):PANEL_SPEC,_PANEL_DEFS=None,{}   # spec builder: runtime constants without the spec being written
+else:PANEL_SPEC=_panel_ui.load_spec(ASSET/'panel_ui.json',capabilities=set(CAPS));_PANEL_DEFS=_panel_ui.capability_definitions(PANEL_SPEC)
+PANEL_CAPS={k:(d['input_schema'],d['output_schema'],list(d['component_ids']),d['function_zh'],d['kind'],d['visibility'],d['example_arguments'],[]) for k,d in _PANEL_DEFS.items()}   # kept out of CAPS
+ALL_CAPS=dict(CAPS,**PANEL_CAPS);_PANELS=weakref.WeakKeyDictionary()
 class LaboaoCvdltf12p50Runtime:
     VOLUME=math.pi*(.043/2)**2*1.
     def __init__(self,instance_id='cvdltf12p50_01'):
@@ -117,6 +146,8 @@ class LaboaoCvdltf12p50Runtime:
         self.pump=False;self.motor=False;self.solenoid=False;self.motor_elapsed=0.;self.pump_mode='manual';self.pressure_set=30.;self.manual_valve=1.
         self.phase='idle';self.stage='idle';self.warning='';self.elapsed_s=0.;self.deposit_s=0.;self.stage_elapsed=0.;self.segment=0;self.mode='cvd'
         self.operation_id='';self._operation_count=0;self.log=[];self._principals={'__public_agent__':'agent'};self._requests={};self._owners={};self._sample_ids=set()
+        self.correction=0.;self.channel_modes=['control']*3;self.program_backup={};self.panel_capture_dir=None
+        self._caller=None   # principal of the session call in progress (set by the session; panel keys act as that caller)
     def register_principal(self,principal_id,visibility='agent'):
         if visibility not in ('agent','debug','evaluator') or not isinstance(principal_id,str) or not principal_id:raise ActionRejected('INVALID_ARGUMENT')
         if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -161,7 +192,7 @@ class LaboaoCvdltf12p50Runtime:
         return dict(source_remaining_mol=list(self.remaining),gas_initial_mol=copy.deepcopy(self.initial_gas),gas_chamber_mol=copy.deepcopy(self.gas),gas_exhaust_mol=copy.deepcopy(self.exhaust),gas_from_air_mol=copy.deepcopy(self.air),film_carbon_mol=self.film,wall_carbon_mol=self.wall,collected_carbon_mol=self.collected,initial_energy_j=self.initial_energy,stored_energy_j=stored,electrical_j=self.electric,inlet_enthalpy_j=self.hin,outlet_enthalpy_j=self.hout,environment_j=self.environment,collected_energy_j=self.collected_energy,energy_residual_j=self.initial_energy+self.electric+self.hin-self.hout-self.environment-self.collected_energy-stored,atom_residual_mol=[x-y for x,y in zip(ai,ao)],thickness_m=self.film*CARBON_KG_MOL/self.sample['area_m2']/self.plant['film_density_kg_m3'] if self.sample else 0.,evidence='synthetic_CH4_mass_energy_model_with_published_reference_thermochemistry_not_instrument_calibration')
     def read(self,visibility='agent'):
         if visibility not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
-        v={'plant.configured':self.plant is not None,'method.configured':self.method is not None,'power.enabled':self.powered,'furnace.opened':self.opened,'flange.opened':self.flange,'lid.angle_rad':math.radians(100) if self.opened else 0.,'flange.shift_m':.12 if self.flange else 0.,'boat.shift_m':0. if self.sample else .65,'mains.angle_rad':math.pi/2 if self.powered else 0.,'vacuum.angle_rad':self.manual_valve*math.pi/2,'vent.angle_rad':math.pi/2 if self.vent else 0.,'pump.enabled':self.pump,'pump.motor_on':self.motor,'pump.valve_open':self.solenoid,'pump.start_elapsed_s':self.motor_elapsed,'vacuum.pressure_pa':self._p(),'oven.temperature_k':self.oven,'oven.display_k':round(self.oven-273.15)+273.15,'oven.setpoint_k':self.setpoint,'body.temperature_k':self.body,'heater.power_w':self.heater,'fan.enabled':self.fan,'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.elapsed_s':self.elapsed_s,'cycle.deposition_s':self.deposit_s,'safety.warning':self.warning,'truth.ledger':self._ledger()}
+        v={'plant.configured':self.plant is not None,'method.configured':self.method is not None,'power.enabled':self.powered,'furnace.opened':self.opened,'flange.opened':self.flange,'lid.angle_rad':math.radians(100) if self.opened else 0.,'flange.shift_m':.12 if self.flange else 0.,'boat.shift_m':0. if self.sample else .65,'mains.angle_rad':math.pi/2 if self.powered else 0.,'vacuum.angle_rad':self.manual_valve*math.pi/2,'vent.angle_rad':math.pi/2 if self.vent else 0.,'pump.enabled':self.pump,'pump.motor_on':self.motor,'pump.valve_open':self.solenoid,'pump.start_elapsed_s':self.motor_elapsed,'vacuum.pressure_pa':self._p(),'oven.temperature_k':self.oven,'oven.display_k':round(self._pv()-273.15)+273.15,'controller.correction_k':self.correction,'gas.channel_modes':list(self.channel_modes),'oven.setpoint_k':self.setpoint,'body.temperature_k':self.body,'heater.power_w':self.heater,'fan.enabled':self.fan,'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.elapsed_s':self.elapsed_s,'cycle.deposition_s':self.deposit_s,'safety.warning':self.warning,'truth.ledger':self._ledger()}
         for i in range(3):
             v['gas.flow_'+str(i)+'_std_m3_s']=self.flow[i]
             v['gas.valve_'+str(i)+'_rad']=min(1.,self.flow[i]/self.gases['full_scale_std_m3_s'][i]/self.gases['actual_gas_factor'][i])*math.pi/2 if self.gases else 0.
@@ -184,11 +215,19 @@ class LaboaoCvdltf12p50Runtime:
         if self.phase=='running':self.phase=phase;self.stage='finished'
         self.heater=0.;self.flow=[0.]*3;self.warning=warning
         self.fan=bool(self.powered and self.body>=333.15)
+    def _foreign_run(self):
+        """True when an agent caller would end another agent's running cycle (same check for the direct call and the panel key: both run with the
+        session caller in _caller); evaluators and unowned runs are not restricted.  Hand actions (vent valve, furnace lid, rear mains rocker) are
+        never refused (1.1.2): the device reacts itself (venting, the open lid and the power loss stop heating, gas and the run)."""
+        c=self._caller;o=self._owners.get(self.operation_id)
+        return self.phase=='running' and c is not None and self._principals.get(c)=='agent' and o is not None and o!=c
     def _invoke(self,k,a):
+        if k=='acquisition.stop' or (k=='vacuum.set' and not a['enabled']):
+            if self._foreign_run():raise ActionRejected('ACCESS_DENIED')
         if k=='thermo.evaluate':
             t=a['temperature_k'];cp,h,s,u=self.thermo(a['substance_id'],t);r=self.templates[a['substance_id']]
             return dict(substance_id=a['substance_id'],temperature_k=t,cp_j_molk=cp,h_j_mol=h,s_j_molk=s,u_j_mol=u,phase=r['phase'],evidence=r['evidence'],source=r['source']['url']+'#'+r['source']['locator'],template_source=TEMPLATE_REL)
-        if k=='process.measure':return dict(phase=self.phase,stage=self.stage,oven_k=self.oven,display_k=round(self.oven-273.15)+273.15,setpoint_k=self.setpoint,pressure_pa=self._p(),flow_std_m3_s=list(self.flow),elapsed_s=self.elapsed_s,deposition_s=self.deposit_s,evidence='synthetic_uncalibrated',template_source=TEMPLATE_REL,calibrated=False)
+        if k=='process.measure':return dict(phase=self.phase,stage=self.stage,oven_k=self.oven,display_k=round(self._pv()-273.15)+273.15,setpoint_k=self.setpoint,pressure_pa=self._p(),flow_std_m3_s=list(self.flow),elapsed_s=self.elapsed_s,deposition_s=self.deposit_s,evidence='synthetic_uncalibrated',template_source=TEMPLATE_REL,calibrated=False)
         if k=='product.read':return self._ledger()
         if k=='plant.configure':
             if self.plant or self.powered or not a['accept_uncalibrated_model']:raise ActionRejected('INITIALIZATION_ONLY')
@@ -266,7 +305,75 @@ class LaboaoCvdltf12p50Runtime:
             self.pump_mode=self.method['pump_mode'];self.pressure_set=self.method['pressure_pa'];self.manual_valve=self.method['manual_valve_fraction']
             self.fan=True;return dict(phase=self.phase,operation_id=self.operation_id)
         if k=='acquisition.stop':self._stop();return dict(phase=self.phase)
+        if k in PANEL_DEVICE:return getattr(self,'_cmd_'+k.replace('.','_'))(**a)
         raise ActionRejected('UNKNOWN_CAPABILITY')
+    # ---- front panel (1.1.0): controller parameters, PV correction, MFC selectors
+    def _pv(self):return self.oven+self.correction if self.correction else self.oven
+    def _rewrite(self,**change):
+        self._idle()
+        if not self.method:raise ActionRejected('PRECONDITION_FAILED')
+        new=dict(copy.deepcopy(self.method),**change);self._invoke('method.configure',new)
+    def _cmd_controller_set_sv(self,target_k):
+        if not self.method or self.method['mode']!='fixed':raise ActionRejected('PROGRAM_MODE')
+        seg=dict(self.method['segments'][0],target_k=float(target_k));self._rewrite(segments=[seg]);return {'target_k':float(target_k)}
+    def _cmd_controller_set_mode(self,mode):
+        if not self.method:raise ActionRejected('PRECONDITION_FAILED')
+        slot=self.method['curve_slot']
+        if mode=='fixed' and self.method['mode']!='fixed':
+            backup=copy.deepcopy(self.method['segments']);self._rewrite(mode='fixed',segments=backup[:1]);self.program_backup[slot]=backup
+        elif mode=='program' and self.method['mode']!='program':
+            self._rewrite(mode='program',segments=self.program_backup.get(slot) or copy.deepcopy(self.method['segments']));self.program_backup.pop(slot,None)
+        return {'mode':self.method['mode']}
+    def _cmd_controller_set_steps(self,steps):
+        if not self.method:raise ActionRejected('PRECONDITION_FAILED')
+        if self.method['mode']=='fixed':raise ActionRejected('FIXED_ONE_SEGMENT')
+        seg=self.method['segments'];self._rewrite(segments=seg[:steps]+[copy.deepcopy(seg[-1]) for _ in range(steps-len(seg))]);return {'steps':steps}
+    def _cmd_controller_set_segment(self,index,target_k,ramp_k_s,hold_s):
+        if not self.method or index>=len(self.method['segments']):raise ActionRejected('PRECONDITION_FAILED')
+        seg=copy.deepcopy(self.method['segments']);seg[index]=dict(target_k=float(target_k),ramp_k_s=float(ramp_k_s),hold_s=float(hold_s));self._rewrite(segments=seg);return {'index':index}
+    def _cmd_controller_set_correction(self,offset_k):
+        if not self.powered:raise ActionRejected('PRECONDITION_FAILED')
+        self.correction=float(offset_k);return {'offset_k':self.correction}
+    def _cmd_gas_set_channel(self,channel,mode):
+        if not self.gases:raise ActionRejected('PRECONDITION_FAILED')
+        self.channel_modes[channel]=mode;return {'channel':channel,'mode':mode}
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    @property
+    def panel(self):
+        p=_PANELS.get(self)
+        if p is None and PANEL_SPEC:p=_PANELS[self]=_panel_ui.PanelUI(PANEL_SPEC,self)
+        return p
+    def panel_read(self):
+        out=self.read('agent');m=self.method
+        out.update({'host.powered':self.powered,'host.method':None if m is None else dict(mode=m['mode'],curve_slot=m['curve_slot'],steps=len(m['segments'])),
+                    'host.segments':[] if m is None else [dict(i=i,target_c=round(s['target_k']-273.15,6),ramp_c_min=round(s['ramp_k_s']*60,6),hold_min=round(s['hold_s']/60,6),target_k=s['target_k'],ramp_k_s=s['ramp_k_s'],hold_s=s['hold_s']) for i,s in enumerate(m['segments'])],
+                    'host.vacuum':dict(enabled=self.pump,mode=self.pump_mode,pressure_pa=self.pressure_set,manual_valve_fraction=self.manual_valve),
+                    'host.flows_sccm':[f*6e7 for f in self.flow],'host.curves':sorted(self.programs)})
+        return out
+    def panel_invoke(self,capability_id,arguments):
+        try:return self.invoke(capability_id,**arguments)
+        except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+    def panel_time(self):return self.time_s
+    def _panel_entry(self,capability_id,arguments):
+        validate(PANEL_CAPS[capability_id][0],arguments);out=getattr(self,'_cmd_'+capability_id.replace('.','_'))(**arguments)
+        if PANEL_CAPS[capability_id][4]=='device_command':self.revision+=1
+        return out
+    def _panel(self,gesture,*args):
+        try:return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+    def _cmd_panel_press(self,input_id,duration_s=.1):return self._panel(self.panel.press,input_id,float(duration_s))
+    def _cmd_panel_turn(self,input_id,detents):return self._panel(self.panel.turn,input_id,int(detents))
+    def _cmd_panel_switch(self,input_id,position):return self._panel(self.panel.switch,input_id,position)
+    def _cmd_panel_touch(self,display_id,x,y,duration_s=.1,to_x=None,to_y=None):
+        if (to_x is None)!=(to_y is None):raise ActionRejected('INVALID_ARGUMENT')
+        return self._panel(self.panel.touch,display_id,int(x),int(y),float(duration_s),None if to_x is None else (int(to_x),int(to_y)))
+    def _cmd_panel_capture(self,display_id):
+        try:data,w,h=self.panel.png_bytes(display_id)
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+        sha=hashlib.sha256(data).hexdigest();folder=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;folder.mkdir(parents=True,exist_ok=True);path=folder/f'{display_id}_{sha[:16]}.png'
+        if not path.exists():path.write_bytes(data)
+        return dict(display_id=display_id,time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+    def _cmd_panel_frame(self):return dict(frame=self.panel.frame())
     def _gas_in(self,s,n,temp):
         self.gas[s]+=n;h=n*self.thermo('gri_'+s,temp)[1];self.hin+=h;return h
     def _gas_out(self,fraction):
@@ -302,7 +409,7 @@ class LaboaoCvdltf12p50Runtime:
         active=self.phase=='running'
         if active:
             self.elapsed_s+=dt
-            hold_valid=self.stage!='hold' or (10<=self._p()<=100 and abs(self.oven-self.method['segments'][self.segment]['target_k'])<=1.)
+            hold_valid=self.stage!='hold' or (10<=self._p()<=100 and abs(self._pv()-self.method['segments'][self.segment]['target_k'])<=1.)
             if hold_valid:self.stage_elapsed+=dt
             if self.elapsed_s>p['pump_timeout_s'] and self.stage in ['evacuate','purge']:self._stop('failed','PUMP_OR_PURGE_TIMEOUT');active=False
             if self.stage=='evacuate' and self.solenoid and self._p()<=100.:self.stage='purge';self.stage_elapsed=0.
@@ -313,13 +420,13 @@ class LaboaoCvdltf12p50Runtime:
             if self.stage=='ramp':
                 seg=self.method['segments'][self.segment];delta=seg['target_k']-self.setpoint
                 speed=min(seg['ramp_k_s'],self._ramp_limit());self.setpoint+=math.copysign(min(abs(delta),speed*dt),delta)
-                if abs(self.setpoint-seg['target_k'])<1e-7 and abs(self.oven-seg['target_k'])<=1.:self.stage='hold';self.stage_elapsed=0.
+                if abs(self.setpoint-seg['target_k'])<1e-7 and abs(self._pv()-seg['target_k'])<=1.:self.stage='hold';self.stage_elapsed=0.
             if self.stage=='hold' and self.stage_elapsed>=self.method['segments'][self.segment]['hold_s']:
                 self.segment+=1
                 if self.segment==len(self.method['segments']):self._stop('succeeded');active=False
                 else:self.stage='ramp';self.stage_elapsed=0.
         if active and not self.opened and self.stage in ['ramp','hold']:
-            error=self.setpoint-self.oven;candidate=self.integral+error*dt
+            error=self.setpoint-self._pv();candidate=self.integral+error*dt
             raw=p['pi_kp_w_k']*error+p['pi_ki_w_ks']*candidate
             if 0<=raw<=3000 or (raw>3000 and error<0) or (raw<0 and error>0):self.integral=candidate
             self.heater=min(3000.,max(0.,p['pi_kp_w_k']*error+p['pi_ki_w_ks']*self.integral))
@@ -329,6 +436,8 @@ class LaboaoCvdltf12p50Runtime:
             s=self.gases['species'][i];target=0.
             if active and self.stage in ['purge','ramp','hold'] and (s in ['N2','AR'] or (self.stage=='hold' and self.solenoid)):
                 if s!='CH4' or (10<=self._p()<=100 and self.gas['O2']/max(sum(self.gas.values()),1e-300)<=p['oxygen_limit_fraction']):target=self.method['flow_std_m3_s'][i]*self.gases['actual_gas_factor'][i]
+            if self.channel_modes[i]=='close':target=0.                                # MFC selector: valve closed
+            elif self.channel_modes[i]=='purge':target=self.gases['full_scale_std_m3_s'][i]*self.gases['actual_gas_factor'][i] if self.powered else 0.   # valve fully open
             gauge=(self.gases['inlet_gauge_pa'][i]+p['ambient_pa'])*self.remaining[i]/self.gases['initial_mol'][i]-p['ambient_pa']
             if target and gauge<50000:self._stop('failed','SOURCE_UNDERPRESSURE');active=False;target=0.
             # A hard close upstream of the MFC stops commanded/cancelled flow; no unmodeled line inventory.
@@ -366,7 +475,7 @@ class LaboaoCvdltf12p50Session:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_laboao_cvdltf12p50_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_laboao_cvdltf12p50_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -376,16 +485,20 @@ class LaboaoCvdltf12p50Session:
         h=self._host
         try:
             self._target(instance_id)
-            if not isinstance(capability_id,str) or capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role=='agent' and CAPS[capability_id][5]!='agent':raise ActionRejected('ACCESS_DENIED')
+            if not isinstance(capability_id,str) or capability_id not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+            if self._role=='agent' and ALL_CAPS[capability_id][5]!='agent':raise ActionRejected('ACCESS_DENIED')
             if not isinstance(request_id,str) or not request_id:raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id][0],arguments);key=(self._principal,instance_id,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+            validate(ALL_CAPS[capability_id][0],arguments);key=(self._principal,instance_id,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
             if key in h._requests:
                 old,result=h._requests[key]
                 if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(result)
-            result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+            before=h.operation_id;h._caller=self._principal
+            try:result=h._panel_entry(capability_id,arguments) if capability_id in PANEL_CAPS else h.invoke(capability_id,**arguments)
+            finally:h._caller=None
+            op=result.get('operation_id')
             if op:h._owners[op]=self._principal
+            elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a run started with R/S or the green button belongs to the caller
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
         except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
     def write(self,*,instance_id,state_id,value,request_id):
@@ -406,6 +519,8 @@ class LaboaoCvdltf12p50Session:
 
 
 
+PANEL_EFFECTS={'controller.set_sv':['method.configured'],'controller.set_mode':['method.configured'],'controller.set_steps':['method.configured'],'controller.set_segment':['method.configured'],
+               'controller.set_correction':['controller.correction_k','oven.display_k'],'gas.set_channel':['gas.channel_modes']}
 def export_laboao_cvdltf12p50_contract_metadata():
     caps={};slots={}
     for k,(s,u,o,v,c,w) in SLOTS.items():
@@ -421,8 +536,21 @@ def export_laboao_cvdltf12p50_contract_metadata():
         state_effects=[] if query else [dict(state_id=s,timing='immediate',description_zh='受检设定和宿主装载事件') for s in effects]+[dict(state_id=s,timing='on_step',description_zh='唯一宿主时钟推进有限气体/反应/热量') for s in evolving],
         observes=[],model_effects=dict(mode='none',description_zh='等待实际场景证据',binding_ids=[]),
         execution=dict(mode='asynchronous' if asynchronous else 'synchronous',time_domain='simulation',completion_criterion='吹扫达到时间与模型O2阈值，或温程各段实际温度进入±1K再保温结束；并不表示冷却可卸样' if asynchronous else '事务完成，不瞬间设置物理温度或真空',completion_state_ids=['cycle.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',retry='same_request_id',resources=['host_clock','finite_gases','substrate','furnace','pump','request_cache'],partial_failure_zh='取消停热和进气但保留真空/余热/部分沉积；请求去重限进程内。'),
-        errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','THERMO_RANGE','INITIALIZATION_ONLY','EXPLICIT_WARM_SNAPSHOT_REQUIRED','COLD_VENTED_ACCESS_REQUIRED','MFC_FULL_SCALE','TOTAL_40_STEPS','FIXED_ONE_SEGMENT','ZERO_RAMP_TRANSITION','INERT_PURGE_REQUIRED','UNCONFIGURED_CURVE']],
+        errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','THERMO_RANGE','INITIALIZATION_ONLY','EXPLICIT_WARM_SNAPSHOT_REQUIRED','COLD_VENTED_ACCESS_REQUIRED','MFC_FULL_SCALE','TOTAL_40_STEPS','FIXED_ONE_SEGMENT','ZERO_RAMP_TRANSITION','INERT_PURGE_REQUIRED','UNCONFIGURED_CURVE','PROGRAM_MODE']],
         example_arguments=copy.deepcopy(ex),verification=[],limitations=['集总CH4沉积教学模型，非原厂固件/实测生长规律/安全控制建议'],source_ids=['manufacturer_primary','simulation_assumption'])
+    for k,(eff) in PANEL_EFFECTS.items():caps[k]['state_effects']=[dict(state_id=s,timing='immediate',description_zh='面板设定立即改变的状态') for s in eff]+caps[k]['state_effects']
+    called=_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []
+    for k,(inp,out,c,z,kind,vis,ex,effects) in PANEL_CAPS.items():
+        gesture=kind=='device_command'
+        caps[k]=dict(function_zh=z,kind=kind,visibility=vis,component_ids=c,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),
+        implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),
+        binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.laboao_cvdltf12p50.LaboaoCvdltf12p50Session.invoke',invocation=f'session.invoke(instance_id="cvdltf12p50_01",capability_id={k!r},arguments={ex!r},request_id="unique")'),
+        preconditions=[dict(description_zh='按panel_ui.json的面板规则：总电源关时只有总电源开关与手动阀有效；被调用的命令各自检查前提，被拒时显示Err与代码且状态不变',state_ids=['power.enabled','cycle.phase'],enforced_by='runtime',check='LaboaoCvdltf12p50Runtime._panel_entry（面板引擎_panel_ui.py）')] if gesture else [],
+        state_effects=([dict(state_id=s,timing='immediate',description_zh='手势调用的命令立即改变的状态') for s in sorted({e for x in called for e in PANEL_EFFECTS.get(x,[])})]+[dict(state_id=s,timing='on_step',description_zh='手势调用的命令在之后的step中推进的状态') for s in evolving]) if gesture else [],
+        observes=[],model_effects=dict(mode='none',description_zh='显示画面由panel.capture提供；3D读数纹理与按键/旋钮关节触发手势属后续Matterix步骤',binding_ids=[]),
+        execution=dict(mode='synchronous',time_domain='simulation',completion_criterion='手势瞬时完成（不推进仿真时钟）；被调用命令的过程由step推进',completion_state_ids=[],timeout_s=None,cancellation='unsupported',retry='same_request_id',resources=['panel'],partial_failure_zh='一个手势可调用多个命令：已被接受的前序命令保留，被拒的命令不改变状态' if gesture else '只读'),
+        errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','REQUEST_CONFLICT','ACCESS_DENIED']],
+        example_arguments=copy.deepcopy(ex),verification=[],limitations=['面板层（近似）：温控器与真空控制器的说明书未公开，按键功能与参数代码按同类国产程序温控器的常见布置重建，见panel_ui.json的assumptions'],source_ids=['manufacturer_primary','simulation_assumption'])
     mech=dict(component_ids=['heater','quartz_tube','sample_boat','mfc_0','mfc_1','mfc_2','pump_motor','vacuum_valve','solenoid'],state_ids=list(slots),meaning_zh='三路有限气体、单温区/炉体双热节点、NASA7热化学及有限碳沉积',implementation='lumped',
     equations=['P=sum(n_i)*R*Tgas/V; V=pi*(0.043/2)^2*1; Tgas=Tamb+host_heated_fraction*(Toven-Tamb)',
     'dn_in=actual_standard_volume_flow*101325/(R*273.15)*dt; source reservoirs finite and inlet pressure decreases; MFC first-order tau explicitly assumed',

@@ -1,11 +1,15 @@
-"""H-Cube Pro: explicit external pump, water/H2/O2 ledger and conditional dilute hydrogenation."""
+"""H-Cube Pro: explicit external pump, water/H2/O2 ledger and conditional dilute hydrogenation.
+
+Front panel (panel.touch / panel.switch / panel.capture / panel.frame): the colour touch screen and the inlet / outlet valve switches
+(panel_ui.json beside the contract, approximate: only the brochure is saved, no user manual) run by the generic engine _panel_ui.py on top of
+the capabilities below; method storage (methods.save / methods.load) keeps five methods in the device."""
 from __future__ import annotations
-import copy,json,math
+import copy,hashlib,importlib.util,json,math,os,tempfile,weakref
 from asset_runtime import _annotations as _ann
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT,PHASE
 from asset_runtime.antonpaar_abbematadvanced import validate
-ROOT=Path(__file__).resolve().parents[2];ASSET_TYPE_ID='instrument.thalesnano_hcube';CATALOG_ID='CHEM-020';PROTOCOL_VERSION='1.0.0'
+ROOT=Path(__file__).resolve().parents[2];ASSET_TYPE_ID='instrument.thalesnano_hcube';CATALOG_ID='CHEM-020';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.1';ASSET_DIR=ROOT/'assets/expansion_batch03/t5_automation/thalesnano_hcube'
 TEMPLATE_REL='assets/reactions/thalesnano_hcube_hydrogenation_library/templates.json';REFERENCE_REL='assets/reactions/thalesnano_hcube_hydrogenation_library/conversion_reference.json'
 R=8.314462618;PN=101325.;TN=273.15;MLMIN=1e-6/60;MH=.00201588;MO=.0319988;MW=MH+.5*MO;MA=.134178;MB=MA+MH;RHO_W=997.
 CARTS={'30mm':(296e-9,.0236),'70mm':(799e-9,.0636)}
@@ -43,6 +47,10 @@ CAPS={
  'calibration.reference':(obj({'liquid_flow_m3_s':{'type':'number','enum':[MLMIN,2*MLMIN,3*MLMIN],'x-unit':'m^3/s'}}),obj({'reported_conversion_fraction':FRAC,'temperature_k':TEMP,'reported_pressure_pa':PRESS,'hydrogen_reference_flow_m3_s':H2FLOW,'substrate_concentration_mol_m3':number('mol/m^3',0),'conditions_zh':TEXT,'template_source':TEXT,'evidence':TEXT}),['display_digits'],'肉桂醇特定配置3个真实稳态参考标签，仅返回原条件，不外推/不隐式标定实例','query','agent',{'liquid_flow_m3_s':2*MLMIN},[]),
  'collector.unload':(obj({'container_id':TEXT}),obj({'unloaded':BOOL,'attachment_event':TEXT}),['product_port'],'停泵移走产品瓶及其库存，宿主记录释放事件','configuration','evaluator',{'container_id':'product_01'},['truth.removed_mass_kg','collection.product_m3']),
 }
+METHOD_SLOT=dict(type='integer',minimum=1,maximum=5,**{'x-unit':'1'})
+CAPS.update({  # method storage of the touch screen (brochure p.2): five stored methods, assumed count
+ 'methods.save':(obj({'slot':METHOD_SLOT}),obj({'slot':METHOD_SLOT}),['display_screen'],'方法存储：把当前方法（流量、供氢、温度、压力、时长）存入1-5号','device_command','agent',{'slot':1},['methods.stored']),
+ 'methods.load':(obj({'slot':METHOD_SLOT}),obj({'slot':METHOD_SLOT}),['display_screen'],'调出已存方法作为当前方法（同method.configure的检查）；空位拒绝','device_command','agent',{'slot':1},['flow.target_m3_s','hydrogen.target_reference_m3_s','temperature.target_k','pressure.target_abs_pa','method.duration_s','truth.bed_pressure_drop_pa'])})
 SLOTS={}
 def slot(k,s,u,o='derived',v='agent',c='display_digits',w=None):SLOTS[k]=(s,u,o,v,[c],w)
 slot('power.enabled',BOOL,'1','setpoint',c='power_inlet',w=('power.set','enabled'));slot('clamp.lift_m',LIFT,'m','scene',c='cartridge_clamp',w=('clamp.set_lift','lift_m'));slot('water_lid.lift_m',WATERLIFT,'m','scene',c='water_lid',w=('water_lid.set_lift','lift_m'))
@@ -50,10 +58,29 @@ slot('inlet.route',INLET,'1','setpoint',c='inlet_valve',w=('inlet.set','route'))
 for k,s,u in [('plant.configured',BOOL,'1'),('kinetics.configured',BOOL,'1'),('cycle.phase',PHASE,'1'),('cycle.elapsed_s',number('s',0),'s'),('cycle.fault',TEXT,'1'),('method.duration_s',number('s',0),'s'),('flow.target_m3_s',FLOW,'m^3/s'),('hydrogen.target_reference_m3_s',H2FLOW,'m^3/s'),('temperature.target_k',TEMP,'K'),('pressure.target_abs_pa',PRESS,'Pa'),('flow.indicated_m3_s',number('m^3/s',0),'m^3/s'),('hydrogen.indicated_reference_m3_s',H2FLOW,'m^3/s'),('temperature.indicated_k',nullable(TEMP),'K'),('pressure.indicated_abs_pa',PRESS,'Pa'),('water.volume_m3',number('m^3',0,300e-6),'m^3'),('collection.product_m3',number('m^3',0),'m^3'),('collection.waste_m3',number('m^3',0),'m^3'),('inlet.angle_rad',number('rad',0,math.pi/2),'rad'),('outlet.angle_rad',number('rad',0,math.pi/2),'rad')]:slot(k,s,u)
 for k in ['input','retained','product','waste','removed','vent']:slot('truth.'+k+'_mass_kg',number('kg',0),'kg','process_truth','evaluator','cartridge')
 for k in ['initial_substrate','remaining_substrate','formal_product','generated_hydrogen','dissolved_hydrogen','reacted_hydrogen','vented_hydrogen','vented_oxygen']:slot('truth.'+k+'_mol',number('mol',0),'mol','process_truth','evaluator','cartridge')
-slot('truth.catalyst_activity',FRAC,'1','process_truth','evaluator','cartridge');slot('truth.cells',arr(arr(number('mol',0),3),6),'mol','process_truth','evaluator','cartridge');slot('truth.bed_pressure_drop_pa',number('Pa',0),'Pa','process_truth','evaluator','cartridge')
+slot('methods.stored',arr(nullable(METHOD),5),'1','setpoint',c='display_screen');slot('truth.catalyst_activity',FRAC,'1','process_truth','evaluator','cartridge');slot('truth.cells',arr(arr(number('mol',0),3),6),'mol','process_truth','evaluator','cartridge');slot('truth.bed_pressure_drop_pa',number('Pa',0),'Pa','process_truth','evaluator','cartridge')
+def _panel_engine():
+ """The shared front-panel engine (_panel_ui.py beside this file): as a package module, else loaded from its file path."""
+ try:
+  from . import _panel_ui as engine;return engine
+ except ImportError:
+  import sys
+  if '_chemsim_panel_ui' not in sys.modules:
+   s=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(s);s.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=None if os.environ.get('HCUBE_PANEL_BUILD') else _panel_ui.load_spec(ASSET_DIR/'panel_ui.json',capabilities=set(CAPS))  # HCUBE_PANEL_BUILD: spec being written
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}  # panel.* kept out of CAPS: CAPS stays the instrument's own command set
+_PANELS=weakref.WeakKeyDictionary()
+def visibility(k):return CAPS[k][5] if k in CAPS else PANEL_CAPS[k]['visibility']
+def validate_arguments(k,v):
+ """Capability arguments: the instrument's validator; panel.* schemas (optional keys) by the engine's checker."""
+ if k in PANEL_CAPS:
+  if not isinstance(v,dict) or _panel_ui.check_arguments(PANEL_CAPS[k]['input_schema'],v):raise ActionRejected('INVALID_ARGUMENT')
+ else:validate(CAPS[k][0],v)
 class ThalesnanoHcubeRuntime:
  def __init__(self,instance_id='hcube_01'):
-  self.instance_id=instance_id;self.time_s=0.;self.revision=0;self.powered=False;self.lift=0.;self.water_lift=0.;self.water_kg=0.;self.water_input_kg=0.;self.plant=None;self.kinetics=None;self.method=copy.deepcopy(METHOD_EXAMPLE);self.temp_k=313.15;self.pressure=PN;self.activity=0.;self.inlet='solvent';self.outlet='waste';self.phase='idle';self.elapsed_s=0.;self.fault='';self.operation_id=None;self._operation_count=0;self.history=[];self.history_truncated=False;self.next_record_s=0.;self.feed=0.;self.solvent=0.;self.initial_liquid=0.;self.initial_a=0.;self.cells=[[0.,0.,0.] for _ in range(6)];self.product=[0.,[0.,0.,0.]];self.waste=[0.,[0.,0.,0.]];self.removed=[0.,[0.,0.,0.]];self.h2_generated=0.;self.h2_reacted=0.;self.h2_vented=0.;self.o2_vented=0.;self.templates={x['substance_id']:x for x in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']};self.reference=json.loads((ROOT/REFERENCE_REL).read_text());self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+  self.instance_id=instance_id;self.time_s=0.;self.revision=0;self.powered=False;self.lift=0.;self.water_lift=0.;self.water_kg=0.;self.water_input_kg=0.;self.plant=None;self.kinetics=None;self.method=copy.deepcopy(METHOD_EXAMPLE);self.temp_k=313.15;self.pressure=PN;self.activity=0.;self.inlet='solvent';self.outlet='waste';self.phase='idle';self.elapsed_s=0.;self.fault='';self.operation_id=None;self._operation_count=0;self.history=[];self.history_truncated=False;self.next_record_s=0.;self.feed=0.;self.solvent=0.;self.initial_liquid=0.;self.initial_a=0.;self.cells=[[0.,0.,0.] for _ in range(6)];self.product=[0.,[0.,0.,0.]];self.waste=[0.,[0.,0.,0.]];self.removed=[0.,[0.,0.,0.]];self.h2_generated=0.;self.h2_reacted=0.;self.h2_vented=0.;self.o2_vented=0.;self.templates={x['substance_id']:x for x in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']};self.reference=json.loads((ROOT/REFERENCE_REL).read_text());self._principals={'__public_agent__':'agent'};self._requests={};self._owners={};self._caller=None;self.methods=[None]*5;self.power_epoch=0;self.panel_capture_dir=None
  def register_principal(self,principal_id,visibility='agent'):
   if visibility not in ('agent','evaluator','debug'):raise ActionRejected('INVALID_ARGUMENT')
   if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -82,16 +109,53 @@ class ThalesnanoHcubeRuntime:
  def _species(self,i):return sum(c[i] for c in self.cells)+sum(p[1][i] for p in [self.product,self.waste,self.removed])+(self.feed*self.plant['substrate_concentration_mol_m3'] if i==0 and self.plant else 0.)
  def _values(self):
   m=self.method;v={'power.enabled':self.powered,'clamp.lift_m':self.lift,'water_lid.lift_m':self.water_lift,'inlet.route':self.inlet,'outlet.route':self.outlet,'plant.configured':self.plant is not None,'kinetics.configured':self.kinetics is not None,'cycle.phase':self.phase,'cycle.elapsed_s':self.elapsed_s,'cycle.fault':self.fault,'method.duration_s':m['duration_s'],'flow.target_m3_s':m['liquid_flow_m3_s'],'hydrogen.target_reference_m3_s':m['hydrogen_reference_flow_m3_s'],'temperature.target_k':m['temperature_k'],'pressure.target_abs_pa':m['pressure_abs_pa'],'flow.indicated_m3_s':m['liquid_flow_m3_s'] if self.phase=='running' else 0.,'hydrogen.indicated_reference_m3_s':m['hydrogen_reference_flow_m3_s'] if self.phase=='running' else 0.,'temperature.indicated_k':round(self.temp_k-273.15,1)+273.15 if self.powered and self.plant else None,'pressure.indicated_abs_pa':min(1e7,max(PN,round(self.pressure/1e4)*1e4)),'water.volume_m3':self.water_kg/RHO_W,'collection.product_m3':self.product[0],'collection.waste_m3':self.waste[0],'inlet.angle_rad':math.pi/2 if self.inlet=='sample' else 0.,'outlet.angle_rad':math.pi/2 if self.outlet=='product' else 0.,'truth.initial_substrate_mol':self.initial_a,'truth.remaining_substrate_mol':self._species(0),'truth.formal_product_mol':self._species(1),'truth.generated_hydrogen_mol':self.h2_generated,'truth.dissolved_hydrogen_mol':self._species(2),'truth.reacted_hydrogen_mol':self.h2_reacted,'truth.vented_hydrogen_mol':self.h2_vented,'truth.vented_oxygen_mol':self.o2_vented,'truth.catalyst_activity':self.activity,'truth.cells':self.cells,'truth.bed_pressure_drop_pa':self.dp()}
-  v.update({'truth.'+k+'_mass_kg':x for k,x in self._inventory().items()});return v
+  v.update({'truth.'+k+'_mass_kg':x for k,x in self._inventory().items()});v['methods.stored']=self.methods;return v
  def read(self,visibility='agent'):return copy.deepcopy({k:v for k,v in self._values().items() if SLOTS[k][3]=='agent' or visibility in ('evaluator','debug')})
  def debug_snapshot(self):return dict(state=self.read('evaluator'),plant=copy.deepcopy(self.plant),history=copy.deepcopy(self.history))
  def _measure(self):
   v=self._values();return dict(phase=self.phase,fault=self.fault,elapsed_s=self.elapsed_s,temperature_k=v['temperature.indicated_k'],pressure_abs_pa=v['pressure.indicated_abs_pa'],liquid_flow_m3_s=v['flow.indicated_m3_s'],hydrogen_reference_flow_m3_s=v['hydrogen.indicated_reference_m3_s'],product_volume_m3=self.product[0],waste_volume_m3=self.waste[0],real_conversion_fraction=None,isolated_yield_fraction=None,template_source=TEMPLATE_REL,evidence='synthetic_conditioned_flow_pressure_temperature; real_NIST_carrier_vapor_fits; separate_measured_conversion_reference')
+ @property
+ def panel(self):
+  """Touch-screen UI state (engine object, kept outside __dict__ so snapshots stay plain data)."""
+  if self not in _PANELS:_PANELS[self]=_panel_ui.PanelUI(PANEL_SPEC,self)
+  return _PANELS[self]
+ def panel_read(self):
+  """What the screen firmware sees: the agent slots plus power, power-up count, remaining run time, the stored methods as text and the last
+  ten log records (newest first) for the data-log page."""
+  d=self.read('agent')
+  def text(m):return f"{m['temperature_k']-273.15:.0f} °C  {m['pressure_abs_pa']/1e5:.1f} bar  {m['hydrogen_reference_flow_m3_s']/MLMIN:.0f} mL/min H2  {m['liquid_flow_m3_s']/MLMIN:.2f} mL/min  {m['duration_s']/60:.1f} min" if m else 'Empty'
+  log=[dict(elapsed_s=r['elapsed_s'],temperature_c=None if r['temperature_k'] is None else r['temperature_k']-273.15,pressure_bar=r['pressure_abs_pa']/1e5,flow_ml_min=r['liquid_flow_m3_s']/MLMIN,h2_ml_min=r['hydrogen_reference_flow_m3_s']/MLMIN) for r in self.history[-10:]][::-1]
+  d.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,'host.remaining_s':max(0.,self.method['duration_s']-self.elapsed_s) if self.phase=='running' else None,
+            'host.methods':[dict(slot=i+1,text=text(m)) for i,m in enumerate(self.methods)],'host.log':log})
+  return d
+ def panel_invoke(self,capability_id,arguments):
+  """A screen action takes the path of a direct call (a refusal is shown as the device's dialog)."""
+  try:return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _panel_command(self,k,a):
+  validate_arguments(k,a)
+  if k=='panel.frame':return dict(frame=self.panel.frame())
+  if k=='panel.capture':
+   data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);p=d/f"{a['display_id']}_{sha[:16]}.png"
+   if not p.exists():p.write_bytes(data)
+   return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(p),format='png',width=w,height=h,sha256=sha))
+  if ('to_x' in a)!=('to_y' in a):raise ActionRejected('INVALID_ARGUMENT')
+  try:
+   if k=='panel.switch':ok=self.panel.switch(a['input_id'],a['position'])
+   else:ok=self.panel.touch(a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),to=(a['to_x'],a['to_y']) if 'to_x' in a else None)
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  self.revision+=1;return {'accepted':bool(ok)}
  def invoke(self,capability,**a):
+  if capability in PANEL_CAPS:return self._panel_command(capability,a)
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability][0],a)
   if self.phase=='running' and capability not in ('power.set','acquisition.stop','inlet.set','outlet.set','hydrogenation.measure','history.read','product.read','thermo.lookup','calibration.reference'):raise ActionRejected('BUSY')
+  if self.phase=='running' and capability=='acquisition.stop':   # caller rule: an agent may not end another caller's run (the power switch is a hard switch: never refused)
+   owner=self._owners.get(self.operation_id)
+   if self._caller is not None and self._principals.get(self._caller)=='agent' and owner is not None and owner!=self._caller:raise ActionRejected('ACCESS_DENIED')
   if capability=='power.set':
+   if a['enabled'] and not self.powered:self.power_epoch+=1
    self.powered=a['enabled']
    if not self.powered and self.phase=='running':self.phase='cancelled'
    out=dict(a)
@@ -116,6 +180,13 @@ class ThalesnanoHcubeRuntime:
    self.method=copy.deepcopy(a);out={'configured':True}
   elif capability=='inlet.set':self.inlet=a['route'];out=dict(a)
   elif capability=='outlet.set':self.outlet=a['route'];out=dict(a)
+  elif capability in ('methods.save','methods.load') and (type(a['slot']) is not int or not 1<=a['slot']<=5):raise ActionRejected('INVALID_ARGUMENT')
+  elif capability=='methods.save':self.methods[a['slot']-1]=copy.deepcopy(self.method);out=dict(a)
+  elif capability=='methods.load':
+   m=self.methods[a['slot']-1]
+   if m is None:raise ActionRejected('PRECONDITION_FAILED')
+   if self.plant:self.vapor(m['temperature_k'])
+   self.method=copy.deepcopy(m);out=dict(a)
   elif capability=='acquisition.start':
    if not self.powered or self.lift>1e-5 or self.water_lift>1e-5 or not self.plant or not self.kinetics or (self.method['hydrogen_reference_flow_m3_s']>0 and self.water_kg<=0):raise ActionRejected('PRECONDITION_FAILED')
    if self._guard():raise ActionRejected('PRECONDITION_FAILED')
@@ -179,7 +250,7 @@ class ThalesnanoHcubeSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_thalesnano_hcube_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -200,17 +271,21 @@ class ThalesnanoHcubeSession:
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host
-        if not isinstance(capability_id,str) or capability_id not in CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
-        if self._role=='agent' and CAPS[capability_id][5]!='agent': raise ActionRejected('ACCESS_DENIED')
+        if not isinstance(capability_id,str) or (capability_id not in CAPS and capability_id not in PANEL_CAPS): raise ActionRejected('UNKNOWN_CAPABILITY')
+        if self._role=='agent' and visibility(capability_id)!='agent': raise ActionRejected('ACCESS_DENIED')
         if not isinstance(request_id,str) or not request_id: raise ActionRejected('INVALID_ARGUMENT')
-        validate(CAPS[capability_id][0],arguments)
+        validate_arguments(capability_id,arguments)
         key=(self._principal,instance_id,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
         if key in h._requests:
             old,result=h._requests[key]
             if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
             return copy.deepcopy(result)
-        result=h.invoke(capability_id,**arguments); op=result.get('operation_id')
+        started=h.operation_id; h._caller=self._principal   # a screen action acts as this session's caller
+        try: result=h.invoke(capability_id,**arguments)
+        finally: h._caller=None
+        op=result.get('operation_id')
         if op: h._owners[op]=self._principal
+        if capability_id in PANEL_CAPS and h.operation_id!=started: h._owners[h.operation_id]=self._principal   # Start on the screen: the run belongs to the operator who pressed it
         response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,
           status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
         h._requests[key]=(digest,copy.deepcopy(response)); return response
@@ -284,5 +359,18 @@ def export_thalesnano_hcube_contract_metadata():
         if key.startswith('hydrogen.'):slot['reference_conditions']='Reference volume 273.15 K / 101325 Pa; model convention, manufacturer normal datum unspecified'
         if key.startswith('pressure.'):slot['reference_conditions']='Absolute pressure convention; manufacturer gauge/absolute datum unspecified'
         if '.target' in key or key=='method.duration_s':slot['origin']='setpoint'
+    panel_fx=list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in CAPS[c][7]))
+    for key,c in PANEL_CAPS.items():                                    # screen gestures change what the commands they call change
+        query=key in ('panel.capture','panel.frame')
+        caps[key]=dict(function_zh=c['function_zh'],kind=c['kind'],visibility=c['visibility'],component_ids=c['component_ids'],availability='implemented',
+          input_schema=copy.deepcopy(c['input_schema']),output_schema=copy.deepcopy(c['output_schema']),
+          implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),
+          binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.thalesnano_hcube.ThalesnanoHcubeSession.invoke',invocation=f'session.invoke(instance_id="hcube_01", capability_id={key!r}, arguments={c["example_arguments"]!r}, request_id="unique")'),
+          preconditions=[] if query else [dict(description_zh='断电时屏幕暗、只有电源开关与两个阀门开关起作用；运行中设置无效；被调用能力的前提同样适用，被拒时显示仪器对话框且手势不被接受，状态不变',state_ids=['power.enabled','cycle.phase'],enforced_by='runtime',check='ThalesnanoHcubeRuntime._panel_command')],
+          state_effects=[] if query else [dict(state_id=k,timing='immediate',description_zh='手势调用的命令即时改变的量') for k in panel_fx],observes=[],
+          model_effects=dict(mode='none',description_zh='屏幕纹理与阀门关节触发属于后续Matterix步骤',binding_ids=[]),
+          execution=dict(mode='synchronous',time_domain='simulation',completion_criterion='手势瞬时完成；结果只说明是否被仪器接受，屏幕须用panel.capture查看' if not query else '查询即时返回，不改变状态',completion_state_ids=[],timeout_s=None,cancellation='unsupported',retry='same_request_id',resources=['host_clock'],partial_failure_zh='被拒的命令不改变状态'),
+          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','REQUEST_CONFLICT']],
+          example_arguments=copy.deepcopy(c['example_arguments']),verification=[],limitations=['面板层按panel_ui.json（近似：只有宣传册）解释手势并调用本运行层的同名能力；手势不推进仿真时钟'],source_ids=['manufacturer_primary','simulation_assumption'])
     _ann.annotate_export('thalesnano_hcube',caps,slots,{'conditional_hydrogenation':mechanism},inputs={'plant.configure':(PLANT,EXAMPLE),'kinetics.configure':(KINETICS,KINETIC_EXAMPLE)})
     return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'conditional_hydrogenation':mechanism})

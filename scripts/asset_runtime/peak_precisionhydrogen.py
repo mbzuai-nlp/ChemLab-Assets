@@ -22,14 +22,23 @@ Process model (fixed 0.5 s grid anchored at t = 0; SI units, amounts in mol, pre
   * Quality: output dew point dries from the initial value towards -75 C with the dryer time constant (24 h run-in); O2 at the nominal level,
     higher with a membrane crossover fault.
   * Power: idle + cell power per mol/s (calibrated to 787 W at 500 sccm); heat = power - HHV x hydrogen made.
-  * Ledgers: hydrogen (made, purged, stored, delivered, leaked, vented) and water (bottle, tank, consumed) close exactly."""
+  * Ledgers: hydrogen (made, purged, stored, delivered, leaked, vented) and water (bottle, tank, consumed) close exactly.
+
+Front panel (panel.press / panel.touch / panel.capture / panel.frame): the black-and-white touch HMI of the manual (boot, home, MENU, COLUMN,
+water and failure screens; panel_ui.json beside the contract) run by the generic engine _panel_ui.py on top of the capabilities below.  1.1.0
+adds the HMI functions the manual documents: RECOVERY on the NO WATER LOADED screen (water.recover), the de-ioniser column change dialog
+(deioniser.change_begin / deioniser.change_confirm; the column may be swapped with the unit on while the change is open) and the water level
+alarms sounding (MUTE on the water screens)."""
 import copy
+import hashlib
 import json
 import math
 import re
+import tempfile
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
+ASSET_VERSION = '1.1.1'
 ASSET_TYPE_ID = "instrument.peak_precisionhydrogen"
 CATALOG_ID = "CHEM-196"
 ROOT = Path(__file__).resolve().parents[2]
@@ -198,7 +207,13 @@ cap('output.depressurise', obj({}), obj(dict(state=TEXT)), {}, ['touch_screen', 
 cap('alarm.mute', obj({}), obj(dict(muted=BOOL)), {}, ['touch_screen'], '报警画面的静音键', 'agent')
 cap('water.refill', obj(dict(volume_m3=number('m3', 0.0, 0.02), conductivity_s_m=number('S/m', 0.0, 0.1)), optional=('conductivity_s_m',)),
     obj(dict(bottle_water_m3=number('m3'))), dict(volume_m3=0.003), ['rear_fittings'], '给外接水瓶加去离子水（体积、电导率；不超过瓶容积）', 'agent', 'robot_skill')
-cap('deioniser.replace', obj({}), obj(dict(replaced=BOOL)), {}, ['deioniser_column'], '更换去离子柱（维护；须断电）', 'agent', 'robot_skill')
+cap('deioniser.replace', obj({}), obj(dict(replaced=BOOL)), {}, ['deioniser_column'], '更换去离子柱（维护；须断电，或在触摸屏的更换流程中通电更换）', 'agent', 'robot_skill')
+cap('water.recover', obj({}), obj(dict(retrying=BOOL)), {}, ['touch_screen'],
+    '触摸屏“NO WATER LOADED”画面的RECOVERY：检查外接水瓶后重新开始开机加水尝试（水位检查重新计时）', 'agent')
+cap('deioniser.change_begin', obj({}), obj(dict(change_pending=BOOL)), {}, ['touch_screen', 'deioniser_column'],
+    '触摸屏MENU→COLUMN→change（或计划提示CONTINUE→CHANGE）：开始更换去离子柱（停止经柱循环，屏幕显示D.I. COLUMN CHANGED?，此时可通电更换）', 'agent')
+cap('deioniser.change_confirm', obj({}), obj(dict(change_pending=BOOL)), {}, ['touch_screen', 'deioniser_column'],
+    '触摸屏“D.I. COLUMN CHANGED?”的CONFIRM：结束更换、恢复经柱循环并重新开始去离子柱更换计时', 'agent')
 cap('events.read', obj(dict(since_s=number('s', 0.0))), obj(dict(events=array(EVENT, 0, MAX_EVENTS_LOG), dropped=integer(0, 10 ** 9))), dict(since_s=0.0), _BODY,
     '事件记录（自检、泄漏测试、加水、报警、操作）', 'agent', 'query')
 cap('truth.inspect', obj({}), obj(dict(gas=FREE_OBJ, water=FREE_OBJ, cell=FREE_OBJ, faults=array(TEXT, 0, 16))), {}, _BODY,
@@ -213,6 +228,26 @@ UNSUPPORTED = {
 }
 for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, _BODY, _v, 'agent', 'device_command')
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.peak_precisionhydrogen (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / touch / capture / frame (kept out of CAPS:
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # CAPS stays the instrument's own command set)
 
 
 # ---------------------------------------------------------------- state slots
@@ -234,6 +269,7 @@ slot('flow.percent', nullable(number('1')), '1', 'derived', 'touch_screen', '屏
 slot('display.pressure', nullable(number('1')), '1', 'derived', 'display_digits', '屏幕压力数字（按设定单位bar或psi；显示用）')
 slot('display.flow_percent', nullable(number('1')), '1', 'derived', 'display_digits', '屏幕% FLOW数字（显示用）')
 slot('water.level_ok', BOOL, '1', 'derived', 'water_tank', '水箱水位是否高于低水位传感器')
+slot('water.low_level_s', number('s'), 's', 'derived', 'water_tank', '低水位计时：水位低于低水位传感器的时间（运行/待机中满3 h停止产氢WATER LEVEL FAULT，须重新上电；手册p.28）')
 slot('alarms.active', array(TEXT, 0, 16), '1', 'derived', 'touch_screen', '当前报警（LEAK_TEST_FAILED、INTERNAL_LEAK、LOW_PRESSURE、OVERPRESSURE、WATER_LOW、WATER_QUALITY、CELL_FAULT、AMBIENT_TEMPERATURE、DEIONISER_DUE）')
 slot('alarm.audible', BOOL, '1', 'derived', 'touch_screen', '报警声（可静音）')
 slot('indicator.ok', BOOL, '1', 'derived', 'hex_ring', '六边形灯带与实心六边形绿色（正常：待机或供氢；对产品照片的解读）')
@@ -242,6 +278,7 @@ slot('indicator.fault', BOOL, '1', 'derived', 'fault_frame', '触摸屏红色故
 slot('indicator.depressurised', BOOL, '1', 'derived', 'vent_icon', '触摸屏去压图标蓝色（已去压）')
 slot('settings.current', FREE_OBJ, '1', 'setpoint', 'touch_screen', '当前设定（输出压力、显示单位）')
 slot('deioniser.age_s', number('s'), 's', 'derived', 'deioniser_column', '去离子柱已使用时间（建议12个月更换）')
+slot('deioniser.change_pending', BOOL, '1', 'setpoint', 'deioniser_column', '触摸屏去离子柱更换流程进行中（屏幕D.I. COLUMN CHANGED?，经柱循环停止）')
 slot('truth.gas', FREE_OBJ, '1', 'process_truth', 'generator_body', '机内氢量与绝压、产氢与吹扫速率、输出露点与氧含量、向应用供氢与外漏', 'evaluator')
 slot('truth.water', FREE_OBJ, '1', 'process_truth', 'water_tank', '水箱与水瓶存水、加水泵、去离子柱消耗、电解池进水电导率', 'evaluator')
 slot('truth.cell', FREE_OBJ, '1', 'process_truth', 'pem_cell', '电解池电流、电功率、散热、膜状态', 'evaluator')
@@ -250,6 +287,12 @@ SCENE_MIRRORED = {'display.pressure', 'display.flow_percent', 'indicator.ok', 'i
 
 
 LATCHED = ('LEAK_TEST_FAILED', 'INTERNAL_LEAK', 'LOW_PRESSURE', 'OVERPRESSURE', 'CELL_FAULT')
+SOUNDING = LATCHED + ('CELL_FAULT', 'WATER_LOW', 'WATER_LEVEL_FAULT')   # alarms that sound (manual: the water level screens alarm with MUTE); the rest are silent notices
+# 1.1.1 (sync fixes 2026-10-19), B&W manual p.28: the loading pump gives up when the power-up water load fails (NO WATER LOADED; RECOVERY
+# re-engages it), and in operation a low water level starts a 3 h timer: if the low-level sensor is not switched again within 3 h the generator
+# stops producing hydrogen (WATER LEVEL FAULT, latched until the power is cycled).  The 180 s load time-out is the runtime's assumption.
+WATER_LOAD_TIMEOUT_S = 180.0
+LOW_WATER_SHUTDOWN_S = 3 * 3600.0
 
 
 # ---------------------------------------------------------------- runtime
@@ -276,6 +319,8 @@ class PeakPrecisionhydrogenRuntime:
         self.bottle = 0.0
         self.bottle_kappa = 0.0
         self.pump_on = False
+        self.pump_timeout = False                         # the loading pump gave up (NO WATER LOADED) until RECOVERY or a power cycle
+        self.low_water_s = 0.0                            # time below the low-level sensor (3 h timer)
         self.di_used = 0.0                                # de-ionizer ion load taken up (eq)
         self.di_age = 0.0
         self.membrane_dose = 0.0                          # exposure to conductive water (S/m x s)
@@ -294,7 +339,11 @@ class PeakPrecisionhydrogenRuntime:
         self.alarms = []
         self.led = dict(h2_initial_mol=0.0, h2_made_mol=0.0, h2_purged_mol=0.0, h2_delivered_mol=0.0, h2_external_leak_mol=0.0, h2_internal_leak_mol=0.0,
                         h2_vented_mol=0.0, water_initial_kg=0.0, water_added_kg=0.0, water_electrolysed_kg=0.0, water_lost_kg=0.0, energy_j=0.0, heat_j=0.0)
+        self.di_change = False                            # HMI column change open (D.I. COLUMN CHANGED? shown; no flow through the column)
+        self.power_epoch = 0                              # power-ups seen by the panel (a cycle between two gestures still counts)
         self._principals, self._requests, self._caller = {}, {}, None
+        self.panel_capture_dir = None                     # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self)
 
     # ---- sessions
     @property
@@ -446,16 +495,16 @@ class PeakPrecisionhydrogenRuntime:
             L['water_electrolysed_kg'] += take * frac_w
             L['water_lost_kg'] += take * (1 - frac_w)
             fr = self._tank_frac()
-            if fr < ENG['tank_low_fraction']:
+            if fr < ENG['tank_low_fraction'] and not self.pump_timeout and 'WATER_LEVEL_FAULT' not in self.latched:
                 self.pump_on = True
-            if fr >= ENG['tank_high_fraction']:
+            if fr >= ENG['tank_high_fraction'] or 'WATER_LEVEL_FAULT' in self.latched:
                 self.pump_on = False
             if self.pump_on and 'loading_pump_failure' not in self.faults and self.bottle > 0:
                 dv = min(ENG['loading_pump_m3_s'] * h, self.bottle, ENG['tank_volume_m3'] - self.tank)
                 self.bottle -= dv
                 self.tank_kappa = (self.tank * self.tank_kappa + dv * self.bottle_kappa) / (self.tank + dv)   # feed water mixes into the tank
                 self.tank += dv
-            if self.tank > 0:                                                  # the tank water circulates through the de-ioniser cartridge
+            if self.tank > 0 and not self.di_change:                           # the tank water circulates through the de-ioniser cartridge
                 cap_ = ENG['deioniser_capacity_eq']
                 brk = min(max((self.di_used - cap_) / (0.2 * cap_), 0.0), 1.0)
                 k_out = 5e-6 + brk * max(self.tank_kappa - 5e-6, 0.0)
@@ -467,6 +516,12 @@ class PeakPrecisionhydrogenRuntime:
             kc = self._kappa_cell()
             if kc > ENG['cell_water_conductivity_alarm_s_m']:
                 self.membrane_dose += kc * h
+            if self._tank_frac() >= ENG['tank_low_fraction']:                 # 3 h low-water timer (B&W manual p.28)
+                self.low_water_s = 0.0
+            elif self.state != 'diagnostics' and 'WATER_LEVEL_FAULT' not in self.latched:
+                self.low_water_s += h
+                if self.low_water_s >= LOW_WATER_SHUTDOWN_S - 1e-9:
+                    self._latch('WATER_LEVEL_FAULT', '低水位3 h仍未补足：停止产氢（检查外接水源后重新上电）')
         # ---- diagnostics sequence (power-up water check, pressurise, hold = leak test)
         if self.state == 'diagnostics':
             D = self.diag
@@ -475,9 +530,10 @@ class PeakPrecisionhydrogenRuntime:
                 if self._tank_frac() >= ENG['tank_low_fraction']:
                     D['phase'], D['t_test'] = 'pressurise', 0.0                    # the leak-test timing starts once the water check has passed
                     self._event('operation', 'WATER_OK', '水位正常，开始加压')
-                elif D['t'] >= 180.0 and not D.get('water_low_logged'):
+                elif D['t'] >= WATER_LOAD_TIMEOUT_S and not D.get('water_low_logged'):
                     D['water_low_logged'] = True
-                    self._event('alarm', 'WATER_LOW', '自检：无法加水到低水位（检查外接水瓶）')
+                    self.pump_on, self.pump_timeout = False, True                  # the loading pump gives up; RECOVERY re-engages it
+                    self._event('alarm', 'WATER_LOW', '自检：无法加水到低水位，加水泵停止（检查外接水瓶后按RECOVERY）')
             else:
                 D['t_test'] += h
             if D['phase'] == 'pressurise':
@@ -535,7 +591,7 @@ class PeakPrecisionhydrogenRuntime:
     def _update_alarms(self):
         A = set(self.latched)
         if self.plant is not None and self.powered:
-            if self._tank_frac() <= ENG['tank_critical_fraction'] or (self.state == 'diagnostics' and self.diag and self.diag['phase'] == 'water_check' and self.diag['t'] >= 180.0):
+            if self._tank_frac() <= ENG['tank_critical_fraction'] or (self.state == 'diagnostics' and self.diag and self.diag['phase'] == 'water_check' and self.diag['t'] >= WATER_LOAD_TIMEOUT_S):
                 A.add('WATER_LOW')
             if self._kappa_cell() > ENG['cell_water_conductivity_alarm_s_m']:
                 A.add('WATER_QUALITY')
@@ -546,7 +602,7 @@ class PeakPrecisionhydrogenRuntime:
             if self.di_age > DOC['deioniser_interval_s']:
                 A.add('DEIONISER_DUE')
         new = sorted(A)
-        if (set(new) - set(self.alarms)) & set(LATCHED + ('CELL_FAULT',)):
+        if (set(new) - set(self.alarms)) & set(SOUNDING):
             self.muted = False                                                    # a new sounding alarm sounds again (silent notices do not cancel the mute)
         self.alarms = new if self.powered else []
 
@@ -556,7 +612,7 @@ class PeakPrecisionhydrogenRuntime:
             raise ActionRejected('UNSUPPORTED')
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
         out = fn(**args)
-        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read'):
+        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'panel.capture', 'panel.frame'):
             self.revision += 1
         if capability_id != 'sim.step':
             self._update_alarms()
@@ -591,8 +647,10 @@ class PeakPrecisionhydrogenRuntime:
         self._need_plant()
         if on and not self.powered:
             self.powered = True
+            self.power_epoch += 1
             self.state, self.diag = 'diagnostics', dict(phase='water_check', t=0.0)
             self.latched, self.muted, self.depressurised = set(), False, False
+            self.pump_timeout, self.low_water_s = False, 0.0                     # a power cycle clears the water faults (manual p.28)
             self._event('system', 'POWER_ON', '通电：自检、加水与泄漏测试（约6 min）')
         elif not on and self.powered:
             if self.valve:
@@ -601,6 +659,7 @@ class PeakPrecisionhydrogenRuntime:
                 self.n_line = tot - self.n_int
             self.powered, self.state, self.diag, self.valve, self.pump_on = False, 'off', None, False, False
             self.n_dot, self.P_el = 0.0, 0.0
+            self.di_change = False                                                # the HMI dialog does not survive a power cycle
             self._event('system', 'POWER_OFF', '断电：停止产氢（机内保留储氢）')
         return dict(on=self.powered)
 
@@ -667,10 +726,39 @@ class PeakPrecisionhydrogenRuntime:
 
     def _cmd_alarm_mute(self):
         self._need_power()
-        if not set(self.alarms) & set(LATCHED + ('CELL_FAULT',)):                   # only a sounding (fault) alarm can be muted
+        if not set(self.alarms) & set(SOUNDING):                                    # only a sounding (fault or water) alarm can be muted
             raise ActionRejected('NO_ALARM')
         self.muted = True
         return dict(muted=True)
+
+    def _cmd_water_recover(self):
+        """NO WATER LOADED (power-up water check failed, the loading pump has stopped): RECOVERY re-engages the loading pump and starts a new
+        3 min loading window (B&W manual p.28)."""
+        self._need_power()
+        D = self.diag
+        if not (self.state == 'diagnostics' and D and D['phase'] == 'water_check' and D['t'] >= WATER_LOAD_TIMEOUT_S):
+            raise ActionRejected('NO_WATER_FAULT')
+        D['t'], D['water_low_logged'] = 0.0, False
+        self.pump_on, self.pump_timeout = True, False
+        self._event('water', 'WATER_RECOVERY', 'RECOVERY：重新开始加水')
+        return dict(retrying=True)
+
+    def _cmd_deioniser_change_begin(self):
+        self._need_power()
+        if self.state == 'diagnostics':
+            raise ActionRejected('DIAGNOSTICS_RUNNING')
+        if not self.di_change:
+            self.di_change = True
+            self._event('operation', 'DI_CHANGE', '去离子柱更换：停止经柱循环（D.I. COLUMN CHANGED?）')
+        return dict(change_pending=True)
+
+    def _cmd_deioniser_change_confirm(self):
+        self._need_power()
+        if not self.di_change:
+            raise ActionRejected('NOT_CHANGING')
+        self.di_change, self.di_age = False, 0.0                                   # the HMI restarts its column interval
+        self._event('operation', 'DI_CHANGE_CONFIRMED', '去离子柱已更换（CONFIRM）：恢复正常运行')
+        return dict(change_pending=False)
 
     def _cmd_water_refill(self, volume_m3, conductivity_s_m=None):
         self._need_plant()
@@ -686,7 +774,7 @@ class PeakPrecisionhydrogenRuntime:
 
     def _cmd_deioniser_replace(self):
         self._need_plant()
-        if self.powered:
+        if self.powered and not self.di_change:                                   # on: only inside the HMI change (fascia off, column disconnected)
             raise ActionRejected('POWER_ON')
         self.di_used, self.di_age = 0.0, 0.0
         self._event('operation', 'DEIONISER_REPLACED', '更换去离子柱')
@@ -718,6 +806,63 @@ class PeakPrecisionhydrogenRuntime:
     def _cmd_sim_step(self, dt_s):
         return dict(time_s=self.step(dt_s))
 
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the HMI firmware sees: the agent slots plus whether the screen is live, the power-up count, the alarm screen to show, the
+        leak-test progress and the days left on the column interval."""
+        out = self.read('agent')
+        pw = self.powered and self.plant is not None
+        A = set(self.alarms) if pw else set()
+        failure = next((a for a in ('LEAK_TEST_FAILED', 'OVERPRESSURE', 'INTERNAL_LEAK', 'LOW_PRESSURE', 'CELL_FAULT') if a in A), None)
+        water = ('level_fault' if 'WATER_LEVEL_FAULT' in A else None if 'WATER_LOW' not in A else 'no_water_loaded' if self.state == 'diagnostics'
+                 else 'level_fault')
+        left = DOC['leak_test_s'] - (self.diag.get('t_test', 0.0) if self.diag else 0.0)
+        out.update({'host.powered': pw, 'host.power_epoch': self.power_epoch, 'host.failure': failure, 'host.water_fault': water,
+                    'host.di_due': 'DEIONISER_DUE' in A, 'host.di_days_left': int(max(DOC['deioniser_interval_s'] - self.di_age, 0.0) // DAY),
+                    'host.boot_fraction': min(max(1.0 - left / DOC['leak_test_s'], 0.0), 1.0) if self.state == 'diagnostics' else 1.0})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything)."""
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args, **kw):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args, **kw)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_touch(self, display_id, x, y, duration_s=0.1, to_x=None, to_y=None):
+        if (to_x is None) != (to_y is None):
+            raise ActionRejected('INVALID_ARGUMENT')
+        return self._panel(self.panel.touch, display_id, int(x), int(y), float(duration_s), None if to_x is None else (int(to_x), int(to_y)))
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
+
     # ---- read
     def _display_pressure(self):
         if not self.powered or self.p_meas is None:
@@ -729,17 +874,19 @@ class PeakPrecisionhydrogenRuntime:
         pw = self.powered and self.plant is not None
         p_del = (max(self.p_meas + ENG['pressure_noise_pa'] * _gauss(self.seed, self.tick, 1), 0.0) if (pw and self.p_meas is not None) else None)
         fault = bool(set(self.alarms) & set(LATCHED + ('CELL_FAULT',)))
+        sounding = bool(set(self.alarms) & set(SOUNDING))
         out = {'clock.time_s': self.t, 'plant.configured': self.plant is not None, 'power.on': self.powered, 'state.current': self.state,
                'state.remaining_s': max(DOC['leak_test_s'] - self.diag.get('t_test', 0.0), 0.0) if (self.state == 'diagnostics' and self.diag) else None,
                'pressure.delivery_pa': p_del, 'pressure.set_pa': self.settings['pressure_set_pa'],
                'flow.percent': round(100.0 * self.n_dot / N_MAX, 1) if pw else None, 'display.pressure': self._display_pressure() if pw else None,
                'display.flow_percent': round(100.0 * self.n_dot / N_MAX) if pw else None,
                'water.level_ok': bool(self.plant is not None and self._tank_frac() >= ENG['tank_low_fraction']),
-               'alarms.active': list(self.alarms) if pw else [], 'alarm.audible': bool(pw and self.alarms and not self.muted and fault),
+               'water.low_level_s': self.low_water_s if pw else 0.0,
+               'alarms.active': list(self.alarms) if pw else [], 'alarm.audible': bool(pw and self.alarms and not self.muted and sounding),
                'indicator.ok': bool(pw and self.state in ('standby', 'running') and not self.depressurised and not fault and 'WATER_LOW' not in self.alarms),
-               'indicator.water': bool(pw and 'WATER_LOW' in self.alarms), 'indicator.fault': bool(pw and fault),
+               'indicator.water': bool(pw and {'WATER_LOW', 'WATER_LEVEL_FAULT'} & set(self.alarms)), 'indicator.fault': bool(pw and fault),
                'indicator.depressurised': bool(pw and self.depressurised and self.state != 'fault'), 'settings.current': dict(self.settings),
-               'deioniser.age_s': self.di_age}
+               'deioniser.age_s': self.di_age, 'deioniser.change_pending': self.di_change}
         if visibility != 'agent':
             if self.plant is None:
                 out['truth.gas'], out['truth.water'], out['truth.cell'] = {}, {}, {}
@@ -752,7 +899,7 @@ class PeakPrecisionhydrogenRuntime:
                                         dew_point_k=self.dew_k, water_ppmv=e_ice_simple(self.dew_k) / max(self._p_line(), 1.0) * 1e6, o2_mol_frac=o2, purity=1.0 - o2,
                                         valve_open=self.valve, depressurised=self.depressurised)
                 out['truth.water'] = dict(tank_m3=self.tank, tank_fraction=self._tank_frac(), bottle_m3=self.bottle, bottle_conductivity_s_m=self.bottle_kappa,
-                                          pump_on=self.pump_on, deioniser_used_eq=self.di_used, deioniser_capacity_eq=ENG['deioniser_capacity_eq'],
+                                          pump_on=self.pump_on, pump_timed_out=self.pump_timeout, deioniser_used_eq=self.di_used, deioniser_capacity_eq=ENG['deioniser_capacity_eq'],
                                           cell_water_conductivity_s_m=self._kappa_cell())
                 out['truth.cell'] = dict(current_a=2 * F_CONST * (1 + ENG['psa_purge_fraction']) * self.n_dot, electrical_power_w=self.P_el,
                                          heat_w=self.P_el - HHV_H2 * (1 + ENG['psa_purge_fraction']) * self.n_dot, mains_current_a=self.P_el / self.plant['mains_v'],
@@ -810,7 +957,7 @@ class PeakPrecisionhydrogenSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -844,13 +991,13 @@ class PeakPrecisionhydrogenSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             h._caller = self._principal
             try:
                 result = _jsonable(h.invoke(capability_id, **arguments))
@@ -889,6 +1036,7 @@ ERROR_ZH = {
     'PLANT_REQUIRED': '尚未声明环境条件', 'SEED_FIXED': '噪声种子只能在首次声明时设定', 'POWER_OFF': '发生器未通电', 'POWER_ON': '须先断电（维护）',
     'DIAGNOSTICS_RUNNING': '自检与泄漏测试进行中（约6 min）', 'FAULT_ACTIVE': '有锁定报警（泄漏、超压、低压、电解池故障）：须SHUT DOWN去压或重新上电',
     'DEPRESSURISING': '去压进行中', 'NO_ALARM': '没有可静音的报警', 'BOTTLE_OVERFLOW': '水瓶装不下（超过瓶容积）',
+    'NO_WATER_FAULT': '没有开机加水失败（NO WATER LOADED）画面', 'NOT_CHANGING': '去离子柱更换流程未开始',
 }
 _P = ['PLANT_REQUIRED']
 _PW = _P + ['POWER_OFF']
@@ -898,6 +1046,8 @@ CAP_ERRORS = {
     'cycle.toggle': _PW + ['DIAGNOSTICS_RUNNING', 'FAULT_ACTIVE', 'DEPRESSURISING'], 'settings.configure': _PW, 'output.depressurise': _PW + ['DIAGNOSTICS_RUNNING'],
     'alarm.mute': _PW + ['NO_ALARM'], 'water.refill': _P + ['BOTTLE_OVERFLOW'], 'deioniser.replace': _P + ['POWER_ON'],
     'events.read': [], 'truth.inspect': [], 'ledger.read': [], 'fault.inject': _P, 'sim.step': [],
+    'water.recover': _PW + ['NO_WATER_FAULT'], 'deioniser.change_begin': _PW + ['DIAGNOSTICS_RUNNING'], 'deioniser.change_confirm': _PW + ['NOT_CHANGING'],
+    **{k: ([] if k == 'panel.frame' else _P) for k in PANEL_CAPS},
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 PRECONDITIONS = {
@@ -907,44 +1057,65 @@ PRECONDITIONS = {
     'cycle.start': ('已通电、自检完成、无锁定报警、不在去压中', ['power.on', 'state.current', 'alarms.active']),
     'cycle.stop': ('已通电、自检完成、无锁定报警', ['power.on', 'state.current']), 'cycle.toggle': ('同cycle.start / cycle.stop', ['power.on', 'state.current']),
     'settings.configure': ('已通电；设定压力≤6.9 bar表压', ['power.on']), 'output.depressurise': ('已通电且不在自检中；同时确认锁定报警', ['power.on', 'state.current']),
-    'alarm.mute': ('已通电且有鸣响的报警（泄漏、超压、低压、电解池故障；缺水与水质提示不鸣响）', ['power.on', 'alarms.active']), 'water.refill': ('加水后不超过瓶容积', ['plant.configured']),
-    'deioniser.replace': ('已断电', ['power.on']), 'fault.inject': ('无', ['plant.configured']),
+    'alarm.mute': ('已通电且有鸣响的报警（泄漏、超压、低压、电解池故障、缺水；水质与去离子柱提示不鸣响）', ['power.on', 'alarms.active']), 'water.refill': ('加水后不超过瓶容积', ['plant.configured']),
+    'deioniser.replace': ('已断电，或已通电且触摸屏去离子柱更换流程进行中（deioniser.change_begin之后）', ['power.on', 'deioniser.change_pending']), 'fault.inject': ('无', ['plant.configured']),
+    'water.recover': ('已通电且处于开机水位检查加水失败（NO WATER LOADED，自检中水位检查超过3 min）', ['power.on', 'state.current', 'alarms.active']),
+    'deioniser.change_begin': ('已通电且不在自检中（已在更换中则不变）', ['power.on', 'state.current']),
+    'deioniser.change_confirm': ('已通电且更换流程进行中', ['power.on', 'deioniser.change_pending']),
+    **{k: ('面板按当前画面与手册规则处理手势：断电时只有背面电源键起作用；自检画面、报警画面与更换画面只接受其上的按钮；被调用能力的前提同样适用（被拒时显示仪器自己的画面，手势不被接受）', ['power.on', 'state.current', 'alarms.active'])
+       for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
+    'panel.capture': ('无（断电时为暗屏）', ['power.on']), 'panel.frame': ('评测者专用', []),
 }
 _DISP = ['display.pressure', 'display.flow_percent', 'pressure.delivery_pa', 'flow.percent']
 _IND = ['indicator.ok', 'indicator.water', 'indicator.fault', 'indicator.depressurised', 'alarms.active', 'alarm.audible']
-_EVOLVE = ['state.current', 'state.remaining_s', 'water.level_ok', 'deioniser.age_s', 'truth.gas', 'truth.water', 'truth.cell'] + _DISP + _IND
+_EVOLVE = ['state.current', 'state.remaining_s', 'water.level_ok', 'water.low_level_s', 'deioniser.age_s', 'truth.gas', 'truth.water', 'truth.cell'] + _DISP + _IND
 EFFECTS = {
     'plant.configure': ['plant.configured', 'truth.gas', 'truth.water', 'truth.cell', 'water.level_ok'] + _IND,
     'consumer.set': ['truth.gas'],
-    'power.set': ['power.on', 'state.current', 'state.remaining_s', 'truth.gas', 'truth.water', 'truth.cell'] + _DISP + _IND,
+    'power.set': ['power.on', 'state.current', 'state.remaining_s', 'truth.gas', 'truth.water', 'truth.cell', 'deioniser.change_pending', 'water.low_level_s'] + _DISP + _IND,
     'cycle.start': ['state.current', 'truth.gas'] + _IND, 'cycle.stop': ['state.current', 'truth.gas'] + _IND, 'cycle.toggle': ['state.current', 'truth.gas'] + _IND,
     'settings.configure': ['settings.current', 'pressure.set_pa', 'display.pressure'], 'output.depressurise': ['state.current', 'truth.gas', 'truth.cell'] + _IND,
     'alarm.mute': ['alarm.audible'], 'water.refill': ['truth.water'], 'deioniser.replace': ['deioniser.age_s', 'truth.water'] + _IND,
+    'water.recover': ['state.remaining_s', 'truth.water'] + _IND, 'deioniser.change_begin': ['deioniser.change_pending'],
+    'deioniser.change_confirm': ['deioniser.change_pending', 'deioniser.age_s'] + _IND,
     'fault.inject': ['truth.faults', 'truth.gas', 'truth.water'] + _IND, 'sim.step': ['clock.time_s'],
 }
 EFFECTS['power.toggle'] = list(EFFECTS['power.set'])
+_PANEL_EFFECTS = list(dict.fromkeys(s for c in _panel_ui.spec_capabilities(PANEL_SPEC) for s in EFFECTS.get(c, [])))
+for _k in PANEL_CAPS:
+    if _k not in ('panel.capture', 'panel.frame'):
+        EFFECTS[_k] = list(_PANEL_EFFECTS)                                   # a gesture changes what the commands it calls change
 ON_STEP = {k: list(_EVOLVE) for k in ('power.set', 'power.toggle', 'cycle.start', 'cycle.stop', 'cycle.toggle', 'settings.configure', 'output.depressurise', 'consumer.set',
-                                      'water.refill', 'deioniser.replace', 'fault.inject', 'plant.configure', 'alarm.mute')}
+                                      'water.refill', 'deioniser.replace', 'fault.inject', 'plant.configure', 'alarm.mute', 'water.recover',
+                                      'deioniser.change_begin', 'deioniser.change_confirm')}
 ON_STEP['sim.step'] = _EVOLVE + ['clock.time_s']
 ON_STEP_ZH = {
     'sim.step': '按0.5 s网格积分：自检/泄漏测试、按设定压力产氢（法拉第、PSA吹扫）、机内与输出管路储氢、应用取用与外漏、超压/低压/机内泄漏、水箱与加水泵、去离子柱消耗、干燥露点、电功率与散热、报警与灯光',
     'power.set': '自检、加水与泄漏测试约6 min后待机', 'cycle.start': '输出阀打开后按设定压力向应用供氢', 'settings.configure': '产氢按新的设定压力调节',
     'output.depressurise': '储氢经排气口排出后停止产氢', 'consumer.set': '应用取用与外漏改变产氢与压力', 'water.refill': '加水泵从水瓶补水', 'deioniser.replace': '新柱重新开始吸附离子',
     'fault.inject': '故障作用于泄漏、膜、加水泵、电解池或压力传感器', 'plant.configure': '环境温度影响储氢压力与报警', 'alarm.mute': '新的报警出现时重新鸣响',
+    'water.recover': '3 min内仍加不到低水位时再次报NO WATER LOADED', 'deioniser.change_begin': '更换中水箱水不经去离子柱循环',
+    'deioniser.change_confirm': '去离子柱计时重新开始（到期再提示）',
 }
-EXEC_TEXT = {'power.set': ('state.current经diagnostics（约6 min）变为standby，或泄漏测试失败为fault', '断电中止自检'),
+EXEC_TEXT = {**{k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看',
+                    '被拒或被忽略的手势不改变运行层状态') for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
+             'power.set': ('state.current经diagnostics（约6 min）变为standby，或泄漏测试失败为fault', '断电中止自检'),
              'cycle.start': ('state.current为running，pressure.delivery_pa趋近设定压力', '满负荷仍达不到设定压力超过10 min报LOW_PRESSURE并停止产氢')}
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 for _k in ('water.refill', 'deioniser.replace'):
     RESOURCES[_k] = ['host_clock', 'water_supply']
 OBSERVES = {'power.set': ['state.current'], 'cycle.start': ['state.current', 'pressure.delivery_pa'], 'output.depressurise': ['state.current', 'pressure.delivery_pa']}
 _WB, _D23, _D19, _IG, _SL, _SIM = ('user_workbook', 'manufacturer_datasheet_2023', 'manufacturer_datasheet_2019', 'manufacturer_installation_guide', 'same_series_sl_user_manual',
                                    'simulation_assumption')
-CAP_SOURCES = {k: [_SIM] for k in CAPS}
+_MBW = 'manufacturer_manual_bw'                    # Precision Hydrogen (all B&W screen models) user manual Rev 8: HMI screens
+CAP_SOURCES = {k: [_SIM] for k in ALL_CAPS}
 CAP_SOURCES.update({'power.set': [_IG, _SL], 'power.toggle': [_IG], 'cycle.start': [_IG, _D23], 'cycle.stop': [_IG], 'cycle.toggle': [_IG], 'settings.configure': [_IG, _D23],
                     'output.depressurise': [_IG, _SL], 'alarm.mute': [_IG], 'water.refill': [_IG, _D23], 'deioniser.replace': [_D23, _SL], 'consumer.set': [_D23, _SIM],
                     'fault.inject': [_SL, _SIM]})
 CAP_SOURCES.update({k: [_D23] for k in UNSUPPORTED})
+CAP_SOURCES.update({'water.recover': [_MBW, _SIM], 'deioniser.change_begin': [_MBW], 'deioniser.change_confirm': [_MBW], 'deioniser.replace': [_D23, _SL, _MBW],
+                    'alarm.mute': [_IG, _MBW]})
+CAP_SOURCES.update({k: [_MBW, _IG, _SIM] for k in PANEL_CAPS})
 PARAM_ZH = {'ambient_k': '环境温度', 'pressure_pa': '大气压', 'mains_v': '电源电压', 'bottle_volume_m3': '外接水瓶容积', 'bottle_water_m3': '水瓶初始存水',
             'feed_conductivity_s_m': '进水电导率（ASTM II要求<1 µS/cm=1e-4 S/m）', 'noise_seed': '噪声随机数种子（只在首次声明时生效）',
             'demand_sccm': '应用需求流量（sccm，273.15 K、1.01 bar）', 'min_pressure_pa': '应用所需最低表压', 'external_leak_sccm_at_5bar': '输出管路外漏（5 bar表压下的sccm）',
@@ -955,6 +1126,11 @@ CAP_LIMITS = {
     'consumer.set': ['应用按“需求流量＋最低压力”的流量控制器抽象：压力不足时取用按比例减少；外漏按与表压成正比的导率。'],
     'power.set': ['自检顺序（查水位→加压到4 bar→保压至约6 min）与泄漏判据为工程值；同系列SL手册写泄漏测试约6 min。'],
     'water.refill': ['水瓶与水箱按单节点体积；去离子柱按离子当量容量吸附，穿透后电解池进水电导率逐步升到进水值（工程值）。'],
+    'water.recover': ['手册p.28：加不到水时报警并停加水泵，RECOVERY重新启动加水泵；本模型开机水位检查3 min（假设）加不到低水位即停泵报NO WATER LOADED，RECOVERY重新启泵并重新计时（再失败再报警）；不按RECOVERY只补水不会自行恢复。'],
+    'deioniser.change_begin': ['更换期间只停止水箱水经去离子柱的循环（柱已断开）；产氢与加水照常（手册未写更换期间的其他动作）；断电结束更换流程（触摸屏对话不跨断电保存）。'],
+    'deioniser.change_confirm': ['CONFIRM只重新开始触摸屏的去离子柱计时（不检查是否真的换了柱）；树脂容量由deioniser.replace（实际换柱）恢复。'],
+    **{k: ['面板层按panel_ui.json（黑白触摸屏手册页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟；手册未写之处的选择见panel_ui.json的assumptions。']
+       for k in PANEL_CAPS},
 }
 LIMITATIONS = [
     '所选配置：Precision Hydrogen Trace 500（64-0500，存档型号，产品页标停产）：PEM电解＋再生式PSA干燥器，自动加水泵与外接4 L水瓶，触摸屏；无集成压缩机。',
@@ -963,6 +1139,8 @@ LIMITATIONS = [
     '纯度：99.99999 %按氧含量（NPL验证）——运行层只给氧与水（露点）两项杂质；露点由干燥器时间常数从初值降到−75 °C（2019版样本），24 h运行后接近规格。',
     '诊断与报警：泄漏测试、待机保压检漏、满负荷低压停机、超压开关、临界水位与去离子柱判据为按样本与同系列手册描述的工程实现；灯光：六边形灯带绿色表示正常为产品照片的解读，水箱视窗通电即亮（同系列手册：上电时水箱会亮），红色故障边框对应安装指南的红色故障画面，缺水与去压图标的形状颜色为工程表示。',
     '应用、管路、水瓶与氢气在场景中没有几何；场景中触摸屏数字、六边形灯与按键按运行层状态变化。',
+    '缺水报警（WATER_LOW）按手册的NO WATER LOADED / WATER LEVEL FAULT画面鸣响并可静音（1.1.0起）；1.1.1按手册p.28：开机加水3 min（假设）失败则加水泵停止，RECOVERY重新启泵；'
+    '运行/待机中水位低于低水位传感器时开始3 h计时，3 h内未补足则锁存WATER_LEVEL_FAULT停止产氢（加水泵停），须检查水源后重新上电；临界水位（工程值）时电解池先停止产氢，补水后在3 h内可自动恢复。',
 ]
 def _sampling_text(k):
     if k == 'clock.time_s':
@@ -977,7 +1155,7 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if CAPS[k]['visibility'] != 'agent' else []
+    extra = ['ACCESS_DENIED'] if ALL_CAPS[k]['visibility'] != 'agent' else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1039,7 +1217,7 @@ def export_peak_precisionhydrogen_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'PeakPrecisionhydrogenSession.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',

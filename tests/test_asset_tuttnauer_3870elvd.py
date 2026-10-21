@@ -52,7 +52,8 @@ class Rig:
         after = self.h.read('evaluator')
         changed = {k for k in after if _differ(after[k], before[k])} - {'clock.time_s'}
         if expect == 'succeeded':
-            assert r['status'] == 'succeeded', (cap, r['error'])
+            assert r['status'] in ('succeeded', 'accepted'), (cap, r['error'])   # cycle.start is an operation (accepted, operation_id)
+            assert (r['status'] == 'accepted') == (r['operation_id'] is not None), cap
             rt.validate(rt.CAPS[cap]['output_schema'], r['result'])
             if cap != 'sim.step':
                 extra = changed - set(rt.EFFECTS.get(cap, []))
@@ -587,6 +588,101 @@ class ReviewRegressions(unittest.TestCase):
         k.call(k.A, 'load.add', load_id='w', kind='liquid', mass_kg=8.0, liquid='water', container_volume_m3=0.01, material='borosilicate_glass')
         self.assertAlmostEqual(k.read('truth.chamber')['pressure_pa'], 101325.0, delta=1.0)    # no step needed
         self.assertFalse(k.read('lid.locked'))
+
+
+class ElvdController(unittest.TestCase):
+    """The 3870ELV-D controller functions of the French operation manual rev D (programme list, table 6.2, clock, timed start, users, USB)."""
+
+    def test_programme_list_needs_the_door_open(self):
+        g = Rig()
+        g.on()
+        g.call(g.A, 'program.step', expect='DOOR_CLOSED', direction='next')
+        g.open_lid()
+        self.assertEqual(g.call(g.A, 'program.step', direction='next'), dict(program='unwrapped_instruments', number=1))
+        self.assertEqual(g.call(g.A, 'program.step', direction='previous')['program'], 'liquid_b')
+        self.assertEqual(g.read('program.parameters')['name'], 'Liquid B')
+        self.assertEqual(g.read('program.current')['temperature_k'], 394.15)
+        g.call(g.A, 'program.select', program='solids_134')
+        self.assertEqual(g.call(g.A, 'program.next')['program'], 'solids_121')       # the earlier key list is unchanged
+
+    def test_pulses_f0_mode_and_drying(self):
+        g = Rig()
+        g.on()
+        g.call(g.A, 'program.set_parameters', program='custom_1', pulse_a_count=2, pulse_b_count=1, pulse_b_low_pa=150e3, f0_mode=True, dry_stage1_s=120.0)
+        g.call(g.A, 'program.set_parameters', expect='INVALID_ARGUMENT', program='custom_1', pulse_a_low_pa=190e3)
+        g.call(g.A, 'program.set_parameters', expect='NOT_AVAILABLE', program='custom_1', cooling_mode=2)
+        g.call(g.A, 'program.select', program='custom_1')
+        g.call(g.A, 'cycle.start')
+        phases, t0 = [], g.h.t
+        while g.h.t - t0 < 3 * 3600:
+            g.step(5.0)
+            ph = g.read('cycle.phase')
+            if not phases or phases[-1] != ph:
+                phases.append(ph)
+            if ph in ('Cycle completed', 'Cycle failed'):
+                break
+        self.assertEqual(phases[:6], ['Insert water', 'Pulse H', 'Pulse L', 'Pulse H', 'Pulse L', 'Pulse H'])   # A twice, then B
+        self.assertEqual(phases[-4:], ['Exhaust', 'Drain', 'Dry', 'Cycle completed'])
+        rec = g.call(g.A, 'records.read', last=1)['records'][0]
+        self.assertEqual(rec['result'], 'CYCLE ENDED')
+        self.assertGreaterEqual(rec['hold_s'], 240.0)                          # F0 mode: 4 F0-minutes at 134 C (F0 rate ~ 20 / min) take about 12 s
+        ster = [p for p in rec['phases'] if p['stage'] in ('sterilization', 'exhaust')]
+        self.assertLess(ster[1]['t_s'] - ster[0]['t_s'], 60.0)
+        dry = [p for p in rec['phases'] if p['stage'] == 'dry'][0]['t_s']
+        self.assertAlmostEqual(rec['ended_s'] - rec['started_s'] - dry, 240.0, delta=1.0)
+
+    def test_liquid_a_cools_and_vents_at_the_cooling_rate(self):
+        g = Rig()
+        g.on()
+        g.open_lid()
+        g.bottles(1)
+        g.close_lid()
+        marks = g.run('liquid_a', limit=4 * 3600.0)
+        self.assertIn('cooling', marks)
+        rec = g.call(g.A, 'records.read', last=1)['records'][0]
+        self.assertEqual(rec['result'], 'CYCLE ENDED')
+        self.assertLessEqual(g.read('truth.loads')['b1']['temperature_k'], 368.15 + 1.0)
+        self.assertFalse(g.read('truth.loads')['b1']['boilover'])
+
+    def test_multiple_cycles_timed_start_and_clock(self):
+        g = Rig()
+        g.on()
+        g.call(g.A, 'program.set_parameters', program='custom_2', repeat_cycles=2, repeat_pause_s=60.0, dry_stage1_s=0.0)
+        g.call(g.A, 'program.select', program='custom_2')
+        g.call(g.A, 'cycle.start')
+        self.assertEqual(g.read('cycle.repeats_left'), 1)
+        t0 = g.h.t
+        while g.read('records.stored') < 2 and g.h.t - t0 < 4 * 3600:
+            g.step(30.0)
+        recs = g.call(g.A, 'records.read')['records']
+        self.assertEqual([r['run'] for r in recs], [1, 2])
+        self.assertGreaterEqual(recs[1]['started_s'] - recs[0]['ended_s'], 60.0 - 0.5)
+        self.assertEqual(g.read('cycle.repeats_left'), 0)
+        self.assertEqual(g.call(g.A, 'clock.set', date='20:10:26', time='06:59:00')['wall'], '2026-10-20 06:59:00')
+        g.call(g.A, 'clock.set', expect='BAD_CLOCK', date='31:02:26')
+        g.call(g.A, 'timer.configure', enabled=True, time='07:00')
+        g.step(30.0)
+        self.assertEqual(g.read('cycle.status')['stage'], 'complete')
+        g.step(60.0)
+        self.assertNotEqual(g.read('cycle.status')['stage'], 'complete')         # started at 07:00
+        self.assertFalse(g.read('timer.setting')['enabled'])
+        self.assertTrue(any(e['code'] == 'TIMED_START' for e in g.call(g.A, 'events.read', since_s=0.0)['events']))
+
+    def test_settings_users_and_usb_export(self):
+        g = Rig()
+        g.on()
+        self.assertEqual(g.call(g.A, 'settings.configure', screensaver_s=600.0)['settings']['screensaver_s'], 600.0)
+        self.assertEqual(g.call(g.A, 'user.sign_in', user='Admin', code='0001'), dict(user='Admin'))
+        g.call(g.A, 'user.sign_in', expect='WRONG_CODE', user='Admin', code='1234')
+        g.call(g.A, 'user.sign_in', expect='UNKNOWN_USER', user='Nobody', code='0001')
+        self.assertEqual(g.call(g.A, 'user.create', code='4321')['user'], 'User 1')
+        g.call(g.A, 'user.create', expect='CODE_IN_USE', code='0001')
+        self.assertEqual(g.read('users.names'), ['Admin', 'User 1'])
+        for content in ('history', 'gains_offsets', 'parameters'):
+            self.assertEqual(g.call(g.A, 'usb.export', content=content)['file']['content'], content)
+        self.assertEqual([f['content'] for f in g.read('usb.files')], ['history', 'gains_offsets', 'parameters'])
+        g.call(g.A, 'power.set', on=False)
+        g.call(g.A, 'usb.export', expect='POWER_OFF', content='history')
 
 
 class ZCoverage(unittest.TestCase):

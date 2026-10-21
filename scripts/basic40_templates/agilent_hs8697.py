@@ -40,6 +40,12 @@ LIMITATIONS = [
     "Selection of one Sander record per compound is transparent (M-type closest to the median of all M-type values) but is not a new critical evaluation; alternatives are summarised in the library.",
 ]
 SYNTHETIC_PARTS = ["loop volume (host assumption)", "GC transfer method (host assumption)"] + gc_templates.SYNTHETIC_PARTS
+DEVICE_LIMITATIONS = [x for x in LIMITATIONS if not x.startswith(("Complete equilibrium", "Loop volume and GC method"))] + [
+    "The 8697 device model sets the loop contents: approach to the oven equilibrium in the equilibration time (time constant and its shortening "
+    "by shaking are assumptions), vial pressurization by the fill mode (dilution of the headspace gas), loop fill to the final loop pressure "
+    "with the loop sweep, the EPC sensor errors, the vial leak, extraction depletion (re-equilibration assumed between extractions) and "
+    "Concentrated extractions; the installed loop volume and the GC method of the transfer are trusted-host assumptions.",
+]
 
 
 def _resolve(identifier: Any) -> str | None:
@@ -140,15 +146,17 @@ def equilibrium(template: dict[str, Any], temperature_K: float, loop_volume_m3: 
 
 
 def measure(template: dict[str, Any], transfer: dict[str, Any] | None, oven_temperature_K: float,
-            equilibration_time_s: float | None) -> dict[str, Any] | None:
-    """Agent-visible result for a template-backed vial; None when a precondition of the template path fails."""
+            equilibration_time_s: float | None, loop_mass_kg: dict[str, float] | None = None) -> dict[str, Any] | None:
+    """Agent-visible result for a template-backed vial; None when a precondition of the template path fails.  loop_mass_kg: the loop contents
+    the headspace device model computed (fill, loop fill, kinetics, extractions); None: the equilibrium headspace at the loop volume."""
     if transfer is None:
         return None
     eq = equilibrium(template, oven_temperature_K, transfer["loop_volume_m3"])
     if eq is None:
         return None
-    composition = {sid: item["loop_mass_kg"] for sid, item in eq["species"].items()
-                   if item["gc_retention_id"] and gc_templates.fingerprint(sid, transfer["gc_column"]) and item["loop_mass_kg"] > 0}
+    masses = {sid: item["loop_mass_kg"] for sid, item in eq["species"].items()} if loop_mass_kg is None else loop_mass_kg
+    composition = {sid: masses.get(sid, 0.0) for sid, item in eq["species"].items()
+                   if item["gc_retention_id"] and gc_templates.fingerprint(sid, transfer["gc_column"]) and masses.get(sid, 0.0) > 0}
     if not composition:
         return None
     gc_template = gc_templates.validate_sample(composition, column=transfer["gc_column"], injection_fraction=1.0)
@@ -164,7 +172,7 @@ def measure(template: dict[str, Any], transfer: dict[str, Any] | None, oven_temp
                           "split_ratio": transfer["split_ratio"]},
             **common.provenance([LIB_REL, gc_templates.LIB_REL],
                                 "Henry constants: Sander 2023 measured_literature; partition/transfer: derived; GC: NIST RI -> derived fingerprints",
-                                SYNTHETIC_PARTS, LIMITATIONS)}
+                                SYNTHETIC_PARTS, LIMITATIONS if loop_mass_kg is None else DEVICE_LIMITATIONS)}
 
 
 def result_schema() -> dict[str, Any]:

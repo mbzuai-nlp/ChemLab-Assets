@@ -634,6 +634,159 @@ class Physics(unittest.TestCase):
         self.assertNotIn('HUMIDITY_RANGE', s.read('alarms.active'))
 
 
+class ControllerFunctions(unittest.TestCase):                                     # 1.1.0: the MB2 functions behind the touchscreen (E7 manual)
+    def test_humidification_and_dehumidification_off(self):
+        g = Rig()
+        g.run(30.0, 0.60, settle=2 * 3600.0)
+        g.call(g.A, 'function.set', humidification_off=True)
+        self.assertTrue(g.read('functions.current')['humidification_off'])
+        self.assertIn('HUMIDITY_OFF', g.read('notifications.active'))
+        g.call(g.A, 'setpoint.set', relative_humidity=0.80)
+        g.step(1200.0)
+        self.assertEqual(g.climate()['steam_kg_s'], 0.0)                                              # no steam: the humidity cannot rise
+        self.assertLess(g.read('humidity.chamber'), 0.65)
+        self.assertGreater(g.climate()['humidifier_ready'], 0.99)                                      # the module stays on standby (E7 18)
+        g.call(g.A, 'function.set', humidification_off=False, dehumidification_off=True)
+        g.call(g.A, 'setpoint.set', relative_humidity=0.30)
+        g.step(600.0)
+        self.assertFalse(g.climate()['dehumidifying'])
+        g.call(g.A, 'function.set', dehumidification_off=False)
+        g.step(600.0)
+        self.assertTrue(g.climate()['dehumidifying'])
+        _balance(self, g.ledger())
+
+    def test_timer_program_delay_frozen_values_and_end_message(self):
+        g = Rig()
+        g.run(25.0, 0.60, settle=600.0)
+        g.call(g.A, 'timer_program.start', duration_s=1800.0, delay_s=300.0)
+        self.assertEqual(g.read('setpoint.current')['source'], 'fixed (program start pending)')
+        g.call(g.A, 'setpoint.set', temperature_k=T0 + 30.0)                                       # effective during the delay (E7 8.1.1)
+        g.step(301.0)
+        self.assertEqual(g.read('setpoint.current')['source'], 'timer program')
+        self.assertAlmostEqual(g.read('setpoint.current')['temperature_k'], T0 + 30.0, places=9)
+        g.call(g.A, 'setpoint.set', temperature_k=T0 + 35.0)                                       # not effective while the timer runs
+        g.step(60.0)
+        self.assertAlmostEqual(g.read('setpoint.current')['temperature_k'], T0 + 30.0, places=9)
+        g.call(g.A, 'program.pause', expect='NO_PROGRAM')                                           # timer programs have no pause
+        g.step(1800.0)
+        st = g.read('program.status')
+        self.assertIsNone(st['running'])
+        self.assertEqual(st['end_notice'], 'timer')
+        self.assertAlmostEqual(g.read('setpoint.current')['temperature_k'], T0 + 35.0, places=9)
+        self.assertEqual(g.call(g.A, 'program.acknowledge_end')['end_notice'], 'timer')
+        self.assertIsNone(g.read('program.status')['end_notice'])
+
+    def test_time_program_delay_pause_repetitions_band_and_end(self):
+        g = Rig()
+        g.run(25.0, 0.60, settle=1800.0)
+        secs = [dict(duration_s=600.0, temperature_k=T0 + 25.0, relative_humidity=0.60, transition='step'),
+                dict(duration_s=600.0, temperature_k=T0 + 25.0, relative_humidity=0.60, transition='step', repeat_count=2, repeat_from=1),
+                dict(duration_s=600.0, temperature_k=T0 + 40.0, relative_humidity=0.60, transition='step', tolerance_k_min=-1.0, tolerance_k_max=1.0),
+                dict(duration_s=60.0, temperature_k=T0 + 40.0, relative_humidity=0.60, transition='step', idle_mode=True)]
+        g.call(g.A, 'program.write', program=5, sections=[dict(secs[0], repeat_count=1, repeat_from=1)] + secs[1:], expect='INVALID_REPEAT')
+        g.call(g.A, 'program.write', program=5, sections=secs)
+        g.call(g.A, 'program.start', program=5, delay_s=120.0)
+        g.call(g.A, 'program.pause', expect='NO_PROGRAM')                                           # still waiting for its start
+        g.step(121.0)
+        self.assertEqual(g.read('program.status')['running']['section'], 1)
+        g.step(600.0 * 3)                                                                           # 1, 2, (1, 2) once more ...
+        g.call(g.A, 'program.pause')
+        self.assertEqual(g.read('state.current'), 'program_paused')
+        held = g.read('program.status')['running']
+        g.step(900.0)
+        self.assertEqual(g.read('program.status')['running']['elapsed'], held['elapsed'])           # the program time stops (E7 10.2.1)
+        g.call(g.A, 'program.resume')
+        g.call(g.A, 'program.resume', expect='NO_PROGRAM')
+        g.step(600.0 * 3 + 30.0)                                                                    # ... and once more: two repetitions
+        self.assertEqual(g.read('program.status')['running']['section'], 3)
+        self.assertEqual(g.read('state.current'), 'program_paused')                                 # 25 -> 40 C step outside the +-1 K band
+        g.until(lambda: g.read('program.status')['running'] is None, 4 * 3600.0, 60.0)
+        self.assertEqual(g.read('program.status')['end_notice'], 'time')
+        self.assertTrue(any(e['code'] == 'PROGRAM_END' for e in g.call(g.A, 'events.read', since_s=0.0)['events']))
+
+    def test_week_program_follows_the_clock(self):
+        g = Rig()
+        g.call(g.A, 'power.set', on=True)
+        g.call(g.A, 'clock.set', date='2026-02-30', time='07:59', expect='INVALID_DATE')
+        g.call(g.A, 'clock.set', date='2026-10-19', time='07:59')                                  # a Monday
+        self.assertEqual(g.read('controller.clock'), '2026-10-19T07:59:00')
+        pts = [dict(weekday='mon', time='08:00', temperature_k=T0 + 30.0, relative_humidity=0.70, fan_fraction=0.8),
+               dict(weekday='daily', time='20:00', temperature_k=T0 + 20.0, relative_humidity=0.50)]
+        g.call(g.A, 'week_program.start', program=2, expect='UNKNOWN_PROGRAM')
+        g.call(g.A, 'week_program.write', program=2, sections=pts)
+        g.call(g.A, 'week_program.start', program=2)
+        g.call(g.A, 'week_program.write', program=2, sections=pts, expect='PROGRAM_RUNNING')
+        self.assertAlmostEqual(g.read('setpoint.current')['temperature_k'], T0 + 20.0, places=9)    # Sunday 20:00 is the last point before
+        g.step(61.0)
+        sp = g.read('setpoint.current')
+        self.assertAlmostEqual(sp['temperature_k'], T0 + 30.0, places=9)
+        self.assertAlmostEqual(sp['fan_fraction'], 0.8, places=9)
+        self.assertEqual(sp['source'], 'week program 2')
+        g.call(g.A, 'program.stop')
+        g.call(g.A, 'week_program.write', program=2, sections=pts, course='ramp')
+        g.call(g.A, 'week_program.start', program=2)
+        g.step(6 * 3600.0)                                                                          # 14:00:01, half way from 08:00 to 20:00
+        self.assertAlmostEqual(g.read('setpoint.current')['temperature_k'], T0 + 30.0 - 10.0 * 21601.0 / 43200.0, places=6)
+        g.call(g.A, 'settings.configure', key='datetime.time_zone', value='UTC+02:00')              # the local clock moves one hour
+        self.assertEqual(g.read('controller.clock')[11:16], '15:00')
+        st = g.read('program.store')['week']['2']
+        self.assertEqual((st['course'], [s['weekday'] for s in st['sections']]), ('ramp', ['daily', 'mon']))
+
+    def test_program_store_names_copy_delete(self):
+        g = Rig()
+        g.call(g.A, 'power.set', on=True)
+        g.call(g.A, 'program.set_name', kind='time', program=3, name='x', expect='UNKNOWN_PROGRAM')
+        g.call(g.A, 'program.write', program=3, sections=[dict(duration_s=60.0, temperature_k=T0 + 25.0, relative_humidity=0.6, transition='step')])
+        g.call(g.A, 'program.set_name', kind='time', program=3, name='ICH 25/60', info='long term')
+        g.call(g.A, 'program.copy', kind='time', source=3, target=7)
+        store = g.read('program.store')['time']
+        self.assertEqual((store['7']['name'], store['7']['info'], len(store['7']['sections'])), ('ICH 25/60', 'long term', 1))
+        g.call(g.A, 'program.copy', kind='time', source=9, target=4, expect='UNKNOWN_PROGRAM')
+        g.call(g.A, 'program.start', program=7)
+        g.call(g.A, 'program.delete', kind='time', program=7, expect='PROGRAM_RUNNING')
+        g.call(g.A, 'program.copy', kind='time', source=3, target=7, expect='PROGRAM_RUNNING')
+        g.call(g.A, 'program.stop')
+        g.call(g.A, 'program.delete', kind='time', program=7)
+        self.assertEqual(sorted(g.read('program.store')['time']), ['3'])
+        g.call(g.A, 'program.delete', kind='week', program=1, expect='UNKNOWN_PROGRAM')
+
+    def test_users_passwords_and_settings(self):
+        g = Rig()
+        g.call(g.A, 'power.set', on=True)
+        self.assertEqual(g.read('user.session'), dict(logged_in=None, authorization=None, locked=True,
+                                                      protected=dict(user=True, admin=True, service=True)))     # factory: every level has a password
+        g.call(g.A, 'user.login', level='admin', password='1', expect='WRONG_PASSWORD')
+        g.call(g.A, 'user.set_password', level='user', password='', expect='NOT_AUTHORIZED')
+        g.call(g.A, 'user.login', level='user', password='1')
+        g.call(g.A, 'user.set_password', level='user', password='9', expect='NOT_AUTHORIZED')         # not with User authorization
+        g.call(g.A, 'user.logout')
+        g.call(g.A, 'user.login', level='admin', password='2')
+        g.call(g.A, 'user.set_password', level='service', password='x', expect='NOT_AUTHORIZED')
+        g.call(g.A, 'user.set_password', level='user', password='')                                 # deleted: User level without login
+        g.call(g.A, 'user.logout')
+        self.assertEqual(g.read('user.session')['authorization'], 'user')
+        g.call(g.A, 'user.login', level='user', password='1', expect='NO_PASSWORD')
+        g.call(g.A, 'settings.configure', key='display.brightness', value=150, expect='INVALID_SETTING')
+        g.call(g.A, 'settings.configure', key='ethernet.ip_address', value='192.168.1.300', expect='INVALID_SETTING')
+        g.call(g.A, 'settings.configure', key='ethernet.ip_address', value='192.168.1.30')
+        g.step(600.0)
+        self.assertGreater(g.read('logger.settings')['records'], 5)
+        g.call(g.A, 'settings.configure', key='chart.storage_interval_s', value=120)                # clears the memory and the event list (E7 17.2)
+        self.assertEqual((g.read('logger.settings'), g.call(g.A, 'events.read', since_s=0.0)['events']), (dict(interval_s=120.0, records=0), []))
+        g.call(g.A, 'settings.configure', key='chart.storage_values', value='max')
+        g.step(240.0)
+        recs = g.call(g.A, 'log.read', last=2)['records']
+        self.assertEqual(len(recs), 2)
+        g.call(g.A, 'settings.configure', key='various.anti_condensation_pct', value=100)
+        g.step(1.0)
+        self.assertAlmostEqual(g.read('truth.power')['door_heating'], 2.0 * rt.ENG['door_heating_w'], places=9)
+        g.call(g.A, 'settings.factory_reset')
+        self.assertEqual(g.read('device.settings')['various.anti_condensation_pct'], 0)
+        self.assertTrue(g.read('user.session')['locked'])
+        g.call(g.A, 'power.set', on=False)
+        g.call(g.A, 'settings.configure', key='display.brightness', value=50, expect='POWER_OFF')
+
+
 class ZCoverage(unittest.TestCase):
     def test_all_capabilities_exercised(self):
         implemented = {k for k in rt.CAPS if k not in rt.UNSUPPORTED}

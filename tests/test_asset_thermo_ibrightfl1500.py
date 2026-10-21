@@ -985,6 +985,19 @@ def _build(name):
         return h
     if name == 'chemi':
         return loaded(blot(label='hrp', base=1e-18, factor=3.0, substrate='generic_ecl'), mode='chemi_blots')
+    if name == 'app':                                                         # touch-screen app state: accounts, a backup, a custom dye
+        h = _scenario('imaged')
+        h.invoke('user.create', screen_name='admin_1', pin='1111', pin_confirm='1111')
+        h.invoke('user.create', screen_name='tech', pin='2222', pin_confirm='2222')
+        h.invoke('user.sign_in', screen_name='admin_1', pin='1111')
+        h.invoke('settings.backup')
+        h.invoke('dye.define', name='dye a', excitation_nm=620.0, emission_nm=700.0, false_color='red')
+        return h
+    if name == 'excision':
+        h = loaded(blot())
+        h.invoke('band_excision.start')
+        h.step(5.0)
+        return h
     if name == 'stopped':
         h = _scenario('moving')
         h.invoke('fault.inject', fault='power_loss', active=True)
@@ -999,7 +1012,7 @@ def _scenario(name):
     return copy.deepcopy(_SC[name])
 
 
-SCENARIOS = ['fresh', 'off', 'cold', 'ready', 'open', 'open_empty', 'moving', 'capturing', 'smart', 'imaged', 'locked', 'chemi', 'stopped']
+SCENARIOS = ['fresh', 'off', 'cold', 'ready', 'open', 'open_empty', 'moving', 'capturing', 'smart', 'imaged', 'locked', 'chemi', 'stopped', 'app', 'excision']
 STEP_DTS = (0.5, 5.0, 60.0)
 
 
@@ -1016,6 +1029,20 @@ def _variants(cap):
         'image.export': [dict(image_id='IMG0001', fmt='tiff', analysis_16bit=True)], 'image.delete': [dict(image_id='IMG0001')],
         'fault.inject': [dict(fault=f, active=True) for f in ('power_loss', 'led_failure', 'drawer_blocked', 'filter_wheel_jam', 'stage_smudge')] + [dict(fault='power_loss', active=False)],
         'sim.step': [dict(dt_s=0.5), dict(dt_s=30.0)],
+        'user.create': [dict(screen_name='new_user', pin='3333', pin_confirm='3333')], 'user.sign_in': [dict(screen_name='tech', pin='2222')],
+        'user.sign_out': [{}], 'user.manage': [dict(screen_name='tech', action=x) for x in ('make_admin', 'delete_pin', 'delete_account')],
+        'settings.configure': [dict(sleep_mode=False), dict(security_mode=True), dict(naming=['Mode', 'Binning'])],
+        'settings.reset': [dict(kind='user_tips'), dict(kind='factory_defaults')], 'settings.backup': [{}], 'settings.restore': [{}],
+        'live.set_trans_light': [dict(enabled=True)],
+        'routine.run': [dict(kind='multi_exposure'), dict(kind='signal_accumulation', first_s=1.0, total_s=5.0, count=3)],
+        'image.view': [dict(image_id='IMG0001', contrast='high', invert=True)], 'image.rename': [dict(image_id='IMG0001', name='blot_a', comments='x')],
+        'export.run': [dict(image_ids=['IMG0001'], destination='usb', file_type='publication_png', separate_channels=True)],
+        'analysis.export': [dict(image_id='IMG0001', channel='EX3', sensitivity=0.5, report_name='r1')],
+        'dye.define': [dict(name='dye x', excitation_nm=620.0, emission_nm=700.0, false_color='red')],
+        'channels.false_color': [dict(channel='EX3', color='blue')], 'band_excision.start': [{}], 'band_excision.stop': [{}], 'diagnostics.run': [{}],
+        'service.pixel_mapping': [{}],
+        'service.ship_prep': [dict(action=x) for x in ('start', 'next', 'cancel')], 'turntable.set_installed': [dict(installed=False), dict(installed=True)],
+        'sensor.configure_error': [dict(hot_pixels=20, hot_pixel_dark_e_s=50.0)],
     }
     return V.get(cap, [])
 
@@ -1067,6 +1094,222 @@ def _step_differs(v1, a2, v0, b2):
 
 def _executable(cap):
     return cap not in rt.UNSUPPORTED and rt.CAPS[cap]['kind'] not in ('query', 'analysis')
+
+
+class AppCommands(unittest.TestCase):
+    """The touch-screen app commands (user guide ch.2-5) the front panel calls: accounts, settings, routines, display adjustments, export,
+    custom dyes, band excision and service tools."""
+
+    def test_accounts_and_galleries(self):
+        h = loaded(blot())
+        self.assertEqual(h.invoke('user.create', screen_name='ann', pin='1234', pin_confirm='1234'), dict(screen_name='ann', admin=True))   # first: admin
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('user.create', screen_name='bob', pin='1234', pin_confirm='4321')
+        self.assertFalse(h.invoke('user.create', screen_name='bob', pin='5678', pin_confirm='5678')['admin'])
+        iid = smart_capture(h)
+        self.assertEqual(h.read()['gallery'][-1]['user'], 'bob')                 # saved to the signed-in user's gallery
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('user.manage', screen_name='ann', action='delete_pin')     # standard user: no account management
+        h.invoke('user.sign_out')
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('user.sign_in', screen_name='ann', pin='0000')
+        h.invoke('user.sign_in', screen_name='ann', pin='1234')
+        h.invoke('user.manage', screen_name='bob', action='delete_pin')
+        h.invoke('user.sign_out')
+        h.invoke('user.sign_in', screen_name='bob', pin='9999')                  # a deleted PIN is set anew at sign-in
+        self.assertEqual(h.app['users']['bob']['pin'], '9999')
+        h.invoke('user.sign_out')
+        h.invoke('user.sign_in', screen_name='ann', pin='1234')
+        h.invoke('user.manage', screen_name='bob', action='delete_account')     # deletes the user's gallery too
+        self.assertNotIn(iid, h.images)
+        self.assertEqual([u['screen_name'] for u in h.read()['app.users']], ['ann'])
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('user.manage', screen_name='ann', action='delete_account')
+        check('app_accounts')
+
+    def test_settings_reset_backup(self):
+        h = powered()
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('settings.configure', security_mode=True)                  # needs an administrator
+        h.invoke('user.create', screen_name='ann', pin='1234', pin_confirm='1234')
+        h.invoke('settings.configure', security_mode=True, instrument_name='Imager 2', naming=['Mode', 'Exposure Time'], time_zone='UTC+04:00')
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('settings.configure', naming=['Mode', 'Mode'])
+        h.invoke('settings.backup')
+        h.invoke('settings.configure', instrument_name='Other')
+        self.assertEqual(h.invoke('settings.restore')['settings']['instrument_name'], 'Imager 2')
+        self.assertEqual(h.wall_text(0.0), '2026-10-19 12:00')                  # the time zone shifts the clock shown
+        h.invoke('settings.reset', kind='factory_defaults')
+        self.assertTrue(h.read()['settings.factory_reset_pending'])
+        h.invoke('power.set', enabled=False)
+        h.invoke('power.set', enabled=True)                                      # applied at the next power-up
+        r = h.read()
+        self.assertEqual((r['app.users'], r['app.settings']['instrument_name'], r['settings.factory_reset_pending']), ([], 'iBright FL1500', False))
+        check('app_settings')
+
+    def test_routines(self):
+        h = loaded(blot())
+        h.invoke('exposure.set', channel='EX3', exposure_s=2.0)
+        h.invoke('routine.run', kind='multi_exposure')
+        h.step(200.0)
+        ids = sorted(h.images)
+        self.assertEqual([h.images[i]['channels'][0]['exposure_s'] for i in ids], [0.5, 1.0, 2.0, 4.0, 8.0])
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('routine.run', kind='signal_accumulation', first_s=1.0, total_s=1.0, count=3)
+        h.invoke('routine.run', kind='signal_accumulation', first_s=1.0, total_s=5.0, count=3)
+        h.step(200.0)
+        acc = sorted(h.images)[-3:]
+        means = [float(h.images[i]['channels'][0]['img'].mean()) for i in acc]
+        self.assertEqual([h.images[i]['channels'][0]['exposure_s'] for i in acc], [1.0, 3.0, 5.0])   # cumulative capture times
+        self.assertTrue(means[0] < means[1] < means[2])
+        self.assertAlmostEqual((means[2] - rt.BIAS_ADU) / (means[0] - rt.BIAS_ADU), 5.0, delta=0.5)
+        h.invoke('channels.set', channels=[dict(channel='EX3', dye='alexa_fluor_647'), dict(channel='VISIBLE', dye=None)])
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('routine.run', kind='signal_accumulation', first_s=1.0, total_s=5.0, count=3)
+        check('app_routines')
+
+    def test_view_rename_export(self):
+        h = loaded(blot())
+        iid = smart_capture(h)
+        h.invoke('image.view', image_id=iid, contrast='manual', black=100, white=5000, gamma=2.0, invert=True, saturation=True)
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('image.view', image_id=iid, black=6000)
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('image.view', image_id=iid, channel='CHEMI')
+        bmp = h.viewport(iid)
+        self.assertEqual((len(bmp[0]), len(bmp)), (96, 77))
+        h.invoke('image.rename', image_id=iid, name='western_1', comments='lane 8 strongest')
+        out = h.invoke('export.run', image_ids=[iid], destination='usb', file_type='publication_tiff', separate_channels=True)
+        self.assertEqual(out['files'], ['western_1.tiff', 'western_1_EX3.tiff'])
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('export.run', image_ids=[iid], destination='network_drive', file_type='analysis_g2i', separate_channels=False)
+        h.invoke('settings.configure', network_drive_location='192.168.1.100/shared')
+        with self.assertRaisesRegex(rt.ActionRejected, 'NO_NETWORK'):
+            h.invoke('export.run', image_ids=[iid], destination='network_drive', file_type='analysis_g2i', separate_channels=False)
+        rep = h.invoke('analysis.export', image_id=iid, channel='EX3', sensitivity=0.5, report_name='rep')
+        self.assertEqual((rep['files'], rep['lanes']), (['rep.csv', 'rep.pdf'], 8))
+        check('app_view_export')
+
+    def test_custom_dye_false_colour_trans_light(self):
+        h = loaded(blot())
+        d = h.invoke('dye.define', name='my red', excitation_nm=620.0, emission_nm=700.0, false_color='magenta')['dye']
+        h.invoke('channels.set', channels=[dict(channel='EX3', dye=d)])
+        with self.assertRaisesRegex(rt.ActionRejected, 'DYE_CHANNEL_MISMATCH'):
+            h.invoke('channels.set', channels=[dict(channel='EX1', dye=d)])
+        h.invoke('channels.false_color', channel='EX3', color='cyan')
+        h.invoke('live.set_trans_light', enabled=True)
+        self.assertEqual((h.read()['channels.false_colors']['EX3'], h.read()['app.trans_light']), ('cyan', True))
+        check('app_dyes')
+
+    def test_band_excision_diagnostics_pixel_mapping(self):
+        h = loaded(blot())
+        e0 = h.ledger()['led_energy_j']
+        h.invoke('band_excision.start')
+        h.step(5.0)
+        self.assertEqual((h.read()['drawer.state'], h.read()['band_excision.on']), ('open', True))
+        h.step(55.0)
+        h.invoke('band_excision.stop')
+        self.assertAlmostEqual(h.ledger()['led_energy_j'] - e0, rt.POWER_LED_W * 60.0)
+        h.invoke('drawer.close')
+        h.step(5.0)
+        h.invoke('diagnostics.run')
+        h.step(302.0)
+        self.assertEqual(h.read()['drawer.state'], 'opening')                    # the self-test opens the drawer
+        h.step(300.0)
+        rep = h.read()['diagnostics.report']
+        self.assertTrue(rep['passed'])
+        self.assertEqual(h.read()['drawer.state'], 'closed')
+        h.invoke('fault.inject', fault='led_failure', active=True)
+        h.invoke('diagnostics.run')
+        h.step(700.0)
+        self.assertEqual({x['item']: x['status'] for x in h.read()['diagnostics.report']['items']}['Epi-LEDs'], 'Fail')
+        h.invoke('service.pixel_mapping')
+        h.step(130.0)
+        self.assertIsNotNone(h.read()['pixel_map.last_s'])
+        check('app_service_tools')
+
+
+class SyncAuditFixes(unittest.TestCase):
+    """Sync audit 2026-10-19: Edit analysis frame and Adjust bands (user guide p.28-31), Ship Prep Mode (p.35, 38) and Pixel Mapping acting on an
+    evaluator CCD defect model (default: an ideal CCD)."""
+
+    def test_edit_analysis_frames_and_adjust_bands(self):
+        h = loaded(blot())
+        iid = smart_capture(h)
+        auto = h.invoke('image.analyze', image_id=iid, channel='EX3', sensitivity=0.5)
+        f = auto['frame_m']
+        self.assertEqual(auto['frames_m'], [f])
+        left, right = [f[0], f[1], f[0] + 0.041, f[3]], [f[0] + 0.0415, f[1], f[2], f[3]]
+        two = h.invoke('image.analyze', image_id=iid, channel='EX3', sensitivity=0.5, frames_m=[dict(rect_m=left), dict(rect_m=right)])
+        self.assertEqual(len(two['frames_m']), 2)
+        self.assertEqual([l['frame'] for l in two['lanes']], [1] * 4 + [2] * 4)
+        self.assertEqual([l['lane'] for l in two['lanes']], list(range(1, 9)))
+        for a, b in zip(auto['lanes'], two['lanes']):                         # the same bands, found frame by frame
+            self.assertAlmostEqual(a['bands'][0]['rf'], b['bands'][0]['rf'], delta=0.01)
+        for args, code in ((dict(frames_m=[dict(rect_m=[f[0], f[1], f[0] + 0.001, f[3]])]), 'FRAME_TOO_SMALL'),
+                           (dict(frames_m=[dict(rect_m=left), dict(rect_m=[f[0] + 0.03, f[1], f[2], f[3]])]), 'FRAMES_OVERLAP'),
+                           (dict(frames_m=[dict(rect_m=[-0.1, f[1], f[2], f[3]])]), 'FRAME_OUTSIDE_IMAGE'),
+                           (dict(lane_bands_m=[dict(lane=9, bands_m=[[0.01, 0.02]])]), 'NO_SUCH_LANE'),
+                           (dict(lane_bands_m=[dict(lane=1, bands_m=[[0.02, 0.01]])]), 'BAND_OUTSIDE_FRAME'),
+                           (dict(lane_bands_m=[dict(lane=1, bands_m=[[0.01, 0.03], [0.02, 0.04]])]), 'BANDS_OVERLAP')):
+            with self.assertRaisesRegex(rt.ActionRejected, code):
+                h.invoke('image.analyze', image_id=iid, channel='EX3', sensitivity=0.5, **args)
+        b1 = auto['lanes'][0]['bands'][0]
+        edited = h.invoke('image.analyze', image_id=iid, channel='EX3', sensitivity=0.5,
+                          lane_bands_m=[dict(lane=1, bands_m=[[b1['top_m'], b1['bottom_m']], [0.030, 0.034]])])
+        bands = edited['lanes'][0]['bands']
+        self.assertEqual(len(bands), 2)                                       # the user's extra band is reported (background only)
+        self.assertAlmostEqual(bands[0]['volume'], b1['volume'], delta=1e-9 * abs(b1['volume']))
+        self.assertIn('bands_from_user', edited['warnings'])
+        self.assertEqual(edited['lanes'][1], auto['lanes'][1])                 # other lanes keep their automatic bands
+        q = h.invoke('image.quantify', image_id=iid, channel='EX3', sensitivity=0.5, frames_m=[dict(rect_m=left), dict(rect_m=right)],
+                     standards=[dict(lane=1, band=1, amount_kg=1e-10), dict(lane=2, band=1, amount_kg=2e-10)])
+        self.assertEqual(len(q['unknowns']), 6)                                # the other six lanes of both frames
+        check('sync_frames_bands')
+
+    def test_ship_prep_mode_and_turntable(self):
+        h = powered()
+        h.invoke('sample.provide', **blot())
+        self.assertEqual(h.invoke('service.ship_prep', action='start')['state'], 'remove_turntable')
+        h.step(5.0)
+        self.assertEqual((h.read()['drawer.state'], h.read()['service.ship_prep']), ('open', 'remove_turntable'))
+        with self.assertRaisesRegex(rt.ActionRejected, 'TURNTABLE_PRESENT'):
+            h.invoke('service.ship_prep', action='next')
+        with self.assertRaisesRegex(rt.ActionRejected, 'SHIP_PREP_ACTIVE'):
+            h.invoke('service.ship_prep', action='start')
+        h.invoke('turntable.set_installed', installed=False)
+        with self.assertRaisesRegex(rt.ActionRejected, 'TURNTABLE_REMOVED'):
+            h.invoke('sample.place', sample_id='blot', skew_rad=0.0)
+        self.assertEqual(h.invoke('service.ship_prep', action='next')['state'], 'power_off')
+        h.invoke('power.set', enabled=False)
+        self.assertIsNone(h.read()['service.ship_prep'])                      # powering off ends the mode
+        h.invoke('power.set', enabled=True)
+        h.step(300.0)
+        h.invoke('turntable.set_installed', installed=True)
+        h.invoke('sample.place', sample_id='blot', skew_rad=0.0)
+        h.invoke('service.ship_prep', action='cancel') if h.read()['service.ship_prep'] else None
+        with self.assertRaisesRegex(rt.ActionRejected, 'NOT_RUNNING'):
+            h.invoke('service.ship_prep', action='next')
+        check('sync_ship_prep')
+
+    def test_pixel_mapping_corrects_evaluator_hot_pixels(self):
+        def dark_capture(h):
+            h.invoke('exposure.set', channel='CHEMI', exposure_s=60.0)
+            h.invoke('capture.run', hdr=False)
+            h.step(200.0)
+            return h.images[max(h.images)]['channels'][0]['img'].astype(float)
+        ideal = dark_capture(loaded(blot(), mode='chemi_blots', channels=None))
+        h = loaded(blot(), mode='chemi_blots', channels=None)
+        h.invoke('sensor.configure_error', hot_pixels=20, hot_pixel_dark_e_s=50.0)
+        hot = dark_capture(h)
+        self.assertGreater(hot.max(), ideal.max() + 500)                      # the hot pixels show in the image
+        self.assertEqual(h.read()['pixel_map.corrected_px'], 0)
+        h.invoke('service.pixel_mapping')
+        h.step(130.0)
+        self.assertEqual(h.read()['pixel_map.corrected_px'], 20)
+        self.assertEqual(h.read('evaluator')['truth.hot_pixels']['uncorrected'], 0)
+        self.assertLess(dark_capture(h).max(), ideal.max() + 20)             # mapped pixels read the normal dark value
+        check('sync_pixel_mapping')
 
 
 class ZDeclaredEffects(unittest.TestCase):

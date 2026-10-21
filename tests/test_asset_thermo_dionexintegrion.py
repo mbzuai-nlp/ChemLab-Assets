@@ -60,9 +60,10 @@ class IntegrionTests(unittest.TestCase):
   a=self.ready('a');b=self.ready('b');old=copy.deepcopy(b.__dict__);a.invoke('acquisition.start');a.step(8);self.assertEqual(old,b.__dict__)
  def test_doors_and_power_interlocks(self):
   h=self.host();self.call(h,'door.set',angle_rad=1.);self.call(h,'display_door.set',angle_rad=.5);self.call(h,'door.set',angle_rad=0.);self.call(h,'display_door.set',angle_rad=0.)
-  h=self.ready();old=copy.deepcopy(h.__dict__)
-  with self.assertRaises(r.ActionRejected):h.invoke('door.set',angle_rad=1.)
-  self.assertEqual(old,h.__dict__);h.invoke('acquisition.start');h.step(1);h.invoke('power.set',enabled=False);self.assertEqual(h.phase,'cancelled')
+  # final sync 2026-10-19: the doors open by hand also while the pump runs (no refusal); during a run the column door logs the documented warning
+  h=self.ready();h.invoke('acquisition.start');h.step(1);h.invoke('door.set',angle_rad=1.);self.assertEqual(h.phase,'running')
+  self.assertEqual((h.alerts[-1]['text'],h.alerts[-1]['severity']),('Column door opened','Warning'));h.invoke('door.set',angle_rad=0.)
+  h.invoke('power.set',enabled=False);self.assertEqual(h.phase,'cancelled')
  def test_step_partition_invariance(self):
   a=self.ready('a');b=self.ready('b');a.invoke('acquisition.start');b.invoke('acquisition.start');a.step(30)
   for _ in range(30):b.step(1)

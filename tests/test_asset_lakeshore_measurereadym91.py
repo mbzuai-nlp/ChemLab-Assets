@@ -171,7 +171,7 @@ class M91Tests(unittest.TestCase):
         for key,args,result in OBSERVED:self.assertEqual(asset_tool.validate_value(result,meta['capabilities'][key]['output_schema']),[],key)
         for key,value in h.read().items():self.assertEqual(asset_tool.validate_value(value,meta['state_slots'][key]['value_schema']),[],key)
     def test_41_all_implemented_session_entries_executed(self):
-        h=Checked();h.register_principal('eval','evaluator');s=h.session('eval');seen=set();plan=[('plant.configure',r.PLANT_EXAMPLE),('geometry.configure',r.GEOMETRY_EXAMPLE),('thermal.configure',r.THERMAL_EXAMPLE),('field.configure',r.FIELD_EXAMPLE),('sample.load',r.SAMPLE_EXAMPLE),('power.set',{'enabled':True}),('sample.set_clamp',{'closed':True}),('ui.set_tilt',{'angle_rad':.13}),('thermal.set_temperature',{'temperature_k':300.}),('field.set_target',{'field_t':.5}),('method.configure',r.METHOD_EXAMPLE),('sensor.calibrate',r.CALIBRATION_EXAMPLE),('sim.step',{'dt_s':1800.}),('acquisition.start',{}),('sim.step',{'dt_s':.25}),('acquisition.stop',{}),('acquisition.result',{}),('analysis.hall_vdp',r.ANALYSIS_EXAMPLE),('provenance.read',{}),('ledger.read',{}),('options.configure',{'high_resistance_firmware_enabled':True}),('excitation.voltage.configure',r.VOLTAGE_EXAMPLE),('acquisition.start',{}),('sim.step',{'dt_s':.25}),('acquisition.stop',{}),('thermal.disable',{}),('sample.set_clamp',{'closed':False}),('sim.step',{'dt_s':2.}),('sample.remove',{}),('power.set',{'enabled':False})]
+        h=Checked();h.register_principal('eval','evaluator');s=h.session('eval');seen=set();plan=[('plant.configure',r.PLANT_EXAMPLE),('geometry.configure',r.GEOMETRY_EXAMPLE),('thermal.configure',r.THERMAL_EXAMPLE),('field.configure',r.FIELD_EXAMPLE),('sample.load',r.SAMPLE_EXAMPLE),('power.set',{'enabled':True}),('sample.set_clamp',{'closed':True}),('ui.set_tilt',{'angle_rad':.13}),('thermal.set_temperature',{'temperature_k':300.}),('field.set_target',{'field_t':.5}),('method.configure',r.METHOD_EXAMPLE),('sensor.calibrate',r.CALIBRATION_EXAMPLE),('sim.step',{'dt_s':1800.}),('acquisition.start',{}),('sim.step',{'dt_s':.25}),('acquisition.stop',{}),('acquisition.result',{}),('analysis.hall_vdp',r.ANALYSIS_EXAMPLE),('provenance.read',{}),('ledger.read',{}),('options.configure',{'high_resistance_firmware_enabled':True}),('excitation.voltage.configure',r.VOLTAGE_EXAMPLE),('acquisition.start',{}),('sim.step',{'dt_s':.25}),('acquisition.stop',{}),('contact_check.auto',{'max_current_a':.1,'max_voltage_v':10.,'points':11,'minimum_r_squared':.9999}),('sim.step',{'dt_s':2.}),('contact_check.manual',r.CC_MANUAL),('sim.step',{'dt_s':2.}),('resistivity.start_link',{'voltage_range_v':.1,'thickness_m':.0005,'samples':3,'minimum_snr':0.}),('sim.step',{'dt_s':2.}),('resistivity.start',r.RES_MANUAL),('sim.step',{'dt_s':2.}),('fasthall.start_link',{'field_t':.5,'voltage_range_v':.01,'samples':3,'minimum_snr':0.}),('sim.step',{'dt_s':2.}),('fasthall.start',r.FH_MANUAL),('sim.step',{'dt_s':2.}),('four_wire.start',r.FW_EXAMPLE),('measurement.result',{'type':'four_wire'}),('measurement.reset',{'type':'four_wire'}),('sim.step',{'dt_s':1.}),('thermal.disable',{}),('sample.set_clamp',{'closed':False}),('sim.step',{'dt_s':2.}),('sample.remove',{}),('system.configure',{'section':'display','values':{'brightness':50,'volume':25}}),('system.set_clock',{'year':2026,'month':3,'day':14,'hour':19,'minute':20}),('system.lock',{'locked':True}),('system.lock',{'locked':False}),('system.reset',{}),('fault.inject',{'code':'calibration_corrupt'}),('fault.acknowledge',{}),('fault.clear',{'code':'calibration_corrupt'}),('power.set',{'enabled':False})]
         for i,(cap,args) in enumerate(plan):
             reply=call(s,cap,args,str(i));self.assertIn(reply['status'],('succeeded','accepted'),(cap,reply));self.assertEqual(asset_tool.validate_value(reply['result'],r.CAPS[cap]['output_schema']),[],cap);seen.add(cap)
         self.assertEqual(seen,set(r.CAPS)-set(r.UNSUPPORTED));self.budget(h)
@@ -216,5 +216,100 @@ class M91Tests(unittest.TestCase):
         h.invoke('excitation.voltage.configure',**dict(r.VOLTAGE_EXAMPLE,current_limit_a=1e-7));self.assertAlmostEqual(h.current_limit,1e-7,22);o=finish(h);self.assertEqual(o['error_code'],'SOURCE_COMPLIANCE');h.invoke('excitation.voltage.configure',**dict(r.VOLTAGE_EXAMPLE,voltage_v=0.));self.reject(h,'acquisition.start');self.budget(h)
     def test_55_voltage_current_measurement_quantization_is_declared_not_true_copy(self):
         h=make();h.invoke('options.configure',high_resistance_firmware_enabled=True);h.invoke('excitation.voltage.configure',**dict(r.VOLTAGE_EXAMPLE,current_resolution_fraction=.01));h.invoke('acquisition.start');h.step(.15);observed=h.read()['measured.current_a'];true=h._electrical()['current'];self.assertAlmostEqual(observed,.0005,14);self.assertGreater(abs(observed-true),1e-5);h.invoke('acquisition.stop');self.budget(h)
+
+
+
+def measure(h,cap,**a):
+    """Run one measurement type to its end, then let the detector settle (1 s idle) before the next."""
+    out=h.invoke(cap,**a);h.step(out['expected_duration_s']+1e-6);res=h.invoke('measurement.result',type=r.MEAS_STARTS[cap]);h.step(1.);return res
+def truth(h):
+    rec=r.transport(h.record,h._temperature());d=h.geometry['thickness_m'];sheet=rec['resistivity_ohm_m']/d;ra,rb=r.vdp_resistances(sheet,h.plant['contact_asymmetry'])
+    return dict(sheet=sheet,ra=float(ra),rb=float(rb),r2=sheet*h.plant['drive_geometry_factor']+h.plant['current_contact_resistance_ohm'],rh=rec['hall_coefficient_m3_c']*h.plant['hall_geometry_factor'],rho=rec['resistivity_ohm_m'],d=d,
+                H=rec['hall_coefficient_m3_c']*h.field_actual/d*h.plant['hall_geometry_factor'],M=h.plant['hall_misalignment_fraction']*math.sqrt(ra*rb))
+AUTO=dict(max_current_a=.1,max_voltage_v=10.,points=11,minimum_r_squared=.9999)
+class MeasurementTypes(unittest.TestCase):
+    """Contact check, resistivity, FastHall and four wire (1.2.0) on the same sample, detector and energy model as the DC Hall acquisition."""
+    def setUp(self):
+        self.h=make(method={'current_a':.0005});self.h.invoke('field.set_target',field_t=0.);self.h.step(5.)
+    def test_contact_check_manual_auto_and_compliance(self):
+        h=self.h;t=truth(h);res=measure(h,'contact_check.manual',**r.CC_MANUAL)
+        self.assertEqual((res['phase'],len(res['rows'])),('succeeded',44));self.assertTrue(res['summary']['success'])
+        for pair in res['summary']['pairs']:self.assertLess(abs(pair['slope_ohm']/t['r2']-1),1e-3);self.assertGreater(pair['r_squared'],.9999);self.assertTrue(pair['r_squared_pass'])
+        self.assertEqual([p['pair'] for p in res['summary']['pairs']],[[1,2],[2,3],[3,4],[4,1]])
+        res=measure(h,'contact_check.auto',**AUTO);s=res['setup']                                  # 1 uA probes: ~21 ohm per pair -> 1 mA range, +-1 mA, 100 mV
+        self.assertTrue(s['optimized']);self.assertEqual((s['excitation_start_a'],s['excitation_end_a'],s['excitation_range_a'],s['voltage_range_v']),(1e-3,-1e-3,1e-3,.1))
+        self.assertTrue(res['summary']['success']);self.assertEqual(len(res['rows']),44)
+        res=measure(h,'contact_check.manual',**dict(r.CC_MANUAL,excitation_start_a=.1,excitation_end_a=-.1,excitation_range_a=.1,voltage_range_v=10.,compliance_v=1.))
+        self.assertEqual(res['phase'],'succeeded');self.assertFalse(res['summary']['success'])         # 0.1 A x 21 ohm > 1 V: clipped, reported per pair
+        self.assertTrue(all(p['in_compliance'] for p in res['summary']['pairs']));self.assertIn('Contact pair 1-2 in compliance',res['summary']['warnings'])
+        with self.assertRaises(r.ActionRejected):h.invoke('contact_check.manual',**dict(r.CC_MANUAL,excitation_start_a=1e-4))   # beyond the 10 uA range
+        self.assertEqual(h.read()['measurement.status']['contact_check'],'succeeded');M91Tests.budget(self,h)
+    def test_resistivity_van_der_pauw_and_link(self):
+        h=self.h;t=truth(h)
+        with self.assertRaisesRegex(r.ActionRejected,'CONTACT_CHECK_REQUIRED'):h.invoke('resistivity.start_link',voltage_range_v=.1,thickness_m=.0005,samples=5,minimum_snr=0.)
+        res=measure(h,'resistivity.start',**dict(r.RES_MANUAL,excitation_a=1e-3,excitation_range_a=1e-3,thickness_m=.0005));m=res['summary']
+        self.assertEqual((res['phase'],m['samples'],len(res['rows'])),('succeeded',4,32));self.assertLess(abs(m['sheet_resistance_ohm']/t['sheet']-1),1e-3)
+        self.assertAlmostEqual(m['resistivity_ohm_m'],m['sheet_resistance_ohm']*.0005,delta=1e-15);self.assertEqual(m['warnings'],[])
+        f=t['sheet']*math.log(2)/(math.pi*(t['ra']+t['rb'])/2)                                      # vdP F value of the sample's RA / RB
+        for g in ('geometry_a','geometry_b'):self.assertLess(abs(m[g]['f_value']-f),1e-3);self.assertLess(abs(m[g]['sheet_resistance_ohm']/t['sheet']-1),1e-3)
+        measure(h,'contact_check.auto',**AUTO);res=measure(h,'resistivity.start_link',voltage_range_v=.1,thickness_m=0.,samples=100,minimum_snr=30.)
+        self.assertEqual(res['setup']['excitation_start_a'],1e-3);self.assertTrue(res['setup']['linked']);self.assertIsNone(res['summary']['resistivity_ohm_m'])   # sheet only
+        self.assertLess(res['summary']['samples'],100);self.assertGreaterEqual(res['summary']['snr'] or math.inf,30)   # stops once the SNR is reached
+        h.invoke('field.set_target',field_t=.5);h.step(5.);res=measure(h,'resistivity.start',**r.RES_MANUAL)
+        self.assertIn('Field not zero: resistivity should be measured at zero field',res['summary']['warnings']);M91Tests.budget(self,h)
+    def test_fasthall_without_field_reversal(self):
+        h=self.h;measure(h,'contact_check.auto',**AUTO);measure(h,'resistivity.start_link',voltage_range_v=.1,thickness_m=.0005,samples=5,minimum_snr=0.)
+        h.invoke('field.set_target',field_t=.5);h.step(5.);t=truth(h);self.assertGreater(t['M'],t['H'])   # misalignment larger than the Hall term
+        res=measure(h,'fasthall.start_link',field_t=.5,voltage_range_v=.01,samples=5,minimum_snr=0.);m=res['summary']
+        self.assertEqual((res['phase'],len(res['rows'])),('succeeded',20));self.assertEqual({row['field_t'] for row in res['rows']},{.5})   # one field, no reversal
+        self.assertLess(abs(m['hall_coefficient_m3_c']/t['rh']-1),2e-3);self.assertEqual(m['carrier_type'],'p');self.assertEqual(m['p_type_count'],5)
+        self.assertLess(abs(m['mobility_m2_v_s']/(abs(t['rh'])/t['rho'])-1),3e-3)
+        self.assertAlmostEqual(m['carrier_concentration_m3'],1/(r.ELEMENTARY_CHARGE_C*abs(m['hall_coefficient_m3_c'])),delta=1e-6*m['carrier_concentration_m3'])
+        res=measure(h,'fasthall.start',**dict(r.FH_MANUAL,field_t=1.));self.assertLess(abs(res['summary']['sheet_hall_coefficient_m2_c']/(t['rh']/t['d']/2)-1),3e-3)   # the user's field value is used
+        self.assertIsNone(res['summary']['mobility_m2_v_s']);self.assertIn('No resistivity: mobility not calculated',res['summary']['warnings'])
+        with self.assertRaises(r.ActionRejected):h.invoke('fasthall.start',**dict(r.FH_MANUAL,field_t=0.))
+        M91Tests.budget(self,h)
+    def test_four_wire_configurations(self):
+        h=self.h;h.invoke('field.set_target',field_t=.5);h.step(5.);t=truth(h);fw=lambda c,**k:measure(h,'four_wire.start',**dict(r.FW_EXAMPLE,contacts=c,**k))['summary']['resistance_ohm']
+        self.assertLess(abs(fw([1,2,4,3])/t['ra']-1),1e-3);self.assertLess(abs(fw([2,3,1,4])/t['rb']-1),1e-3);self.assertLess(abs(fw([1,2,4,3])+fw([1,2,3,4])),1e-5)
+        self.assertLess(abs(fw([1,2,1,2],voltage_range_v=.1)/t['r2']-1),1e-3)                       # same pair: drive + contact resistance
+        self.assertLess(abs(fw([1,3,2,4])-(t['H']+t['M'])),2e-5);self.assertLess(abs(fw([2,4,1,3])-(-t['H']+t['M'])),2e-5)   # Onsager reciprocity
+        offset=fw([1,2,4,3],reversal=False)-fw([1,2,4,3]);self.assertAlmostEqual(offset,(h.plant['voltage_offset_a_v']+h.plant['voltage_drift_v_s']*h.time_s)/1e-3,delta=6e-5)   # no reversal: offset and drift stay (the reversed value carries the detector lag 2*exp(-(blanking+sampling)/tau))
+        for c,code in (([1,2,1,3],'CONTACT_CONFIGURATION'),([5,6,3,1],'CONTACT_NOT_PRESENT'),([1,1,2,3],'INVALID_ARGUMENT')):
+            with self.assertRaisesRegex(r.ActionRejected,code):h.invoke('four_wire.start',**dict(r.FW_EXAMPLE,contacts=c))
+        M91Tests.budget(self,h)
+    def test_busy_reset_power_and_session(self):
+        h=self.h;out=h.invoke('resistivity.start',**r.RES_MANUAL);h.step(.05)
+        self.assertEqual(h.read()['measurement.type'],'resistivity');self.assertGreater(h.read()['measurement.progress'],0)
+        for cap,args in (('acquisition.start',{}),('contact_check.auto',AUTO),('method.configure',r.METHOD_EXAMPLE)):
+            with self.assertRaisesRegex(r.ActionRejected,'BUSY'):h.invoke(cap,**args)
+        h.invoke('measurement.reset',type='resistivity');self.assertEqual(h.read()['measurement.status']['resistivity'],'not_run');self.assertEqual(h.read()['measurement.type'],'idle')
+        self.assertEqual(h.mrecords[out['operation_id']]['error_code'],'USER_CANCEL');self.assertIsNone(h.read()['measured.current_a'])
+        h.invoke('four_wire.start',**r.FW_EXAMPLE);h.step(.05);h.invoke('power.set',enabled=False)
+        self.assertEqual(h.invoke('measurement.result',type='four_wire')['error_code'],'POWER_OFF');self.assertEqual(h.read()['measurement.status']['four_wire'],'cancelled')
+        h.invoke('power.set',enabled=True)
+        with self.assertRaisesRegex(r.ActionRejected,'WARMUP_REQUIRED'):h.invoke('four_wire.start',**r.FW_EXAMPLE)
+        h.step(1800.);h.register_principal('agent');s=h.session('agent');reply=call(s,'four_wire.start',r.FW_EXAMPLE,'m1')
+        self.assertEqual(reply['status'],'accepted');op=reply['operation_id'];self.assertEqual(s.poll(op)['status'],'running')
+        self.assertEqual(s.cancel(op,'m2')['status'],'succeeded');self.assertEqual(s.poll(op)['status'],'cancelled')
+        reply=call(s,'four_wire.start',r.FW_EXAMPLE,'m3');h.step(reply['result']['expected_duration_s']+1e-6);self.assertEqual(s.poll(reply['operation_id'])['status'],'succeeded')
+        res=call(s,'measurement.result',{'type':'four_wire'},'m4')['result'];self.assertEqual(asset_tool.validate_value(res,r.CAPS['measurement.result']['output_schema']),[])
+        M91Tests.budget(self,h)
+
+class FrontPanelCommands(unittest.TestCase):
+    """System settings, clock and front-panel lock behind the touchscreen (front panel 1.1.0)."""
+    def test_settings_sections_and_reset(self):
+        h=Checked();h.invoke('system.configure',section='connectivity',values={'scpi_tcp':False,'virtual_serial':True})
+        h.invoke('system.configure',section='ethernet',values={'ip_mode':'static','ip_address':'10.0.0.5','gateway':'10.0.0.1','subnet':'255.255.255.0','dns':'10.0.0.1'})
+        x=h.read()['system.settings'];self.assertEqual((x['scpi_tcp'],x['ip_mode'],x['ip_address']),(False,'static','10.0.0.5'))
+        with self.assertRaisesRegex(r.ActionRejected,'INVALID_IP'):h.invoke('system.configure',section='ethernet',values=dict(x and {'ip_mode':'static','ip_address':'10.0.0.500','gateway':'10.0.0.1','subnet':'255.255.255.0','dns':'10.0.0.1'}))
+        with self.assertRaisesRegex(r.ActionRejected,'INVALID_ARGUMENT'):h.invoke('system.configure',section='display',values={'brightness':60,'volume':25})
+        h.invoke('system.reset');self.assertEqual(h.read()['system.settings'],r.SETTINGS_DEFAULT)
+    def test_clock_timezone_and_lock(self):
+        h=Checked();self.assertEqual(h.invoke('system.set_clock',year=2026,month=3,day=14,hour=19,minute=20)['datetime'],'2026-03-14 19:20');h.step(120.)
+        self.assertEqual(h.read()['system.datetime'],'2026-03-14 19:22')
+        h.invoke('system.configure',section='datetime',values={'auto_datetime':False,'timezone_min':60});self.assertEqual(h.read()['system.datetime'],'2026-03-14 20:22')
+        with self.assertRaisesRegex(r.ActionRejected,'INVALID_DATE'):h.invoke('system.set_clock',year=2026,month=2,day=30,hour=0,minute=0)
+        h.invoke('system.lock',locked=True);self.assertTrue(h.read()['system.locked'])
 
 if __name__=='__main__':unittest.main(verbosity=2)

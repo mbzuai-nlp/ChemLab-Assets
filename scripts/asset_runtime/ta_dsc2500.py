@@ -1,8 +1,12 @@
-"""CHEM131 conservative three-node DSC proxy; observed heat flow, finite melting and gas."""
+"""CHEM131 conservative three-node DSC proxy; observed heat flow, finite melting and gas.
+
+Front panel (panel.switch / panel.touch / panel.capture / panel.frame): the One-Touch-Away app-style touch screen and the rear power switch
+(panel_ui.json beside the contract, approximate: the Discovery screen pages are not documented) run by the generic engine _panel_ui.py on top
+of the capabilities below (no second copy of the logic)."""
 from pathlib import Path
-import copy,json,math,importlib.util
+import copy,json,math,importlib.util,hashlib,os,tempfile,weakref
 import numpy as np
-PROTOCOL_VERSION='1.0.0';SLUG='ta_dsc2500';CATALOG_ID='CHEM-131';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.1';SLUG='ta_dsc2500';CATALOG_ID='CHEM-131';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG
 DT=.1;R_GAS=8.31446261815324
 SAMPLER_REGISTERED_XY=[(0.,0.),(.012,0.)]+[(round(.165+.020*c,12),round(y+.075,12)) for y in [-.075,-.055,-.035,-.005,.015,.035] for c in range(9)]
@@ -105,6 +109,7 @@ cap('ledger.read',obj({}),LEDGER,['controller'],'有限样品/气体质量及炉
 cap('sim.step',obj({'dt_s':number('s',0,3600)}),obj({'time_s':number('s',0)}),['controller'],'唯一宿主时钟','simulation','evaluator',{'dt_s':.1})
 cap('emergency.stop',obj({}),obj({'latched':BOOL}),['controller'],'软件停机保留余热和有限相态')
 cap('emergency.reset',obj({}),obj({'latched':BOOL}),['controller'],'冷态明确复位，不自动重启')
+OWNER_GUARDED=('acquisition.stop','acquisition.result','method.advance')  # owner-only while another agent's run is the current one
 UNSUPPORTED=['autosampler.sequence','t4p.native','analysis.tg','analysis.crystallization_kinetics','mdsc.reversing_nonreversing','pan.pressure_reaction','photocalorimetry.acquire','hardware.connect','noise.empirical','accuracy.certification','cooler.external_geometry']
 for k in UNSUPPORTED:cap(k,obj({}),obj({}),['controller'],'明确未实现：'+k)
 for k,z,c in [('plant.configured','工程配置已接受','controller'),('power.enabled','电源','power_switch'),('lid.opened','炉盖开启','lid'),('sample.present','样品存在','sample_pan'),('gas.present','有限气源连接','purge_inlet'),('gas.opened','吹扫阀开启','purge_inlet'),('thermal.enabled','主动热控制使能','furnace'),('emergency.latched','软件停机锁存','controller')]:slot(k,BOOL,'1',z,component=c)
@@ -120,6 +125,23 @@ for axis,hi in [('x',.330),('y',.110),('z',.060)]:
  slot('sampler.'+axis+'_m',number('m',0,hi),'m','实际采样臂'+axis+'位置','scene',component='sampler_'+axis)
  slot('sampler.target_'+axis+'_m',number('m',0,hi),'m','采样臂'+axis+'目标','setpoint',component='sampler_'+axis)
 slot('sampler.moving',BOOL,'1','采样臂正在运动');slot('lid.moving',BOOL,'1','炉盖正在移动');slot('lid.target_m',number('m',0,.060),'m','炉盖目标','setpoint',component='lid')
+# Touch-screen functions without an earlier command (front-panel layer).  LN Pump (cooler LN2P): 50-litre dewar with auto-fill (brochure p.14);
+# Utilities > LN Pump > Fill / Auto Fill (UCSB guide p.1).  Fill rate, auto-fill threshold, LN2 latent heat and cooling efficiency are engineering assumptions.
+LN2_DEWAR_KG=50*.807;LN2_FILL_KG_S=.02;LN2_AUTO_LOW=.2;LN2_LATENT_J_KG=199000.;LN2_EFFICIENCY=.7;SAMPLER_PARK=[0.,0.,.06]
+cap('ln2.set',obj({'fill':BOOL,'auto_fill':BOOL}),obj({'fill':BOOL,'auto_fill':BOOL}),['controller'],'LN Pump杜瓦：手动加注（满后自动停）与自动加注（低于20%自动补满）；仅LN2P附件；液氮按冷却功率消耗，空时不再制冷',example={'fill':False,'auto_fill':True})
+cap('autosampler.reset',obj({}),obj({'accepted':BOOL}),['sampler_x','sampler_y','sampler_z'],'复位自动进样器：清除待执行命令，先升Z再回停泊位；不夹取样品盘')
+cap('method.advance',obj({}),obj({'segment_index':integer(0,100)}),['controller'],'运行中跳到方法下一段（从当前程序温度开始）；已是最后一段则正常结束方法')
+# Autosampler pan transfer (brochure p.14: 54 positions, linear X-Y-Z with auto lid; Q2000 guide p.19: LOAD the selected pan from the tray to the
+# cell, UNLOAD it from the cell to the tray).  Pans wait on the tray outside the cell; a load / unload moves the arm (pick, carry, place, park)
+# and the pan enters / leaves the cell through the same steps as sample.load / sample.remove when the arm has finished.
+TRAY_N=54;POSITION=integer(1,TRAY_N)
+def tray_xy(n):return SAMPLER_REGISTERED_XY[n+1]
+cap('tray.place',obj({'position':POSITION,'sample':SAMPLE}),obj({'placed':BOOL}),['tray_a','tray_b'],'手工把装好样品的盘放到托盘位置1-54（托盘在测量池外，室温）','configuration','evaluator',{'position':1,'sample':SAMPLE_EXAMPLE})
+cap('tray.remove',obj({'position':POSITION}),obj({'removed':BOOL}),['tray_a','tray_b'],'手工从托盘位置取走样品盘','configuration','evaluator',{'position':1})
+cap('autosampler.load',obj({'position':POSITION}),obj({'accepted':BOOL}),['sampler_x','sampler_y','sampler_z','sampler_gripper','sample_pan'],'自动进样器LOAD：从所选托盘位置夹盘放入样品池（开盖、池空、冷态；机械臂取放完成后样品进入池内）',example={'position':1})
+cap('autosampler.unload',obj({'position':POSITION}),obj({'accepted':BOOL}),['sampler_x','sampler_y','sampler_z','sampler_gripper','sample_pan'],'自动进样器UNLOAD：把池内样品盘送回所选的空托盘位置（机械臂完成后离开测量池）',example={'position':1})
+slot('autosampler.tray_occupied',array(BOOL,TRAY_N,TRAY_N),'1','托盘54个位置是否有样品盘',component='tray_a');slot('autosampler.cell_origin',nullable(POSITION),'1','池内样品盘来自的托盘位置（手工放入或复位后为空）',component='sample_pan');slot('autosampler.transfer',nullable(enum(['load','unload'])),'1','正在进行的取放',component='sampler_gripper')
+slot('ln2.level_kg',nullable(number('kg',0,LN2_DEWAR_KG)),'kg','LN Pump杜瓦液氮量（非LN2P附件为空）');slot('ln2.fill',BOOL,'1','LN Pump正在加注');slot('ln2.auto_fill',BOOL,'1','LN Pump自动加注使能')
 
 def phase_fraction(temperature_k,melting_temperature_k,width_k):
  return min(1.,max(0.,(temperature_k-(melting_temperature_k-width_k/2))/width_k))
@@ -132,9 +154,28 @@ def enthalpy_temperature(energy_j,ambient_k,capacity_j_k,latent_j=0.,melting_tem
  if energy_j>=ehi:return ambient_k+(energy_j-latent_j)/capacity_j_k
  return low+(energy_j-elo)/(capacity_j_k+latent_j/width_k)
 
+def _panel_engine():
+ """The shared front-panel engine (_panel_ui.py beside this file): as a package module, else loaded from its file path."""
+ try:
+  from . import _panel_ui as engine;return engine
+ except ImportError:
+  import sys
+  if '_chemsim_panel_ui' not in sys.modules:
+   s=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(s);s.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=None if os.environ.get('TA_PANEL_BUILD') else _panel_ui.load_spec(ASSET/'panel_ui.json',capabilities=set(CAPS))  # TA_PANEL_BUILD: spec being written
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}  # panel.* kept out of CAPS: CAPS stays the instrument's own command set
+ALL_CAPS=dict(CAPS,**PANEL_CAPS);_PANELS=weakref.WeakKeyDictionary()
+def validate_arguments(k,v):
+ """Capability arguments: the instrument's own validator; panel.* schemas (optional keys) by the engine's checker."""
+ if k in PANEL_CAPS:
+  if not isinstance(v,dict) or _panel_ui.check_arguments(PANEL_CAPS[k]['input_schema'],v):raise ActionRejected('INVALID_ARGUMENT')
+ else:validate(CAPS[k]['input_schema'],v)
+
 class TaDsc2500Runtime:
  def __init__(self,instance_id='dsc2500_01'):
-  self.instance_id=instance_id;self.plant=None;self.sample=None;self.reference=None;self.gas=None;self.power=False;self.lid_lift=.06;self.lid_target=.06;self.sampler=[0.,0.,.06];self.sampler_target=self.sampler.copy();self.thermal_enabled=False;self.emergency=False;self.gas_open=False;self.flow=0.;self.gas_remaining=0.;self.furnace=298.15;self.sample_temperature=298.15;self.reference_temperature=298.15;self.sample_energy=0.;self.target=298.15;self.final_target=298.15;self.rate=1.;self.heater_power=0.;self.obs_s=0.;self.obs_r=0.;self.mass_loaded=0.;self.mass_recovered=0.;self.gas_loaded=0.;self.gas_used=0.;self.gas_recovered=0.;self.heater_input=0.;self.cooler_removed=0.;self.ambient_loss=0.;self.initial_energy=0.;self.loaded_energy=0.;self.recovered_energy=0.;self.method=copy.deepcopy(METHOD_EXAMPLE);self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.phase='idle';self.elapsed=0.;self.segment_index=0;self.stage='ramp';self.rows=[];self.operation_id=None;self.operation_method=None;self.operation_calibration=None;self.operation_reference=None;self.operation_source=None;self.operation_start=0.;self.error=None;self.records={};self.schedule=[];self.duration=0.;self._counter=0;self.time_s=0.;self._ticks=0;self._remainder=0.;self.revision=0;self._requests={};self._owners={};self._cancel_operations={};self._principals={'agent':'agent','evaluator':'evaluator'}
+  self.instance_id=instance_id;self.plant=None;self.sample=None;self.reference=None;self.gas=None;self.power=False;self.lid_lift=.06;self.lid_target=.06;self.sampler=[0.,0.,.06];self.sampler_target=self.sampler.copy();self.thermal_enabled=False;self.emergency=False;self.gas_open=False;self.flow=0.;self.gas_remaining=0.;self.furnace=298.15;self.sample_temperature=298.15;self.reference_temperature=298.15;self.sample_energy=0.;self.target=298.15;self.final_target=298.15;self.rate=1.;self.heater_power=0.;self.obs_s=0.;self.obs_r=0.;self.mass_loaded=0.;self.mass_recovered=0.;self.gas_loaded=0.;self.gas_used=0.;self.gas_recovered=0.;self.heater_input=0.;self.cooler_removed=0.;self.ambient_loss=0.;self.initial_energy=0.;self.loaded_energy=0.;self.recovered_energy=0.;self.method=copy.deepcopy(METHOD_EXAMPLE);self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.phase='idle';self.elapsed=0.;self.segment_index=0;self.stage='ramp';self.rows=[];self.operation_id=None;self.operation_method=None;self.operation_calibration=None;self.operation_reference=None;self.operation_source=None;self.operation_start=0.;self.error=None;self.records={};self.schedule=[];self.duration=0.;self._counter=0;self.time_s=0.;self._ticks=0;self._remainder=0.;self.revision=0;self._requests={};self._owners={};self._cancel_operations={};self._principals={'agent':'agent','evaluator':'evaluator'};self.power_epoch=0;self.panel_capture_dir=None;self.ln2_level=0.;self.ln2_fill=False;self.ln2_auto=False;self.sampler_queue=[];self.tray=[None]*TRAY_N;self.cell_origin=None;self.transfer=None;self._caller=None
  def register_principal(self,principal_id,visibility='agent'):
   if not isinstance(principal_id,str) or not principal_id or principal_id in self._principals or visibility not in ('agent','debug','evaluator'):raise ActionRejected('REQUEST_CONFLICT')
   self._principals[principal_id]=visibility
@@ -153,7 +194,8 @@ class TaDsc2500Runtime:
  def _width(self):return self.sample['transition_width_k'] if self.sample else 1.
  def _sample_h(self,T):return enthalpy(T,self.plant['ambient_k'],self._cp(),self._latent(),self._tm(),self._width())
  def _fraction(self):return phase_fraction(self.sample_temperature,self._tm(),self._width()) if self.sample else 0.
- def _moving(self):return bool(any(abs(a-b)>1e-12 for a,b in zip(self.sampler,self.sampler_target)))
+ def _arm_moving(self):return bool(any(abs(a-b)>1e-12 for a,b in zip(self.sampler,self.sampler_target)))
+ def _moving(self):return self._arm_moving() or bool(self.sampler_queue)  # a reset still has a leg to go
  def _lid_moving(self):return bool(abs(self.lid_lift-self.lid_target)>1e-12)
  def _cold(self):return max(self.furnace,self.sample_temperature,self.reference_temperature)<=self.plant['safe_access_temperature_k']
  def _mechanical(self):
@@ -166,10 +208,18 @@ class TaDsc2500Runtime:
   f=lambda t:(p['temperature_gain']*t+p['temperature_offset_k']-c['temperature_zero_k'])/c['temperature_gain_correction']
   qs=(self.obs_s-c['sample_flow_zero_w'])/c['sample_flow_gain_correction'];qr=(self.obs_r-c['reference_flow_zero_w'])/c['reference_flow_gain_correction']
   return dict(furnace=f(self.furnace),sample=f(self.sample_temperature),reference=f(self.reference_temperature),qs=qs,qr=qr,q=qs-qr)
+ def _control_k(self,t):
+  """The true furnace temperature at which the device's own furnace reading (sensor error and stored calibration, as _indicated) shows t:
+  the controller holds its reading at the program temperature, so a sensor error or a temperature calibration moves the cell."""
+  p=self.plant;c=self.calibration;return (t*c['temperature_gain_correction']+c['temperature_zero_k']-p['temperature_offset_k'])/p['temperature_gain']
+ def _guard(self,k,principal,role):
+  """A run belongs to the operator who started it: another agent may not stop it, read its result or skip its segments (direct call or panel)."""
+  if k in OWNER_GUARDED and role=='agent' and self.operation_id is not None and self._owners.get(self.operation_id)!=principal:raise ActionRejected('ACCESS_DENIED')
  def read(self,role='evaluator'):
   a=self._indicated() if self.plant else dict(furnace=None,sample=None,reference=None,qs=None,qr=None,q=None)
   d={'plant.configured':self.plant is not None,'power.enabled':self.power,'lid.opened':bool(self.lid_lift>=.06-1e-12),'sample.present':self.sample is not None,'gas.present':self.gas is not None,'gas.opened':self.gas_open,'thermal.enabled':self.thermal_enabled,'emergency.latched':self.emergency,'lid.lift_m':self.lid_lift,'lid.target_m':self.lid_target,'lid.moving':self._lid_moving(),'sampler.moving':self._moving(),'power.angle_rad':.28 if self.power else 0.,'thermal.target_k':self.target,'thermal.final_target_k':self.final_target,'gas.flow_m3_s':self.flow,'furnace.indicated_k':a['furnace'],'sample.indicated_k':a['sample'],'reference.indicated_k':a['reference'],'sample.heatflow_w':a['qs'],'reference.heatflow_w':a['qr'],'heatflow.indicated_w':a['q'],'truth.furnace_k':self.furnace,'truth.sample_k':self.sample_temperature,'truth.reference_k':self.reference_temperature,'truth.liquid_fraction':self._fraction(),'truth.sample_mass_kg':self.sample['mass_kg'] if self.sample else 0.,'truth.gas_mol':self.gas_remaining,'truth.heater_w':self.heater_power,'clock.time_s':self.time_s,'acquisition.phase':self.phase,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'acquisition.segment_index':self.segment_index,'acquisition.stage':self.stage,'panel.temperature_text':'' if a['furnace'] is None else f"{a['furnace']-273.15:.1f}",'panel.heatflow_text':'' if a['q'] is None else f"{a['q']*1000:.3f}"}
   for i,axis in enumerate('xyz'):d['sampler.'+axis+'_m']=self.sampler[i];d['sampler.target_'+axis+'_m']=self.sampler_target[i]
+  d.update({'autosampler.tray_occupied':[x is not None for x in self.tray],'autosampler.cell_origin':self.cell_origin,'autosampler.transfer':self.transfer['kind'] if self.transfer else None,'ln2.level_kg':self.ln2_level if self.plant and self.plant['cooler']=='LN2P' else None,'ln2.fill':self.ln2_fill,'ln2.auto_fill':self.ln2_auto})
   return {k:v for k,v in d.items() if role!='agent' or SLOTS[k]['visibility']=='agent'}
  def _ledger(self):
   p=self.plant;Ef=p['furnace_capacity_j_k']*(self.furnace-p['ambient_k']) if p else 0.;Er=p['reference_pan_capacity_j_k']*(self.reference_temperature-p['ambient_k']) if p else 0.;mass=self.sample['mass_kg'] if self.sample else 0.
@@ -185,7 +235,50 @@ class TaDsc2500Runtime:
   return dict(operation_id=self.operation_id,phase=self.phase,elapsed_s=self.elapsed,rows=copy.deepcopy(self.rows),reference_id=self.operation_reference,template_source=self.operation_source,method_json=json.dumps(self.operation_method,sort_keys=True) if self.operation_method else None,calibration_json=json.dumps(self.operation_calibration,sort_keys=True) if self.operation_calibration else None,evidence='Finite conservative three-node DSC engineering response anchored by published melting temperature and fusion enthalpy. Cp, conductances, pan capacities, reversible mushy width, cooling power and sensors explicitly assumed; source is not a complete/native DSC heatflow trace. Observed difference=calibrated sample heatflow minus reference heatflow; endothermic positive. No proprietary T4P algorithm or certified accuracy. Purge is a finite isothermal reference-state N2 inventory; purge sensible enthalpy exchange is not solved. Results contain no hidden sample mass, phase fraction or true enthalpy.',error_code=self.error)
  def _finish(self,phase,error=None):
   self.phase=phase;self.error=error;self.thermal_enabled=False;self.heater_power=0.;self._record();self.records[self.operation_id]=self._result()
+ @property
+ def panel(self):
+  """Front-panel UI state (engine object, kept outside __dict__ so state snapshots and atomic rollback stay plain data)."""
+  if self not in _PANELS:_PANELS[self]=_panel_ui.PanelUI(PANEL_SPEC,self)
+  return _PANELS[self]
+ def panel_read(self):
+  """What the panel firmware sees: the agent slots plus power, power-up count, serial, cooling accessory, remaining run time, the active
+  method, the arm at its park position, the dewar level in percent and the heat-flow / temperature traces of the current or last run (chart)."""
+  d=self.read('agent');rows=self.rows if self.phase=='running' or not self.operation_id else self.records.get(self.operation_id,{}).get('rows',self.rows)
+  pick=rows[::max(1,len(rows)//300)]+rows[-1:] if rows else []
+  m=self.method;seg=[dict(n=i+1,target_c=s['target_k']-273.15,rate_c_min=s['rate_k_s']*60,hold_min=s['hold_s']/60,current=self.phase=='running' and i==self.segment_index) for i,s in enumerate(m['segments'])]
+  d.update({'host.powered':self.power,'host.power_epoch':self.power_epoch,'host.instance_id':self.instance_id,'host.cooler':self.plant['cooler'] if self.plant else None,
+            'host.remaining_s':max(0.,self.duration-self.elapsed) if self.phase=='running' else None,'host.sampler_parked':self.sampler==SAMPLER_PARK and not self.sampler_queue,
+            'host.ln2_percent':100*self.ln2_level/LN2_DEWAR_KG if self.plant and self.plant['cooler']=='LN2P' else None,
+            'host.method':dict(start_c=m['start_temperature_k']-273.15,modulation_k=m['modulation_amplitude_k'],period_s=m['modulation_period_s'],segments=seg),
+            'host.plot_q':[[r['elapsed_s']/60,r['heatflow_w']*1000] for r in pick if r['heatflow_w'] is not None],
+            'host.plot_t':[[r['elapsed_s']/60,r['sample_k']-273.15] for r in pick if r['sample_k'] is not None],
+            'host.plot_span':max(1.,pick[-1]['elapsed_s']/60) if pick else 10.})
+  return d
+ def panel_time(self):return self.time_s
+ def panel_invoke(self,capability_id,arguments):
+  """A panel action takes the path of a direct call (atomic; a refusal is shown as the device's message); a gesture made through a session keeps
+  that caller's access rules (_guard)."""
+  try:
+   if self._caller:self._guard(capability_id,*self._caller)
+   return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def _panel_command(self,k,a):
+  validate_arguments(k,a)
+  if not self.plant:raise ActionRejected('NOT_CONFIGURED')
+  if k=='panel.frame':return dict(frame=self.panel.frame())
+  if k=='panel.capture':
+   data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);p=d/f"{a['display_id']}_{sha[:16]}.png"
+   if not p.exists():p.write_bytes(data)
+   return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(p),format='png',width=w,height=h,sha256=sha))
+  if ('to_x' in a)!=('to_y' in a):raise ActionRejected('INVALID_ARGUMENT')
+  try:
+   if k=='panel.press':ok=self.panel.press(a['input_id'],float(a.get('duration_s',.1)))
+   elif k=='panel.switch':ok=self.panel.switch(a['input_id'],a['position'])
+   else:ok=self.panel.touch(a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),to=(a['to_x'],a['to_y']) if 'to_x' in a else None)
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  self.revision+=1;return {'accepted':bool(ok)}
  def invoke(self,capability,**kwargs):
+  if capability in PANEL_CAPS:return self._panel_command(capability,kwargs)
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability]['input_schema'],kwargs)
   if capability in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
@@ -201,7 +294,7 @@ class TaDsc2500Runtime:
    if self.plant is not None or self.time_s!=0 or self.power:raise ActionRejected('INITIALIZATION_ONLY')
    if not a['accept_engineering']:raise ActionRejected('MODEL_NOT_ACCEPTED')
    if a['safe_access_temperature_k']<a['ambient_k']:raise ActionRejected('PLANT_CONFIGURATION')
-   self.plant=copy.deepcopy(a);self.furnace=self.sample_temperature=self.reference_temperature=self.target=self.final_target=a['ambient_k'];return {'configured':True}
+   self.plant=copy.deepcopy(a);self.furnace=self.sample_temperature=self.reference_temperature=self.target=self.final_target=a['ambient_k'];self.ln2_level=LN2_DEWAR_KG if a['cooler']=='LN2P' else 0.;return {'configured':True}
   if not self.plant and k not in ['reference.query','analysis.integrate','analysis.modulated_cp','acquisition.result','ledger.read']:raise ActionRejected('NOT_CONFIGURED')
   if k=='sample.load':
    self._mechanical()
@@ -221,7 +314,7 @@ class TaDsc2500Runtime:
    self._mechanical()
    if self.sample is None:raise ActionRejected('NOT_LOADED')
    if self.lid_lift<.06-1e-12 or self._moving() or self._lid_moving():raise ActionRejected('CELL_NOT_ACCESSIBLE')
-   self.mass_recovered+=self.sample['mass_kg'];old=self.sample_energy;self.sample=None;self.reference=None;self.sample_energy=self._sample_h(self.sample_temperature);self.recovered_energy+=old-self.sample_energy;return {'removed':True}
+   self.cell_origin=None;self.mass_recovered+=self.sample['mass_kg'];old=self.sample_energy;self.sample=None;self.reference=None;self.sample_energy=self._sample_h(self.sample_temperature);self.recovered_energy+=old-self.sample_energy;return {'removed':True}
   if k=='gas.load':
    if self.gas is not None or self.gas_open or self.phase=='running':raise ActionRejected('BUSY')
    if not a['accept_reference_conditions']:raise ActionRejected('REFERENCE_CONDITIONS_NOT_ACCEPTED')
@@ -238,9 +331,10 @@ class TaDsc2500Runtime:
    if a['opened'] and (not self.power or not self.gas or self.gas_remaining<=0 or self.flow<=0):raise ActionRejected('NO_GAS')
    self.gas_open=a['opened'];return {'opened':self.gas_open}
   if k=='power.set':
-   if self.phase=='running':raise ActionRejected('BUSY')
+   if self.phase=='running' and not a['enabled']:self._finish('failed','POWER_LOSS')  # the power switch is a hard switch (final sync): never refused; a running experiment ends as on a power loss
+   if a['enabled'] and not self.power:self.power_epoch+=1
    self.power=a['enabled']
-   if not self.power:self.thermal_enabled=False;self.gas_open=False;self.heater_power=0.
+   if not self.power:self.thermal_enabled=False;self.gas_open=False;self.heater_power=0.;self.ln2_fill=False
    return {'enabled':self.power}
   if k=='lid.set':
    self._mechanical()
@@ -254,7 +348,7 @@ class TaDsc2500Runtime:
    xy=abs(a['x_m']-self.sampler[0])+abs(a['y_m']-self.sampler[1])>1e-12
    if self.lid_lift<.06-1e-12 or (xy and (self.sampler[2]<.06-1e-12 or a['z_m']<.06-1e-12)):raise ActionRejected('SAMPLER_CLEARANCE')
    if a['z_m']<.06-1e-12 and not any(abs(a['x_m']-x)<1e-7 and abs(a['y_m']-y)<1e-7 for x,y in SAMPLER_REGISTERED_XY):raise ActionRejected('SAMPLER_TARGET_NOT_REGISTERED')
-   self.sampler_target=[a['x_m'],a['y_m'],a['z_m']];return {'accepted':True}
+   self.sampler_queue=[];self.sampler_target=[a['x_m'],a['y_m'],a['z_m']];return {'accepted':True}
   if k=='thermal.set_temperature':
    if self.phase=='running':raise ActionRejected('BUSY')
    self._ready(False);self._temperature_domain(a['temperature_k'])
@@ -303,13 +397,84 @@ class TaDsc2500Runtime:
   if k=='analysis.modulated_cp':return apparent_modulated_cp(**a)
   if k=='ledger.read':return self._ledger()
   if k=='emergency.stop':
-   self.emergency=True;self.thermal_enabled=False;self.heater_power=0.;self.gas_open=False;self.sampler_target=self.sampler.copy();self.lid_target=self.lid_lift
+   self.emergency=True;self.thermal_enabled=False;self.heater_power=0.;self.gas_open=False;self.sampler_target=self.sampler.copy();self.sampler_queue=[];self.transfer=None;self.lid_target=self.lid_lift
    if self.phase=='running':self._finish('failed','SOFTWARE_STOP')
    return {'latched':True}
   if k=='emergency.reset':
    if not self._cold():raise ActionRejected('HOT_CELL')
    self.emergency=False;return {'latched':False}
+  if k=='ln2.set':
+   if self.plant['cooler']!='LN2P':raise ActionRejected('NO_LN2_PUMP')
+   if not self.power or self.emergency:raise ActionRejected('NOT_READY')
+   self.ln2_fill=a['fill'] and self.ln2_level<LN2_DEWAR_KG-1e-9;self.ln2_auto=a['auto_fill'];return {'fill':self.ln2_fill,'auto_fill':self.ln2_auto}
+  if k=='autosampler.reset':
+   self._mechanical()
+   if not self.power or self.emergency or self._lid_moving():raise ActionRejected('NOT_READY')
+   self.sampler_queue=[];self.transfer=None;self.cell_origin=None  # clears all commands and forgets the pan locations
+   if self.sampler!=SAMPLER_PARK or self.sampler_target!=SAMPLER_PARK:
+    if self.lid_lift<.06-1e-12:raise ActionRejected('SAMPLER_CLEARANCE')
+    self.sampler_target=[self.sampler[0],self.sampler[1],SAMPLER_PARK[2]];self.sampler_queue=[list(SAMPLER_PARK)]  # Z up first, then home
+   return {'accepted':True}
+  if k=='method.advance':
+   if self.phase!='running':raise ActionRejected('NOT_RUNNING')
+   return {'segment_index':self._advance_segment()}
+  if k=='tray.place':
+   if self.tray[a['position']-1] is not None:raise ActionRejected('TRAY_POSITION_OCCUPIED')
+   self._check_pan(a['sample']);self.tray[a['position']-1]=copy.deepcopy(a['sample']);return {'placed':True}
+  if k=='tray.remove':
+   if self.tray[a['position']-1] is None:raise ActionRejected('TRAY_POSITION_EMPTY')
+   if self.transfer and self.transfer['position']==a['position']:raise ActionRejected('SAMPLER_MOVING')
+   self.tray[a['position']-1]=None;return {'removed':True}
+  if k in ['autosampler.load','autosampler.unload']:
+   n=a['position'];x,y=tray_xy(n);load=k=='autosampler.load'
+   self._mechanical()
+   if not self.power or self.emergency or self._lid_moving():raise ActionRejected('NOT_READY')
+   if self._moving():raise ActionRejected('SAMPLER_MOVING')
+   if self.lid_lift<.06-1e-12:raise ActionRejected('SAMPLER_CLEARANCE')
+   if self.sampler!=SAMPLER_PARK:raise ActionRejected('SAMPLER_NOT_PARKED')
+   if load and self.tray[n-1] is None:raise ActionRejected('TRAY_POSITION_EMPTY')
+   if not load and self.tray[n-1] is not None:raise ActionRejected('TRAY_POSITION_OCCUPIED')
+   if load and self.sample is not None:raise ActionRejected('CELL_OCCUPIED')
+   if not load and self.sample is None:raise ActionRejected('CELL_EMPTY')
+   self._dry_run('sample.load',self.tray[n-1]) if load else self._dry_run('sample.remove',{})  # the pan can enter / leave the cell
+   top,down=SAMPLER_PARK[2],0.
+   legs=[[x,y,top],[x,y,down],[x,y,top],[0.,0.,top],[0.,0.,down],[0.,0.,top]] if load else [[0.,0.,down],[0.,0.,top],[x,y,top],[x,y,down],[x,y,top],[0.,0.,top]]
+   self.sampler_target=legs[0];self.sampler_queue=legs[1:];self.transfer=dict(kind='load' if load else 'unload',position=n);return {'accepted':True}
   raise ActionRejected('UNKNOWN_CAPABILITY')
+ def _check_pan(self,a):
+  """A pan for the tray passes the checks sample.load makes on the sample itself (the cell access is checked at the load)."""
+  if not a['accept_engineering'] or not a['accept_reversible_phase_change']:raise ActionRejected('MODEL_NOT_ACCEPTED')
+  ref=library()['substances'].get(a['reference_id'])
+  if not ref or not ref.get('runtime_usable'):raise ActionRejected('INVALID_REFERENCE')
+  if not a['accept_condition_transfer']:raise ActionRejected('CONDITION_TRANSFER_NOT_ACCEPTED')
+  self._temperature_domain(a['initial_temperature_k'])
+  if a['initial_temperature_k']>self.plant['safe_access_temperature_k']:raise ActionRejected('HOT_SAMPLE_LOAD')
+ def _dry_run(self,k,a):
+  snapshot=copy.deepcopy(self.__dict__)
+  try:self._invoke(k,a)
+  finally:self.__dict__.clear();self.__dict__.update(snapshot)
+ def _finish_transfer(self):
+  """The arm has placed the pan: it enters the cell as sample.load, or leaves it as sample.remove and waits on the tray at its temperature."""
+  t=self.transfer;self.transfer=None;n=t['position']
+  try:
+   if t['kind']=='load':
+    self._invoke('sample.load',self.tray[n-1]);self.tray[n-1]=None;self.cell_origin=n
+   else:
+    pan=dict(self.sample,initial_temperature_k=min(self.sample_temperature,self.plant['safe_access_temperature_k']));self._invoke('sample.remove',{});self.tray[n-1]=pan
+  except ActionRejected:pass                                                  # conditions changed during the motion: the pan stays where it was
+ def _advance_segment(self):
+  """End the running segment now and continue with the next one from the current program temperature (the method ends after the last)."""
+  e=self.elapsed;i=self.segment_index;segs=self.method['segments']
+  base=next((start+(end-start)*min(1.,max(0.,(e-a)/(b-a))) for a,b,start,end,j,stage in self.schedule if e<=b+1e-10),self.schedule[-1][3])
+  new=[x for x in self.schedule if x[1]<=e+1e-10]+[(a,e,start,base,j,stage) for a,b,start,end,j,stage in self.schedule if a<e-1e-10 and e<b-1e-10]
+  t=e;previous=base
+  for j,seg in enumerate(segs[i+1:],i+1):
+   ramp=abs(seg['target_k']-previous)/seg['rate_k_s']
+   if ramp>0:new.append((t,t+ramp,previous,seg['target_k'],j,'ramp'));t+=ramp
+   if seg['hold_s']>0:new.append((t,t+seg['hold_s'],seg['target_k'],seg['target_k'],j,'hold'));t+=seg['hold_s']
+   previous=seg['target_k']
+  if t<=e+1e-12:self.duration=e;self._finish('succeeded');return i
+  nxt=next(x for x in new if x[0]>=e-1e-10);self.schedule=new;self.duration=t;self.segment_index=nxt[4];self.stage=nxt[5];return self.segment_index
  def _ready(self,require_sample):
   if not self.power or self.emergency or self.lid_lift>1e-12 or self._lid_moving() or self._moving():raise ActionRejected('NOT_READY')
   if require_sample and not self.sample:raise ActionRejected('NO_SAMPLE')
@@ -319,12 +484,13 @@ class TaDsc2500Runtime:
    if t<=b+1e-10:return start+(end-start)*min(1.,max(0.,(t-a)/(b-a)))+self.method['modulation_amplitude_k']*math.sin(2*math.pi*t/self.method['modulation_period_s']),i,stage
   return self.schedule[-1][3],self.schedule[-1][4],self.schedule[-1][5]
  def _heat_step(self,dt,target):
+  target=self._control_k(target)   # the controller acts on the device's furnace reading
   p=self.plant;ambient=p['ambient_k'];cf=p['furnace_capacity_j_k'];cr=p['reference_pan_capacity_j_k'];gs=p['sample_conductance_w_k'];gr=p['reference_conductance_w_k'];oldf=self.furnace;oldr=self.reference_temperature;olds=self.sample_energy;cs=self._cp();latent=self._latent();tm=self._tm();width=self._width();active=self.power and self.thermal_enabled and not self.emergency
   # Endpoint implicit coupling, a monotone piecewise-affine scalar equation. Power saturates continuously.
   def evaluate(Tf):
    Ts=enthalpy_temperature(olds+dt*gs*(Tf-ambient),ambient,cs+dt*gs,latent,tm,width);Tr=(cr*oldr+dt*gr*Tf)/(cr+dt*gr);command=p['controller_gain_w_k']*(target-Tf) if active else 0.;heat=min(p['heater_max_w'],max(0.,command));cool=0.
    if active and command<0:
-    available=p['facs_conductance_w_k']*max(0.,Tf-ambient) if p['cooler']=='FACS' else p['cooler_max_w']
+    available=p['facs_conductance_w_k']*max(0.,Tf-ambient) if p['cooler']=='FACS' else p['cooler_max_w'] if p['cooler']!='LN2P' or self.ln2_level>0 else 0.
     cool=min(-command,p['cooler_max_w'],available)
    loss=p['ambient_conductance_w_k']*(Tf-ambient);qs=gs*(Tf-Ts);qr=gr*(Tf-Tr);residual=cf*(Tf-oldf)-dt*(heat-cool-loss-qs-qr)
    return residual,Ts,Tr,heat,cool,loss,qs,qr
@@ -335,6 +501,7 @@ class TaDsc2500Runtime:
    from scipy.optimize import brentq
    Tf=float(brentq(lambda T:evaluate(T)[0],lo,hi,xtol=1e-12,rtol=1e-14))
   _,Ts,Tr,heat,cool,loss,qs,qr=evaluate(Tf);self.furnace=Tf;self.sample_temperature=float(Ts);self.reference_temperature=float(Tr);self.sample_energy=olds+dt*qs;self.heater_input+=dt*heat;self.cooler_removed+=dt*cool;self.ambient_loss+=dt*loss;self.heater_power=heat-cool
+  if p['cooler']=='LN2P':self.ln2_level=max(0.,self.ln2_level-dt*cool/(LN2_LATENT_J_KG*LN2_EFFICIENCY))  # cold drawn from the dewar
   sensor=-math.expm1(-dt/p['sensor_tau_s']);self.obs_s+=sensor*(p['sample_flow_gain']*qs+p['sample_flow_offset_w']-self.obs_s);self.obs_r+=sensor*(p['reference_flow_gain']*qr+p['reference_flow_offset_w']-self.obs_r)
  def _advance(self,dt):
   remaining=dt
@@ -356,6 +523,13 @@ class TaDsc2500Runtime:
     self._heat_step(h,self.target)
     if self.power and not self.emergency:
      for i in range(3):self.sampler[i]+=max(-self.plant['sampler_speed_m_s']*h,min(self.plant['sampler_speed_m_s']*h,self.sampler_target[i]-self.sampler[i]))
+     if self.sampler_queue and not self._arm_moving():self.sampler_target=self.sampler_queue.pop(0)
+     if self.transfer and not self.sampler_queue and not self._arm_moving():self._finish_transfer()
+     if self.plant['cooler']=='LN2P':
+      if self.ln2_auto and self.ln2_level<LN2_AUTO_LOW*LN2_DEWAR_KG:self.ln2_fill=True
+      if self.ln2_fill:
+       self.ln2_level=min(LN2_DEWAR_KG,self.ln2_level+LN2_FILL_KG_S*h)
+       if self.ln2_level>=LN2_DEWAR_KG-1e-9:self.ln2_level=LN2_DEWAR_KG;self.ln2_fill=False
      self.lid_lift+=max(-self.plant['lid_speed_m_s']*h,min(self.plant['lid_speed_m_s']*h,self.lid_target-self.lid_lift))
    used=min(self.gas_remaining,gasrate*h);self.gas_remaining-=used;self.gas_used+=used;self.time_s+=h
    if running:self.elapsed+=h
@@ -386,7 +560,7 @@ class TaDsc2500Session:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  meta=export_ta_dsc2500_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  meta=export_ta_dsc2500_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;values=h.read(self._role);ids=list(values) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -396,17 +570,20 @@ class TaDsc2500Session:
   h=self._host
   try:
    self._target(instance_id)
-   if not isinstance(capability_id,str) or capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-   if self._role=='agent' and CAPS[capability_id]['visibility']!='agent':raise ActionRejected('ACCESS_DENIED')
+   if not isinstance(capability_id,str) or capability_id not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+   if self._role=='agent' and ALL_CAPS[capability_id]['visibility']!='agent':raise ActionRejected('ACCESS_DENIED')
    if not isinstance(request_id,str) or not request_id:raise ActionRejected('INVALID_ARGUMENT')
-   validate(CAPS[capability_id]['input_schema'],arguments);key=(self._principal,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+   validate_arguments(capability_id,arguments);key=(self._principal,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
    if key in h._requests:
     old,result=h._requests[key]
     if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
     return copy.deepcopy(result)
-   if capability_id in ('acquisition.stop','acquisition.result') and self._role=='agent' and h.operation_id is not None and h._owners.get(h.operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
-   result=h.invoke(capability_id,**arguments);operation=result.get('operation_id') if capability_id=='acquisition.start' else None
+   h._guard(capability_id,self._principal,self._role);started=h.operation_id;h._caller=(self._principal,self._role)
+   try:result=h.invoke(capability_id,**arguments)
+   finally:h._caller=None
+   operation=result.get('operation_id') if capability_id=='acquisition.start' else None
    if operation:h._owners[operation]=self._principal
+   if capability_id in PANEL_CAPS and h.operation_id!=started:h._owners[h.operation_id]=self._principal  # Start on the touch screen: the run belongs to the operator who pressed it
    response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
   except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
  def write(self,*,instance_id,state_id,value,request_id):
@@ -433,31 +610,47 @@ class TaDsc2500Session:
   return result
 
 OBSERVATION_STATES=['furnace.indicated_k','sample.indicated_k','reference.indicated_k','sample.heatflow_w','reference.heatflow_w','heatflow.indicated_w','panel.temperature_text','panel.heatflow_text']
-EFFECTS={'plant.configure':['plant.configured','truth.furnace_k','truth.sample_k','truth.reference_k','thermal.target_k','thermal.final_target_k'],
+EFFECTS={'plant.configure':['plant.configured','truth.furnace_k','truth.sample_k','truth.reference_k','thermal.target_k','thermal.final_target_k','ln2.level_kg'],
 'sample.load':['sample.present','truth.sample_k','truth.sample_mass_kg','truth.liquid_fraction']+OBSERVATION_STATES,
-'sample.remove':['sample.present','truth.sample_mass_kg','truth.liquid_fraction'],
+'sample.remove':['sample.present','truth.sample_mass_kg','truth.liquid_fraction','autosampler.cell_origin'],
 'gas.load':['gas.present','truth.gas_mol'],'gas.unload':['gas.present','truth.gas_mol'],'gas.set_flow':['gas.flow_m3_s'],'gas.set_open':['gas.opened'],
-'power.set':['power.enabled','power.angle_rad','thermal.enabled','gas.opened','truth.heater_w']+OBSERVATION_STATES,
+'power.set':['power.enabled','power.angle_rad','thermal.enabled','acquisition.phase','acquisition.points','gas.opened','truth.heater_w','ln2.fill']+OBSERVATION_STATES,
 'lid.set':['lid.target_m','lid.moving'],'sampler.move':['sampler.target_x_m','sampler.target_y_m','sampler.target_z_m','sampler.moving'],
 'thermal.set_temperature':['thermal.final_target_k','thermal.enabled'],'thermal.disable':['thermal.enabled','truth.heater_w'],
 'sensor.calibrate':OBSERVATION_STATES,'sensor.zero':OBSERVATION_STATES,
 'acquisition.start':['acquisition.phase','acquisition.elapsed_s','acquisition.points','acquisition.segment_index','acquisition.stage','thermal.target_k','thermal.final_target_k','thermal.enabled'],
 'acquisition.stop':['acquisition.phase','acquisition.points','thermal.enabled','truth.heater_w'],
-'emergency.stop':['emergency.latched','acquisition.phase','acquisition.points','thermal.enabled','gas.opened','truth.heater_w','sampler.target_x_m','sampler.target_y_m','sampler.target_z_m','sampler.moving','lid.target_m','lid.moving'],
-'emergency.reset':['emergency.latched'],'sim.step':list(SLOTS)}
+'emergency.stop':['emergency.latched','acquisition.phase','acquisition.points','thermal.enabled','gas.opened','truth.heater_w','sampler.target_x_m','sampler.target_y_m','sampler.target_z_m','sampler.moving','lid.target_m','lid.moving','autosampler.transfer'],
+'emergency.reset':['emergency.latched'],'ln2.set':['ln2.fill','ln2.auto_fill'],'autosampler.reset':['sampler.target_x_m','sampler.target_y_m','sampler.target_z_m','sampler.moving','autosampler.transfer','autosampler.cell_origin'],
+'tray.place':['autosampler.tray_occupied'],'tray.remove':['autosampler.tray_occupied'],'autosampler.load':['sampler.target_x_m','sampler.target_y_m','sampler.target_z_m','sampler.moving','autosampler.transfer'],'autosampler.unload':['sampler.target_x_m','sampler.target_y_m','sampler.target_z_m','sampler.moving','autosampler.transfer'],
+'method.advance':['acquisition.segment_index','acquisition.stage','acquisition.phase','acquisition.points','thermal.enabled','truth.heater_w'],'sim.step':list(SLOTS)}
 for k,v in EFFECTS.items():CAPS[k]['effects']=v
+_PANEL_EFFECTS=list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in CAPS[c]['effects']))
+for k in PANEL_CAPS:PANEL_CAPS[k]['effects']=[] if k in ('panel.capture','panel.frame') else list(_PANEL_EFFECTS)  # a gesture changes what the commands it calls change
+PANEL_LIMITATIONS=['面板层按panel_ui.json解释手势并调用本运行层的同名能力；Discovery触屏页面无公开操作手册，页面布局、标签与提示文字为近似（approximate），见panel_ui.json的assumptions。','手势不推进仿真时钟；长按无文档含义（按短按处理）；屏幕无超时。']
+def _panel_contract_entry(k):
+ """Contract fields of a panel.* capability that differ from the instrument commands."""
+ query=k in ('panel.capture','panel.frame')
+ return dict(preconditions=[] if query else [dict(description_zh='已声明plant（否则NOT_CONFIGURED）；关机时屏幕暗、只有电源开关起作用；被调用能力的前提同样适用，被拒时显示仪器的错误对话框且手势不被接受，状态不变。',state_ids=['plant.configured','power.enabled','acquisition.phase'],enforced_by='runtime',check='TaDsc2500Runtime._panel_command')],
+  errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['NOT_CONFIGURED','INVALID_ARGUMENT','UNKNOWN_CAPABILITY','UNKNOWN_INSTANCE','ACCESS_DENIED','REQUEST_CONFLICT']],
+  model_effects=dict(mode='none',description_zh='屏幕纹理与按键关节触发属于后续Matterix步骤',binding_ids=[]),
+  execution=dict(mode='synchronous',time_domain='simulation',completion_criterion='手势瞬时完成：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看' if not query else '查询即时返回，不改变状态',completion_state_ids=[],timeout_s=None,cancellation='unsupported',retry='same_request_id',resources=['host_clock'],partial_failure_zh='一次手势可调用多个能力；被拒的能力原子回滚并显示错误对话框，此前已执行的能力保留（与实机逐次按键一致）。'),
+  limitations=list(PANEL_LIMITATIONS),source_ids=['simulation_assumption'])
 PHYSICS_EFFECTS=[k for k in SLOTS if k not in ['plant.configured','power.enabled','power.angle_rad','sample.present','gas.present','emergency.latched','truth.sample_mass_kg','gas.flow_m3_s']]
 def export_ta_dsc2500_contract_metadata():
  slots={};caps={}
  for k,v in SLOTS.items():slots[k]=dict(meaning_zh=v['meaning'],component_ids=[v['component']],value_schema=copy.deepcopy(v['schema']),unit=v['unit'],reference_conditions='SI. Heatflow endothermic positive. Purge volume flow at gas.load reference absolute pressure/temperature, no unspecified STP. FACS ambient..998.15K; other accessories have separate bounds. lid.lift_m is diagonal engineering retreat distance, not vertical height.',origin=v['origin'],visibility=v['visibility'],access='read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'TaDsc2500Session.read(state_ids=[{k!r}])'),write_via=None,sampling=dict(mode='instant',time_domain='simulation',window_description='Host fixed0.1s with<=0.01s implicit thermal steps and program/gas events; observed rows also contain segment endpoints. No read advances time.'),source_ids=['simulation_assumption'])
  errors=['UNKNOWN_CAPABILITY','UNKNOWN_INSTANCE','UNKNOWN_OPERATION','INVALID_ARGUMENT','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','BUSY','NOT_RUNNING','INITIALIZATION_ONLY','MODEL_NOT_ACCEPTED','PLANT_CONFIGURATION','NOT_CONFIGURED','HOT_CELL','THERMAL_CONTROL_ACTIVE','CELL_NOT_ACCESSIBLE','ALREADY_LOADED','NOT_LOADED','INVALID_REFERENCE','CONDITION_TRANSFER_NOT_ACCEPTED','HOT_SAMPLE_LOAD','REFERENCE_CONDITIONS_NOT_ACCEPTED','NO_GAS','NO_SAMPLE','NOT_READY','SAMPLER_MOVING','SAMPLER_NOT_PARKED','SAMPLER_CLEARANCE','SAMPLER_TARGET_NOT_REGISTERED','PROGRAM_RATE','COOLER_TEMPERATURE_RANGE','ZERO_REQUIRES_EMPTY_EQUILIBRIUM','SAMPLING_GRID','MODULATION_SAMPLING','START_NOT_EQUILIBRATED','EMPTY_PROGRAM','PROGRAM_TOO_LONG','GAS_EXHAUSTED','TIMEOUT','SOFTWARE_STOP','ANALYSIS_DATA','FOURIER_WINDOW','TEMPERATURE_AMPLITUDE','APPARATUS_RESPONSE_NOT_ACCEPTED']
- for k,c in CAPS.items():
+ for k,c in ALL_CAPS.items():
   un=k in UNSUPPORTED;async_=k=='acquisition.start';caps[k]={key:copy.deepcopy(c[key]) for key in ['input_schema','output_schema','component_ids','function_zh','kind','visibility','example_arguments']};caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ['scene','robot','hardware'] else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.ta_dsc2500.TaDsc2500Session.invoke',invocation=f'session.invoke(instance_id="dsc2500_01",capability_id={k!r},arguments={c["example_arguments"]!r},request_id="unique")'),preconditions=[] if c['kind'] in ['query','analysis'] or un else [dict(description_zh='冷态开盖/采样臂清空、冷却附件温域、显式物性与工程假设、有限吹扫库存、开始温度观测平衡；拒绝不改变状态',state_ids=['power.enabled','lid.lift_m','sample.present','gas.opened','thermal.enabled','acquisition.phase'],enforced_by='runtime',check='atomic invoke, physical interlocks and host registered Session')],state_effects=[dict(state_id=x,timing='immediate',description_zh='实际命令即时变化') for x in c['effects']],observes=[],model_effects=dict(mode='none',description_zh='关节联动由独立场景验证；样品相变非网格熔化，54位自动夹取未实现',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='全部有限速温度段和保持时间结束；不保证达到完全熔融或热平衡' if async_ else '返回命令接受；目标与实际分开，运动和热交换等待宿主step',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','furnace','sample_pan','reference_pan','purge','sampler'],partial_failure_zh='取消/气耗尽保留真实相态、余热和库存；停止主动热控制后继续被动热交换，历史结果冻结'),errors=[dict(code=x,meaning_zh=x,side_effects='partial' if async_ and x in ['GAS_EXHAUSTED','TIMEOUT','SOFTWARE_STOP'] else 'none') for x in errors],verification=[],limitations=['有限传热热峰是显式工程模型，真实源只锚定熔融温度与焓','厂家温度/焓精密度及基线指标不等于已验证模拟精度','默认FACS不能低于环境；外部制冷动态与几何没有原厂校准','专利T4P、原生MDSC反转分离及Tg识别未实现'],source_ids=['manufacturer_specs','simulation_assumption'])
-  if k in ['acquisition.start','acquisition.stop','emergency.stop','power.set','thermal.set_temperature','thermal.disable','lid.set','sampler.move','gas.set_open']:caps[k]['state_effects'] += [dict(state_id=x,timing='on_step',description_zh='宿主推进热量、独立观测、有限库存和关节目标') for x in PHYSICS_EFFECTS]
+  if k in ['acquisition.start','acquisition.stop','emergency.stop','power.set','thermal.set_temperature','thermal.disable','lid.set','sampler.move','gas.set_open','ln2.set','autosampler.reset','method.advance','autosampler.load','autosampler.unload']:caps[k]['state_effects'] += [dict(state_id=x,timing='on_step',description_zh='宿主推进热量、独立观测、有限库存和关节目标') for x in PHYSICS_EFFECTS]
+  if k in PANEL_CAPS:caps[k].update(_panel_contract_entry(k))
+  if k in ['tray.place','tray.remove','autosampler.load','autosampler.unload']:caps[k]['errors']+=[dict(code=e,meaning_zh=z,side_effects='none') for e,z in [('TRAY_POSITION_EMPTY','托盘位置没有样品盘'),('TRAY_POSITION_OCCUPIED','托盘位置已有样品盘'),('CELL_OCCUPIED','样品池已有样品盘'),('CELL_EMPTY','样品池没有样品盘')]]
+  if k=='ln2.set':caps[k]['errors'].append(dict(code='NO_LN2_PUMP',meaning_zh='未安装LN Pump冷却附件（cooler不是LN2P）',side_effects='none'))
  mechanism=dict(component_ids=['controller','furnace','sample_pan','reference_pan','purge_inlet'],state_ids=list(slots),meaning_zh='保能三节点差示热量与真实物性锚定相变',implementation='lumped',equations=[
  'Ef=Cf*(Tf-Tamb); Es=(Csample_pan+m*Cp)*(Ts-Tamb)+m*Lf*f(Ts); Er=Cref*(Tr-Tamb). f=clip((Ts-(Tm-width/2))/width,0,1). Tm/Lf from explicit measured source; Cp/pan/G/width engineering inputs. Reversible equilibrium mushy interval is not nucleation, supercooling or Tg kinetics.',
  'Cf*dTf/dt=Pheat-Pcool-Gambient*(Tf-Tamb)-Gs*(Tf-Ts)-Gr*(Tf-Tr); dEs/dt=Gs*(Tf-Ts); Cr*dTr/dt=Gr*(Tf-Tr). All three are solved together by monotone implicit enthalpy inversion and a scalar furnace residual each<=0.01s. Equal/opposite pan fluxes conserve energy for arbitrarily stiff accepted capacities/conductances.',
- 'Pcommand=Kcontroller*(Tprogram-Tf), bounded by explicit heating/cooling powers. FACS Pcool<=Gfacs*max(Tf-Tamb,0), so it cannot extract heat below ambient. External RCS/LN2P use explicit engineering power but distinct manufacturer temperature domains; no OEM full-range cooling-rate curve or external hardware geometry is claimed.',
+ 'Pcommand=Kcontroller*(Tcontrol-Tf) with Tcontrol=(Tprogram*temperature_gain_correction+temperature_zero_k-temperature_offset_k)/temperature_gain: the controller holds the device reading (same affine map as the indicated temperatures) at the program temperature, so sensor errors and the stored temperature calibration move the cell; identity with the default zero errors and no calibration. Bounded by explicit heating/cooling powers. FACS Pcool<=Gfacs*max(Tf-Tamb,0), so it cannot extract heat below ambient. External RCS/LN2P use explicit engineering power but distinct manufacturer temperature domains; no OEM full-range cooling-rate curve or external hardware geometry is claimed.',
  'Program targets use actual elapsed host time, piecewise linear ramps then holds, with optional A*sin(2*pi*t/period). Combined |ramp|+A*omega must respect explicit engineering program-rate limit. Actual furnace never becomes target instantaneously.',
  'Independent sample/reference heatflow gain/offset and first-order observations give calibrated qobs_s-qobs_r, endothermic positive. No direct latent-fraction or true enthalpy is returned to agents; no random noise or certified accuracy is fabricated.',
  'analysis.integrate uses externally supplied observed times/heatflows/temperatures/baseline/measured mass: DeltaH_obs=trapz(qobs-baseline,time)/mass. Peak temperature is the sampled heatflow peak, not an extrapolated onset or certified melting temperature. Partial windows remain partial.',
@@ -465,7 +658,7 @@ def export_ta_dsc2500_contract_metadata():
  'N2 inventory consumption dn=p_ref*q_ref/(R*T_ref)*dt; exact finite exhaustion event closes valve and fails active acquisition. Isothermal purge reference inventory does not model purge sensible heat exchange, oxygen reaction or buoyancy.',
  'Sample melting conserves mass. Loading adds external material enthalpy to existing pan energy and equilibrates that lump without inventing heat. Removing sample exports its current sensible+latent enthalpy; finite pan energy remains. Heater input-cooler removal-ambient loss equals change of all stored energies plus recovered/loaded material energy.',
  'Power off/cancel stops active control but retained energy and phase keep evolving under passive coupling. Frozen terminal rows do not change when later cooling, sample changes, calibration, or a new run occurs.',
- 'XYZ sampler movement and diagonal lid retreat are engineering geometric motions only. Clearance is enforced before XY traversal; Z descent only at sample/reference cell or54 registered engineering tray positions within1e-7m tolerance; fixed pan geometry does not perform native 54-position pickup/placement or reparenting.'
- ],parameters={},source_ids=['manufacturer_specs','simulation_assumption'],limitations=['Cp, transfer constants, phase interval and sensor parameters are engineering inputs, not manufacturer calibration.','Mass loss, reactions, pan pressure, Tg relaxation and kinetic crystallization are not modeled.','Thermal equation is a DSC engineering proxy, not patented T4P sensor compensation.','Ambient loss is signed; below-ambient external cooling allows ambient heat ingress and records it.','External cooler geometry, LN2 consumption and full refrigeration thermodynamics are not modeled.','Exact joint kinematics, USD readout and multi-env Matterix checks are separate parent-owned validations.','Model resolution/convergence are tested but no manufacturer precision, noise floor or accuracy is certified.'])
+ 'XYZ sampler movement and diagonal lid retreat are engineering geometric motions only. Clearance is enforced before XY traversal; Z descent only at sample/reference cell or54 registered engineering tray positions within1e-7m tolerance; autosampler.load / unload move a tray pan into or out of the cell as a logical transfer when the arm has finished its pick-carry-place legs (no gripper contact model or scene reparenting).'
+ ],parameters={},source_ids=['manufacturer_specs','simulation_assumption'],limitations=['Cp, transfer constants, phase interval and sensor parameters are engineering inputs, not manufacturer calibration.','Mass loss, reactions, pan pressure, Tg relaxation and kinetic crystallization are not modeled.','Thermal equation is a DSC engineering proxy, not patented T4P sensor compensation.','Ambient loss is signed; below-ambient external cooling allows ambient heat ingress and records it.','External cooler geometry and full refrigeration thermodynamics are not modeled; the LN Pump dewar is a lumped LN2 inventory (50 L, engineering fill rate 0.02 kg/s, auto-fill below 20 %, latent heat 199 kJ/kg at 70 % cooling efficiency; the cold of the last 0.01 s step may slightly exceed the remaining LN2).','Exact joint kinematics, USD readout and multi-env Matterix checks are separate parent-owned validations.','Model resolution/convergence are tested but no manufacturer precision, noise floor or accuracy is certified.'])
  spec=importlib.util.spec_from_file_location('_dsc_local_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update({k:v['meaning'] for k,v in SLOTS.items()});ann.annotate_export(SLUG,caps,slots,{'dsc_enthalpy':mechanism},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.load':(SAMPLE,SAMPLE_EXAMPLE),'gas.load':(GAS,GAS_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE),'sensor.calibrate':(CALIBRATION,CALIBRATION_EXAMPLE)})
  return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'dsc_enthalpy':mechanism})

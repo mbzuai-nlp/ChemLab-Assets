@@ -1,18 +1,25 @@
-"""LeNeo finite fusion teaching model; host coefficients, not factory calibration."""
+"""LeNeo finite fusion teaching model; host coefficients, not factory calibration.
+
+Front panel (1.1.0; panel.touch / panel.press / panel.capture / panel.frame): an approximate touch-screen menu (no operating manual is public;
+built from the brochure): Home (chamber temperature, Fusion one-touch start, door), program library (store / load / edit / delete), preheat and
+heat shut-off timers and a password-protected supervisor level, plus the power and emergency-stop buttons, from panel_ui.json beside the
+contract, run by the shared engine _panel_ui.py on top of the capabilities below.  1.2.0: the program's magnetic stirring speed (solution
+option) sets the dissolution rate in the receiver; a cycle started from the touch screen belongs to the calling session, and an agent cannot
+stop, switch off or change the cooling air of another agent's running cycle (screen or direct)."""
 from __future__ import annotations
-import copy,importlib.util,json,math
+import copy,importlib.util,json,math,os
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
 from asset_runtime.pccell_ed64002 import validate
 ROOT=Path(__file__).resolve().parents[4] if 'outputs' in str(__file__) else Path(__file__).resolve().parents[2]
-SLUG='malvern_leneo';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-050';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/malvern_leneo_fusion_library/templates.json'
+SLUG='malvern_leneo';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-050';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.1';ASSET_DIR=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG;TEMPLATE_REL='assets/reactions/malvern_leneo_fusion_library/templates.json'
 PHASE=dict(type='string',enum=['idle','running','succeeded','cancelled','failed']);OUTPUT=dict(type='string',enum=['glass_disk','borate_solution'])
 def array(s):return dict(type='array',items=s)
 PLANT=obj({'ambient_K':number('K',298.15,313.15),'supply_V':number('V',208,240),'heater_W':number('W',1,4800),'chamber_C_J_K':number('J/K',100,5000),'crucible_C_J_K':number('J/K',10,500),'receiver_C_J_K':number('J/K',10,500),'chamber_UA_W_K':number('W/K',.01,10),'charge_UA_W_K':number('W/K',.1,30),'receiver_UA_W_K':number('W/K',.01,20),'fan_UA_W_K':number('W/K',0,30),'controller_W_K':number('W/K',1,1000),'flux_cp_J_kg_K':number('J/kg/K',100,5000),'solidus_K':number('K',400,1300),'liquidus_K':number('K',450,1400),'latent_J_kg':number('J/kg',0,1e6),'dissolution_rate_s':number('1/s',0,10),'loss_rate_s':number('1/s',0,.01),'viscosity_Pa_s':number('Pa*s',.001,1e4),'viscosity_activation_K':number('K',0,20000),'pour_kg_s':number('kg/s',1e-7,.01),'residual_fraction':number('1',0,.5),'solution_rate_s':number('1/s',0,10),'motion_rad_s':number('rad/s',.1,10),'unlock_K':number('K',298.15,333.15),'accept_uncalibrated_model':BOOL,'coefficient_evidence':TEXT})
 PLANT_EXAMPLE=dict(ambient_K=298.15,supply_V=230.,heater_W=3500.,chamber_C_J_K=1200.,crucible_C_J_K=30.,receiver_C_J_K=80.,chamber_UA_W_K=1.,charge_UA_W_K=4.,receiver_UA_W_K=.3,fan_UA_W_K=3.,controller_W_K=150.,flux_cp_J_kg_K=1200.,solidus_K=1000.,liquidus_K=1100.,latent_J_kg=250000.,dissolution_rate_s=.02,loss_rate_s=.000001,viscosity_Pa_s=2.,viscosity_activation_K=2500.,pour_kg_s=.001,residual_fraction=.02,solution_rate_s=.1,motion_rad_s=2.,unlock_K=323.15,accept_uncalibrated_model=True,coefficient_evidence='explicit_host_assumptions_not_LeNeo_calibration')
 SEG=obj({'duration_s':number('s',.1,7200),'end_temperature_K':number('K',298.15,1473.15)})
 PROFILE=obj({'angle_rad':number('rad',.8,2.3),'duration_s':number('s',.1,300)})
-METHOD=obj({'segments':array(SEG),'rocking_rad':number('rad',0,.35),'rocking_Hz':number('Hz',0,2),'pour_mode':dict(type='integer',minimum=1,maximum=4,**{'x-unit':'1'}),'host_pour_profiles':array(PROFILE),'cooling_air_fraction':number('1',0,1),'minimum_cooling_s':number('s',0,1800),'output':OUTPUT,'accept_host_profiles_not_factory_methods':BOOL})
+METHOD=obj({'segments':array(SEG),'rocking_rad':number('rad',0,.35),'rocking_Hz':number('Hz',0,2),'pour_mode':dict(type='integer',minimum=1,maximum=4,**{'x-unit':'1'}),'host_pour_profiles':array(PROFILE),'cooling_air_fraction':number('1',0,1),'minimum_cooling_s':number('s',0,1800),'output':OUTPUT,'accept_host_profiles_not_factory_methods':BOOL,'stirring_fraction':number('1',0,1)},optional=('stirring_fraction',))
 METHOD_EXAMPLE=dict(segments=[dict(duration_s=600.,end_temperature_K=1338.15),dict(duration_s=540.,end_temperature_K=1338.15)],rocking_rad=.18,rocking_Hz=.3,pour_mode=1,host_pour_profiles=[dict(angle_rad=v,duration_s=20.) for v in [1.6,1.8,2.,2.2]],cooling_air_fraction=1.,minimum_cooling_s=300.,output='glass_disk',accept_host_profiles_not_factory_methods=True)
 SAMPLE=obj({'substance_id':TEXT,'sample_kg':number('kg',1e-7,.01),'flux_kg':number('kg',1e-6,.05),'crucible_present':BOOL,'receiver_present':BOOL,'receiver_diameter_m':number('m',.02,.05),'solvent_kg':number('kg',0,.3),'accept_reference_not_fusion_calibration':BOOL})
 SAMPLE_EXAMPLE=dict(substance_id='janaf_al_096',sample_kg=.0006,flux_kg=.006,crucible_present=True,receiver_present=True,receiver_diameter_m=.032,solvent_kg=0.,accept_reference_not_fusion_calibration=True)
@@ -35,18 +42,56 @@ CAPS={
  'product.collect':(obj({'fraction':number('1',0,1),'recipient_id':TEXT}),obj({'transferred_kg':number('kg',0),'recipient_id':TEXT}),['mold'],'冷态开门后有限转移，不是机器人动作','device_command','evaluator',dict(fraction=.5,recipient_id='external_XRF')),
  'reference.lookup':(obj({'substance_id':TEXT,'temperature_K':number('K',0)}),obj({'cp_J_kg_K':number('J/kg/K',0),'enthalpy_J_kg':number('J/kg'),'source':TEXT,'evidence':TEXT,'template_source':TEXT}),['crucible'],'真实晶相热力学参考，源温区内插值','query','agent',dict(substance_id='janaf_al_096',temperature_K=1000.)),
 }
+# touch-screen device functions of 1.1.0 (brochure p.4: program storage, preheat / heat shut-off timers, password-protected user levels)
+def nullable(s):return {'anyOf':[s,{'type':'null'}]}
+INT={'type':'integer','x-unit':'1'};LEVEL=dict(type='string',enum=['operator','supervisor']);MAX_PROGRAMS=500;DEFAULT_PASSWORD='0000'
+PREHEAT_DEFAULT_K=1323.15
+# magnetic stirrer of the solution option (brochure p.4: 'magnetic stirring speed for solutions'; no range published): relative speed 0-1, the
+# host solution_rate_s applies at the default speed; mass transfer ~ sqrt(speed) (laminar boundary layer), unstirred floor 0.1 (assumptions)
+STIR_DEFAULT=.5;STIR_FLOOR=.1
+RUN_GUARDED=('acquisition.stop','cooling.set_air')   # another agent's running cycle: refused for agents (the green main power switch, power.set /
+# power.toggle, cuts the power: never refused, the cycle ends power_interrupted; 1.2.1, lead rule 10-19)
+CAPS.update({
+ 'program.save':(obj({'name':TEXT,'method':METHOD}),obj({'saved':BOOL,'programs':INT}),['display_digits'],'触屏程序库：把一个方法存为命名程序（同名替换；主管级；名称1–24字符）','configuration','agent',dict(name='Fusion 1065',method=METHOD_EXAMPLE)),
+ 'program.load':(obj({'name':TEXT}),obj({'configured':BOOL}),['display_digits'],'载入命名程序为当前方法（与method.configure相同的检查）','configuration','agent',dict(name='Fusion 1065')),
+ 'program.delete':(obj({'name':TEXT}),obj({'deleted':BOOL}),['display_digits'],'删除命名程序（主管级）','configuration','agent',dict(name='Fusion 1065')),
+ 'timers.configure':(obj({'preheat_delay_s':nullable(number('s',0,604800)),'preheat_temperature_K':number('K',298.15,1473.15),'shutoff_after_s':nullable(number('s',60,86400))}),obj({'configured':BOOL}),['heater','display_digits'],'预热定时：延时后空闲时把炉腔加热并保持在预热温度（风扇停）；加热关断定时：预热开始后该时间关断加热（null=不关断）；null延时=关闭预热；主管级','configuration','agent',dict(preheat_delay_s=0.,preheat_temperature_K=1323.15,shutoff_after_s=3600.)),
+ 'access.unlock':(obj({'password':TEXT}),obj({'level':LEVEL}),['display_digits'],'输入主管密码进入主管级（程序编辑、定时与密码）','device_command','agent',dict(password='0000')),
+ 'access.lock':(obj({}),obj({'level':LEVEL}),['display_digits'],'回到操作员级','device_command','agent',{}),
+ 'access.set_password':(obj({'password':TEXT}),obj({'changed':BOOL}),['display_digits'],'修改主管密码（主管级；4–12字符）','configuration','agent',dict(password='1234')),
+})
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,zh,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=zh
 for n in ['plant','method','sample']:slot(n+'.configured',BOOL,'1',n+'配置','setpoint')
 slot('power.enabled',BOOL,'1','主电源','setpoint',c='button_power',w=('power.set','enabled'));slot('door.open_target',BOOL,'1','门开目标','setpoint',c='door',w=('door.set_open','open'));slot('door.angle_rad',number('rad',0,1.6),'rad','照片估计门角','scene',c='door');slot('door.locked',BOOL,'1','宿主冷到冷安全锁','derived',c='door')
 slot('thermal.target_k',number('K',298.15,1473.15),'K','程序腔温目标','setpoint',c='heater',w=('thermal.set_temperature','temperature_K'));slot('cooling.air_fraction',number('1',0,1),'1','冷却气流相对设定','setpoint',c='fan',w=('cooling.set_air','fraction'))
 for k,c,lo,hi in [('rock.angle_rad','rocker',-.35,.35),('pour.angle_rad','pour_axis',0,2.3)]:slot(k,number('rad',lo,hi),'rad','宿主权威照片估计关节','scene',c=c)
-slot('cycle.phase',PHASE,'1','异步状态');slot('cycle.stage',TEXT,'1','程序阶段');slot('cycle.elapsed_s',number('s',0),'s','程序秒')
+slot('cycle.phase',PHASE,'1','异步状态');slot('cycle.operation_id',nullable(TEXT),'1','当前/最近循环的operation_id（null=尚无；触屏Fusion启动的循环也可用它poll/cancel）');slot('cycle.stage',TEXT,'1','程序阶段');slot('cycle.elapsed_s',number('s',0),'s','程序秒')
 for k,u,zh in [('temperature_c','degC','理想R热电偶腔温'),('target_c','degC','当前腔温目标'),('elapsed_s','s','程序秒')]:slot('panel.'+k,number(u),u,zh,'derived',c='display_digits')
+slot('access.level',LEVEL,'1','触屏用户级别（操作员/主管）','setpoint',c='display_digits');slot('programs.names',array(TEXT),'1','程序库中的程序名','setpoint',c='display_digits');slot('program.current',nullable(TEXT),'1','当前载入的程序名（null=直接配置或未载入）','setpoint',c='display_digits')
+slot('timers.preheat_at_s',nullable(number('s',0)),'s','预热开始时刻（null=关闭）','setpoint',c='heater');slot('timers.preheat_temperature_k',number('K',298.15,1473.15),'K','预热温度','setpoint',c='heater');slot('timers.shutoff_after_s',nullable(number('s',0)),'s','预热开始后关断加热的时间（null=不关断）','setpoint',c='heater');slot('heating.preheat_active',BOOL,'1','正在空闲预热加热','derived',c='heater')
 slot('truth.charge_temperature_k',number('K',0),'K','样品真值非仪器读数','process_truth','evaluator','crucible');slot('truth.receiver_temperature_k',number('K',0),'K','接收器真值','process_truth','evaluator','mold');slot('truth.ledger',PRODUCT,'1','质量能量账本','process_truth','evaluator','mold')
+# ---------------------------------------------------------------- front panel: engine, spec and panel capabilities
+def _panel_engine():
+ try:
+  from asset_runtime import _panel_ui as engine
+  return engine
+ except ImportError:
+  import sys
+  if '_chemsim_panel_ui' not in sys.modules:
+   spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+_PANEL_BUILD=os.environ.get('LENEO_PANEL_BUILD')=='1'                  # the spec builder imports the tables before the spec exists
+PANEL_SPEC=_panel_ui.load_spec(ASSET_DIR/'panel_ui.json',capabilities=set(CAPS)) if (ASSET_DIR/'panel_ui.json').exists() and not _PANEL_BUILD else None
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+for _k,_d in PANEL_CAPS.items():CAPS[_k]=(_d['input_schema'],_d['output_schema'],_d['component_ids'],_d['function_zh'],_d['kind'],_d['visibility'],_d['example_arguments'])
 class MalvernLeneoRuntime:
  def __init__(self,instance_id='leneo_01'):
   self.instance_id=instance_id;self.templates={r['substance_id']:r for r in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']};self.plant=self.method=self.sample=None;self.powered=False;self.open_target=True;self.door=1.6;self.rock=self.pour=0.;self.phase='idle';self.stage='idle';self.time_s=self.elapsed_s=self.cool_s=self.pour_s=0.;self.target=self.chamber=self.charge=self.receiver=298.15;self.air=0.;self.cp_sample=0.;self.ms=self.mf=self.rs=self.rf=self.solvent=self.undissolved=self.rundissolved=0.;self.lost=self.collected_s=self.collected_f=self.collected_solvent=0.;self.Ec=self.Er=self.electrical=self.loss=self.advected=self.collected_energy=0.;self.revision=0;self.operation_id='';self._operation_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+  self._caller=None
+  self.programs={};self.program_name=None;self.level='operator';self.password=DEFAULT_PASSWORD;self.preheat_at=None;self.preheat_T=PREHEAT_DEFAULT_K;self.shutoff_after=None;self.power_epoch=0
+  self.panel_capture_dir=None;self.panel=_panel_ui.PanelUI(PANEL_SPEC,self) if PANEL_SPEC else None
  def register_principal(self,principal_id,visibility):
   if visibility not in ['agent','debug','evaluator'] or not isinstance(principal_id,str) or not principal_id:raise ActionRejected('INVALID_ARGUMENT')
   if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -77,24 +122,47 @@ class MalvernLeneoRuntime:
   return dict(cp_J_kg_K=val('cp_J_mol_K'),enthalpy_J_kg=val('enthalpy_relative_J_mol'),source=r['source'],evidence='measured_literature_interpolated_pure_crystal_NOT_fusion_measurement',template_source=TEMPLATE_REL)
  def _product(self):
   s=self.sample or {};return dict(initial_sample_kg=s.get('sample_kg',0.),initial_flux_kg=s.get('flux_kg',0.),initial_solvent_kg=s.get('solvent_kg',0.),crucible_sample_kg=self.ms,crucible_flux_kg=self.mf,receiver_sample_kg=self.rs,receiver_flux_kg=self.rf,receiver_solvent_kg=self.solvent,lost_sample_kg=self.lost,collected_sample_kg=self.collected_s,collected_flux_kg=self.collected_f,collected_solvent_kg=self.collected_solvent,undissolved_crucible_kg=self.undissolved,undissolved_receiver_kg=self.rundissolved,electrical_J=self.electrical,storage_J=(self.plant['chamber_C_J_K']*(self.chamber-self.plant['ambient_K']) if self.plant else 0.)+self.Ec+self.Er,loss_J=self.loss,advected_loss_J=self.advected,collected_enthalpy_J=self.collected_energy,liquid_fraction=self.liquid(self.receiver),receiver_temperature_K=self.receiver,output=(self.method or {}).get('output','unconfigured'),evidence='synthetic_conservative_lumped_fusion_NOT_XRF_ICP_or_factory_validation',template_source=TEMPLATE_REL)
- def _values(self):return {'plant.configured':bool(self.plant),'method.configured':bool(self.method),'sample.configured':bool(self.sample),'power.enabled':self.powered,'door.open_target':self.open_target,'door.angle_rad':self.door,'door.locked':self.locked(),'thermal.target_k':self.target,'cooling.air_fraction':self.air,'rock.angle_rad':self.rock,'pour.angle_rad':self.pour,'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.elapsed_s':self.elapsed_s,'panel.temperature_c':self.chamber-273.15,'panel.target_c':self.target-273.15,'panel.elapsed_s':self.elapsed_s,'truth.charge_temperature_k':self.charge,'truth.receiver_temperature_k':self.receiver,'truth.ledger':self._product()}
+ def _values(self):return {'plant.configured':bool(self.plant),'method.configured':bool(self.method),'sample.configured':bool(self.sample),'power.enabled':self.powered,'door.open_target':self.open_target,'door.angle_rad':self.door,'door.locked':self.locked(),'thermal.target_k':self.target,'cooling.air_fraction':self.air,'rock.angle_rad':self.rock,'pour.angle_rad':self.pour,'cycle.phase':self.phase,'cycle.operation_id':self.operation_id or None,'cycle.stage':self.stage,'cycle.elapsed_s':self.elapsed_s,'access.level':self.level,'programs.names':sorted(self.programs),'program.current':self.program_name,'timers.preheat_at_s':self.preheat_at,'timers.preheat_temperature_k':self.preheat_T,'timers.shutoff_after_s':self.shutoff_after,'heating.preheat_active':self.preheating(),'panel.temperature_c':self.chamber-273.15,'panel.target_c':self.target-273.15,'panel.elapsed_s':self.elapsed_s,'truth.charge_temperature_k':self.charge,'truth.receiver_temperature_k':self.receiver,'truth.ledger':self._product()}
  def read(self,visibility='agent'):return copy.deepcopy({k:v for k,v in self._values().items() if SLOTS[k][3]=='agent' or visibility in ['debug','evaluator']})
- def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k!='templates'})
+ def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in ('templates','panel')})
+ def preheating(self):
+  """Idle preheat: powered, no cycle running, after the preheat start and before the heat shut-off time."""
+  t=self.preheat_at
+  return bool(self.plant and self.powered and self.phase!='running' and t is not None and self.time_s>=t-1e-9 and (self.shutoff_after is None or self.time_s<t+self.shutoff_after-1e-9))
+ def stir_factor(self):
+  """Dissolution-rate factor of the magnetic stirrer (solution option): 1 at the default speed."""
+  s=self.method.get('stirring_fraction',STIR_DEFAULT) if self.method else STIR_DEFAULT
+  return max(STIR_FLOOR,math.sqrt(s/STIR_DEFAULT))
+ def _check_caller(self,capability,a):
+  """An agent may not stop or change the cooling air of another agent's running cycle (direct call or touch screen alike: the session sets
+  _caller around both); the emergency stop and the main power switch (a hard switch) stay open to everyone."""
+  who=self._caller
+  if who is None or self._principals.get(who)!='agent' or self.phase!='running' or capability not in RUN_GUARDED:return
+  owner=self._owners.get(self.operation_id)
+  if owner is None or owner==who:return
+  raise ActionRejected('ACCESS_DENIED')
+ def _supervisor(self):
+  if self.level!='supervisor':raise ActionRejected('SUPERVISOR_REQUIRED')
+ def _check_method(self,a):
+  if not a['segments'] or len(a['segments'])>20 or len(a['host_pour_profiles'])!=4 or not a['accept_host_profiles_not_factory_methods']:raise ActionRejected('PRECONDITION_FAILED')
  def invoke(self,capability,**a):
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability][0],a)
+  if capability in ('panel.capture','panel.frame'):return self._panel_cmd(capability,a)
+  self._check_caller(capability,a)
   if self.phase=='running' and capability in ['plant.configure','method.configure','sample.configure','product.collect']:raise ActionRejected('BUSY')
   if capability=='plant.configure':
    if self.plant or not a['accept_uncalibrated_model'] or a['heater_W']>a['supply_V']*20 or a['liquidus_K']<=a['solidus_K'] or a['unlock_K']<a['ambient_K']:raise ActionRejected('PRECONDITION_FAILED')
    self.plant=copy.deepcopy(a);self.target=self.chamber=self.charge=self.receiver=a['ambient_K'];out=dict(configured=True)
   elif capability=='method.configure':
-   if self.phase!='idle' or not a['segments'] or len(a['segments'])>20 or len(a['host_pour_profiles'])!=4 or not a['accept_host_profiles_not_factory_methods']:raise ActionRejected('PRECONDITION_FAILED')
-   self.method=copy.deepcopy(a);self.air=a['cooling_air_fraction'];out=dict(configured=True)
+   if self.phase!='idle':raise ActionRejected('PRECONDITION_FAILED')
+   self._check_method(a);self.method=copy.deepcopy(a);self.air=a['cooling_air_fraction'];self.program_name=None;out=dict(configured=True)
   elif capability=='sample.configure':
    if not self.plant or self.sample or self.phase!='idle' or self.door<1.59 or not all(a[k] for k in ['crucible_present','receiver_present','accept_reference_not_fusion_calibration']):raise ActionRejected('PRECONDITION_FAILED')
    cp=self.reference(a['substance_id'],298.15)['cp_J_kg_K'];self.sample=copy.deepcopy(a);self.cp_sample=cp;self.ms=self.undissolved=a['sample_kg'];self.mf=a['flux_kg'];self.solvent=a['solvent_kg'];out=dict(configured=True)
   elif capability in ['power.set','power.toggle']:
-   self.powered=a['enabled'] if capability=='power.set' else not self.powered
+   was=self.powered;self.powered=a['enabled'] if capability=='power.set' else not self.powered
+   if self.powered and not was:self.power_epoch+=1
    if not self.powered and self.phase=='running':self.phase='cancelled';self.stage='power_interrupted'
    out=dict(enabled=self.powered)
   elif capability=='door.set_open':
@@ -108,6 +176,31 @@ class MalvernLeneoRuntime:
   elif capability in ['acquisition.stop','emergency.stop']:
    if capability=='acquisition.stop' and self.phase!='running':raise ActionRejected('PRECONDITION_FAILED')
    self.phase='cancelled' if capability=='acquisition.stop' else 'failed';self.stage='cancelled' if capability=='acquisition.stop' else 'emergency';out=dict(phase=self.phase)
+  elif capability=='program.save':
+   self._supervisor();n=a['name']
+   if not 1<=len(n.strip())<=24 or n!=n.strip():raise ActionRejected('INVALID_ARGUMENT')
+   self._check_method(a['method'])
+   if n not in self.programs and len(self.programs)>=MAX_PROGRAMS:raise ActionRejected('MEMORY_FULL')
+   self.programs[n]=copy.deepcopy(a['method']);out=dict(saved=True,programs=len(self.programs))
+  elif capability=='program.load':
+   if a['name'] not in self.programs:raise ActionRejected('NOT_FOUND')
+   if self.phase!='idle':raise ActionRejected('PRECONDITION_FAILED')
+   self.method=copy.deepcopy(self.programs[a['name']]);self.air=self.method['cooling_air_fraction'];self.program_name=a['name'];out=dict(configured=True)
+  elif capability=='program.delete':
+   self._supervisor()
+   if a['name'] not in self.programs:raise ActionRejected('NOT_FOUND')
+   del self.programs[a['name']];out=dict(deleted=True)
+  elif capability=='timers.configure':
+   self._supervisor();d=a['preheat_delay_s'];self.preheat_at=None if d is None else self.time_s+d;self.preheat_T=a['preheat_temperature_K'];self.shutoff_after=a['shutoff_after_s'];out=dict(configured=True)
+  elif capability=='access.unlock':
+   if a['password']!=self.password:raise ActionRejected('WRONG_PASSWORD')
+   self.level='supervisor';out=dict(level=self.level)
+  elif capability=='access.lock':self.level='operator';out=dict(level=self.level)
+  elif capability=='access.set_password':
+   self._supervisor()
+   if not 4<=len(a['password'])<=12:raise ActionRejected('INVALID_ARGUMENT')
+   self.password=a['password'];out=dict(changed=True)
+  elif capability in PANEL_CAPS:out=self._panel_cmd(capability,a)
   elif capability=='fusion.measure':return dict(phase=self.phase,stage=self.stage,elapsed_s=self.elapsed_s,chamber_temperature_K=self.chamber,target_temperature_K=self.target,evidence='synthetic_ideal_chamber_thermocouple_R_NOT_charge_temperature',template_source=TEMPLATE_REL)
   elif capability=='product.read':return self._product()
   elif capability=='reference.lookup':return self.reference(a['substance_id'],a['temperature_K'])
@@ -115,13 +208,45 @@ class MalvernLeneoRuntime:
    if self.phase!='succeeded' or self.locked() or self.door<1.59:raise ActionRejected('PRECONDITION_FAILED')
    f=a['fraction'];ms=self.rs*f;mf=self.rf*f;sol=self.solvent*f;E=ms*self.specific(self.receiver,self.cp_sample)+mf*self.specific(self.receiver,self.plant['flux_cp_J_kg_K'])+sol*4180*(self.receiver-self.plant['ambient_K']);self.collected_s+=ms;self.collected_f+=mf;self.collected_solvent+=sol;self.collected_energy+=E;self.Er-=E;self.rs-=ms;self.rf-=mf;self.solvent-=sol;self.rundissolved*=1-f;out=dict(transferred_kg=ms+mf+sol,recipient_id=a['recipient_id'])
   self.revision+=1;return copy.deepcopy(out)
+ # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+ def panel_read(self):
+  """What the touch screen shows: the agent slots plus the power-up count, the program rows and the preheat state."""
+  out=self.read('agent');t=self.preheat_at
+  rows=[]
+  for n in sorted(self.programs):
+   m=self.programs[n];seg=m['segments']
+   rows.append(dict(name=n,temperature_c=seg[-1]['end_temperature_K']-273.15,heating_min=seg[0]['duration_s']/60.,fusion_min=sum(x['duration_s'] for x in seg[1:])/60.,maximum=seg[0]['duration_s']<=.1+1e-9,rock_deg=math.degrees(m['rocking_rad']),rock_Hz=m['rocking_Hz'],pour_mode=m['pour_mode'],air_pct=m['cooling_air_fraction']*100.,cooling_min=m['minimum_cooling_s']/60.,output=m['output'],stir_pct=m.get('stirring_fraction',STIR_DEFAULT)*100.))
+  state='off' if t is None else ('heating' if self.preheating() else ('waiting' if self.time_s<t-1e-9 else 'shut_off'))
+  out.update({'host.power_epoch':self.power_epoch,'host.programs':rows,'host.preheat':dict(state=state,starts_in_min=max(0.,(t-self.time_s)/60.) if t is not None else None,temperature_c=self.preheat_T-273.15,shutoff_min=self.shutoff_after/60. if self.shutoff_after is not None else None),'host.remaining_s':max(0.,sum(x['duration_s'] for x in self.method['segments'])-self.elapsed_s) if self.method and self.phase=='running' and self.stage=='heating' else None})
+  return out
+ def panel_invoke(self,capability_id,arguments):
+  """A touch-screen action calls the same command a direct call would (these commands check before they change anything)."""
+  try:return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _panel_cmd(self,capability,a):
+  if capability=='panel.capture':
+   import hashlib,tempfile
+   data,w,hh=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest()
+   d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);path=d/f"{a['display_id']}_{sha[:16]}.png"
+   if not path.exists():path.write_bytes(data)
+   return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=hh,sha256=sha))
+  if capability=='panel.frame':return dict(frame=self.panel.frame())
+  try:
+   if capability=='panel.press':return dict(accepted=bool(self.panel.press(a['input_id'],float(a.get('duration_s',.1)))))
+   if (a.get('to_x') is None)!=(a.get('to_y') is None):raise ActionRejected('INVALID_ARGUMENT')
+   return dict(accepted=bool(self.panel.touch(a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),(a['to_x'],a['to_y']) if a.get('to_x') is not None else None)))
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
  def step(self,dt_s):
   if isinstance(dt_s,bool) or not isinstance(dt_s,(int,float)) or not math.isfinite(dt_s) or not 0<=dt_s<=7200:raise ActionRejected('INVALID_ARGUMENT')
   left=float(dt_s)
   while left>1e-10:
    h=min(.02,left);p=self.plant
+   for edge in ([self.preheat_at]+([self.preheat_at+self.shutoff_after] if self.shutoff_after is not None else [])) if self.preheat_at is not None else []:
+    if edge>self.time_s+1e-9:h=min(h,edge-self.time_s)
    if p:
-    amb=p['ambient_K'];active=self.phase=='running' and self.stage=='heating';P=0.
+    amb=p['ambient_K'];active=self.phase=='running' and self.stage=='heating';P=0.;pre=self.preheating()
+    if pre:P=min(p['heater_W'],max(0.,p['controller_W_K']*(self.preheat_T-self.chamber)))
     if active:
      total=0.;prev=amb
      for seg in self.method['segments']:
@@ -129,7 +254,7 @@ class MalvernLeneoRuntime:
        h=min(h,total+seg['duration_s']-self.elapsed_s);self.target=prev+(seg['end_temperature_K']-prev)*(self.elapsed_s-total)/seg['duration_s'];break
       total+=seg['duration_s'];prev=seg['end_temperature_K']
      P=min(p['heater_W'],max(0.,p['controller_W_K']*(self.target-self.chamber))) if self.powered else 0.
-    fan=self.air*p['fan_UA_W_K'] if self.stage=='cooling' or self.phase!='running' else 0.
+    fan=0. if pre else (self.air*p['fan_UA_W_K'] if self.stage=='cooling' or self.phase!='running' else 0.)
     lc=(p['chamber_UA_W_K']+fan)*(self.chamber-amb)*h;qc=p['charge_UA_W_K']*(self.chamber-self.charge)*h if active else 0.;lq=(.1+fan)*(self.charge-amb)*h if not active else 0.;lr=(p['receiver_UA_W_K']+fan)*(self.receiver-amb)*h;dh=P*h-lc-qc;extra=max(0.,p['chamber_C_J_K']*(self.chamber-1473.15)+dh);dh-=extra;self.chamber+=dh/p['chamber_C_J_K'];self.Ec+=qc-lq;self.Er-=lr;self.electrical+=P*h;self.loss+=lc+lq+lr+extra
     self.charge=self.temperature(self.Ec,self.ms,self.mf,0.,p['crucible_C_J_K']);self.receiver=self.temperature(self.Er,self.rs,self.rf,self.solvent,p['receiver_C_J_K'])
     if self.phase=='running':
@@ -143,7 +268,7 @@ class MalvernLeneoRuntime:
       if self.pour_s>=prof['duration_s']-1e-9:self.stage='cooling'
      elif self.stage=='cooling':
       self.cool_s+=h
-      if self.method['output']=='borate_solution':self.rundissolved*=math.exp(-p['solution_rate_s']*h)
+      if self.method['output']=='borate_solution':self.rundissolved*=math.exp(-p['solution_rate_s']*self.stir_factor()*h)
       if self.cool_s>=self.method['minimum_cooling_s'] and max(self.chamber,self.charge,self.receiver)<=p['unlock_K']:
        self.phase='succeeded' if self.rs+self.rf>0 and (self.method['output']=='glass_disk' and self.liquid(self.receiver)==0 or self.method['output']=='borate_solution' and self.rundissolved<max(1e-12,self.rs*.001)) else 'failed';self.stage='cold_product' if self.phase=='succeeded' else 'empty_or_undissolved'
     self.charge=self.temperature(self.Ec,self.ms,self.mf,0.,p['crucible_C_J_K']);self.receiver=self.temperature(self.Er,self.rs,self.rf,self.solvent,p['receiver_C_J_K'])
@@ -165,7 +290,7 @@ class MalvernLeneoSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_malvern_leneo_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -195,8 +320,12 @@ class MalvernLeneoSession:
             old,result=h._requests[key]
             if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
             return copy.deepcopy(result)
-        result=h.invoke(capability_id,**arguments); op=result.get('operation_id')
+        before=h.operation_id; h._caller=self._principal
+        try: result=h.invoke(capability_id,**arguments)
+        finally: h._caller=None
+        op=result.get('operation_id')
         if op: h._owners.setdefault(op,self._principal)
+        elif h.operation_id and h.operation_id!=before: h._owners[h.operation_id]=self._principal   # a cycle started by the Fusion tile belongs to the caller
         response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,
           status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
         h._requests[key]=(digest,copy.deepcopy(response)); return response
@@ -221,13 +350,25 @@ class MalvernLeneoSession:
 
 
 
+SETTINGS_110=['access.level','programs.names','program.current','timers.preheat_at_s','timers.preheat_temperature_k','timers.shutoff_after_s']
+IMMEDIATE_110={'program.save':['programs.names'],'program.load':['method.configured','program.current','cooling.air_fraction','truth.ledger'],'program.delete':['programs.names'],
+ 'timers.configure':['timers.preheat_at_s','timers.preheat_temperature_k','timers.shutoff_after_s','heating.preheat_active'],'access.unlock':['access.level'],'access.lock':['access.level'],'access.set_password':[],
+ 'power.set':['power.enabled','cycle.phase','cycle.stage','door.locked','heating.preheat_active'],'power.toggle':['power.enabled','cycle.phase','cycle.stage','door.locked','heating.preheat_active'],
+ 'acquisition.start':['cycle.phase','cycle.stage','cycle.operation_id','door.locked','heating.preheat_active'],'acquisition.stop':['cycle.phase','cycle.stage','door.locked','heating.preheat_active'],
+ 'emergency.stop':['cycle.phase','cycle.stage','door.locked','heating.preheat_active']}
+ERRORS_110={'program.save':['SUPERVISOR_REQUIRED','MEMORY_FULL'],'program.load':['NOT_FOUND'],'program.delete':['SUPERVISOR_REQUIRED','NOT_FOUND'],'timers.configure':['SUPERVISOR_REQUIRED'],
+ 'access.unlock':['WRONG_PASSWORD'],'access.set_password':['SUPERVISOR_REQUIRED']}
+for _k in PANEL_CAPS:ERRORS_110[_k]=sorted({e for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for e in ERRORS_110.get(c,[])})
 def export_malvern_leneo_contract_metadata():
  caps={};slots={}
  for k,(schema,unit,origin,visibility,components,write) in SLOTS.items():slots[k]=dict(meaning_zh=SLOT_ZH[k],component_ids=components,value_schema=copy.deepcopy(schema),unit=unit,reference_conditions=None,origin=origin,visibility=visibility,access='read_write' if write else 'read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'MalvernLeneoSession.read(state_ids=[{k!r}])'),write_via=dict(capability_id=write[0],argument=write[1],fixed_arguments={}) if write else None,sampling=dict(mode='instant',time_domain='simulation',window_description=None),source_ids=['simulation_assumption'])
  immediate={'plant.configure':['plant.configured','thermal.target_k','panel.target_c','panel.temperature_c','truth.charge_temperature_k','truth.receiver_temperature_k','truth.ledger'],'method.configure':['method.configured','cooling.air_fraction','truth.ledger'],'sample.configure':['sample.configured','truth.ledger'],'power.set':['power.enabled','cycle.phase','cycle.stage','door.locked'],'power.toggle':['power.enabled','cycle.phase','cycle.stage','door.locked'],'door.set_open':['door.open_target'],'thermal.set_temperature':['thermal.target_k','panel.target_c'],'cooling.set_air':['cooling.air_fraction'],'acquisition.start':['cycle.phase','cycle.stage','door.locked'],'acquisition.stop':['cycle.phase','cycle.stage','door.locked'],'emergency.stop':['cycle.phase','cycle.stage','door.locked'],'product.collect':['truth.ledger']}
- evolving=[k for k in slots if k not in ['plant.configured','method.configured','sample.configured','power.enabled','door.open_target','cooling.air_fraction']]
+ immediate['method.configure'].append('program.current');immediate['plant.configure'].append('heating.preheat_active');immediate.update(IMMEDIATE_110)
+ for k in PANEL_CAPS:
+  if CAPS[k][4]!='query':immediate[k]=sorted({x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in immediate.get(c,[])})
+ evolving=[k for k in slots if k not in ['plant.configured','method.configured','sample.configured','power.enabled','door.open_target','cooling.air_fraction']+SETTINGS_110]
  for k,(inp,out,components,meaning,kind,vis,example) in CAPS.items():
-  async_=k=='acquisition.start';query=kind=='query';caps[k]=dict(function_zh=meaning,kind=kind,visibility=vis,component_ids=components,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.malvern_leneo.MalvernLeneoSession.invoke',invocation=f'session.invoke(instance_id="leneo_01",capability_id={k!r},arguments={example!r},request_id="unique")'),preconditions=[] if query else [dict(description_zh='单工位、有限库存、显式模型认可、关门/冷态/程序与输出模式守卫',state_ids=['cycle.phase','door.locked','door.angle_rad'],enforced_by='runtime',check='MalvernLeneoRuntime.invoke guards')],state_effects=[] if query else [dict(state_id=i,timing='immediate',description_zh='目标或有限配置事务') for i in immediate.get(k,[])]+[dict(state_id=i,timing='on_step',description_zh='step推进热量、有限倾倒、固化和机械') for i in evolving],observes=[],model_effects=dict(mode='none',description_zh='实际求值后升格',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='实际冷态且玻璃片或溶液接收器非空' if async_ else '目标或查询事务完成',completion_state_ids=['cycle.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['finite_sample_flux_receiver','host_clock','principal_request_cache'],partial_failure_zh='取消/急停保留部分熔体和热量，热态不允许开门'),errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT','UNKNOWN_REFERENCE','OUT_OF_REFERENCE_RANGE','AMBIGUOUS_PHASE_TRANSITION']],example_arguments=copy.deepcopy(example),verification=[],limitations=['热/流/相变和传感器为未标定教学近似；不是原厂10方法和4模式曲线'],source_ids=['manufacturer_primary','simulation_assumption'])
- mech=dict(component_ids=['heater','crucible','mold','fan'],state_ids=list(slots),meaning_zh='三节点分段程序、混合相变焓、有限摇动溶解/倾倒、风冷玻璃或接收液',implementation='lumped',equations=['P=min(host_heater_W,Kp*(target-Tchamber));P<=20A*supply_V (upper bound,not measured W)','Cchamber*dT/dt=P-UA*(T-Ta)-Qcharge','H=(Ccontainer+m_sample*Cp298_real+m_flux*Cp_host+m_solvent*4180)*(T-Ta)+(m_sample+m_flux)*L_host*liquid_fraction(T)','target is piecewise linear; only step advances heat and geometry','U_next=U*exp(-k_host*liquid_fraction*(1+abs(rock))*dt)','viscosity=mu_host*exp(A_host*(1/T-1/1338.15));finite flow<=available_mass-residual','sample_initial=crucible+receiver+lost+collected;flux_initial=crucible+receiver+collected','electrical=stored+ambient_loss+advected_loss+collected_enthalpy'],parameters={},source_ids=['manufacturer_primary','nist_janaf','simulation_assumption'],limitations=['75真实晶相Cp/H参考和2厂家基体组成，不是50本机熔融曲线。','Cp298常热容外推近似只作为显式模型假设，不把它当高温实测；reference.lookup不外推源表。','208–240V20A不提供实际功率或升温时间；默认3500W和热容非反推标定。','10方法数量已知内容null；4倾倒模式用宿主自定义编号，不伪称原厂曲线。','溶解率、黏度、均匀样品损失、相变焓及冷却阈值未知。','溶液采用单有限水库存和固相溶解代理，过氧化物、溶剂汽化/反应热未实现；高温接液应判定不支持。','粉体应预氧化，未模拟金属/硫化物氧化。','真实元素选择性损失、玻璃结构、XRF/ICP分析、仪器N型内层温度、触屏菜单未实现。','照片估计开门/倾倒轴，非实际机械结构标定；无机器人/硬件在环。'])
+  async_=k=='acquisition.start';query=kind=='query';caps[k]=dict(function_zh=meaning,kind=kind,visibility=vis,component_ids=components,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.malvern_leneo.MalvernLeneoSession.invoke',invocation=f'session.invoke(instance_id="leneo_01",capability_id={k!r},arguments={example!r},request_id="unique")'),preconditions=[] if query else [dict(description_zh='单工位、有限库存、显式模型认可、关门/冷态/程序与输出模式守卫',state_ids=['cycle.phase','door.locked','door.angle_rad'],enforced_by='runtime',check='MalvernLeneoRuntime.invoke guards')],state_effects=[] if query else [dict(state_id=i,timing='immediate',description_zh='目标或有限配置事务') for i in immediate.get(k,[])]+[dict(state_id=i,timing='on_step',description_zh='step推进热量、有限倾倒、固化和机械') for i in evolving],observes=[],model_effects=dict(mode='none',description_zh='实际求值后升格',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='实际冷态且玻璃片或溶液接收器非空' if async_ else '目标或查询事务完成',completion_state_ids=['cycle.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['finite_sample_flux_receiver','host_clock','principal_request_cache'],partial_failure_zh='取消/急停保留部分熔体和热量，热态不允许开门'),errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT','UNKNOWN_REFERENCE','OUT_OF_REFERENCE_RANGE','AMBIGUOUS_PHASE_TRANSITION']+ERRORS_110.get(k,[])],example_arguments=copy.deepcopy(example),verification=[],limitations=['热/流/相变和传感器为未标定教学近似；不是原厂10方法和4模式曲线'],source_ids=['manufacturer_primary','simulation_assumption'])
+ mech=dict(component_ids=['heater','crucible','mold','fan'],state_ids=list(slots),meaning_zh='三节点分段程序、混合相变焓、有限摇动溶解/倾倒、风冷玻璃或接收液',implementation='lumped',equations=['P=min(host_heater_W,Kp*(target-Tchamber));P<=20A*supply_V (upper bound,not measured W)','Cchamber*dT/dt=P-UA*(T-Ta)-Qcharge','H=(Ccontainer+m_sample*Cp298_real+m_flux*Cp_host+m_solvent*4180)*(T-Ta)+(m_sample+m_flux)*L_host*liquid_fraction(T)','target is piecewise linear; only step advances heat and geometry','U_next=U*exp(-k_host*liquid_fraction*(1+abs(rock))*dt)','viscosity=mu_host*exp(A_host*(1/T-1/1338.15));finite flow<=available_mass-residual','sample_initial=crucible+receiver+lost+collected;flux_initial=crucible+receiver+collected','electrical=stored+ambient_loss+advected_loss+collected_enthalpy'],parameters={},source_ids=['manufacturer_primary','nist_janaf','simulation_assumption'],limitations=['75真实晶相Cp/H参考和2厂家基体组成，不是50本机熔融曲线。','Cp298常热容外推近似只作为显式模型假设，不把它当高温实测；reference.lookup不外推源表。','208–240V20A不提供实际功率或升温时间；默认3500W和热容非反推标定。','10方法数量已知内容null；4倾倒模式用宿主自定义编号，不伪称原厂曲线。','溶解率、黏度、均匀样品损失、相变焓及冷却阈值未知。','溶液采用单有限水库存和固相溶解代理，过氧化物、溶剂汽化/反应热未实现；高温接液应判定不支持。','粉体应预氧化，未模拟金属/硫化物氧化。','真实元素选择性损失、玻璃结构、XRF/ICP分析、仪器N型内层温度未实现；触屏菜单为近似模型（无公开手册，见前面板限制）。','照片估计开门/倾倒轴，非实际机械结构标定；无机器人/硬件在环。'])
  spec=importlib.util.spec_from_file_location('_leneo_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'fusion':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.configure':(SAMPLE,SAMPLE_EXAMPLE)});mech['parameters']={k.lower():v for k,v in mech['parameters'].items()}
  return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'fusion':mech})

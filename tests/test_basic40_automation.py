@@ -347,6 +347,30 @@ class TestAlicatMCRuntime(_amc_test_unittest.TestCase):
         verify("flow.reset_total")
         verify("flow.set_setpoint", flow_rate_m3_s=ALICAT_MC_FS_M3_S/2)
         verify("flow.read")
+        # 2026-10-19 front panel: the device functions behind the menus pass the same declared-effects check
+        verify("flow.set_setpoint", flow_rate_m3_s=0)
+        verify("menu.configure", autotare=False, units_mass_flow="SCCM", ramp_delta_m3_s=ALICAT_MC_FS_M3_S, ramp_up=True)
+        verify("totalizer.set_batch", batch_size_m3=0.001)
+        verify("display.set_backlight", on=False)
+        verify("display.set_lock", locked=True)
+        verify("gas.create_mix", mix_number=0, short_name="MIX1", long_name="", components=[{"gas_id": "gas_nitrogen", "percent": 50.0},
+                                                                                          {"gas_id": "gas_argon", "percent": 50.0}])
+        verify("gas.delete_mix", mix_number=255)
+        # 2026-10-19 sync audit: control variable Valve Drive and its % setpoint
+        verify("menu.configure", control_variable="valve_drive")
+        verify("valve.set_drive_setpoint", percent=20.0)
+        verify("valve.set_drive_setpoint", percent=0.0)
+        verify("device.factory_restore")
+        # 2026-10-19 consistency sweep: the evaluator-only ADC status message (manual p.6), same declared-effects check through the judge
+        for cid, arguments in (("fault.inject", {"code": "ADC"}), ("fault.clear", {})):
+            before = self.host.debug_snapshot()["instances"]["mfc_a"]["values"]
+            self.counter += 1
+            response = self.judge.invoke(instance_id="mfc_a", capability_id=cid, arguments=arguments, request_id="request_%d" % self.counter)
+            self.assertEqual(response["status"], "succeeded", response)
+            after = self.host.debug_snapshot()["instances"]["mfc_a"]["values"]
+            self.assertLessEqual({sid for sid in after if before[sid] != after[sid]}, {e["state_id"] for e in metadata["capabilities"][cid]["state_effects"]}, cid)
+            self.assertEqual(_amc_validate_value(response["result"], metadata["capabilities"][cid]["output_schema"]), [], cid)
+            checked.add(cid)
         self.assertEqual(checked, {cid for cid, cap in metadata["capabilities"].items() if cap["availability"] == "implemented"})
         values = self.host.debug_snapshot()["instances"]["mfc_a"]["values"]
         self.assertEqual(set(values), set(metadata["state_slots"]))
@@ -1006,7 +1030,7 @@ class TestViciEutaValveRuntime(_veuta_test_unittest.TestCase):
         self.assertEqual(self.value('route.connections'), [['port_common', 'port_6']])
         metadata = self.valve.describe()
         metadata['capabilities']['valve.select_position']['input_schema']['properties']['position']['maximum'] = 7
-        self.assertEqual(self.valve.describe()['capabilities']['valve.select_position']['input_schema']['properties']['position']['maximum'], 6)
+        self.assertEqual(self.valve.describe()['capabilities']['valve.select_position']['input_schema']['properties']['position']['maximum'], 95)   # serial numbers up to SO+NP-1 (fix 2026-10-19)
 
     def test_declared_effects_cover_actual_changed_state(self):
         caps = {**_veuta_metadata()['capabilities'], **_veuta_metadata()['host_capabilities']}

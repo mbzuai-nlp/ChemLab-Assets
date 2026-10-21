@@ -82,8 +82,15 @@ class SlotTests(unittest.TestCase):
         h=configured();snap=h.debug_snapshot()
         with self.assertRaisesRegex(ActionRejected,'REFERENCE_OUT_OF_RANGE'):h.invoke('thermal.set_temperature',temperature_k=413.15)
         self.assertEqual(snap,h.debug_snapshot())
-    def test_offset_display_only(self):
-        h=configured();t=h.temp;h.invoke('thermal.set_offset',offset_k=2.);self.assertEqual(h.temp,t);self.assertEqual(h.read()['thermal.indicated_k'],t+2)
+    def test_offset_moves_the_controlled_temperature(self):
+        # 1.3.0 (manual p.23): the offset is not a display shift; the controller holds its sensor at set point + offset, and the display shows the sensor
+        h=configured();t=h.temp;h.invoke('thermal.set_offset',offset_k=2.);self.assertEqual(h.temp,t);self.assertEqual(h.read()['thermal.indicated_k'],t)
+        a=configured('a',ink=False);b=configured('b',ink=False);b.invoke('thermal.set_offset',offset_k=5.)
+        for x in (a,b):x.invoke('thermal.set_temperature',temperature_k=333.15);x.invoke('thermal.set_enabled',enabled=True)
+        for _ in range(360):a.step(10);b.step(10)
+        self.assertAlmostEqual(b.temp-a.temp,5.,delta=.1);self.assertEqual(b.read()['thermal.indicated_k'],b.temp);self.assertGreater(b.temp,333.15)
+        b.invoke('sensor.configure_error',surface_rise_error=-5./(333.15+5.-298.15))   # surface rise 5 K short of the sensor's: the +5 K offset gives 60 C there
+        self.assertAlmostEqual(b.read('evaluator')['truth.surface_k'],a.temp+(b.temp-a.temp-5.)*(1-5./(333.15+5.-298.15)),delta=.1)
     def test_emergency_stops_both_and_heat(self):
         h=configured();h.invoke('thermal.set_enabled',enabled=True);h.invoke('acquisition.start');h.step(2);h.invoke('emergency.stop');q=h.q;p=h.pump_q;h.step(1);self.assertEqual(h.q,q);self.assertEqual(h.pump_q,p);self.assertFalse(h.heating)
         h.invoke('emergency.release')

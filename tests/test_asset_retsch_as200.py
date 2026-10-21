@@ -63,4 +63,16 @@ class TestAS200(unittest.TestCase):
   s.cancel(x['operation_id'],'cancel');self.assertEqual(r.phase,'cancelled')
  def test_24_power_off(self):
   r=prepared();r.invoke('acquisition.start');r.step(2);r.invoke('power.set',enabled=False);old=copy.deepcopy(r.ledger);r.step(2);self.assertEqual(old,r.ledger);self.assertEqual(r.phase,'cancelled');self.assertEqual(r.total_lift,0)
+ def test_25_fault_injection_1_2_0(self):
+  r=prepared();r.invoke('acquisition.start');r.step(2);o=r.invoke('fault.inject',code='E26');self.assertEqual((o['phase'],r.read()['fault.code']),('cancelled','E26'));old=copy.deepcopy(r.ledger);r.step(2);self.assertEqual(old,r.ledger);self.assertEqual(r.total_lift,0)
+  for cap,a in (('acquisition.start',{}),('cycle.rearm',{}),('sieving.adjust_lift',dict(direction=1)),('signal.set',dict(enabled=False))):self.reject(r,cap,**a)
+  r.invoke('fault.clear');r.invoke('power.set',enabled=False);r.step(29);r.invoke('power.set',enabled=True);self.assertEqual(r.read()['fault.code'],'E26')
+  r.invoke('power.set',enabled=False);r.step(30);r.invoke('power.set',enabled=True);self.assertIsNone(r.read()['fault.code']);r.invoke('cycle.rearm');r.invoke('acquisition.start');self.assertEqual(r.phase,'running')
+ def test_26_run_owner_guards_1_2_0(self):
+  r=prepared();r.register_principal('a','agent');r.register_principal('b','agent');a,b=r.session('a'),r.session('b');x=a.invoke(instance_id=r.instance_id,capability_id='acquisition.start',arguments={},request_id='s');r.step(1);before=r.debug_snapshot()
+  for cap,args in (('acquisition.stop',{}),('acquisition.pause',{}),('sieving.adjust_lift',dict(direction=1))):self.assertEqual(b.invoke(instance_id=r.instance_id,capability_id=cap,arguments=args,request_id='b'+cap)['error']['code'],'ACCESS_DENIED')
+  after=r.debug_snapshot();before.pop('_requests');after.pop('_requests');self.assertEqual(before,after);self.assertEqual(a.cancel(x['operation_id'],'c')['status'],'cancelled')
+  r.step(5);r.invoke('cycle.rearm');x=a.invoke(instance_id=r.instance_id,capability_id='acquisition.start',arguments={},request_id='s2');r.step(1)   # the main switch is a hard
+  self.assertEqual(b.invoke(instance_id=r.instance_id,capability_id='power.set',arguments=dict(enabled=False),request_id='boff')['status'],'succeeded')   # switch (1.2.1)
+  self.assertEqual((r.powered,r.phase),(False,'cancelled'))
 if __name__=='__main__':unittest.main()

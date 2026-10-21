@@ -31,9 +31,13 @@ class RuntimeTests(unittest.TestCase):
  def test_06_unclamped_start(self):
   r=prepared(close=False);r.invoke('tube.set_clamped',clamped=False);r.step(1);r.invoke('door.set_open',open=False);r.step(1)
   with self.assertRaises(ActionRejected):r.invoke('acquisition.start')
- def test_07_hotdoor_refused(self):
-  r=prepared();r.invoke('acquisition.start')
-  with self.assertRaises(ActionRejected):r.invoke('door.set_open',open=True)
+ def test_07_door_opened_during_analysis_stops_it(self):
+  # final sync 2026-10-19: the protective door has a sensor, no lock (leaflet p.1); opening it is not refused, the unit stops with an alarm
+  r=prepared();r.invoke('acquisition.start');r.step(80);n=r.receiver_N;r.invoke('door.set_open',open=True)
+  self.assertEqual((r.phase,r.fault),('failed','door_opened'));r.step(70);self.assertEqual(r.receiver_N,n);self.assert_balance(r)
+  r.step(r.plant['cooldown_s'])
+  with self.assertRaises(ActionRejected):r.invoke('fault.acknowledge')   # the cause first: the door closed
+  r.invoke('door.set_open',open=False);r.step(2.);self.assertEqual(r.invoke('fault.acknowledge')['phase'],'cancelled')
  def test_08_cancel_partial(self):
   r=prepared();r.invoke('acquisition.start');r.step(80);n=r.receiver_N;r.invoke('acquisition.stop');r.step(70);self.assertEqual(r.receiver_N,n);self.assertGreater(n,0);self.assertIsNone(r.result);self.assert_balance(r)
  def test_09_no_restart_reuse(self):
@@ -105,4 +109,21 @@ class RuntimeTests(unittest.TestCase):
   r=completed();b=r.debug_snapshot()
   for cap in ['analysis.measure','curve.read','product.read']:r.invoke(cap)
   r.session().describe(instance_id=r.instance_id);r.session().read(instance_id=r.instance_id);self.assertEqual(b,r.debug_snapshot())
+class SoftwareTests(unittest.TestCase):
+ def test_35_library_delay_archive(self):
+  r=prepared();self.assertEqual(r.invoke('library.store',index=3,name='Devarda',delay_s=20.,steam_percent=60.),dict(index=3,name='Devarda'))
+  with self.assertRaises(ActionRejected):r.invoke('library.select',index=4)
+  r.invoke('library.select',index=3);self.assertEqual((r.method['steam_fraction'],r.delay_s,r.read()['method.selected']),(.6,20.,dict(index=3,name='Devarda')))
+  r.invoke('acquisition.start');r.step(10.);self.assertEqual(r.stage,'delay');r.step(25.);self.assertNotEqual(r.stage,'delay');r.step(600.)
+  a=r.read()['archive.results'][-1];self.assertEqual((a['method'],a['user'],a['result']),('Devarda','Admin','succeeded'));self.assertGreater(a['nitrogen_mg'],0)
+  with self.assertRaises(ActionRejected):r.invoke('library.select',index=1)
+ def test_36_users_language_network(self):
+  r=prepared();r.invoke('user.add',name='Ana');r.invoke('settings.configure',language='I',active_user='Ana');self.assertEqual(r.read()['settings.device'],dict(language='I',active_user='Ana'))
+  for bad in (dict(active_user='Bob'),):
+   with self.assertRaises(ActionRejected):r.invoke('settings.configure',**bad)
+  with self.assertRaises(ActionRejected):r.invoke('network.configure',ip_address='300.1.1.1')
+  n=r.invoke('network.configure',mode='wifi',wifi_name='lab',wifi_password='secret',ermes_enabled=True)['network'];self.assertEqual(len(n['one_time_code']),4);self.assertNotIn('wifi_password',r.read()['network.setting'])
+  self.assertIsNone(r.invoke('network.configure',ermes_enabled=False)['network']['one_time_code'])
+ def test_37_direct_method_clears_the_library_choice(self):
+  r=prepared();r.invoke('library.select',index=1);r.invoke('method.configure',**METHOD_EXAMPLE);self.assertEqual(r.read()['method.selected'],dict(index=None,name=None))
 if __name__=='__main__':unittest.main()

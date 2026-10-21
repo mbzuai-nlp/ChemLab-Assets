@@ -1,10 +1,14 @@
-"""QuadPro2-DAC0 with Keithley2450: timed four-contact thin-film wafer mapping."""
+"""QuadPro2-DAC0 with Keithley2450: timed four-contact thin-film wafer mapping.
+
+Keithley 2450 front panel (smu.* commands, signatone_quadpro2_k2450.py) and its touch screen, keys, knob and LEDs (panel.press / panel.turn /
+panel.touch / panel.switch / panel.capture / panel.frame: panel_ui.json beside the contract, run by the shared engine _panel_ui.py on top of
+the same commands; no second copy of the instrument logic)."""
 from __future__ import annotations
-import copy,importlib.util,json,math
+import copy,hashlib,importlib.util,json,math,os,sys,tempfile
 from pathlib import Path
 import numpy as np
 from scipy.integrate import solve_ivp
-PROTOCOL_VERSION='1.0.0';SLUG='signatone_quadpro2';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-142'
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.3.0';SLUG='signatone_quadpro2';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-142'
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch04/t1_thermal'/SLUG;LIBRARY_PATH=ASSET/'sheet_resistance_library.json'
 
 class ActionRejected(ValueError):pass
@@ -162,11 +166,49 @@ slot('acquisition.elapsed_s',number('s',0),'s','当前作业实际宿主历时')
 slot('clock.time_s',number('s',0),'s','唯一宿主时间')
 for k,u,z in [('truth.sample_k','K','薄膜/基底集中节点真温'),('truth.sample_mass_kg','kg','薄膜及基底总质量'),('truth.conducting_thickness_m','m','隐藏导电膜厚，不等于基底厚度')]:slot(k,nullable(number(u)),u,z,'process_truth','evaluator','sample_wafer')
 
+def _load(name,alias):
+    """Helper modules of this runtime: imported with the package (tests, Matterix bridge) or from the file path."""
+    if __package__:
+        try:return importlib.import_module(f'{__package__}.{name}')
+        except ImportError:pass
+    if alias not in sys.modules:
+        spec=importlib.util.spec_from_file_location(alias,Path(__file__).with_name(name+'.py'));sys.modules[alias]=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules[alias])
+    return sys.modules[alias]
+k2450=_load('signatone_quadpro2_k2450','_chemsim_signatone_k2450');_panel_ui=_load('_panel_ui','_chemsim_panel_ui')
+# ---- Keithley 2450 front-panel commands (kept out of CAPS: CAPS stays the QuadPro2 command set; the session accepts ALL_CAPS)
+SMU_CAPS={}
+def smu_cap(k,i,o,z,example,kind='device_command'):SMU_CAPS[k]=dict(input_schema=i,output_schema=o,component_ids=['source_meter','source_display'],function_zh=z,kind=kind,visibility='agent',example_arguments=copy.deepcopy(example),effects=[])
+INT=lambda lo,hi:dict(type='integer',minimum=lo,maximum=hi,**{'x-unit':'1'})
+SETTING_VALUE={'anyOf':[number('1'),TEXT,BOOL,{'type':'null'},array(TEXT,0,4)]}
+smu_cap('smu.set',obj({'setting':enum(list(k2450.SETTINGS)),'value':SETTING_VALUE}),obj({'setting':TEXT,'value':SETTING_VALUE}),'2450前面板设置表中的一项（源/测量按当前功能保存；量纲按设置项为SI：V、A、Ω、s、%；系统、通信、日志、图形与直方图设置）：与触屏上改该项相同',{'setting':'measure.nplc','value':1.0})
+smu_cap('smu.output',obj({'on':BOOL}),obj({'on':BOOL}),'OUTPUT ON/OFF键：开/关源输出（远程控制时只关输出并转本地）',{'on':True})
+smu_cap('smu.trigger',obj({'action':enum(['manual','initiate','abort'])}),obj({'state':TEXT}),'TRIGGER键与触发方式菜单：手动触发一次测量、启动或中止触发模型',{'action':'initiate'})
+smu_cap('smu.quickset',obj({'setup':enum(list(k2450.QUICKSETUPS)),'sense':nullable(enum(['2W','4W'])),'level':nullable(number('V',-210,210)),'limit':nullable(number('A',1e-9,1.05))}),obj({'on':BOOL}),'QUICKSET快速设置：电压表/电流表/欧姆表/电源（随后输出打开、连续测量）',{'setup':'voltmeter','sense':None,'level':None,'limit':None})
+smu_cap('smu.buffer',obj({'action':enum(['create','clear','delete','make_active','resize','fill_mode']),'name':TEXT,'style':nullable(enum(['standard','compact','full'])),'capacity':nullable(INT(1,27500000)),'fill_mode':nullable(enum(['continuous','once']))}),obj({'active':TEXT,'buffers':array(TEXT,0,1000)}),'读数缓冲区：新建、清除、删除、设为活动、改容量（清空）、填充方式',{'action':'clear','name':'defbuffer1','style':None,'capacity':None,'fill_mode':None})
+smu_cap('smu.config_list',obj({'action':enum(['create','select','store','recall','delete_index','delete']),'kind':enum(['source','measure']),'name':TEXT,'index':nullable(INT(1,300000))}),obj({'kind':TEXT,'lists':{'type':'object'},'selected':nullable(TEXT)}),'源/测量配置列表：新建、选择、System to Index存当前设置、Index to System恢复、删除索引',{'action':'create','kind':'source','name':'list1','index':None})
+smu_cap('smu.sweep',obj({'sweep_type':enum(['linear','log','linear_dual','log_dual']),'start':number('1',-210,210),'stop':number('1',-210,210),'definition':enum(['points','step']),'step':number('1',-420,420),'points':INT(1,100000),'delay_auto':BOOL,'delay':number('s',0,9999.999),'count_infinite':BOOL,'count':INT(1,268435455),'limit':number('1',1e-9,210),'abort_on_limit':BOOL,'ranging':enum(['auto','best_fixed','fixed'])}),obj({'list':TEXT,'points':INT(1,200000),'blocks':INT(0,63)}),'Source > Sweep > Generate：按扫描设置生成源配置列表与触发模型（按TRIGGER运行）；起止值、步长与限值按当前源功能的SI单位',{'sweep_type':'linear','start':0.0,'stop':1.0,'definition':'points','step':0.1,'points':11,'delay_auto':True,'delay':0.0,'count_infinite':False,'count':1,'limit':0.000105,'abort_on_limit':False,'ranging':'best_fixed'})
+smu_cap('smu.trigger_template',obj({'template':enum(k2450.TEMPLATES),'count':INT(1,268435455),'delay':number('s',0,10000),'duration':number('s',1e-6,100000),'buffer':TEXT,'measure_list':TEXT,'source_list':TEXT,'in_line':INT(1,6),'out_line':INT(1,6),'event':enum(k2450.EVENTS),'position':number('%',0,100)}),obj({'template':TEXT,'blocks':INT(0,63)}),'Trigger > Templates：载入预定义触发模型（不用的参数取默认）',{'template':'SimpleLoop','count':10,'delay':0.0,'duration':5.0,'buffer':'defbuffer1','measure_list':'','source_list':'','in_line':1,'out_line':2,'event':'display','position':75.0})
+smu_cap('smu.trigger_block',obj({'action':enum(['insert','edit','delete','clear']),'index':INT(0,64),'block_type':nullable(enum(k2450.BLOCK_TYPES)),'delay_s':nullable(number('s',0,10000)),'count':nullable(INT(0,268435455)),'target':nullable(INT(1,63)),'on':nullable(BOOL)}),obj({'blocks':INT(0,63)}),'Trigger > Configure：插入、编辑、删除触发模型块或清空模型',{'action':'clear','index':0,'block_type':None,'delay_s':None,'count':None,'target':None,'on':None})
+smu_cap('smu.script',obj({'action':enum(['run','delete','copy_to_power_up','create_setup','record_start','record_stop','record_cancel','copy_to_usb','copy_from_usb']),'name':nullable(TEXT)}),obj({'scripts':array(TEXT,0,1000),'recording':BOOL}),'脚本：运行、删除、设为上电运行（autoexec）、保存当前设置（Create Setup）、录制宏（开始/停止命名/取消）；U盘复制需U盘（无）',{'action':'record_start','name':None})
+smu_cap('smu.event_log',obj({'action':enum(['viewed','clear','reset_popups','save_usb'])}),obj({'events':INT(0,1000)}),'事件日志：已查看（事件指示复位）、清除、恢复弹窗设置、存U盘（无U盘）',{'action':'viewed'})
+smu_cap('smu.system',obj({'action':enum(['reset','password_reset','lan_apply','tsplink_initialize','local','rel_acquire','upgrade','downgrade'])}),obj({'control':TEXT}),'系统与杂项：System Reset、密码复位、LAN Apply Settings、TSP-Link初始化、转本地控制、Rel Acquire（以一次新测量为相对偏置并开启Rel）；固件升降级需U盘（无）',{'action':'password_reset'})
+smu_cap('smu.remote_login',obj({'password':TEXT}),obj({'logged_in':BOOL,'access_mode':TEXT}),'QuadPro2软件在其远程接口（USB）发送login：访问模式非Full时软件须先登录才能从前面板取得2450（Exclusive无需密码，Protected / Lockout须System Settings密码，错误则拒绝并记事件）；转本地或断电后失效；读取不受影响（p.161-162、p.456）',{'password':'admin'})
+smu_cap('smu.login',obj({'password':TEXT}),obj({'control':TEXT}),'远程控制下前面板取得本地控制的密码提示：访问模式Protected / Lockout须输入System Settings的密码（错误则拒绝并记事件），Full / Exclusive不需要（p.160-161）；本地控制下不变',{'password':'admin'})
+for k,z in [('smu.settings','2450设置：当前源/测量功能及其设置、全局与非易失设置（系统、通信、日志）、量程选项'),('smu.state','2450状态：通电、输出、本地/远程（接口名）、端子、蜂鸣次数、宏录制、时钟、LAN、固件与序列号'),('smu.reading','2450最近一次读数（经滤波/相对/数学/限值），无读数为null'),('smu.buffers','读数缓冲区：活动缓冲区、各缓冲区容量/填充/统计、表格行与图形数据'),('smu.trigger','测量方式与触发模型：模板、参数、块列表、状态IDLE/RUN/WAIT/INACT'),('smu.lists','源/测量配置列表及所选列表的索引明细'),('smu.scripts','脚本（setup/macro）、autoexec、宏录制状态'),('smu.events','事件日志（最近50条）与未查看事件级别'),('smu.display','2450主屏与滑屏的显示文字（按读数格式与显示位数）')]:
+    slot(k,{'anyOf':[{'type':'object'},{'type':'null'}]} if k=='smu.reading' else {'type':'object'},'1',z,'derived',component='source_meter')
+SMU_SLOTS=[k for k in SLOTS if k.startswith('smu.')]
+PANEL_BUILD=bool(os.environ.get('SIGNATONE_PANEL_BUILD'))                  # spec generator: run without the spec being written
+PANEL_SPEC=None if PANEL_BUILD else _panel_ui.load_spec(ASSET/'panel_ui.json',capabilities=set(CAPS)|set(SMU_CAPS))
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+for _k,_v in PANEL_CAPS.items():_v['effects']=[]
+ALL_CAPS=dict(CAPS,**SMU_CAPS,**PANEL_CAPS)
+
 class SignatoneQuadpro2Runtime:
     def __init__(self,instance_id='quadpro2_01'):
         self.instance_id=instance_id;self.plant=self.wafer=self.probe=self.sample=self.record=None;self.sample_kind=None;self.map=None;self.accepted=[];self.excluded=[];self.method=copy.deepcopy(METHOD_EXAMPLE);self.power=False;self.power_started_ns=None;self.time_ns=0;self._clock_remainder_ns=0.;self.revision=0
         self.axes={k:dict(position=v,target=v,start=v,start_ns=0,arrival_ns=0) for k,v in [('x',0.),('y',0.),('z',PROBE_RAISED_M),('hood',1.1)]};self.x=np.zeros(6) # theta,voltage detector,sourceJ,sampleJ,contactJ,ambientJ
         self.calibration_gain=None;self.phase='idle';self.stage='idle';self.operation_kind=None;self.operation_id=None;self.elapsed=0.;self.rows=[];self.auto_trials=[];self.selected_current=0.;self.error=None;self._counter=0;self._start_ns=0;self._event_ns=None;self._job_points=[];self._job_excluded=[];self._site=0;self._measure_phase=0;self._partial=[];self._auto_candidates=[];self._auto_index=0;self._auto_positive=None;self._calibration_reference=None;self._last_sheet=None
+        self.smu=k2450.K2450(self);self.power_epoch=0;self.panel_capture_dir=None;self.panel=_panel_ui.PanelUI(PANEL_SPEC,self) if PANEL_SPEC else None;self._panel_session=None
         self.records={};self._principals={};self._requests={};self._owners={};self._cancel_operations={};self._source=self._reference_id=None;self._evidence='no_sample';self._operation_source=None;self._operation_evidence='no_measurement';self.mass_loaded=self.mass_removed=self.volume_loaded=self.volume_removed=self.loaded_sensible=self.removed_sensible=0.
     @property
     def time_s(self):return self.time_ns/1e9
@@ -208,12 +250,12 @@ class SignatoneQuadpro2Runtime:
         return self.selected_current*(1 if self._measure_phase%2==0 else -1)
     def _current_range(self,I=None):
         value=abs(self._requested_current() if I is None else I);return next((v for v in CURRENT_RANGES if v>=value*(1-1e-12)),1.)
-    def _local_sheet(self,T):
+    def _local_sheet(self,T,p=None):
         if self.sample_kind=='standard':return self.sample['actual_sheet_resistance_ohm_sq'],T<363.15
-        raw=reference_rho(self.record,T,allow_invalid=True);p=self._point();R=self.wafer['diameter_m']/2;xx=p['x_m']/R;yy=p['y_m']/R;factor=1+self.sample['gradient_x_fraction']*xx+self.sample['gradient_y_fraction']*yy+self.sample['radial_fraction']*(xx*xx+yy*yy)
+        raw=reference_rho(self.record,T,allow_invalid=True);p=p or self._point();R=self.wafer['diameter_m']/2;xx=p['x_m']/R;yy=p['y_m']/R;factor=1+self.sample['gradient_x_fraction']*xx+self.sample['gradient_y_fraction']*yy+self.sample['radial_fraction']*(xx*xx+yy*yy)
         return raw[0]/self.sample['conducting_thickness_m']*factor,raw[1] and T<363.15
     def _electrical(self,T=None):
-        if not self._electrically_active():return dict(current=0.,voltage=0.,source_voltage=0.,sample_power=0.,contact_power=0.,compliance=False,valid=True)
+        if not self._electrically_active():return self.smu.electrical(self._temperature() if T is None else T) if self.smu.local_active() else dict(current=0.,voltage=0.,source_voltage=0.,sample_power=0.,contact_power=0.,compliance=False,valid=True)
         T=self._temperature() if T is None else T;Rs,valid=self._local_sheet(T);p=self._point();c=self._configuration();geo=(self.wafer['diameter_m'],self.probe['spacing_m'],p['x_m'],p['y_m']);K=disk_transfer_coefficient(*geo,c);drive=Rs*disk_drive_coefficient(*geo,c,self.plant['electrical_contact_radius_m']);contact=self.plant['current_contact_resistance_ohm'];total=drive+contact;requested=self._requested_current();I=math.copysign(min(abs(requested),self.method['voltage_compliance_v']/total,math.sqrt(20./total),.1 if self.method['voltage_compliance_v']>20 else 1.),requested)
         return dict(current=I,voltage=I*Rs*K,source_voltage=I*total,sample_power=I*I*drive,contact_power=I*I*contact,compliance=abs(I-requested)>max(abs(requested)*1e-10,1e-18),valid=bool(valid))
     def _observed(self,e=None):
@@ -226,11 +268,12 @@ class SignatoneQuadpro2Runtime:
     def read(self,role='evaluator'):
         if role not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
         current,voltage=self._observed();d={'plant.configured':self.plant is not None,'wafer.configured':self.wafer is not None,'probe.configured':self.probe is not None,'sample.present':self.sample is not None,'power.enabled':self.power,'source.warmup_ready':self._warmup()>=WARMUP_S,'calibration.valid':self.calibration_gain is not None,'stage.moving':self._moving(),'stage.x_m':self.axes['x']['position'],'stage.y_m':self.axes['y']['position'],'stage.target_x_m':self.axes['x']['target'],'stage.target_y_m':self.axes['y']['target'],'probe.position_m':self.axes['z']['position'],'probe.target_m':self.axes['z']['target'],'hood.angle_rad':self.axes['hood']['position'],'hood.target_angle_rad':self.axes['hood']['target'],'power.angle_rad':.28 if self.power else 0.,'source.warmup_elapsed_s':self._warmup(),'thermal.indicated_k':float(round(self._temperature()/self.plant['temperature_resolution_k'])*self.plant['temperature_resolution_k']) if self.plant else None,'measurement.selected_current_a':self.selected_current,'measured.current_a':current,'measured.voltage_v':voltage,'measurement.last_sheet_resistance_ohm_sq':self._last_sheet,'display.sheet_resistance_ohm_sq':self._last_sheet if self.power else None,'measurement.mean_sheet_resistance_ohm_sq':self._stats()['mean_ohm_sq'],'calibration.gain':self.calibration_gain,'acquisition.phase':self.phase,'acquisition.stage':self.stage,'acquisition.points':len(self.rows),'acquisition.elapsed_s':self.elapsed,'clock.time_s':self.time_s,'truth.sample_k':self._temperature(),'truth.sample_mass_kg':self._mass() if self.sample else None,'truth.conducting_thickness_m':self.sample['conducting_thickness_m'] if self.sample else None}
+        d.update(self.smu.slots())
         return {k:v for k,v in d.items() if role!='agent' or SLOTS[k]['visibility']=='agent'}
     def _propagate(self,ns):
         if not ns or not self.plant:return
         dt=ns/1e9;p=self.plant;C=self._capacity();G=p['thermal_conductance_w_k']
-        if self._electrically_active():
+        if self._electrically_active() or self.smu.local_active():
             def rhs(_t,y):
                 e=self._electrical(p['ambient_k']+y[0]);loss=G*y[0];return [(e['sample_power']-loss)/C,(p['voltage_gain']*e['voltage']+p['voltage_offset_v']-y[1])/p['voltage_response_tau_s'],e['current']*e['source_voltage'],e['sample_power'],e['contact_power'],loss]
             sol=solve_ivp(rhs,(0.,dt),self.x,method='Radau',rtol=1e-10,atol=[1e-11,1e-13,1e-13,1e-13,1e-13,1e-12])
@@ -247,7 +290,7 @@ class SignatoneQuadpro2Runtime:
         self.phase=phase;self.stage='idle';self.error=error;self._event_ns=None;self._stop_motion()
         if self.operation_id:self.records[self.operation_id]=self._result()
     def _capture(self):
-        e=self._electrical();I,V=self._observed(e);error='REFERENCE_TEMPERATURE_RANGE' if not e['valid'] else 'SOURCE_COMPLIANCE' if e['compliance'] else 'VOLTAGE_OVERFLOW' if V is None else None
+        e=self._electrical();I,V=self._observed(e);self.smu.record_capture(I,V,self.time_s);error='REFERENCE_TEMPERATURE_RANGE' if not e['valid'] else 'SOURCE_COMPLIANCE' if e['compliance'] else 'VOLTAGE_OVERFLOW' if V is None else None
         return I,V,error,e
     def _failure_row(self,error):
         p=self._point();self.rows.append(dict(point_index=p['point_index'],x_m=p['x_m'],y_m=p['y_m'],time_s=self.elapsed,host_time_s=self.time_s,observations=copy.deepcopy(self._partial),sheet_resistance_ohm_sq=None,resistivity_ohm_m=None,configuration_disagreement_fraction=None,quality='unavailable',error_code=error));self._finish('failed',error)
@@ -322,6 +365,7 @@ class SignatoneQuadpro2Runtime:
             if reference_rho(record,a['initial_temperature_k']) is None:raise ActionRejected('REFERENCE_TEMPERATURE_RANGE')
         old=self._capacity();self.sample=copy.deepcopy(a);self.sample_kind='standard' if standard else 'material';self.record=copy.deepcopy(record);new=self._capacity();delta=a['initial_temperature_k']-self.plant['ambient_k'];self.x[0]=(old*self.x[0]+(new-old)*delta)/new;self.loaded_sensible+=(new-old)*delta;self.mass_loaded+=self._mass();self.volume_loaded+=self._volume();self._reference_id=None if standard else a['reference_id'];self._source='host_input_thin_film_standard_no_certificate' if standard else json.dumps(record['source'],ensure_ascii=False,sort_keys=True);self._evidence='explicit_host_standard_and_thermal_assumptions' if standard else 'measured_literature_rho; assumed_bulk_to_thin_film_and_synthetic_spatial_map';return {'loaded':True}
     def invoke(self,capability,**a):
+        if capability in SMU_CAPS or capability in PANEL_CAPS:return self._invoke_layer(capability,a)
         if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
         validate(CAPS[capability]['input_schema'],a)
         if capability in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
@@ -350,7 +394,8 @@ class SignatoneQuadpro2Runtime:
                 if self.phase=='running':self._finish('cancelled','POWER_OFF')
                 else:self._stop_motion()
             if self.power!=a['enabled']:self.power_started_ns=self.time_ns if a['enabled'] else None
-            self.power=a['enabled'];out={'enabled':self.power}
+            if a['enabled'] and not self.power:self.power_epoch+=1
+            self.power=a['enabled'];self.smu.power(self.power);out={'enabled':self.power}
         elif capability=='enclosure.set_open':
             if not self.plant or self._moving() or not self._raised():raise ActionRejected('PRECONDITION_FAILED')
             target=1.1 if a['opened'] else 0.;self._move(hood=target);out={'target_rad':target}
@@ -373,6 +418,9 @@ class SignatoneQuadpro2Runtime:
             self.method=copy.deepcopy(a);out={'configured':True}
         elif capability=='calibration.clear':self.calibration_gain=None;out={'calibrated':False}
         elif capability in ('acquisition.start','calibration.start'):
+            if self.power:
+                try:self.smu.require_remote_login()   # rule of the 2450 access mode for the software's remote interface (p.161-162)
+                except k2450.Rejected as exc:raise ActionRejected(str(exc)) from None
             if not self.power or not self.plant or not self.wafer or not self.probe or not self.sample or not self._closed() or self._moving():raise ActionRejected('PRECONDITION_FAILED')
             if self.method['require_warmup'] and self._warmup()<WARMUP_S:raise ActionRejected('WARMUP_REQUIRED')
             if self.sample_kind=='material' and reference_rho(self.record,self._temperature()) is None:raise ActionRejected('REFERENCE_TEMPERATURE_RANGE')
@@ -385,12 +433,70 @@ class SignatoneQuadpro2Runtime:
             if not self.method['auto_current'] and self.method['fixed_current_a']<=0:raise ActionRejected('ZERO_EXCITATION')
             points=[dict(point_index=0,x_m=0.,y_m=0.)] if iscal else self.accepted
             for p in points:disk_transfer_coefficient(self.wafer['diameter_m'],self.probe['spacing_m'],p['x_m'],p['y_m'],contact_radius_m=self.plant['electrical_contact_radius_m'])
-            self._counter+=1;self.operation_id=f'{self.instance_id}:acquisition:{self._counter}';self.operation_kind='calibration' if iscal else 'mapping';self._operation_source=self._source;self._operation_evidence=self._evidence;self.phase='running';self.elapsed=0.;self.rows=[];self.auto_trials=[];self.error=None;self._start_ns=self.time_ns;self._site=0;self._job_points=copy.deepcopy(points);self._job_excluded=[] if iscal else copy.deepcopy(self.excluded);self._calibration_reference=a['reference_sheet_resistance_ohm_sq'] if iscal else None;self._auto_candidates=[v for v in CURRENT_RANGES if self.method['current_min_a']<=v<=self.method['current_max_a']];q=self._current_range(self.method['fixed_current_a'])*5e-5;self.selected_current=0. if self.method['auto_current'] else float(round(self.method['fixed_current_a']/q)*q);self._begin_point();out={'operation_id':self.operation_id,'minimum_duration_s':CALIBRATION_S} if iscal else {'operation_id':self.operation_id,'accepted_points':len(points)}
+            self._counter+=1;self.operation_id=f'{self.instance_id}:acquisition:{self._counter}';self.operation_kind='calibration' if iscal else 'mapping';self._operation_source=self._source;self._operation_evidence=self._evidence;self.phase='running';self.elapsed=0.;self.rows=[];self.auto_trials=[];self.error=None;self._start_ns=self.time_ns;self._site=0;self._job_points=copy.deepcopy(points);self._job_excluded=[] if iscal else copy.deepcopy(self.excluded);self._calibration_reference=a['reference_sheet_resistance_ohm_sq'] if iscal else None;self.smu.remote_begin(self.method,0.);self._auto_candidates=[v for v in CURRENT_RANGES if self.method['current_min_a']<=v<=self.method['current_max_a']];q=self._current_range(self.method['fixed_current_a'])*5e-5;self.selected_current=0. if self.method['auto_current'] else float(round(self.method['fixed_current_a']/q)*q);self._begin_point();out={'operation_id':self.operation_id,'minimum_duration_s':CALIBRATION_S} if iscal else {'operation_id':self.operation_id,'accepted_points':len(points)}
         elif capability=='acquisition.stop':
             if self.phase!='running':raise ActionRejected('NOT_RUNNING')
             self._finish('cancelled','USER_CANCEL');out={'phase':self.phase,'elapsed_s':self.elapsed}
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
         self.revision+=1;return copy.deepcopy(out)
+    # ---- Keithley 2450 front panel: the probe network it drives, its commands, the panel-host protocol of _panel_ui.py and the panel.* gestures
+    def _smu_network(self,T=None):
+        """Load on the 2450 terminals wired to the probe in local operation: the SP4 on the film through the switch matrix in configuration A
+        (force pins 1-4, sense pins 2-3); None (open) when the probe is not down on a loaded wafer."""
+        if not(self.plant and self.wafer and self.probe and self.sample) or self.axes['z']['position']>1e-12:return None
+        p=dict(point_index=0,x_m=-self.axes['x']['position'],y_m=-self.axes['y']['position']);T=self._temperature() if T is None else T
+        try:K=disk_transfer_coefficient(self.wafer['diameter_m'],self.probe['spacing_m'],p['x_m'],p['y_m'],'a_14_23',contact_radius_m=self.plant['electrical_contact_radius_m'])
+        except ActionRejected:return None
+        Rs,valid=self._local_sheet(T,p);drive=Rs*disk_drive_coefficient(self.wafer['diameter_m'],self.probe['spacing_m'],p['x_m'],p['y_m'],'a_14_23',self.plant['electrical_contact_radius_m']);contact=self.plant['current_contact_resistance_ohm']
+        return dict(r_force=drive+contact,r_sense=Rs*K,r_drive=drive,r_contact=contact,valid=bool(valid))
+    def _smu_interlock(self):return self._closed()    # assumption: the dark-box lid switch is wired to the 2450 interlock (asserted while closed)
+    def _smu_take_local(self):
+        """The front panel takes the 2450 from the QuadPro2 software (p.608): a running map or calibration loses its source meter."""
+        if self.phase=='running':self._finish('cancelled','LOCAL_CONTROL')
+    def _invoke_layer(self,capability,a):
+        if capability in PANEL_CAPS:
+            if _panel_ui.check_arguments(PANEL_CAPS[capability]['input_schema'],a):raise ActionRejected('INVALID_ARGUMENT')
+            out=getattr(self,'_cmd_'+capability.replace('.','_'))(**a)
+        else:
+            validate(SMU_CAPS[capability]['input_schema'],a)
+            try:out=self.smu.invoke(capability,a)
+            except k2450.Rejected as exc:raise ActionRejected(str(exc)) from None
+        if capability not in ('panel.capture','panel.frame'):self.revision+=1
+        return copy.deepcopy(out)
+    def panel_read(self):
+        """What the 2450 firmware shows: the agent slots plus power, power-up count, interlock, the probe wiring and remote control."""
+        out=self.read('agent');out.update({'host.powered':self.power,'host.power_epoch':self.power_epoch,'host.interlock':self.power and self._smu_interlock(),'host.connected':self.power and self.smu.connected(),'host.remote':self.smu.control!='local','host.lan':False})
+        return out
+    def panel_invoke(self,capability_id,arguments):
+        """A panel action calls the same command a direct call would (each command checks before it changes anything)."""
+        try:
+            if capability_id in CAPS:validate(CAPS[capability_id]['input_schema'],arguments)
+            if self._panel_session is not None:self._panel_session._guard(capability_id,arguments)   # a gesture made through a session keeps that caller's access rules
+            return self.invoke(capability_id,**arguments)
+        except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+    def panel_time(self):return self.time_s
+    def _panel(self,gesture,*args,**kw):
+        if self.panel is None:raise ActionRejected('UNSUPPORTED')
+        self.smu.activity_s=self.time_s                                       # a front-panel operation (backlight dimmer)
+        try:return dict(accepted=bool(gesture(*args,**kw)))
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+    def _cmd_panel_press(self,input_id,duration_s=.1,held=()):return self._panel(self.panel.press,input_id,float(duration_s),held=tuple(held))
+    def _cmd_panel_turn(self,input_id,detents):return self._panel(self.panel.turn,input_id,int(detents))
+    def _cmd_panel_switch(self,input_id,position,held=()):return self._panel(self.panel.switch,input_id,position,held=tuple(held))
+    def _cmd_panel_touch(self,display_id,x,y,duration_s=.1,to_x=None,to_y=None):
+        if (to_x is None)!=(to_y is None):raise ActionRejected('INVALID_ARGUMENT')
+        return self._panel(self.panel.touch,display_id,int(x),int(y),float(duration_s),to=None if to_x is None else (int(to_x),int(to_y)))
+    def _cmd_panel_capture(self,display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        if self.panel is None:raise ActionRejected('UNSUPPORTED')
+        try:data,w,h=self.panel.png_bytes(display_id)
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+        sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);path=d/f'{display_id}_{sha[:16]}.png'
+        if not path.exists():path.write_bytes(data)
+        return dict(display_id=display_id,time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+    def _cmd_panel_frame(self):
+        if self.panel is None:raise ActionRejected('UNSUPPORTED')
+        return dict(frame=self.panel.frame())
     def step(self,dt_s):
         validate(number('s',0,86400),dt_s);total=math.fsum((self._clock_remainder_ns,dt_s*1e9));ns=round(total);self._clock_remainder_ns=total-ns
         if not ns:return
@@ -400,12 +506,13 @@ class SignatoneQuadpro2Runtime:
             for k in self.axes:
                 if self._moving(k):boundary=min(boundary,self.axes[k]['arrival_ns'])
             if self.phase=='running':boundary=min(boundary,self._event_ns)
-            self._propagate(boundary-self.time_ns);self.time_ns=boundary
+            t_prev=self.time_ns;self._propagate(boundary-self.time_ns);self.time_ns=boundary
             if self.plant:
                 for k,a in self.axes.items():a['position']=a['target'] if self.time_ns>=a['arrival_ns'] else a['start']+math.copysign(self._axis_speed(k)*(self.time_ns-a['start_ns'])/1e9,a['target']-a['start'])
             if self.phase=='running':
                 self.elapsed=(self.time_ns-self._start_ns)/1e9
                 if self.time_ns==self._event_ns:self._advance_event()
+            self.smu.advance(t_prev/1e9,self.time_ns/1e9)
         self.revision+=1
 
 class SignatoneQuadpro2Session:
@@ -419,7 +526,7 @@ class SignatoneQuadpro2Session:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta = export_signatone_quadpro2_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id); h=self._host; values=h.read(self._role); ids=list(values) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids): raise ActionRejected('INVALID_ARGUMENT')
@@ -438,22 +545,37 @@ class SignatoneQuadpro2Session:
         h=self._host
         try:
             self._target(instance_id)
-            if not isinstance(capability_id,str) or capability_id not in CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role=='agent' and CAPS[capability_id]['visibility']!='agent': raise ActionRejected('ACCESS_DENIED')
+            if not isinstance(capability_id,str) or capability_id not in ALL_CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
+            if self._role=='agent' and ALL_CAPS[capability_id]['visibility']!='agent': raise ActionRejected('ACCESS_DENIED')
             if not isinstance(request_id,str) or not request_id: raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'],arguments); key=(self._principal,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+            if capability_id in PANEL_CAPS:
+                if _panel_ui.check_arguments(PANEL_CAPS[capability_id]['input_schema'],arguments): raise ActionRejected('INVALID_ARGUMENT')
+            else: validate(ALL_CAPS[capability_id]['input_schema'],arguments)
+            key=(self._principal,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
             if key in h._requests:
                 old,response=h._requests[key]
                 if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if capability_id in ('acquisition.stop','acquisition.result') and self._role=='agent' and h.operation_id and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-            if capability_id=='power.set' and not arguments['enabled'] and h.phase=='running' and self._role=='agent' and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-            result=self._filter_result(h.invoke(capability_id,**arguments)); operation=result.get('operation_id') if capability_id in ('acquisition.start','calibration.start') else None
+            self._guard(capability_id,arguments); before=h.operation_id; h._panel_session=self if capability_id in PANEL_CAPS else None
+            try: result=self._filter_result(h.invoke(capability_id,**arguments))
+            finally: h._panel_session=None
+            operation=result.get('operation_id') if capability_id in ('acquisition.start','calibration.start') else None
             if operation: h._owners[operation]=self._principal
+            elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before: h._owners[h.operation_id]=self._principal   # (the 2450 panel starts no map today)
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
             h._requests[key]=(digest,copy.deepcopy(response)); return response
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+    def _guard(self, capability_id, arguments):
+        """Another agent's map or calibration may not be stopped, read or ended by taking the 2450 to local control (OUTPUT key, the remote
+        dialog's Yes, the password prompt), by a direct call or a panel gesture alike.  The POWER switch (power.set) is a hard on / off switch
+        (lead rule 2026-10-19): never refused, the system reacts as to a power loss."""
+        h=self._host
+        if self._role!='agent' or not h.operation_id or h._owners.get(h.operation_id)==self._principal: return
+        if capability_id in ('acquisition.stop','acquisition.result'): raise ActionRejected('ACCESS_DENIED')
+        running=h.phase=='running'
+        takeover=capability_id in ('smu.output','smu.login') or (capability_id=='smu.system' and arguments.get('action')=='local')
+        if running and takeover and h.smu.control!='local': raise ActionRejected('ACCESS_DENIED')
     def write(self, *, instance_id, state_id, value, request_id):
         self._target(instance_id); entry=SLOTS.get(state_id)
         if not entry or not entry['write']: raise ActionRejected('ACCESS_DENIED')
@@ -493,8 +615,14 @@ EFFECTS={
  'calibration.start':['acquisition.phase','acquisition.stage','acquisition.elapsed_s','acquisition.points','measurement.mean_sheet_resistance_ohm_sq','measurement.selected_current_a','probe.target_m','stage.moving','measured.current_a','measured.voltage_v'],
  'acquisition.stop':['acquisition.phase','acquisition.stage','stage.moving','stage.target_x_m','stage.target_y_m','probe.target_m','measured.current_a','measured.voltage_v'],
  'sim.step':list(SLOTS)}
+for k in ('acquisition.start','calibration.start'):EFFECTS[k]+=['smu.settings','smu.state','smu.display','smu.trigger']  # the software takes the 2450 (remote)
+EFFECTS['acquisition.stop']+=['smu.state','smu.display'];EFFECTS['power.set']+=SMU_SLOTS
 for k,v in EFFECTS.items():CAPS[k]['effects']=v
+for k in SMU_CAPS:SMU_CAPS[k]['effects']=list(SMU_SLOTS)+([x for x in EFFECTS['acquisition.stop'] if x not in SMU_SLOTS] if k in ('smu.output','smu.system') else [])
+_PANEL_EFFECTS=list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in ALL_CAPS[c]['effects']))
+for k in PANEL_CAPS:PANEL_CAPS[k]['effects']=[] if k in ('panel.capture','panel.frame') else list(_PANEL_EFFECTS)   # a gesture changes what the commands it calls change
 ERRORS=sorted(set(__import__('re').findall(r"ActionRejected\('([A-Z_0-9]+)'",Path(__file__).read_text()))|{'POWER_OFF','USER_CANCEL','SOURCE_COMPLIANCE','VOLTAGE_OVERFLOW','REFERENCE_TEMPERATURE_RANGE','CALIBRATION_RANGE','AUTORANGE_UNRESOLVED'})
+LAYER_ERRORS=sorted(set(ERRORS)|{'LOCAL_CONTROL'}|set(__import__('re').findall(r"Rejected\('([A-Z_0-9]+)'",Path(k2450.__file__).read_text())))   # 2450 commands and panel gestures
 
 def export_signatone_quadpro2_contract_metadata():
     slots={};caps={}
@@ -521,9 +649,9 @@ def export_signatone_quadpro2_contract_metadata():
       '膜与基底共被动集中热节点，局部附加热容由宿主输入（默认0.1J/K，非整机218kg或夹具质量热容）。源电能=样品焦耳热+接触热外流；载入/移出两种材料质量体积和当前显热明确守恒。',
       '所有Session公开result/poll均隐藏所选参考身份，内部evaluator转发同样脱敏；privileged provenance.read单独访问。共享Python/磁盘不是OS隔离。',
       '真实仪器、机器人装样、TCR温控、真实标样证书/漂移/OEM准确度、完整非均匀PDE和厚晶片计量、急停硬件电路not_run。']
-    for k,v in CAPS.items():
+    for k,v in ALL_CAPS.items():
         un=k in UNSUPPORTED;async_=k in ('acquisition.start','calibration.start');caps[k]={key:copy.deepcopy(v[key]) for key in ['input_schema','output_schema','component_ids','function_zh','kind','visibility','example_arguments']}
-        caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ('scene','robot','hardware') else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.signatone_quadpro2.SignatoneQuadpro2Session.invoke',invocation=f'session.invoke(instance_id="quadpro2_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),preconditions=[] if un or v['kind'] in ('query','analysis') else [dict(description_zh='运行入口原子核对薄层/参考温域、选型、暗箱/针尖/移动安全域、量程、校准与可选预热。',state_ids=['power.enabled','sample.present','probe.position_m','hood.angle_rad','calibration.valid','source.warmup_ready','acquisition.phase'],enforced_by='runtime',check='SignatoneQuadpro2Runtime.invoke guards before commit')],state_effects=[dict(state_id=s,timing='immediate',description_zh='命令实际即时状态变化') for s in v['effects']],observes=[],model_effects=dict(mode='none',description_zh='仅输出独立可绑定状态；真实姿态/显示联动由场景报告取证。',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='真实>=180s校准4相及抬针完成' if k=='calibration.start' else '所有接受点依真实运动/等待/首点量程/四相测量后抬针完成' if async_ else '原子命令；物理推进仅由宿主step',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','xy_stage','sp4_probe','keithley2450_source_meter'],partial_failure_zh='取消/断电截断激励并停当前XY/Z，保留已测点、完成的试量程及已积耗散/显热；不能回滚样品质量或已生热。'),errors=[dict(code=e,meaning_zh=e,side_effects='partial' if async_ and e in ('POWER_OFF','USER_CANCEL','SOURCE_COMPLIANCE','VOLTAGE_OVERFLOW','REFERENCE_TEMPERATURE_RANGE','AUTORANGE_UNRESOLVED') else 'none') for e in ERRORS],verification=[],limitations=limits,source_ids=['manufacturer_primary','simulation_assumption','template_library'])
+        caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ('scene','robot','hardware') else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.signatone_quadpro2.SignatoneQuadpro2Session.invoke',invocation=f'session.invoke(instance_id="quadpro2_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),preconditions=[] if un or v['kind'] in ('query','analysis') else [dict(description_zh='运行入口原子核对薄层/参考温域、选型、暗箱/针尖/移动安全域、量程、校准与可选预热。',state_ids=['power.enabled','sample.present','probe.position_m','hood.angle_rad','calibration.valid','source.warmup_ready','acquisition.phase'],enforced_by='runtime',check='SignatoneQuadpro2Runtime.invoke guards before commit')],state_effects=[dict(state_id=s,timing='immediate',description_zh='命令实际即时状态变化') for s in v['effects']],observes=[],model_effects=dict(mode='none',description_zh='仅输出独立可绑定状态；真实姿态/显示联动由场景报告取证。',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='真实>=180s校准4相及抬针完成' if k=='calibration.start' else '所有接受点依真实运动/等待/首点量程/四相测量后抬针完成' if async_ else '原子命令；物理推进仅由宿主step',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','xy_stage','sp4_probe','keithley2450_source_meter'],partial_failure_zh='取消/断电截断激励并停当前XY/Z，保留已测点、完成的试量程及已积耗散/显热；不能回滚样品质量或已生热。'),errors=[dict(code=e,meaning_zh=e,side_effects='partial' if async_ and e in ('POWER_OFF','USER_CANCEL','LOCAL_CONTROL','SOURCE_COMPLIANCE','VOLTAGE_OVERFLOW','REFERENCE_TEMPERATURE_RANGE','AUTORANGE_UNRESOLVED') else 'none') for e in (ERRORS+(['LOCAL_CONTROL','LOGIN_REQUIRED'] if async_ else []) if k in CAPS else LAYER_ERRORS)],verification=[],limitations=limits,source_ids=['manufacturer_primary','simulation_assumption','template_library'])
         if k in ('stage.move','probe.set_contact','enclosure.set_open','acquisition.start','calibration.start','power.set'):
             caps[k]['state_effects'] += [dict(state_id=s,timing='on_step',description_zh='宿主推进有限运动、真实等待、热量、预热与逐点观测') for s in SLOTS if s not in v['effects'] and s not in ('plant.configured','wafer.configured','probe.configured','sample.present','power.enabled')]
     mechanism=dict(component_ids=['controller','source_meter','stage_x','sample_stage','probe_head','sample_wafer','hood'],state_ids=list(slots),meaning_zh='有限圆片薄膜四探针Green几何、首点固定图量程、实际标样反演校准、双接线正反测绘与被动电热质量账',implementation='lumped',equations=[

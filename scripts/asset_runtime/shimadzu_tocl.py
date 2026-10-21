@@ -1,4 +1,10 @@
-"""TOC-L CSH: finite aqueous carbon aliquots, observed NDIR calibration and bounded records."""
+"""TOC-L CSH: finite aqueous carbon aliquots, observed NDIR calibration and bounded records.
+
+1.3.0 (sweep 2026-10-19): an agent may not stop or switch off another agent's analysis or maintenance item (STOP key, measurement.stop /
+maintenance.stop, the front power key; the session sets _caller), the right-side main switch is a hard switch and never refused; evaluator
+fault.inject / fault.clear for the main-unit codes of the TOC-L error list (Error!! ...: the analysis stops, the error screen stays until the
+instrument is switched off and on, it shows again at power-up while the cause is present) and its messages (CF card, back-up battery, 8-port
+valve retry, syringe zero point correction); the ASI-L / OCT-L / TNM-L codes need the absent options."""
 from __future__ import annotations
 import copy,importlib.util,json,math
 from pathlib import Path
@@ -108,6 +114,101 @@ slot('detector.ndir_signal',nullable(number('1')),'1','最近完整NDIR相对积
 for q in QUANTITIES:slot('result.'+q.lower()+'_kg_m3',nullable(number('kg/m^3')),'kg/m^3',q+'观察标线浓度；负TOC差不截零，缺标定为null')
 slot('method.mode',TEXT,'1','TC/IC/TOC/NPOC模式','setpoint');slot('blank.valid',BOOL,'1','当前方法所需channel均有完整空白');slot('calibration.ready',BOOL,'1','所需channel均选中匹配响应设置标线');slot('storage.result_count',integer(0,2000),'1','完整结果库条目数');slot('storage.curve_count',integer(0,60),'1','已保存标线数');slot('safety.warning',TEXT,'1','公开逻辑异常，不含水样身份');slot('truth.ledger',LEDGER,'1','私有三碳仓、液体与试剂热学账本','process_truth','evaluator','ic_reactor')
 
+# ---------------------------------------------------------------- 1.1.0: standalone CSH operating functions (panel_ui.json)
+# Main power switch, standalone shutdown, catalyst type and syringe washes, the Maintenance items (bubble removal, TC catalyst regeneration,
+# IC reagent delivery, residue removal, syringe zero point, TC blank check) with their counters, the Background Monitor / READY lamp and
+# clearing of the measurement log.  The panel layer (panel_ui.json) drives these and the 1.0.x commands; CAPS keep their meaning.
+ASSET_VERSION='1.3.0'
+CATALYSTS=['regular','high'];MAINT_ITEMS=['bubble_removal','catalyst_regeneration','ic_regeneration','residue_removal','syringe_zero']
+MAINT_S={'bubble_removal':60.,'catalyst_regeneration':300.,'ic_regeneration':10.,'residue_removal':120.,'syringe_zero':20.}
+BUBBLE_DILUENT_M3=1e-6;BUBBLE_ACID_M3=1e-7;REGEN_ACID_M3=5e-7;RESIDUE_FLUSH_M3=2e-6;IC_REAGENT_STEP=.25
+BLANK_CHECK_INJECTIONS=5;BLANK_CHECK_INJECTION_S=180.;SHUTDOWN_S=1800.;BASELINE_SETTLE_S=1800.;CARRIER_FLOW_M3_S=150e-6/60;DEHUMIDIFIER_K=274.15;FURNACE_K=953.15
+COUNTERS={'valve_operations':('1','8PV Ope. Counts'),'syringe_strokes':('1','Syringe Stroke Number'),'combustion_injection_m3':('m^3','Combustion Tube Sample Injection Volume'),'acid_used_m3':('m^3','Acid Usage Volume'),'diluent_used_m3':('m^3','Dilution Water Usage Volume'),'co2_absorber_s':('s','CO2 Absorber'),'ic_pump_s':('s','IC Tubing Pump')}
+KEY_CAPS={}
+def kcap(k,i,o,c,z,kind='device_command',vis='agent',ex=None):KEY_CAPS[k]=[i,o,c,z,kind,vis,{} if ex is None else ex,[]]
+kcap('power.set_mains',obj({'enabled':BOOL}),obj({'enabled':BOOL}),['main_switch'],'右侧主电源开关：关断即断电并中止运行/维护/关机；开后仍需按前面电源键',ex={'enabled':True})
+kcap('power.shutdown',obj({}),obj({'shutdown_s':number('s',0)}),['button_power','display_panel'],'单机关机确认（F6 Yes）：炉加热关闭冷却，30 min后自行断电（之后关右侧主开关）')
+kcap('settings.configure',obj({'catalyst':enum(CATALYSTS),'syringe_washes':integer(0,9)}),obj({'configured':BOOL}),['display_panel'],'Conditions - Unit催化剂类型（High/Regular）与Meas. Cond.注射器清洗次数0–9（每次清洗以一份原样冲洗注射器后排废）','configuration','agent',{'catalyst':'regular','syringe_washes':0})
+kcap('maintenance.run',obj({'item':enum(MAINT_ITEMS)}),obj({'item':TEXT,'duration_s':number('s',0)}),['display_panel','syringe_plunger','selector_valve','ic_reactor','combustion_furnace'],'Maintenance：气泡去除/TC催化剂再生/IC试剂补充/残液去除/注射器零点检测；有限时长，试剂用量在开始时计入废液',ex={'item':'bubble_removal'})
+kcap('maintenance.tc_blank_check',obj({'sets':integer(1,10)}),obj({'injections':integer(5,50),'duration_s':number('s',0)}),['display_panel','syringe_plunger','selector_valve','combustion_furnace','ndir_detector'],'TC Blank Check：高灵敏度催化剂、炉温就绪时以稀释水做sets×5次TC进样（稀释水碳零假设，空白峰面积为0）',ex={'sets':10})
+kcap('maintenance.stop',obj({}),obj({'phase':TEXT}),['button_stop'],'STOP中止当前维护项（已消耗试剂保留在废液）')
+kcap('maintenance.reset_counter',obj({'counter':enum(list(COUNTERS))}),obj({'counter':TEXT}),['display_panel'],'维护计数器清零（更换部件后）',ex={'counter':'syringe_strokes'})
+kcap('maintenance.set_counter_limits',obj({k:nullable(number(u,0)) for k,(u,_) in COUNTERS.items()}),obj({'configured':BOOL}),['display_panel'],'维护计数器上限（null为不报警）；超过则面板显示Counter Over-','configuration','agent',{k:None for k in COUNTERS})
+kcap('records.clear',obj({}),obj({'removed':integer(0,RESULT_CAPACITY)}),['display_panel'],'Measurement Log的Clear All：删除实例结果库全部条目（运行历史不改写）','configuration')
+COUNTER_SLOT=obj({k:obj({'value':number(u,0),'limit':nullable(number(u,0)),'over':BOOL}) for k,(u,_) in COUNTERS.items()})
+slot('power.mains',BOOL,'1','右侧主电源开关','setpoint',c='main_switch');slot('power.shutdown_remaining_s',nullable(number('s',0)),'s','单机关机倒计时（无关机为空）',c='button_power')
+slot('settings.catalyst',enum(CATALYSTS),'1','催化剂类型设置（TC Blank Check需High）','setpoint');slot('settings.syringe_washes',integer(0,9),'1','注射器清洗次数','setpoint',c='syringe_plunger')
+slot('maintenance.phase',PHASE,'1','维护项生命周期');slot('maintenance.item',TEXT,'1','当前或最近维护项');slot('maintenance.remaining_s',number('s',0),'s','维护项剩余时间')
+slot('maintenance.ic_reagent_level',number('1',0,1),'1','IC试剂液位（到排液管口为1；只由维护补充，测量模型不消耗）',c='ic_reactor');slot('maintenance.blank_check_area_s',nullable(number('s')),'s','最近TC Blank Check平均峰面积（稀释水碳零假设）',c='ndir_detector');slot('maintenance.syringe_zeroed',BOOL,'1','已做注射器零点检测',c='syringe_plunger')
+slot('maintenance.counters',COUNTER_SLOT,'1','维护计数器（值、上限、超限）；体积m^3、时间s、次数1')
+slot('monitor.carrier_flow_m3_s',number('m^3/s',0),'m^3/s','Background Monitor载气流量（就绪时150 mL/min，否则0）',c='body');slot('monitor.furnace_stable',BOOL,'1','炉温在设定±1 K内',c='combustion_furnace');slot('monitor.dehumidifier_k',nullable(number('K')),'K','除湿器温度（假设1 °C恒定；断电为空）',c='body')
+slot('monitor.baseline_ok',BOOL,'1','基线位置/波动/噪声OK（通电满30 min的假设）',c='ndir_detector');slot('monitor.ready',BOOL,'1','READY灯：Background Monitor全部OK（炉温±10 K、载气、基线、门盖关闭）',c='ready_lamp')
+# ---------------------------------------------------------------- 1.2.0 (sync fixes 2026-10-19): brochure p.11 functions of the standalone model
+# Automatic selection of the optimal calibration curve: up to three curves per channel are set for sample measurements; each aliquot is
+# quantified with the curve whose calibrated carbon-mass range contains its result (several: the lowest range; none: the first curve, flagged
+# out of range).  Automatic sleep / restart: after the analyses (and maintenance) are completed and the set time has elapsed the instrument goes
+# to sleep (assumed: furnace heating and carrier gas off, READY off); it restarts at the set time of day (or with Restart on the sleep screen);
+# the baseline settles again for 30 min.  The setting values, the sleep screen and what sleep switches off are assumptions (manual member-only).
+DAY_S=86400.;SLEEP_DEFAULT=dict(auto_sleep=False,sleep_after_s=3600.,auto_restart=False,restart_hour=8,restart_minute=0)
+kcap('calibration.set_slot',obj({'channel':enum(CHANNELS),'slot':integer(1,3),'curve_id':TEXT}),obj({'selected':BOOL}),['display_panel'],'CAL：每个channel最多3条用于样品测量的标线（槽1即calibration.select的选用标线，空ID清空该槽）；测量时每份aliquot自动选用校准质量范围覆盖其结果的标线（多条覆盖取范围上限最小者）','configuration','agent',{'channel':'TC','slot':2,'curve_id':''})
+kcap('sleep.configure',obj({'auto_sleep':BOOL,'sleep_after_s':number('s',60,59940),'auto_restart':BOOL,'restart_hour':integer(0,23),'restart_minute':integer(0,59)}),obj({'configured':BOOL}),['display_panel'],'Conditions - Others：自动休眠（分析与维护结束后空闲设定时间进入休眠）与定时重启（每天设定时刻）','configuration','agent',dict(SLEEP_DEFAULT))
+# main-unit error codes and messages of the TOC-L error list (SSI Virtual Advisor; other__ssi_virtual_advisor_toc-l_error_codes.html), 1.3.0 sweep
+TOC_ERRORS={'pressure_sensor_3':'Error!! Pressure Sensor 3','pressure_sensor_2':'Error!! Pressure Sensor 2','pressure_sensor_1':'Error!! Pressure Sensor 1',
+            'sparge_gas_flow_line':'Error!! Sparge Gas Flow Line','toc_detector_connection':'Error!! TOC Detector Connection',
+            'toc_detector_memory':'Error!! TOC Detector Memory','toc_detector_motor':'Error!! TOC Detector Motor','toc_detector_temp_control':'Error!! TOC Detector Temp. Control',
+            'cooler_temp_control':'Error!! Cooler Temp. Control','cooler_fan_stop':'Error!! Cooler Fan Stop','furnace_power':'Error!! Furnace Power',
+            'furnace_safety_relay':'Error!! Defect safety relay of Furnace','main_fan_stop':'Error!! Main Fan Stop','ic_slider':'Error!! IC Slider','tc_slider':'Error!! TC Slider',
+            '8port_valve_position':'Error!! 8-Port Valve Position Detection','syringe_zero_point':'Error!! Syringe zero point detection',
+            'syringe_operation':'Error!! Syringe Operation','syringe_position':'Error!! Syringe Position','furnace_temperature_sensor':'Error!! Furnace Temperature Sensor',
+            'furnace_overheating':'Error!! Furnace Overheating','flash_rom':'Error!! FLASH ROM'}
+TOC_NOTICES={'cf_card':'Unable to access the CF card.','backup_battery':'Exchange the back-up battery.','valve_retry':'8-Port Valve Operation Retry has occurred.',
+             'syringe_zero_failed':'Syringe Zero Point Correction failed.'}
+TOC_FAULTS=list(TOC_ERRORS)+list(TOC_NOTICES)
+kcap('fault.inject',obj({'code':enum(TOC_FAULTS)}),obj({'injected':arr(TEXT)}),['display_panel'],'评测者：注入TOC-L错误表中主机的错误代码（Error!! …：正在进行的分析与维护停止，错误画面保持到关机再开，原因仍在时开机再次显示）与信息（CF卡不可访问：拒绝分析；更换备份电池与8通阀重试：只显示；注射器零点校正失败：该维护项失败）','simulation','evaluator',{'code':'main_fan_stop'})
+kcap('fault.clear',obj({'code':enum(TOC_FAULTS)}),obj({'injected':arr(TEXT)}),['display_panel'],'评测者：错误表中的措施已完成（清除颗粒、清洗阀、装好注射器、服务修理）：消除原因；显示中的错误仍须关机再开','simulation','evaluator',{'code':'main_fan_stop'})
+kcap('sleep.restart',obj({}),obj({'sleeping':BOOL}),['display_panel'],'休眠画面F1 Restart：手动结束休眠（炉重新升温、载气恢复、基线重新稳定30 min）')
+slot('calibration.curve_slots',obj({c:dict(type='array',items=TEXT,minItems=3,maxItems=3) for c in CHANNELS}),'1','每个channel用于样品测量的最多3条标线（槽1=选用标线；空串为空槽）','setpoint')
+slot('sleep.settings',obj({'auto_sleep':BOOL,'sleep_after_s':number('s',60,59940),'auto_restart':BOOL,'restart_hour':integer(0,23),'restart_minute':integer(0,59)}),'1','自动休眠/定时重启设置','setpoint')
+slot('fault.injected',arr(TEXT),'1','评测者注入且尚未消除的错误原因（fault.inject）','setpoint','evaluator');slot('sleep.active',BOOL,'1','休眠中（假设：炉加热与载气关闭，READY灭）',c='display_panel');slot('clock.time_of_day_s',number('s',0,DAY_S),'s','仪器时钟的当日时刻（仿真时间0为00:00，假设）',c='display_panel')
+def _panel_engine():
+ try:
+  from . import _panel_ui as engine                                      # imported as asset_runtime.shimadzu_tocl (tests, Matterix bridge)
+  return engine
+ except ImportError:                                                     # loaded from its file path
+  import sys
+  if '_chemsim_panel_ui' not in sys.modules:
+   spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'))
+   sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=_panel_ui.load_spec(ROOT/'assets/expansion_batch03/t3_analytical/shimadzu_tocl/panel_ui.json',capabilities=set(CAPS)|set(KEY_CAPS))
+PANEL_CAPS={k:[v['input_schema'],v['output_schema'],v['component_ids'],v['function_zh'],v['kind'],v['visibility'],v['example_arguments'],[]] for k,v in _panel_ui.capability_definitions(PANEL_SPEC).items()}
+ALL_CAPS=dict(CAPS,**KEY_CAPS,**PANEL_CAPS)
+NEW_ERRORS={'power.set_mains':['INVALID_ARGUMENT','REQUEST_CONFLICT'],'power.shutdown':['POWER_OFF','BUSY','REQUEST_CONFLICT'],'settings.configure':['INVALID_ARGUMENT','BUSY','REQUEST_CONFLICT'],
+ 'maintenance.run':['INVALID_ARGUMENT','BUSY','POWER_OFF','GAS_POWER_INTERLOCK','OVEN_TEMPERATURE_LOW','DRAIN_CANCELLED_RESIDUE_REQUIRED','REAGENT_VOLUME_LIMIT','REQUEST_CONFLICT'],
+ 'maintenance.tc_blank_check':['INVALID_ARGUMENT','BUSY','POWER_OFF','GAS_POWER_INTERLOCK','CATALYST_NOT_HIGH','FURNACE_NOT_READY','DRAIN_CANCELLED_RESIDUE_REQUIRED','REAGENT_VOLUME_LIMIT','REQUEST_CONFLICT'],
+ 'maintenance.stop':['REQUEST_CONFLICT'],'calibration.set_slot':['INVALID_ARGUMENT','BUSY','CURVE_CHANNEL_MISMATCH','REQUEST_CONFLICT'],
+ 'sleep.configure':['INVALID_ARGUMENT','REQUEST_CONFLICT'],'sleep.restart':['NOT_SLEEPING','REQUEST_CONFLICT'],'maintenance.reset_counter':['INVALID_ARGUMENT','REQUEST_CONFLICT'],'maintenance.set_counter_limits':['INVALID_ARGUMENT','REQUEST_CONFLICT'],'records.clear':['BUSY','REQUEST_CONFLICT'],
+ **{k:['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PLANT_REQUIRED','REQUEST_CONFLICT'] for k in PANEL_CAPS}}
+NEW_LIMITS={**{k:['面板层按panel_ui.json（SSI Virtual Advisor、关机/开机说明与样本为证据，未写之处见assumptions）解释按键与开关手势并调用本运行层的同名能力；手势不推进仿真时钟。'] for k in PANEL_CAPS},
+ 'power.set_mains':['主开关的最小模型：关断等同断电（运行/维护/关机中止）；接通后前面电源键才可开机。'],
+ 'power.shutdown':['单机关机的最小模型：加热关闭、炉温按集总热模型冷却，30 min后自行断电；载气关闭与3次空白冲洗属操作者。'],
+ 'settings.configure':['催化剂类型只作为设置与TC Blank Check前提，不改变转化动力学；每次清洗把一份原样aliquot经注射器排废（瞬时，不另推进时间）。'],
+ 'maintenance.run':['维护项为有限时长的最小模型（时长为假设）：试剂用量在开始时由稀释水/酸瓶计入废液；残液去除把注射器/反应器残液及其碳转入废液、残气转入尾气；IC试剂液位只由补充增加，测量模型不消耗IC试剂；STOP中止后已用试剂不退回。'],
+ 'maintenance.tc_blank_check':['稀释水按运行层假设为无碳：空白峰面积为0；不做逐针NDIR积分，sets×5针的稀释水、注射次数、阀动作与燃烧管进样量计入计数器。'],
+ 'maintenance.stop':['只中止维护项；测量用measurement.stop。'],
+ 'maintenance.reset_counter':['计数器由运行层累计（阀动作、注射行程、燃烧管进样量、酸/稀释水用量、通电时间、IC泵时间）；清零只改显示零点。'],
+ 'maintenance.set_counter_limits':['上限只用于面板Counter Over-提示，不阻止测量。'],
+ 'records.clear':['删除全部实例结果条目；已完成运行的历史快照不改写。'],
+ 'calibration.set_slot':['样本p.11只说明最多3条标线并自动选最佳：选择规则（结果所在校准范围、多条时取范围上限最小者、都不覆盖时用槽1并标记超范围）与CAL画面为假设；标线须与当前测量条件匹配才参与。'],
+ 'sleep.configure':['样本p.11只说明分析结束一定时间后自动休眠、可在设定时刻自动重启：设置项、默认值（关闭、60 min、08:00）、休眠时关闭炉加热与载气为假设；按键操作不计入空闲计时。'],
+ 'sleep.restart':['手动重启键（休眠画面F1）为假设；重启后炉升温、载气恢复，基线按开机同样的30 min重新稳定。']}
+# 1.3.0 sweep: instrument errors (fault.inject / fault.clear) and the owner guard of the maintenance STOP
+for _k in ('maintenance.run','maintenance.tc_blank_check'):NEW_ERRORS[_k]=NEW_ERRORS[_k][:-1]+['INSTRUMENT_ERROR']+(['SYRINGE_ZERO_CORRECTION_FAILED'] if _k=='maintenance.run' else [])+NEW_ERRORS[_k][-1:]
+NEW_ERRORS['maintenance.stop']=['ACCESS_DENIED','REQUEST_CONFLICT']
+NEW_ERRORS.update({'fault.inject':['INVALID_ARGUMENT','REQUEST_CONFLICT'],'fault.clear':['INVALID_ARGUMENT','REQUEST_CONFLICT']})
+NEW_LIMITS.update({'fault.inject':['只含TOC-L错误表中主机的代码与信息；故障原因（颗粒、电子、风扇等）不建模，由评测者给出；Error!!画面保持到关机再开，原因在时开机再次出现（Furnace Overheating的通电冷却20 min不检查）。'],
+                   'fault.clear':['表示错误表中的措施已完成；显示中的Error!!仍须关机再开。']})
 
 def _library():
  p=ROOT/TEMPLATE_REL
@@ -122,6 +223,10 @@ class ShimadzuToclRuntime:
   self._registered_v=0.;self._removed_v=0.;self._syringe_v=0.;self._reactor_v=0.;self._waste_v=0.;self._diluent_v=0.;self._acid_v=0.;self._oxygen_initial=0.;self._oxygen_remaining=0.;self._oxygen_consumed=0.;self._acid_chamber=0.
   self.phase='idle';self.stage='idle';self.elapsed_s=0.;self.warning='';self.operation_id='';self._op_count=0;self._record_id=None;self._records={};self._curves={};self._selected={c:'' for c in CHANNELS};self._blanks={};self._run_blanks={};self._run_method=None;self._run_key=None;self._run_curves={};self._run_kind='';self._run_assumptions=[];self._plan=[];self._index=0;self._active=None;self.assays=[];self._summary=_nulls();self._sd=_nulls();self._cv=_nulls();self._qc=[];self._stage_elapsed=0.;self._target_angle=0.;self._stage_remaining_v=0.;self._channel='';self._next_detector=None;self._detector_start=None;self._pending_area=0.;self._baseline=0.;self._prebaseline=[];self._baseline_count=0;self._last_point=None;self._signal=None
   self._rng=np.random.default_rng(0);self._principals={'__public_agent__':'agent'};self._requests={};self._owners={};self._operation_records={}
+  self._caller=None;self.faults=[];self.error_shown=None   # session caller of the call in progress; evaluator faults and the error screen (1.3.0)
+  self.mains=True;self.power_epoch=0;self._power_on_s=None;self._shutdown_at=None;self.catalyst='regular';self.washes=0;self._maint=None;self._maint_last=dict(item='',phase='idle');self.ic_reagent_level=0.;self.blank_check_area=None;self.syringe_zeroed=False
+  self._n_valve=0;self._n_strokes=0;self._v_combustion=0.;self._t_powered=0.;self._t_ic_pump=0.;self._counter_zero={k:0. for k in COUNTERS};self._counter_limits={k:None for k in COUNTERS}
+  self._extra_curves={c:['',''] for c in CHANNELS};self._run_curve_sets={};self.sleep_cfg=dict(SLEEP_DEFAULT);self.sleeping=False;self._last_activity_s=0.;self._restart_at=None;self._settle_s=None
  def register_principal(self,principal_id,visibility='agent'):
   if visibility not in ('agent','debug','evaluator') or not isinstance(principal_id,str) or not principal_id:raise ActionRejected('INVALID_ARGUMENT')
   if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -130,11 +235,12 @@ class ShimadzuToclRuntime:
   if principal_id not in self._principals:raise ActionRejected('ACCESS_DENIED')
   return ShimadzuToclSession(self,principal_id)
  def describe(self):return self.session().describe(instance_id=self.instance_id)
- def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in ['library','templates','_rng']})|{'_rng_state':copy.deepcopy(self._rng.bit_generator.state)}
+ def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in ['library','templates','_rng','_panel']})|{'_rng_state':copy.deepcopy(self._rng.bit_generator.state)}
  def _checkpoint(self):
   # Stored records, curves and terminal responses are append-only immutable values; copying their index avoids quadratic peak-array copies.
-  frozen=['library','templates','_records','_curves','_operation_records','_requests','_rng'];q=copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in frozen})
-  for k in frozen:q[k]=dict(getattr(self,k)) if k in ['_records','_curves','_operation_records','_requests'] else getattr(self,k)
+  frozen=['library','templates','_records','_curves','_operation_records','_requests','_rng','_panel'];q=copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in frozen})
+  for k in frozen:
+   if k in self.__dict__:q[k]=dict(getattr(self,k)) if k in ['_records','_curves','_operation_records','_requests'] else getattr(self,k)
   q={k:q[k] for k in self.__dict__}
   return q,copy.deepcopy(self._rng.bit_generator.state)
  def _channels(self):return ['TC','IC'] if self.method and self.method['mode']=='TOC' else [self.method['mode']] if self.method else []
@@ -142,7 +248,8 @@ class ShimadzuToclRuntime:
   # Fits use absolute carbon mass, so injection/dilution/repeat/mode do not redefine detector gain; treatment and peak integration conditions do.
   return json.dumps({k:v for k,v in (self.method or {}).items() if k not in ['mode','injection_volume_m3','dilution_factor','repeats']},sort_keys=True)
  def _blank_valid(self):return bool(self.method and all(c in self._blanks and self._blanks[c]['key']==self._key() for c in self._channels()))
- def _calibration_ready(self):return bool(self.method and all(self._selected[c] in self._curves and self._curves[self._selected[c]]['key']==self._key() for c in self._channels()))
+ def _slot_ids(self,c):return [x for x in [self._selected[c]]+self._extra_curves[c] if x]
+ def _calibration_ready(self):return bool(self.method and all(any(i in self._curves and self._curves[i]['key']==self._key() for i in self._slot_ids(c)) for c in self._channels()))
  def _ready(self):return bool(self.plant and self.method and self.powered and not self.opened and not self.top_opened and self.target==953.15 and abs(self.temperature-self.target)<=self.method['temperature_tolerance_k'])
  def _ledger(self):
   sample_c=self.sample['concentrations']*self.sample['volume'] if self.sample else np.zeros(3);sample_v=self.sample['volume'] if self.sample else 0.;residual=self._registered-sample_c-self._syringe-self._reactor-self._co2-self._tail-self._exhaust-self._purged-self._waste-self._removed;di=self.plant['diluent_volume_m3'] if self.plant else 0.;ai=self.plant['acid_volume_m3'] if self.plant else 0.;ac=self.plant['acid_concentration_mol_m3'] if self.plant else 0.;heat=(self.temperature-self.initial_temperature)*(self.plant['furnace_capacity_j_k'] if self.plant else 0.)
@@ -152,21 +259,51 @@ class ShimadzuToclRuntime:
  def read(self,visibility='agent'):
   if visibility not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
   v={'plant.configured':self.plant is not None,'sample.loaded':self.sample is not None,'power.enabled':self.powered,'cover.opened':self.opened,'cover.angle_rad':1.60 if self.opened else 0.,'top_cover.opened':self.top_opened,'top_cover.lift_m':.15 if self.top_opened else 0.,'syringe.position_m':min(SYRINGE_STROKE_M,max(0.,self._syringe_v/SYRINGE_MAX_M3*SYRINGE_STROKE_M)),'valve.angle_rad':self.valve,'ic_pump.angle_rad':self.pump,'furnace.target_k':self.target,'furnace.actual_k':self.temperature,'furnace.ready':self._ready(),'measurement.phase':self.phase,'measurement.stage':self.stage,'measurement.elapsed_s':self.elapsed_s,'measurement.progress':len(self.assays)/len(self._plan) if self._plan else 0.,'measurement.channel':self._channel,'measurement.completed_aliquots':len(self.assays),'detector.ndir_signal':self._signal,'detector.last_sample_time_s':self._last_point['time_s'] if self._last_point else None,'method.mode':self.method['mode'] if self.method else '', 'blank.valid':self._blank_valid(),'calibration.ready':self._calibration_ready(),'storage.result_count':len(self._records),'storage.curve_count':len(self._curves),'safety.warning':self.warning,'truth.ledger':self._ledger()}
-  v.update({'result.'+q.lower()+'_kg_m3':self._summary[q] for q in QUANTITIES})
+  v.update({'result.'+q.lower()+'_kg_m3':self._summary[q] for q in QUANTITIES});v.update(self._key_values())
   if visibility=='agent':v.pop('truth.ledger')
   return copy.deepcopy(v)
  def invoke(self,k,**a):
-  if k not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-  validate(CAPS[k][0],a)
+  if k in PANEL_CAPS:                                                     # panel gestures: optional arguments, checked by the engine's validator
+   if _panel_ui.check_arguments(PANEL_CAPS[k][0],a):raise ActionRejected('INVALID_ARGUMENT')
+   if not self.plant:raise ActionRejected('PLANT_REQUIRED')
+   out=self._cmd_panel(k,a)
+   if PANEL_CAPS[k][4]!='query':self.revision+=1
+   return copy.deepcopy(out)
+  if k not in CAPS and k not in KEY_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+  C=CAPS[k] if k in CAPS else KEY_CAPS[k]
+  validate(C[0],a)
   if k in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
-  query=CAPS[k][4]=='query';checkpoint=None if query else self._checkpoint()
+  self._owner_guard(k,a)
+  query=C[4]=='query';checkpoint=None if query else self._checkpoint()
   try:
-   result=self._invoke(k,copy.deepcopy(a));validate(CAPS[k][1],result)
+   result=self._invoke(k,copy.deepcopy(a));validate(C[1],result)
    if not query:self.revision+=1;self._archive_operation()
    return copy.deepcopy(result)
   except Exception:
    if checkpoint:self.__dict__.clear();self.__dict__.update(checkpoint[0]);self._rng.bit_generator.state=checkpoint[1]
    raise
+ def _owner_guard(self,k,a):
+  """An agent may not stop or switch off another agent's analysis or maintenance item (STOP key / measurement.stop / maintenance.stop, the front
+  power key); the direct call and the panel key run with the session caller in _caller.  The main switch is a hard switch and never refused."""
+  c=self._caller
+  if c is None or self._principals.get(c)!='agent':return
+  foreign=lambda o:o is not None and o!=c and self._principals.get(o)=='agent'
+  run=foreign(self._owners.get(self.operation_id)) if self.phase=='running' else False
+  mnt=foreign((self._maint or {}).get('owner'))
+  if (k=='measurement.stop' and run) or (k=='maintenance.stop' and mnt) or ((k=='power.toggle' and self.powered or k=='power.set' and not a['enabled']) and (run or mnt)):
+   raise ActionRejected('ACCESS_DENIED')
+ def _error_gate(self):
+  if self.error_shown:raise ActionRejected('INSTRUMENT_ERROR')
+ def _fault_inject(self,code):
+  if code not in self.faults:self.faults.append(code)
+  if code in TOC_ERRORS and self.powered:
+   self.error_shown=code
+   if self.phase=='running':self._stop('INSTRUMENT_ERROR',failed=True)
+   self._maint_stop()
+  return {'injected':list(self.faults)}
+ def _notice(self):
+  if not self.powered:return ''
+  return next((TOC_NOTICES[c] for c in ('backup_battery','valve_retry') if c in self.faults),'')
  def _idle(self):
   if self.phase=='running':raise ActionRejected('BUSY')
  def _reference(self,key,channel=None,allow_query=False):
@@ -209,6 +346,7 @@ class ShimadzuToclRuntime:
   if assumptions and not a['accept_partition_assumptions']:raise ActionRejected('PARTITION_ACK_REQUIRED')
   return dict(input=a,volume=a['volume_m3'],concentrations=np.array([ic,npoc,poc]),partition_evidence=json.dumps(dict(source_channel=selected,source_evidence=q.get('evidence','unknown'),assumed_channels=assumptions,assumption='explicit host partition, not source IC/POC measurement; derived TC-IC or TOC-POC only when selected source quantity supports it'),sort_keys=True))
  def _invoke(self,k,a):
+  if k in KEY_CAPS:return self._key_fn(k,a)
   if k=='plant.configure':
    if self.plant is not None or self.sample is not None:raise ActionRejected('INITIALIZATION_ONLY')
    if not a['accept_lumped_model']:raise ActionRejected('EVIDENCE_ACK_REQUIRED')
@@ -230,13 +368,19 @@ class ShimadzuToclRuntime:
   if k in ['cover.set','top_cover.set']:
    if k=='top_cover.set' and (self.powered or self.temperature>323.15):raise ActionRejected('COLD_MAINTENANCE_REQUIRED')
    if a['opened'] and self.phase=='running':self._stop('COVER_OPEN')
+   if a['opened']:self._maint_stop()
    if k=='cover.set':self.opened=a['opened']
    else:self.top_opened=a['opened']
    return {'opened':a['opened']}
   if k=='power.toggle':return self._invoke('power.set',{'enabled':not self.powered})
   if k=='power.set':
-   if a['enabled'] and (not self.plant or self.opened or self.top_opened):raise ActionRejected('POWER_INTERLOCK')
+   if a['enabled'] and (not self.plant or self.opened or self.top_opened or not self.mains):raise ActionRejected('POWER_INTERLOCK')
    if not a['enabled'] and self.phase=='running':self._stop('POWER_OFF')
+   if a['enabled'] and not self.powered:
+    self.power_epoch+=1;self._power_on_s=self.time_s;self._last_activity_s=self.time_s;self._settle_s=None
+    self.error_shown=next((c for c in TOC_ERRORS if c in self.faults),None)   # a cause still present shows again at power-up
+   if not a['enabled']:self.error_shown=None
+   if not a['enabled']:self._maint_stop();self._shutdown_at=None;self._power_on_s=None;self.sleeping=False;self._restart_at=None
    self.powered=a['enabled'];return {'enabled':self.powered}
   if k=='furnace.configure':
    self._idle()
@@ -268,6 +412,7 @@ class ShimadzuToclRuntime:
   if k=='calibration.select':
    self._idle();key=a['curve_id'];curve=self._curves.get(key)
    if key and (not curve or curve['channel']!=a['channel']):raise ActionRejected('CURVE_CHANNEL_MISMATCH')
+   if key and key in self._extra_curves[a['channel']]:raise ActionRejected('INVALID_ARGUMENT')   # already set in slot 2 or 3
    self._selected[a['channel']]=key;return {'selected':True}
   if k=='calibration.read':
    if a['curve_id'] not in self._curves:raise ActionRejected('UNKNOWN_CURVE')
@@ -309,13 +454,16 @@ class ShimadzuToclRuntime:
   self._curves[a['curve_id']]=dict(result,key=self._key(),observations=copy.deepcopy(a['observations']),source_evidence=source_evidence);return result
  def _start(self):
   self._idle()
+  self._error_gate()
+  if 'cf_card' in self.faults:raise ActionRejected('CF_CARD_ERROR')       # results cannot be stored (service)
+  if self._maint or self._shutdown_at is not None or self.sleeping:raise ActionRejected('BUSY')
   if not self.plant or not self.method or not self.sample:raise ActionRejected('PLANT_METHOD_SAMPLE_REQUIRED')
   if not self.powered or self.opened or self.top_opened or not self.plant['carrier_ready']:raise ActionRejected('GAS_POWER_INTERLOCK')
   if self.method['mode']!='IC' and not self._ready():raise ActionRejected('FURNACE_NOT_READY')
   if self._syringe_v>1e-18 or self._reactor_v>1e-18 or np.any(self._co2>1e-18):raise ActionRejected('DRAIN_CANCELLED_RESIDUE_REQUIRED')
   if len(self._records)>=RESULT_CAPACITY:raise ActionRejected('RESULT_STORE_FULL')
   n=len(self._channels())*self.method['repeats'];source_v=self.method['injection_volume_m3']/self.method['dilution_factor'];diluent=n*(self.method['injection_volume_m3']-source_v);acid=sum(c in ['IC','NPOC'] for c in self._channels())*self.method['repeats']*self.method['acid_volume_m3']
-  if self.sample['volume']+1e-18<n*source_v:raise ActionRejected('SAMPLE_VOLUME_LIMIT')
+  if self.sample['volume']+1e-18<n*source_v*(1+self.washes):raise ActionRejected('SAMPLE_VOLUME_LIMIT')
   if self._diluent_v+1e-18<diluent or self._acid_v+1e-18<acid:raise ActionRejected('REAGENT_VOLUME_LIMIT')
   c=self.sample['concentrations']
   if self.method['mode'] in ['TC','TOC','NPOC'] and float(c.sum())>30:raise ActionRejected('TC_RANGE')
@@ -326,12 +474,18 @@ class ShimadzuToclRuntime:
   if self._run_kind!='blank':
    partition=json.loads(self.sample['partition_evidence']);self._run_assumptions=['sample_'+c+'_partition_is_explicit_host_assumption' for c in partition['assumed_channels']]
    if partition['source_channel']=='TOC' and self.method['mode']=='NPOC':self._run_assumptions.append('source_TOC_conditioned_as_NPOC_is_not_measured_source_NPOC')
-  self._run_curves={c:copy.deepcopy(self._curves.get(self._selected[c])) for c in CHANNELS};self._run_blanks={};self._plan=[(c,i) for i in range(self.method['repeats']) for c in self._channels()];self._index=0;self.assays=[];self._active=None;self._summary=_nulls();self._sd=_nulls();self._cv=_nulls();self._qc=[];self._last_point=None;self._signal=None;self._record_id=None;self.phase='running';self.elapsed_s=0.;self.warning='';self._op_count+=1;self.operation_id=f'{self.instance_id}:measurement:{self._op_count}';self._begin();return dict(phase=self.phase,operation_id=self.operation_id)
+  self._run_curves={c:copy.deepcopy(self._curves.get(self._selected[c])) for c in CHANNELS};self._run_curve_sets={c:[copy.deepcopy(self._curves[i]) for i in self._slot_ids(c) if i in self._curves] for c in CHANNELS};self._run_blanks={};self._plan=[(c,i) for i in range(self.method['repeats']) for c in self._channels()];self._index=0;self.assays=[];self._active=None;self._summary=_nulls();self._sd=_nulls();self._cv=_nulls();self._qc=[];self._last_point=None;self._signal=None;self._record_id=None;self.phase='running';self.elapsed_s=0.;self.warning='';self._op_count+=1;self.operation_id=f'{self.instance_id}:measurement:{self._op_count}';self._begin();return dict(phase=self.phase,operation_id=self.operation_id)
  def _begin(self):
-  c,i=self._plan[self._index];self._channel=c;self._active=dict(channel=c,repeat_index=i,status='running',injection_volume_m3=self._run_method['injection_volume_m3'],original_sample_volume_m3=self._run_method['injection_volume_m3']/self._run_method['dilution_factor'],peak_area_s=0.,concentration_kg_m3=None,quality='not_completed',peak=[],settings_json=json.dumps(self._run_method,sort_keys=True),calibration_json=json.dumps(self._run_curves.get(c),sort_keys=True));self._prebaseline=[];self._enter('baseline')
+  c,i=self._plan[self._index];self._channel=c;self._active=dict(channel=c,repeat_index=i,status='running',injection_volume_m3=self._run_method['injection_volume_m3'],original_sample_volume_m3=self._run_method['injection_volume_m3']/self._run_method['dilution_factor'],peak_area_s=0.,concentration_kg_m3=None,quality='not_completed',peak=[],settings_json=json.dumps(self._run_method,sort_keys=True),calibration_json=json.dumps(self._run_curves.get(c),sort_keys=True));self._prebaseline=[]
+  if self.washes:
+   v=min(self.sample['volume'],self.washes*self._active['original_sample_volume_m3']);self._waste+=self.sample['concentrations']*v;self._waste_v+=v;self.sample['volume']-=v;self._n_strokes+=self.washes
+  self._enter('baseline')
  def _enter(self,stage):
   self.stage=stage;self._stage_elapsed=0.;self._next_detector=None;self._pending_area=0.
   angles={'select_sample':0.,'select_diluent':math.pi/4,'select_reactor':math.pi/2,'select_acid':math.pi,'select_combustion':3*math.pi/4,'select_detector':5*math.pi/4}
+  if stage in angles:self._n_valve+=1
+  if stage=='inject':self._n_strokes+=1
+  elif stage=='combust':self._v_combustion+=self._reactor_v
   if stage in angles:self._target_angle=angles[stage]
   elif stage=='aspirate_sample':self._stage_remaining_v=self._active['original_sample_volume_m3']
   elif stage=='aspirate_diluent':self._stage_remaining_v=self._active['injection_volume_m3']-self._active['original_sample_volume_m3']
@@ -339,12 +493,14 @@ class ShimadzuToclRuntime:
   elif stage in ['baseline','detect']:
    self._detector_start=self.time_s;self._next_detector=self.time_s+self.plant['detector_period_s'];self._baseline_count=0
  def _stop(self,why,failed=False):
+  self._last_activity_s=self.time_s
   self.phase='failed' if failed else 'cancelled';self.stage='idle';self.warning=why;self._next_detector=None
   if self._active:self._active['status']=self.phase;self._active['quality']='incomplete_no_final_concentration'
  def _physical(self,dt):
   if self.plant:
-   eq=self.target if self.powered and not self.opened and not self.top_opened else self.plant['ambient_k'];delta=(eq-self.temperature)*(-math.expm1(-self.plant['furnace_conductance_w_k']/self.plant['furnace_capacity_j_k']*dt));self.temperature+=delta;self.heat+=delta*self.plant['furnace_capacity_j_k']
-   if self.powered and self.plant['carrier_ready']:
+   eq=self.target if self.powered and not self.opened and not self.top_opened and self._shutdown_at is None and not self.sleeping else self.plant['ambient_k'];delta=(eq-self.temperature)*(-math.expm1(-self.plant['furnace_conductance_w_k']/self.plant['furnace_capacity_j_k']*dt));self.temperature+=delta;self.heat+=delta*self.plant['furnace_capacity_j_k']
+   if self.powered:self._t_powered+=dt
+   if self.powered and self.plant['carrier_ready'] and not self.sleeping:
     tail=self._tail*(-math.expm1(-dt/self.plant['transport_tau_s']));self._tail-=tail;self._exhaust+=tail
     if self.phase=='running' and self.stage in ['baseline','detect']:self._pending_area+=float(tail.sum())*self.plant['ndir_gain_s_kg']
   if self.phase!='running':return
@@ -359,13 +515,13 @@ class ShimadzuToclRuntime:
    else:
     carbon=self._syringe*(v/self._syringe_v if self._syringe_v>0 else 0.);self._syringe-=carbon;self._reactor+=carbon;self._syringe_v=max(0.,self._syringe_v-v);self._reactor_v+=v
   elif self.stage=='acidify':
-   v=min(self._acid_v,m['acid_volume_m3']/m['acidification_s']*dt);self._acid_v-=v;self._reactor_v+=v;self._acid_chamber+=v*p['acid_concentration_mol_m3'];self.pump=(self.pump+p['ic_pump_speed_rad_s']*dt)%(2*math.pi)
+   v=min(self._acid_v,m['acid_volume_m3']/m['acidification_s']*dt);self._acid_v-=v;self._reactor_v+=v;self._acid_chamber+=v*p['acid_concentration_mol_m3'];self.pump=(self.pump+p['ic_pump_speed_rad_s']*dt)%(2*math.pi);self._t_ic_pump+=dt
   elif self.stage=='sparge':
    converted=min(self._reactor[0]*(-math.expm1(-p['ic_release_rate_s_inv']*dt)),self._acid_chamber*C_KG_MOL/2);self._reactor[0]-=converted;self._acid_chamber=max(0.,self._acid_chamber-2*converted/C_KG_MOL)
    if self._channel=='IC':self._co2[0]+=converted
    else:
     poc=self._reactor[2]*(-math.expm1(-p['poc_strip_rate_s_inv']*dt));self._reactor[2]-=poc;self._purged[0]+=converted;self._purged[2]+=poc
-   self.pump=(self.pump+p['ic_pump_speed_rad_s']*dt)%(2*math.pi)
+   self.pump=(self.pump+p['ic_pump_speed_rad_s']*dt)%(2*math.pi);self._t_ic_pump+=dt
   elif self.stage=='combust':
    converted=self._reactor*(-math.expm1(-p['conversion_rate_s_inv']*dt));need=float(converted[1:].sum())/C_KG_MOL*p['oxygen_mol_per_oc_mol']
    if need>self._oxygen_remaining and need>0:converted[1:]*=self._oxygen_remaining/need;need=self._oxygen_remaining
@@ -410,6 +566,7 @@ class ShimadzuToclRuntime:
   self._pending_area=0.;self._detector_start=self.time_s;self._next_detector=self.time_s+self.plant['detector_period_s']
  def _finish_aliquot(self):
   q=self._active;q['status']='succeeded';q['quality']='blank' if self._run_kind=='blank' else 'calibration_unavailable';curve=self._run_curves.get(self._channel)
+  if self._run_kind!='blank':curve=self._auto_curve(q,curve)
   if self._run_kind=='blank':self._run_blanks.setdefault(self._channel,[]).append(self._baseline)
   elif curve and curve['key']==self._run_key:
    mass=(np.longdouble(q['peak_area_s'])-curve['intercept_s'])/curve['slope_s_kg'];lo,hi=curve['carbon_mass_range_kg'];tol=max(hi,1e-300)*1e-9;concentration=mass/q['original_sample_volume_m3']
@@ -419,10 +576,21 @@ class ShimadzuToclRuntime:
   self.assays.append(copy.deepcopy(q));self._tail+=self._co2;self._co2[:]=0.;self._waste+=self._reactor;self._reactor[:]=0.;self._waste_v+=self._reactor_v;self._reactor_v=0.;self._acid_chamber=0.;self._active=None;self._index+=1
   if self._index<len(self._plan):self._begin()
   else:
-   self.phase='succeeded';self.stage='idle';self._channel='';self._next_detector=None
+   self.phase='succeeded';self.stage='idle';self._channel='';self._next_detector=None;self._last_activity_s=self.time_s
    if self._run_kind=='blank':
     for c,values in self._run_blanks.items():self._blanks[c]=dict(key=self._run_key,baseline=float(np.mean(values)),replicates=len(values))
    self._aggregate();self._record_id=f'{self.instance_id}:result:{self._op_count}';self._records[self._record_id]=self._result()
+ def _auto_curve(self,q,first):
+  """Automatic selection among the curves set for the channel (brochure p.11): the curve whose calibrated carbon-mass range contains the
+  aliquot's result, the lowest range when several do; the first curve (result flagged out of range) when none does."""
+  cands=[c for c in self._run_curve_sets.get(self._channel,[]) if c['key']==self._run_key]
+  if len(cands)<2:return first
+  inside=[]
+  for c in cands:
+   mass=(np.longdouble(q['peak_area_s'])-c['intercept_s'])/c['slope_s_kg'];lo,hi=c['carbon_mass_range_kg'];tol=max(hi,1e-300)*1e-9
+   if lo-tol<=mass<=hi+tol:inside.append(c)
+  best=min(inside,key=lambda c:c['carbon_mass_range_kg'][1]) if inside else first if first and first['key']==self._run_key else cands[0]
+  q['calibration_json']=json.dumps(best,sort_keys=True);return best
  def _aggregate(self):
   values={c:[q['concentration_kg_m3'] for q in self.assays if q['channel']==c] for c in CHANNELS}
   if self._run_method['mode']=='TOC':values['TOC']=[a-b if a is not None and b is not None else None for a,b in zip(values['TC'],values['IC'])]
@@ -438,6 +606,33 @@ class ShimadzuToclRuntime:
  def step(self,dt_s):
   validate(number('s',0,86400),dt_s)
   if dt_s==0:return self.read()
+  self._fire_timers()                                                     # a sleep that became due while idle (e.g. auto sleep switched on late)
+  end=self.time_s+dt_s
+  while True:                                                              # maintenance end / shutdown power-off split the step exactly
+   cut=min([end]+[t for t in self._timers() if self.time_s<t<end])
+   self._advance(cut-self.time_s);self._fire_timers()
+   if cut>=end:break
+  return self.read()
+ def _sleep_at(self):
+  if not (self.sleep_cfg['auto_sleep'] and self.powered and not self.sleeping and self._shutdown_at is None):return None
+  if self.phase=='running' or self._maint:return self.time_s+self.sleep_cfg['sleep_after_s']   # step in chunks so the sleep after the end is exact
+  return self._last_activity_s+self.sleep_cfg['sleep_after_s']
+ def _timers(self):return [t for t in (self._maint['end_s'] if self._maint else None,self._shutdown_at,self._sleep_at(),self._restart_at if self.sleeping else None) if t is not None]
+ def _fire_timers(self):
+  m=self._maint
+  if m and self.time_s>=m['end_s']-1e-9:
+   if m['item']=='ic_regeneration':self.ic_reagent_level=min(1.,self.ic_reagent_level+IC_REAGENT_STEP)
+   elif m['item']=='syringe_zero':self.syringe_zeroed=True
+   elif m['item']=='tc_blank_check':self.blank_check_area=0.        # carbon-free dilution water: NDIR baseline only, no peak
+   self._maint=None;self._maint_last=dict(item=m['item'],phase='succeeded');self.revision+=1
+  if self._shutdown_at is not None and self.time_s>=self._shutdown_at-1e-9:
+   self._shutdown_at=None;self.powered=False;self._power_on_s=None;self.sleeping=False;self._restart_at=None;self.revision+=1
+  if m and not self._maint:self._last_activity_s=m['end_s']
+  s=self._sleep_at()
+  if s is not None and self.phase!='running' and not self._maint and self.time_s>=s-1e-9:   # analyses done and the set idle time elapsed
+   self.sleeping=True;self._restart_at=self._next_restart() if self.sleep_cfg['auto_restart'] else None;self.revision+=1
+  if self.sleeping and self._restart_at is not None and self.time_s>=self._restart_at-1e-9:self._wake()
+ def _advance(self,dt_s):
   target=self.time_s+dt_s;events=0
   while self.time_s<target-1e-12 or self.phase=='running' and self._due()<=1e-12:
    if self.phase!='running':self._physical(target-self.time_s);self.time_s=target;break
@@ -448,7 +643,143 @@ class ShimadzuToclRuntime:
    if events>2000000:raise RuntimeError('event resource limit')
    if self.time_s>=target-1e-12 and (self.phase!='running' or self._due()>1e-12):break
   if self.time_s<target:self._physical(target-self.time_s);self.time_s=target
-  self.revision+=1;self._archive_operation();return self.read()
+  self.revision+=1;self._archive_operation()
+ # ---- 1.1.0 operating functions and the panel host protocol
+ def _maint_stop(self):
+  if self._maint:self._maint_last=dict(item=self._maint['item'],phase='cancelled');self._maint=None;self._last_activity_s=self.time_s
+ def _next_restart(self):
+  t=math.floor(self.time_s/DAY_S)*DAY_S+self.sleep_cfg['restart_hour']*3600.+self.sleep_cfg['restart_minute']*60.
+  return t if t>self.time_s+1e-9 else t+DAY_S
+ def _wake(self):
+  self.sleeping=False;self._restart_at=None;self._settle_s=self.time_s;self._last_activity_s=self.time_s;self.revision+=1
+ def _counter_totals(self):
+  p=self.plant;return {'valve_operations':float(self._n_valve),'syringe_strokes':float(self._n_strokes),'combustion_injection_m3':self._v_combustion,'acid_used_m3':max(0.,p['acid_volume_m3']-self._acid_v) if p else 0.,'diluent_used_m3':max(0.,p['diluent_volume_m3']-self._diluent_v) if p else 0.,'co2_absorber_s':self._t_powered,'ic_pump_s':self._t_ic_pump}
+ def _monitor(self):
+  on=bool(self.powered and self.plant);flow=CARRIER_FLOW_M3_S if on and self.plant['carrier_ready'] and not self.sleeping else 0.;hot=on and self.target==FURNACE_K and not self.sleeping
+  base=on and not self.sleeping and self._power_on_s is not None and self.time_s-max(self._power_on_s,self._settle_s if self._settle_s is not None else -math.inf)>=BASELINE_SETTLE_S-1e-9
+  near=hot and abs(self.temperature-self.target)<=10.
+  return {'monitor.carrier_flow_m3_s':flow,'monitor.furnace_stable':bool(hot and abs(self.temperature-self.target)<=1.),'monitor.dehumidifier_k':DEHUMIDIFIER_K if on else None,'monitor.baseline_ok':bool(base),'monitor.ready':bool(near and flow>0 and base and not self.opened and not self.top_opened and self._shutdown_at is None)}
+ def _key_values(self):
+  tot=self._counter_totals();cur=self._maint or self._maint_last
+  counters={k:dict(value=max(0.,tot[k]-self._counter_zero[k]),limit=self._counter_limits[k],over=self._counter_limits[k] is not None and tot[k]-self._counter_zero[k]>self._counter_limits[k]+1e-12) for k in COUNTERS}
+  return {'power.mains':self.mains,'power.shutdown_remaining_s':None if self._shutdown_at is None else max(0.,self._shutdown_at-self.time_s),'settings.catalyst':self.catalyst,'settings.syringe_washes':self.washes,'maintenance.phase':'running' if self._maint else self._maint_last['phase'],'maintenance.item':cur['item'],'maintenance.remaining_s':max(0.,self._maint['end_s']-self.time_s) if self._maint else 0.,'maintenance.ic_reagent_level':self.ic_reagent_level,'maintenance.blank_check_area_s':self.blank_check_area,'maintenance.syringe_zeroed':self.syringe_zeroed,'maintenance.counters':counters,**self._monitor(),
+          'calibration.curve_slots':{c:[self._selected[c]]+list(self._extra_curves[c]) for c in CHANNELS},'sleep.settings':dict(self.sleep_cfg),'sleep.active':self.sleeping,'clock.time_of_day_s':self.time_s%DAY_S,'fault.injected':list(self.faults)}
+ def _key_fn(self,k,a):
+  if k=='fault.inject':return self._fault_inject(a['code'])
+  if k=='fault.clear':
+   if a['code'] in self.faults:self.faults.remove(a['code'])
+   return {'injected':list(self.faults)}
+  if k=='power.set_mains':
+   if not a['enabled']:
+    self.error_shown=None
+    if self.phase=='running':self._stop('POWER_OFF')
+    self._maint_stop();self._shutdown_at=None;self.powered=False;self._power_on_s=None;self.sleeping=False;self._restart_at=None
+   self.mains=a['enabled'];return {'enabled':self.mains}
+  if k=='power.shutdown':
+   if not self.powered:raise ActionRejected('POWER_OFF')
+   if self.phase=='running' or self._maint:raise ActionRejected('BUSY')
+   if self._shutdown_at is None:self._shutdown_at=self.time_s+SHUTDOWN_S
+   self.sleeping=False;self._restart_at=None
+   return {'shutdown_s':self._shutdown_at-self.time_s}
+  if k=='settings.configure':
+   self._idle();self.catalyst=a['catalyst'];self.washes=a['syringe_washes'];return {'configured':True}
+  if k=='calibration.set_slot':
+   self._idle();ch,key=a['channel'],a['curve_id'];curve=self._curves.get(key)
+   if key and (not curve or curve['channel']!=ch):raise ActionRejected('CURVE_CHANNEL_MISMATCH')
+   ids=[self._selected[ch]]+list(self._extra_curves[ch])
+   if key and key in [x for i,x in enumerate(ids) if i!=a['slot']-1]:raise ActionRejected('INVALID_ARGUMENT')   # one curve, one slot
+   if a['slot']==1:self._selected[ch]=key
+   else:self._extra_curves[ch]=[key if i==a['slot']-2 else x for i,x in enumerate(self._extra_curves[ch])]
+   return {'selected':True}
+  if k=='sleep.configure':
+   self.sleep_cfg=dict(a,sleep_after_s=float(a['sleep_after_s']))
+   if self.sleeping:self._restart_at=self._next_restart() if a['auto_restart'] else None
+   return {'configured':True}
+  if k=='sleep.restart':
+   if not self.sleeping:raise ActionRejected('NOT_SLEEPING')
+   self._wake();return {'sleeping':False}
+  if k=='maintenance.stop':
+   self._maint_stop();return {'phase':self._maint_last['phase']}
+  if k=='maintenance.reset_counter':
+   self._counter_zero=dict(self._counter_zero,**{a['counter']:self._counter_totals()[a['counter']]});return {'counter':a['counter']}
+  if k=='maintenance.set_counter_limits':
+   self._counter_limits=dict(a);return {'configured':True}
+  if k=='records.clear':
+   self._idle();n=len(self._records);self._records={};return {'removed':n}
+  self._idle()                                                           # maintenance.run / maintenance.tc_blank_check
+  if not self.powered:raise ActionRejected('POWER_OFF')
+  self._error_gate()
+  if self._maint or self._shutdown_at is not None or self.sleeping:raise ActionRejected('BUSY')
+  if self.opened or self.top_opened:raise ActionRejected('GAS_POWER_INTERLOCK')
+  item='tc_blank_check' if k=='maintenance.tc_blank_check' else a['item'];residue=self._syringe_v>1e-18 or self._reactor_v>1e-18 or bool(np.any(self._co2>1e-18))
+  diluent=acid=0.;strokes=valves=0;combustion=0.;pump=0.
+  if item=='bubble_removal':diluent,acid,strokes,valves=BUBBLE_DILUENT_M3,BUBBLE_ACID_M3,2,4
+  elif item=='catalyst_regeneration':
+   if self.target!=FURNACE_K or self.temperature<self.target-10.:raise ActionRejected('OVEN_TEMPERATURE_LOW')
+   acid,strokes,valves,combustion=REGEN_ACID_M3,1,2,REGEN_ACID_M3
+  elif item=='ic_regeneration':pump=MAINT_S[item]
+  elif item=='residue_removal':diluent,strokes,valves=RESIDUE_FLUSH_M3,2,4
+  elif item=='syringe_zero':
+   if self._syringe_v>1e-18:raise ActionRejected('DRAIN_CANCELLED_RESIDUE_REQUIRED')
+   if 'syringe_zero_failed' in self.faults:raise ActionRejected('SYRINGE_ZERO_CORRECTION_FAILED')   # syringe not properly installed
+   strokes=1
+  else:
+   if self.catalyst!='high':raise ActionRejected('CATALYST_NOT_HIGH')
+   if not self.plant['carrier_ready']:raise ActionRejected('GAS_POWER_INTERLOCK')
+   if self.target!=FURNACE_K or abs(self.temperature-self.target)>10.:raise ActionRejected('FURNACE_NOT_READY')
+   if residue:raise ActionRejected('DRAIN_CANCELLED_RESIDUE_REQUIRED')
+   n=a['sets']*BLANK_CHECK_INJECTIONS;volume=(self.method or METHOD_EXAMPLE)['injection_volume_m3'];diluent,strokes,valves,combustion=n*volume,n,5*n,n*volume
+  if self._diluent_v+1e-18<diluent or self._acid_v+1e-18<acid:raise ActionRejected('REAGENT_VOLUME_LIMIT')
+  self._diluent_v-=diluent;self._acid_v-=acid;self._waste_v+=diluent+acid       # carbon-free reagents to waste at the start
+  if item=='residue_removal':                                            # the residue of a cancelled run goes to waste (as fluidics.drain, powered)
+   v=self._syringe_v+self._reactor_v;self._waste_v+=v;self._syringe_v=self._reactor_v=0.;self._waste+=self._syringe+self._reactor;self._syringe[:]=0.;self._reactor[:]=0.;self._tail+=self._co2;self._co2[:]=0.;self._acid_chamber=0.
+  self._n_strokes+=strokes;self._n_valve+=valves;self._v_combustion+=combustion;self._t_ic_pump+=pump
+  duration=MAINT_S[item] if item in MAINT_S else n*BLANK_CHECK_INJECTION_S
+  self._maint=dict(item=item,end_s=self.time_s+duration,owner=self._caller);self._maint_last=dict(item=item,phase='running')
+  return dict(injections=n,duration_s=duration) if item=='tc_blank_check' else dict(item=item,duration_s=duration)
+ @property
+ def panel(self):
+  if '_panel' not in self.__dict__:self.__dict__['_panel']=_panel_ui.PanelUI(PANEL_SPEC,self)
+  return self.__dict__['_panel']
+ def panel_read(self):
+  out=self.read('agent');m=self.method or METHOD_EXAMPLE;recs=list(self._records.items())[::-1][:10]
+  def text(r):
+   c=r['concentrations_kg_m3'];q=r['mode'] if r['mode'] in c and c.get(r['mode']) is not None else next((x for x in QUANTITIES if c.get(x) is not None),None)
+   return '---' if q is None else f'{q} {c[q]*1000.:.3f} mg/L'
+  out.update({'host.error_text':TOC_ERRORS.get(self.error_shown,'') if self.powered else '','host.notice':self._notice()})
+  out.update({'host.powered':bool(self.powered),'host.power_epoch':self.power_epoch,'host.powered_for_s':self.time_s-self._power_on_s if self._power_on_s is not None else 0.,
+              'host.method':dict(m),'host.aliquots':len(['TC','IC'] if m['mode']=='TOC' else [m['mode']])*m['repeats'],'host.ambient_k':self.plant['ambient_k'] if self.plant else 298.15,
+              'host.carrier_ready':bool(self.plant and self.plant['carrier_ready']),'host.record_count':len(self._records),
+              'host.records':[dict(id=i,number=int(i.rsplit(':',1)[-1]) if i.rsplit(':',1)[-1].isdigit() else 0,mode=r['mode'],kind=r['kind'],text=text(r)) for i,r in recs],
+              'host.curves':dict(self._selected),'host.next_curve':{c:self._next_curve(c) for c in CHANNELS},
+              'host.slot_curves':{c:list(self._extra_curves[c]) for c in CHANNELS},'host.next_slot_curve':{c:[self._next_slot_curve(c,s) for s in (2,3)] for c in CHANNELS},
+              'host.restart_hhmm':f"{self.sleep_cfg['restart_hour']:02d}:{self.sleep_cfg['restart_minute']:02d}",
+              'host.counter_over':next((COUNTERS[k][1] for k,v in out['maintenance.counters'].items() if v['over']),None)})
+  return out
+ def _next_slot_curve(self,channel,s):
+  others=[x for i,x in enumerate([self._selected[channel]]+self._extra_curves[channel]) if i!=s-1 and x]
+  ids=[k for k,v in self._curves.items() if v['channel']==channel and k not in others]+['']
+  cur=self._extra_curves[channel][s-2];return ids[(ids.index(cur)+1)%len(ids)] if cur in ids else ids[0]
+ def _next_curve(self,channel):
+  ids=[k for k,v in self._curves.items() if v['channel']==channel and k not in self._extra_curves[channel]]+['']
+  cur=self._selected[channel];return ids[(ids.index(cur)+1)%len(ids)] if cur in ids else ids[0]
+ def panel_invoke(self,capability_id,arguments):
+  try:return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _panel_gesture(self,gesture,*args):
+  try:return dict(accepted=bool(gesture(*args)))
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+ def _cmd_panel(self,k,a):
+  if k=='panel.press':return self._panel_gesture(self.panel.press,a['input_id'],float(a.get('duration_s',.1)),tuple(a.get('held') or ()))
+  if k=='panel.switch':return self._panel_gesture(self.panel.switch,a['input_id'],a['position'],tuple(a.get('held') or ()))
+  if k=='panel.frame':return dict(frame=self.panel.frame())
+  import hashlib,tempfile
+  data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest()
+  d=Path(getattr(self,'panel_capture_dir',None) or Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id)
+  d.mkdir(parents=True,exist_ok=True);path=d/f"{a['display_id']}_{sha[:16]}.png"
+  if not path.exists():path.write_bytes(data)
+  return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
  def _operation_snapshot(self):return dict(protocol_version=PROTOCOL_VERSION,instance_id=self.instance_id,operation_id=self.operation_id,status=self.phase,state_revision=self.revision,clock={'domain':'simulation','time_s':self.time_s},result=self._result(),observations=self.session().read(instance_id=self.instance_id)['observations'],error=dict(code=self.warning,message=self.warning) if self.phase=='failed' else None)
  def _archive_operation(self):
   if self.operation_id and self.phase in ['succeeded','cancelled','failed'] and self.operation_id not in self._operation_records:self._operation_records[self.operation_id]=self._operation_snapshot()
@@ -464,7 +795,7 @@ class ShimadzuToclSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_shimadzu_tocl_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.1',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_shimadzu_tocl_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -480,16 +811,23 @@ class ShimadzuToclSession:
         h=self._host
         try:
             self._target(instance_id)
-            if not isinstance(capability_id,str) or capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role=='agent' and CAPS[capability_id][5]!='agent':raise ActionRejected('ACCESS_DENIED')
+            if not isinstance(capability_id,str) or capability_id not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+            if self._role=='agent' and ALL_CAPS[capability_id][5]!='agent':raise ActionRejected('ACCESS_DENIED')
             if not isinstance(request_id,str) or not request_id:raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id][0],arguments);key=(self._principal,instance_id,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+            if capability_id in PANEL_CAPS:
+                if _panel_ui.check_arguments(PANEL_CAPS[capability_id][0],arguments):raise ActionRejected('INVALID_ARGUMENT')
+            else:validate(ALL_CAPS[capability_id][0],arguments)
+            key=(self._principal,instance_id,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
             if key in h._requests:
                 old,result=h._requests[key]
                 if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(result)
-            result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+            before=h.operation_id;caller,h._caller=h._caller,self._principal   # the owner guards in the runtime see this session (direct and panel)
+            try:result=h.invoke(capability_id,**arguments)
+            finally:h._caller=caller
+            op=result.get('operation_id')
             if op:h._owners[op]=self._principal
+            if capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners.setdefault(h.operation_id,self._principal)   # START on the panel: the presser owns the run
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
         except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
     def write(self,*,instance_id,state_id,value,request_id):
@@ -543,10 +881,19 @@ def export_shimadzu_tocl_contract_metadata():
  observes={'plant.configure':['plant.configured'],'sample.load':['sample.loaded'],'sample.unload':['sample.loaded'],'cover.set':['cover.opened'],'top_cover.set':['top_cover.opened'],'power.set':['power.enabled'],'power.toggle':['power.enabled'],'measurement.start':['measurement.phase'],'measurement.stop':['measurement.phase'],'process.measure':['measurement.phase','measurement.stage','measurement.elapsed_s','measurement.progress','detector.ndir_signal',*results,'safety.warning'],'result.read':['measurement.phase','measurement.stage',*results],'result.export':['measurement.phase','measurement.stage',*results],'peak.read':[],'calibration.list':['storage.curve_count'],'records.list':['storage.result_count'],'product.read':['truth.ledger']}
  for k,(s,u,o,v,c,w) in SLOTS.items():
   mean=k=='detector.ndir_signal' or k in results;slots[k]=dict(meaning_zh=SLOT_ZH[k],component_ids=c,value_schema=copy.deepcopy(s),unit=u,reference_conditions=None,origin=o,visibility=v,access='read_write' if w else 'read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'ShimadzuToclSession.read(state_ids=[{k!r}])'),write_via=dict(capability_id=w[0],argument=w[1],fixed_arguments={}) if w else None,sampling=dict(mode='interval_mean' if mean else 'instant',time_domain='simulation',window_description='NDIR为最近完整检测窗；结果由完整对应峰面积、原注入/稀释和标线换算后按重复平均，TOC窗包括两份独立TC/IC，不是同份燃烧后IC' if mean else None),source_ids=['simulation_assumption'])
- errors=['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','INVALID_REFERENCE','UNREPORTED_SOURCE_CHANNEL','UNKNOWN_CONDITIONS_ACK_REQUIRED','CARBON_PARTITION_REQUIRED','REPORTED_VALUE_OVERRIDE','INCONSISTENT_CARBON_REFERENCE','CARBON_PARTITION_RANGE','PARTITION_ACK_REQUIRED','INITIALIZATION_ONLY','EVIDENCE_ACK_REQUIRED','PLANT_REQUIRED','UNLOAD_REQUIRED','SAMPLE_REQUIRED','RECIPIENT_REQUIRED','POWER_OFF_REQUIRED','COLD_MAINTENANCE_REQUIRED','POWER_INTERLOCK','DILUTION_RANGE','PEAK_WINDOW_RANGE','UNKNOWN_CURVE','UNKNOWN_RECORD','CURVE_CHANNEL_MISMATCH','MATCHED_BLANK_REQUIRED','CURVE_ID_EXISTS','CURVE_STORE_FULL','CALIBRATION_ACK_REQUIRED','REAL_REFERENCE_REQUIRED','SOURCE_CHANNEL_TRANSFER_ACK_REQUIRED','DEGENERATE_CALIBRATION','CALIBRATION_RANGE','PLANT_METHOD_SAMPLE_REQUIRED','GAS_POWER_INTERLOCK','FURNACE_NOT_READY','DRAIN_CANCELLED_RESIDUE_REQUIRED','RESULT_STORE_FULL','SAMPLE_VOLUME_LIMIT','REAGENT_VOLUME_LIMIT','TC_RANGE','IC_RANGE','EVENT_RESOURCE_LIMIT','BUSY','BLANK_COMPOSITION']
- for k,(inp,out,c,z,kind,vis,ex,_) in CAPS.items():
-  query=kind=='query';unsupported=k in UNSUPPORTED;async_=k=='measurement.start';effects=[dict(state_id=state,timing=timing,description_zh={'immediate':'经权限/条件检查的目标、外部液体事件、存储或测量初始化，不推进时钟','on_step':'有限炉温/阀泵/液体与碳转换；NDIR完整采样窗才抽噪声','on_completion':'所有独立aliquot完成后保存全部峰、真实观察换算结果和原方法，完整空白才启用'}[timing]) for timing,mapping in [('immediate',immediate),('on_step',onstep),('on_completion',completion)] for state in mapping.get(k,[])]
-  caps[k]=dict(function_zh=z,kind=kind,visibility=vis,component_ids=c,availability='unsupported' if unsupported else 'implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='absent' if unsupported else 'implemented',scene='absent',robot='absent',hardware='absent',host='absent' if unsupported else 'implemented'),binding=None if unsupported else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.shimadzu_tocl.ShimadzuToclSession.invoke',invocation=f'session.invoke(instance_id="tocl_01",capability_id={k!r},arguments={ex!r},request_id="unique")'),preconditions=[] if query or unsupported else [dict(description_zh='宿主权限、源quantity/未知partition、液体/试剂容量、门盖与680°C、完整空白、标线及结果容量均原子检查',state_ids=['power.enabled','cover.opened','top_cover.opened','furnace.ready','blank.valid','measurement.phase'],enforced_by='runtime',check='Runtime._invoke / host-assigned principal Session')],state_effects=[] if query or unsupported else effects,observes=[] if unsupported else observes.get(k,[]),model_effects=dict(mode='none',description_zh='独立场景绑定另验；查询不动作',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='各独立原样aliquot完成有限液路/预处理/氧化/NDIR峰，随后保存完整结果；峰超时failed保留残料数据' if async_ else '原子返回，不推进时间',completion_state_ids=['measurement.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','aqueous_sample','carbon_free_diluent_acid','finite_oxygen','ndir','result_store_2000','curve_store_60','request_cache'],partial_failure_zh='取消/开门/断电及峰超时保留消费量和部分峰；未完成无浓度，原历史按主体保护；存储满在消费前拒绝'),errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in errors]+([dict(code='NDIR_BASELINE_TIMEOUT',meaning_zh='观察峰未按方法回基线；保留碳/体积仓与已有峰',side_effects='partial')] if async_ else []),example_arguments=copy.deepcopy(ex),verification=[],limitations=LIMITATIONS,source_ids=['manufacturer_primary','simulation_assumption'])
+ errors=['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','INSTRUMENT_ERROR','CF_CARD_ERROR','UNKNOWN_REFERENCE','INVALID_REFERENCE','UNREPORTED_SOURCE_CHANNEL','UNKNOWN_CONDITIONS_ACK_REQUIRED','CARBON_PARTITION_REQUIRED','REPORTED_VALUE_OVERRIDE','INCONSISTENT_CARBON_REFERENCE','CARBON_PARTITION_RANGE','PARTITION_ACK_REQUIRED','INITIALIZATION_ONLY','EVIDENCE_ACK_REQUIRED','PLANT_REQUIRED','UNLOAD_REQUIRED','SAMPLE_REQUIRED','RECIPIENT_REQUIRED','POWER_OFF_REQUIRED','COLD_MAINTENANCE_REQUIRED','POWER_INTERLOCK','DILUTION_RANGE','PEAK_WINDOW_RANGE','UNKNOWN_CURVE','UNKNOWN_RECORD','CURVE_CHANNEL_MISMATCH','MATCHED_BLANK_REQUIRED','CURVE_ID_EXISTS','CURVE_STORE_FULL','CALIBRATION_ACK_REQUIRED','REAL_REFERENCE_REQUIRED','SOURCE_CHANNEL_TRANSFER_ACK_REQUIRED','DEGENERATE_CALIBRATION','CALIBRATION_RANGE','PLANT_METHOD_SAMPLE_REQUIRED','GAS_POWER_INTERLOCK','FURNACE_NOT_READY','DRAIN_CANCELLED_RESIDUE_REQUIRED','RESULT_STORE_FULL','SAMPLE_VOLUME_LIMIT','REAGENT_VOLUME_LIMIT','TC_RANGE','IC_RANGE','EVENT_RESOURCE_LIMIT','BUSY','BLANK_COMPOSITION']
+ new_immediate={'power.set_mains':['power.mains','power.enabled','power.shutdown_remaining_s','maintenance.phase','measurement.phase','safety.warning','monitor.ready'],'power.shutdown':['power.shutdown_remaining_s','monitor.ready'],'settings.configure':['settings.catalyst','settings.syringe_washes'],'maintenance.run':['maintenance.phase','maintenance.item','maintenance.remaining_s','maintenance.counters','syringe.position_m','truth.ledger'],'maintenance.tc_blank_check':['maintenance.phase','maintenance.item','maintenance.remaining_s','maintenance.counters','truth.ledger'],'maintenance.stop':['maintenance.phase'],'maintenance.reset_counter':['maintenance.counters'],'maintenance.set_counter_limits':['maintenance.counters'],'records.clear':['storage.result_count']}
+ new_immediate.update({'fault.inject':['fault.injected','measurement.phase','maintenance.phase'],'fault.clear':['fault.injected']})
+ new_immediate.update({'calibration.set_slot':['calibration.curve_slots','calibration.ready'],'sleep.configure':['sleep.settings'],'sleep.restart':['sleep.active','monitor.carrier_flow_m3_s','monitor.baseline_ok','monitor.ready']})
+ immediate.update(new_immediate);immediate['power.set']=immediate['power.set']+['power.shutdown_remaining_s','maintenance.phase','monitor.ready','sleep.active'];immediate['power.toggle']=immediate['power.set']
+ immediate['calibration.select']=immediate['calibration.select']+['calibration.curve_slots'];immediate['power.set_mains']=immediate['power.set_mains']+['sleep.active'];immediate['power.shutdown']=immediate['power.shutdown']+['sleep.active']
+ onstep['sleep.configure']=['sleep.active','furnace.actual_k','furnace.ready','monitor.carrier_flow_m3_s','monitor.furnace_stable','monitor.baseline_ok','monitor.ready'];onstep['sleep.restart']=['furnace.actual_k','furnace.ready','monitor.furnace_stable','monitor.baseline_ok','monitor.ready']
+ onstep['power.shutdown']=['power.enabled','power.shutdown_remaining_s','furnace.actual_k','monitor.ready','monitor.furnace_stable'];onstep['maintenance.run']=['maintenance.phase','maintenance.remaining_s','maintenance.ic_reagent_level','maintenance.syringe_zeroed'];onstep['maintenance.tc_blank_check']=['maintenance.phase','maintenance.remaining_s','maintenance.blank_check_area_s']
+ for k in ['power.set','power.toggle']:onstep[k]=onstep[k]+['monitor.carrier_flow_m3_s','monitor.furnace_stable','monitor.dehumidifier_k','monitor.baseline_ok','monitor.ready','maintenance.counters']
+ onstep['measurement.start']=onstep['measurement.start']+['maintenance.counters']
+ for k,(inp,out,c,z,kind,vis,ex,_) in ALL_CAPS.items():
+  query=kind=='query';unsupported=k in UNSUPPORTED;async_=k=='measurement.start';new=k in KEY_CAPS or k in PANEL_CAPS;effects=[dict(state_id=state,timing=timing,description_zh={'immediate':'经权限/条件检查的目标、外部液体事件、存储或测量初始化，不推进时钟','on_step':'有限炉温/阀泵/液体与碳转换；NDIR完整采样窗才抽噪声','on_completion':'所有独立aliquot完成后保存全部峰、真实观察换算结果和原方法，完整空白才启用'}[timing]) for timing,mapping in [('immediate',immediate),('on_step',onstep),('on_completion',completion)] for state in mapping.get(k,[])]
+  caps[k]=dict(function_zh=z,kind=kind,visibility=vis,component_ids=c,availability='unsupported' if unsupported else 'implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='absent' if unsupported else 'implemented',scene='absent',robot='absent',hardware='absent',host='absent' if unsupported else 'implemented'),binding=None if unsupported else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.shimadzu_tocl.ShimadzuToclSession.invoke',invocation=f'session.invoke(instance_id="tocl_01",capability_id={k!r},arguments={ex!r},request_id="unique")'),preconditions=[] if query or unsupported else [dict(description_zh='宿主权限、源quantity/未知partition、液体/试剂容量、门盖与680°C、完整空白、标线及结果容量均原子检查',state_ids=['power.enabled','cover.opened','top_cover.opened','furnace.ready','blank.valid','measurement.phase'],enforced_by='runtime',check='Runtime._invoke / host-assigned principal Session')],state_effects=[] if query or unsupported else effects,observes=[] if unsupported else observes.get(k,[]),model_effects=dict(mode='none',description_zh='独立场景绑定另验；查询不动作',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='各独立原样aliquot完成有限液路/预处理/氧化/NDIR峰，随后保存完整结果；峰超时failed保留残料数据' if async_ else '原子返回，不推进时间',completion_state_ids=['measurement.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','aqueous_sample','carbon_free_diluent_acid','finite_oxygen','ndir','result_store_2000','curve_store_60','request_cache'],partial_failure_zh='取消/开门/断电及峰超时保留消费量和部分峰；未完成无浓度，原历史按主体保护；存储满在消费前拒绝'),errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in (NEW_ERRORS[k] if new else errors)]+([dict(code='NDIR_BASELINE_TIMEOUT',meaning_zh='观察峰未按方法回基线；保留碳/体积仓与已有峰',side_effects='partial')] if async_ else []),example_arguments=copy.deepcopy(ex),verification=[],limitations=NEW_LIMITS[k] if new else LIMITATIONS,source_ids=['manufacturer_service','manufacturer_startup_note','manufacturer_catalog','manufacturer_primary','simulation_assumption'] if new else ['manufacturer_primary','simulation_assumption'])
  mech=dict(component_ids=['sample_inlet','syringe_plunger','selector_valve','ic_reactor','ic_pump_rotor','combustion_furnace','ndir_detector'],state_ids=list(slots),meaning_zh='水样独立TC/IC/NPOC进样、酸化吹扫与催化碳转换、NDIR观察标定和完整容量存储',implementation='lumped',equations=['Original aliquot volume=final_injection_volume/dilution; diluent=final_injection_volume-original_volume; acid volume separately conserved.','TC=C_IC+C_NPOC+C_POC after conversion; IC from separately acidified unburned aliquot; pairedTOC=observedTC-observedIC, signed.','NPOC pretreatment removes finite IC and purgeableOC to purge warehouse; remaining carbon feeds catalytic detector, so incomplete stripping can bias NPOC.','First-order conversion/release limited by external oxygen/carbonate-equivalent proton budgets; unconverted carbon retained.','NDIR_mean=baseline+gain_s_kg*released_carbon/window+host_noise; peak_area=sum((NDIR-observed_blank)*window).','Fit area=slope*source_concentration*injection_volume/dilution+intercept; observed_concentration=(area-intercept)/slope/original_aliquot_volume.','Carbon registered=sum(sample,syringe,reactor,CO2buffer,tail,detected_exhaust,purged,liquid_waste,removed), separately for IC/NPOC/POC origins.','Sample+diluent+acid input volume=current liquids+waste+removed; net furnace heat=C*(T-T_initial), no full apparatus energy claim.','Complete result store capacity2000; calibration curve capacity60; no eviction, pure indexed reads and explicit result removal.'],parameters={},source_ids=['manufacturer_primary','simulation_assumption'],limitations=LIMITATIONS)
  spec=importlib.util.spec_from_file_location('_tocl_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'aqueous_carbon_analysis':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.load':(SAMPLE,SAMPLE_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE)})
  for k,v in slots.items():v['meaning_zh']=SLOT_ZH[k]+'；来源='+v['origin']+'；非原厂标定。'

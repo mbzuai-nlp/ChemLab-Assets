@@ -180,5 +180,29 @@ class TestCVD(unittest.TestCase):
         self.assertGreater(h.remaining[0],0);self.assertGreater(h.electric,3e6)
     def test_independent_instances(self):
         h=ready();g=ready();old=g.debug_snapshot();h.invoke('acquisition.start',mode='cvd');h.step(14);self.assertEqual(g.debug_snapshot(),old)
+class FrontPanelCommands(unittest.TestCase):
+    """Controller parameters behind the five keys, PV correction and the MFC selectors (front panel 1.1.0)."""
+    def test_mode_steps_segments_and_sv(self):
+        h=ready();self.assertEqual(h.method['mode'],'program')
+        with self.assertRaisesRegex(ActionRejected,'PROGRAM_MODE'):h.invoke('controller.set_sv',target_k=1073.15)
+        h.invoke('controller.set_steps',steps=3);self.assertEqual(len(h.method['segments']),3);self.assertEqual(h.programs[0]['segments'][2],h.method['segments'][0])
+        h.invoke('controller.set_segment',index=1,target_k=1073.15,ramp_k_s=2/60,hold_s=600.);self.assertEqual(h.method['segments'][1],dict(target_k=1073.15,ramp_k_s=2/60,hold_s=600.))
+        with self.assertRaisesRegex(ActionRejected,'ZERO_RAMP_TRANSITION'):h.invoke('controller.set_segment',index=1,target_k=1000.,ramp_k_s=0.,hold_s=1.)
+        h.invoke('controller.set_mode',mode='fixed');self.assertEqual(len(h.method['segments']),1)
+        h.invoke('controller.set_sv',target_k=1073.15);self.assertEqual(h.method['segments'][0]['target_k'],1073.15)
+        with self.assertRaisesRegex(ActionRejected,'FIXED_ONE_SEGMENT'):h.invoke('controller.set_steps',steps=2)
+        h.invoke('controller.set_mode',mode='program');self.assertEqual(len(h.method['segments']),3)
+        with self.assertRaisesRegex(ActionRejected,'TOTAL_40_STEPS'):
+            for slot in (1,2,3):h.invoke('method.configure',**dict(METHOD_EXAMPLE,curve_slot=slot,segments=METHOD_EXAMPLE['segments']*13))
+    def test_correction_shifts_the_pv_and_the_control(self):
+        h=ready();h.invoke('controller.set_correction',offset_k=50.);x=h.read()
+        self.assertEqual(x['oven.display_k'],round(h.oven+50-273.15)+273.15);self.assertEqual(x['controller.correction_k'],50.)
+        h.invoke('vacuum.set',enabled=True,mode='manual',pressure_pa=30.,manual_valve_fraction=1.);h.invoke('acquisition.start',mode='cvd');h.step(200)
+        self.assertEqual(h.stage,'ramp');self.assertEqual(h.heater,0.)                   # the corrected PV is 50 K above the set point: no heating
+    def test_mfc_selectors(self):
+        h=ready();h.invoke('gas.set_channel',channel=1,mode='close');h.invoke('gas.set_channel',channel=0,mode='purge')
+        h.invoke('vacuum.set',enabled=True,mode='manual',pressure_pa=30.,manual_valve_fraction=1.);h.invoke('acquisition.start',mode='purge');h.step(40)
+        self.assertEqual(h.read()['gas.channel_modes'],['purge','close','control']);self.assertEqual(h.flow[1],0.)
+        self.assertAlmostEqual(h.flow[0],h.gases['full_scale_std_m3_s'][0]*h.gases['actual_gas_factor'][0],places=12)
 if __name__=='__main__':unittest.main()
 

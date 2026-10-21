@@ -1,4 +1,8 @@
-"""B390 open single-nozzle pressure feed; finite gas/materials and explicit assumptions."""
+"""B390 open single-nozzle pressure feed; finite gas/materials and explicit assumptions.
+
+1.1: the touch-screen functions of the control unit (operation manual B-390 version E, screens 6-1 to 6-5): vibration amplitude, stroboscope
+light intensity, STORE (set values loaded at power-up) and the front panel itself (panel.switch / touch / capture / frame; panel_ui.json beside
+the contract, generic engine _panel_ui.py)."""
 from __future__ import annotations
 import copy,importlib.util,json,math
 from pathlib import Path
@@ -41,7 +45,15 @@ cap('acquisition.stop',obj({}),obj({'phase':PHASE}),['display_digits'],'只取�
 cap('encapsulation.measure',obj({}),MEASURE,['display_digits'],'面板理想示值；没有粒径分析传感器','query')
 cap('product.read',obj({}),PRODUCT,['receiving_bath'],'评价器颗粒/凝胶/包封近似和有限账本','query','evaluator')
 cap('product.collect',obj({'fraction':number('1',0,1),'recipient_id':TEXT,'accept_external_filtration':BOOL}),obj({'transferred_payload_kg':number('kg',0),'recipient_id':TEXT}),['receiving_bath'],'停止实际液流并关闭高压后外部过滤取成熟颗粒','device_command','evaluator',dict(fraction=.5,recipient_id='external_assay',accept_external_filtration=True))
+OWNER_GUARDED={'acquisition.stop','vibration.set_frequency','vibration.set_amplitude','vibration.toggle','thermal.set_temperature','thermal.toggle',
+               'electrostatic.set_voltage','electrostatic.toggle'}   # 1.1.2 caller rule: commands that stop or change a running encapsulation
+LEVEL=lambda hi:{'type':'integer','minimum':1,'maximum':hi,'x-unit':'1'};FREE={'type':'object'}
+AMPLITUDE_WINDOW={80e-6:(1,4),120e-6:(1,4),150e-6:(1,3),200e-6:(1,3),300e-6:(1,3),450e-6:(2,5),750e-6:(2,5),.001:(2,6)}   # Table 6-4 (om p.43): amplitude range of a stable bead chain per nozzle
+DEFAULT_STORE=dict(frequency_hz=800.,voltage_v=1000.,temperature_k=313.15,amplitude=3,strobe=5)   # initial set values (amplitude / light: assumption)
 cap('reference.lookup',obj({'substance_id':TEXT}),obj({'molar_mass_kg_mol':number('kg/mol',0),'formula':TEXT,'source':TEXT,'evidence':TEXT,'template_source':TEXT}),['pressure_bottle'],'原始身份/计算分子量参考，不返回虚构包埋率','query',example={'substance_id':'caffeine'})
+cap('vibration.set_amplitude',obj({'level':LEVEL(12)}),obj({'level':LEVEL(12)}),['membrane','vibration_coil'],'振动幅度（强度）等级1–9，频率高于1500 Hz时1–12，按+/-立即生效（screen 6-5）；频率降到1500 Hz及以下时超过9的等级回到9；只改变驱动输出等级，粘性射流破裂效果未建模',example={'level':3})
+cap('strobe.set_intensity',obj({'level':LEVEL(9)}),obj({'level':LEVEL(9)}),['strobe_panel'],'频闪灯亮度等级1–9，立即生效（screen 6-5）；振动运行时频闪与振动频率同步',example={'level':5})
+cap('settings.store',obj({}),obj({'stored':FREE}),['display_digits'],'保存设定值（start menu的store键1秒内按两次，蜂鸣确认，screen 6-1）：频率、电极电压、加热温度、振幅与亮度；控制单元每次通电载入保存值（未保存的修改断电后丢失）')
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,zh,o='derived',v='agent',c='body',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=zh
 for n in ['plant','method','sample','bath','air']:slot(n+'.configured',BOOL,'1',n+'宿主配置','setpoint')
@@ -52,10 +64,67 @@ for n,c in [('vibration','membrane'),('thermal','heater_block'),('electrostatic'
 for k,s,u,zh,c in [('regulator.angle_rad',number('rad',0,2.4),'rad','手动气压阀旋角代理','pressure_regulator'),('valve.angle_rad',number('rad',0,2.4),'rad','管夹阀旋角代理','flow_valve'),('electrode.drop_m',number('m',0,.005),'m','电极相对3mm位置向下调整','electrode'),('membrane.displacement_m',number('m',-2e-5,2e-5),'m','解析高频相位的端点采样，非真实振动动力学','membrane')]:slot(k,s,u,zh,'scene',c=c)
 for k,u,lo,hi,zh in [('panel.frequency_hz','Hz',0,6000,'实际启用频率理想示值'),('panel.pressure_bar','bar',0,1.5,'相对101325Pa的表压'),('panel.temperature_c','degC',0,130,'加热块近旁理想温度，不是喷嘴温度'),('panel.voltage_v','V',0,2500,'实际启用辅助电压理想示值')]:slot(k,number(u,lo,hi),u,zh,c='display_digits')
 slot('cycle.phase',PHASE,'1','宿主排液量观察状态');slot('cycle.stage',TEXT,'1','成滴稳定性/宿主观察阶段')
+slot('vibration.amplitude',LEVEL(12),'1','振动幅度等级设定（1–9；>1500 Hz时1–12）','setpoint',c='membrane',w=('vibration.set_amplitude','level'))
+slot('strobe.intensity',LEVEL(9),'1','频闪灯亮度等级设定（1–9）','setpoint',c='strobe_panel',w=('strobe.set_intensity','level'))
+slot('vibration.drive_level',number('1',0,12),'1','振动驱动输出等级：通电且振动开时=幅度设定，否则0',c='membrane')
+slot('strobe.flash_hz',number('Hz',0,6000),'Hz','频闪闪光频率：通电且振动开时与振动频率同步，否则0',c='strobe_panel')
+slot('settings.stored',FREE,'1','store保存的设定值（通电时载入）','setpoint',c='display_digits')
 slot('truth.nozzle_temperature_k',number('K',273.15,400),'K','喷嘴温度真值非屏幕温度','process_truth','evaluator','nozzle');slot('truth.flow_m3_s',number('m^3/s',0),'m^3/s','实际液体体积流率，不是内置流量计','process_truth','evaluator','nozzle');slot('truth.wavelength_ratio',number('1',0),'1','实际波长除Weber最佳波长','process_truth','evaluator','nozzle');slot('truth.ledger',PRODUCT,'1','有限材料/气体/Ca/热量账本','process_truth','evaluator','receiving_bath')
-class BuchiEncapsulatorbRuntime:
+# ---------------------------------------------------------------- front panel (panel_ui.json beside the contract, generic engine _panel_ui.py)
+ASSET_VERSION='1.1.2';ASSET_DIR=ROOT/'assets/expansion_batch04/t5_automation/buchi_encapsulatorb'
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.buchi_encapsulatorb
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui=_panel_engine()
+PANEL_SPEC=_panel_ui.load_spec(ASSET_DIR/'panel_ui.json',capabilities=set(CAPS)) if (ASSET_DIR/'panel_ui.json').is_file() else None
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+for _k,_d in PANEL_CAPS.items():CAPS[_k]=(_d['input_schema'],_d['output_schema'],_d['component_ids'],_d['function_zh'],_d['kind'],_d['visibility'],_d['example_arguments'])
+
+
+class _B390Panel:
+    """Panel-host protocol of the engine (what the control unit shows) and the panel.* commands."""
+    def panel_time(self):return self.time_s
+    def panel_read(self):
+        out=self.read('agent');out.update({'host.power_epoch':self.power_epoch,'host.pressure_mbar':round(self.pressure/100.),'host.amplitude_max':12 if self.freq_target>1500 else 9})
+        return out
+    def panel_invoke(self,capability_id,arguments):
+        try:
+            validate(CAPS[capability_id][0],arguments);return self.invoke(capability_id,**arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+    def _panel_cmd(self,cap,a):
+        if _panel_ui.check_arguments(CAPS[cap][0],a):raise ActionRejected('INVALID_ARGUMENT')
+        if cap=='panel.frame':return dict(frame=self.panel.frame())
+        if cap=='panel.capture':
+            import hashlib,tempfile
+            data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest()
+            d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True)
+            path=d/f"{a['display_id']}_{sha[:16]}.png"
+            if not path.exists():path.write_bytes(data)
+            return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+        try:
+            if cap=='panel.touch':ok=self.panel.touch(a['display_id'],int(a['x']),int(a['y']),float(a.get('duration_s',.1)),(int(a['to_x']),int(a['to_y'])) if 'to_x' in a else None)
+            else:ok=self.panel.switch(a['input_id'],a['position'])
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        return dict(accepted=bool(ok))
+
+
+class BuchiEncapsulatorbRuntime(_B390Panel):
  def __init__(self,instance_id='encapsulator_01'):
   self.instance_id=instance_id;self.templates={r['substance_id']:r for r in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']};self.plant=self.method=self.sample=self.bath=self.air=None;self.power=False;self.nozzle=.0003;self.p_target=self.reg_angle=self.valve_target=self.valve_angle=0.;self.freq_target=800.;self.frequency=0.;self.vibration=False;self.heating=False;self.hv=False;self.t_target=313.15;self.h_temp=self.n_temp=298.15;self.voltage_target=1000.;self.voltage=0.;self.gap_target=self.gap=.003;self.membrane=self.vib_phase=0.;self.heating_age=0.;self.feed_volume=self.emitted=self.collected_volume=0.;self.initial=[0.,0.,0.];self.feed=[0.,0.,0.];self.bath_material=[0.,0.,0.];self.collected=[0.,0.,0.];self.packets=[];self.ca_initial=self.ca_free=self.ca_collected=0.;self.gas_initial=self.gas_supply=self.gas_bottle=self.gas_vent=0.;self.pressure=self.flow=self.ratio=0.;self.heat_input=self.heat_loss=self.heat_liquid=0.;self.phase='idle';self.stage='idle';self.start_emitted=0.;self.time_s=0.;self.revision=0;self.operation_id='';self._operation_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+  self.amplitude=DEFAULT_STORE['amplitude'];self.strobe=DEFAULT_STORE['strobe'];self.stored=dict(DEFAULT_STORE);self.power_epoch=0;self.panel_capture_dir=None
+  self.panel=_panel_ui.PanelUI(PANEL_SPEC,self) if PANEL_SPEC else None
  def register_principal(self,principal_id,visibility):
   if visibility not in ['agent','debug','evaluator'] or not isinstance(principal_id,str) or not principal_id:raise ActionRejected('INVALID_ARGUMENT')
   if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -71,12 +140,26 @@ class BuchiEncapsulatorbRuntime:
   energy=0. if not self.plant else self.plant['heater_capacity_j_k']*(self.h_temp-self.plant['ambient_k'])+self.plant['nozzle_capacity_j_k']*(self.n_temp-self.plant['ambient_k'])
   p.update(initial_ca_mol=self.ca_initial,free_ca_mol=self.ca_free,bead_ca_mol=sum(x['ca'] for x in self.packets),collected_ca_mol=self.ca_collected,initial_gas_mol=self.gas_initial,supply_gas_mol=self.gas_supply,bottle_gas_mol=self.gas_bottle,vented_gas_mol=self.gas_vent,bead_payload_mol=tot[1]/mw,collected_payload_mol=self.collected[1]/mw,feed_volume_m3=self.feed_volume,emitted_volume_m3=self.emitted,bead_volume_m3=sum(x['volume'] for x in self.packets),collected_volume_m3=self.collected_volume,bead_count=count,mature_bead_count=sum(x['count'] for x in self.packets if x['gel']>=.95),mean_bead_diameter_m=sum(x['d']*x['count'] for x in self.packets)/count if count else 0.,encapsulation_efficiency=(tot[1]+self.collected[1])/max(1e-30,self.initial[1]-self.feed[1]) if self.initial[1]>0 else 0.,thermal_residual_j=energy-self.heat_input+self.heat_loss+self.heat_liquid,evidence='synthetic_bead_gelation_leakage;real_identity_and_manufacturer_conditions;NOT_measured_particle_assay',template_source=TEMPLATE_REL);return p
  def _values(self):
-  v={n+'.configured':bool(getattr(self,n)) for n in ['plant','method','sample','bath','air']};v.update({'power.enabled':self.power,'nozzle.diameter_m':self.nozzle,'air.target_pa':self.p_target,'valve.target_fraction':self.valve_target,'vibration.target_hz':self.freq_target,'thermal.target_k':self.t_target,'electrostatic.target_v':self.voltage_target,'electrode.target_gap_m':self.gap_target,'vibration.enabled':self.vibration,'thermal.enabled':self.heating,'electrostatic.enabled':self.hv,'regulator.angle_rad':self.reg_angle,'valve.angle_rad':self.valve_angle,'electrode.drop_m':self.gap-.003,'membrane.displacement_m':self.membrane,'panel.frequency_hz':self.frequency,'panel.pressure_bar':self.pressure/1e5,'panel.temperature_c':self.h_temp-273.15,'panel.voltage_v':self.voltage,'cycle.phase':self.phase,'cycle.stage':self.stage,'truth.nozzle_temperature_k':self.n_temp,'truth.flow_m3_s':self.flow,'truth.wavelength_ratio':self.ratio,'truth.ledger':self._product()});return v
+  v={n+'.configured':bool(getattr(self,n)) for n in ['plant','method','sample','bath','air']};v.update({'power.enabled':self.power,'nozzle.diameter_m':self.nozzle,'air.target_pa':self.p_target,'valve.target_fraction':self.valve_target,'vibration.target_hz':self.freq_target,'thermal.target_k':self.t_target,'electrostatic.target_v':self.voltage_target,'electrode.target_gap_m':self.gap_target,'vibration.enabled':self.vibration,'thermal.enabled':self.heating,'electrostatic.enabled':self.hv,'regulator.angle_rad':self.reg_angle,'valve.angle_rad':self.valve_angle,'electrode.drop_m':self.gap-.003,'membrane.displacement_m':self.membrane,'panel.frequency_hz':self.frequency,'panel.pressure_bar':self.pressure/1e5,'panel.temperature_c':self.h_temp-273.15,'panel.voltage_v':self.voltage,'cycle.phase':self.phase,'cycle.stage':self.stage,'truth.nozzle_temperature_k':self.n_temp,'truth.flow_m3_s':self.flow,'truth.wavelength_ratio':self.ratio,'truth.ledger':self._product(),'vibration.amplitude':self.amplitude,'strobe.intensity':self.strobe,'vibration.drive_level':float(self.amplitude) if self.power and self.vibration else 0.,'strobe.flash_hz':self.frequency if self.power and self.vibration else 0.,'settings.stored':dict(self.stored)});return v
  def read(self,visibility='agent'):return copy.deepcopy({k:v for k,v in self._values().items() if SLOTS[k][3]=='agent' or visibility in ['debug','evaluator']})
- def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k!='templates'})
+ def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k not in ('templates','panel')})   # the panel holds UI state only
+ def _foreign_run(self,k,a):
+  """Lead rule 10-19 (1.1.2): an agent may not stop or change (vibration, heating, electrostatic set values and keys) another agent's running
+  encapsulation - direct calls and the same commands from the touch screen (the session sets _caller around every call).  The mains switch (and
+  power.set / power.toggle, which model it), the manual air regulator, pinch valve, electrode gap and nozzle are physical and never refused;
+  evaluators and unowned runs are free."""
+  c=self.__dict__.get('_caller')
+  if self.phase!='running' or c is None or self._principals.get(c)!='agent':return False
+  if k not in OWNER_GUARDED:return False
+  o=self._owners.get(self.operation_id);return o is not None and o!=c and self._principals.get(o)=='agent'
  def invoke(self,capability,**a):
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability][0],a)
+  if self._foreign_run(capability,a):raise ActionRejected('ACCESS_DENIED')
+  if capability in PANEL_CAPS:
+   out=self._panel_cmd(capability,a)
+   if CAPS[capability][4]!='query':self.revision+=1
+   return out
   if self.phase=='running' and capability.endswith('.configure'):raise ActionRejected('BUSY')
   if capability=='plant.configure':
    if self.plant or not a['accept_uncalibrated_model']:raise ActionRejected('PRECONDITION_FAILED')
@@ -98,14 +181,27 @@ class BuchiEncapsulatorbRuntime:
    if self.flow>1e-12 or self.pressure>100 or self.hv or self.n_temp>313.15:raise ActionRejected('PRECONDITION_FAILED')
    self.nozzle=a['diameter_m'];out=a
   elif capability in ['power.set','power.toggle']:
-   self.power=a['enabled'] if capability=='power.set' else not self.power;out=dict(enabled=self.power)
+   was=self.power;self.power=a['enabled'] if capability=='power.set' else not self.power;out=dict(enabled=self.power)
+   if self.power and not was:                                                  # power-up: the control unit loads the stored set values
+    st=self.stored;self.freq_target,self.voltage_target,self.t_target,self.amplitude,self.strobe=st['frequency_hz'],st['voltage_v'],st['temperature_k'],st['amplitude'],st['strobe'];self.power_epoch+=1
   elif capability=='air.set_pressure':
    if not self.air:raise ActionRejected('PRECONDITION_FAILED')
    self.p_target=a['gauge_pa'];out=a
   elif capability=='valve.set_opening':
    if not all([self.plant,self.sample,self.air,self.bath]):raise ActionRejected('PRECONDITION_FAILED')
    self.valve_target=a['fraction'];out=a
-  elif capability=='vibration.set_frequency':self.freq_target=a['frequency_hz'];out=a
+  elif capability=='vibration.set_frequency':
+   self.freq_target=a['frequency_hz'];out=a
+   if self.freq_target<=1500 and self.amplitude>9:self.amplitude=9
+  elif capability=='vibration.set_amplitude':
+   if isinstance(a['level'],bool) or not isinstance(a['level'],int):raise ActionRejected('INVALID_ARGUMENT')
+   if a['level']>9 and self.freq_target<=1500:raise ActionRejected('PRECONDITION_FAILED')
+   self.amplitude=a['level'];out=a
+  elif capability=='strobe.set_intensity':
+   if isinstance(a['level'],bool) or not isinstance(a['level'],int):raise ActionRejected('INVALID_ARGUMENT')
+   self.strobe=a['level'];out=a
+  elif capability=='settings.store':
+   self.stored=dict(frequency_hz=self.freq_target,voltage_v=self.voltage_target,temperature_k=self.t_target,amplitude=self.amplitude,strobe=self.strobe);out=dict(stored=dict(self.stored))
   elif capability=='vibration.toggle':self.vibration=not self.vibration;out=dict(enabled=self.vibration)
   elif capability=='thermal.set_temperature':self.t_target=a['temperature_k'];out=a
   elif capability=='thermal.toggle':self.heating=not self.heating;self.heating_age=0.;out=dict(enabled=self.heating)
@@ -153,7 +249,8 @@ class BuchiEncapsulatorbRuntime:
     if self.sample and self.bath and self.air:
      s=self.sample;mu=s['viscosity_pa_s']*math.exp(s['viscosity_activation_k']*(1/self.n_temp-1/p['ambient_k']));resistance=p['line_resistance_pa_s_m3']+128*mu*p['nozzle_length_m']/(math.pi*self.nozzle**4);flow=max(0.,self.pressure-4*s['surface_tension_n_m']/self.nozzle)/resistance*(self.valve_angle/2.4)**2;dv=min(flow*h,max(0.,self.feed_volume-p['dead_volume_m3']));self.flow=dv/h
      if dv>1e-20:
-      velocity=self.flow/(math.pi*self.nozzle**2/4);wavelength=math.pi*math.sqrt(2)*self.nozzle*math.sqrt(1+3*mu/math.sqrt(s['density_kg_m3']*s['surface_tension_n_m']*self.nozzle));self.ratio=velocity/(self.frequency*wavelength) if self.frequency else 0.;stable=self.frequency>0 and .7<=self.ratio<=1.3;frac=1-p['coalescence_loss_fraction']*math.exp(-self.voltage/p['electrostatic_scale_v']) if stable else 0.
+      velocity=self.flow/(math.pi*self.nozzle**2/4);wavelength=math.pi*math.sqrt(2)*self.nozzle*math.sqrt(1+3*mu/math.sqrt(s['density_kg_m3']*s['surface_tension_n_m']*self.nozzle));self.ratio=velocity/(self.frequency*wavelength) if self.frequency else 0.;lo,hi=AMPLITUDE_WINDOW.get(self.nozzle,(1,12));stable=self.frequency>0 and .7<=self.ratio<=1.3 and lo<=self.amplitude<=hi;   # amplitude too low or too high: unstable chain (om p.49)
+      frac=1-p['coalescence_loss_fraction']*math.exp(-self.voltage/p['electrostatic_scale_v']) if stable else 0.
       if self.bath['volume_m3']+self.emitted-self.collected_volume+dv>self.bath['capacity_m3']:
        dv=max(0.,self.bath['capacity_m3']-self.bath['volume_m3']-self.emitted+self.collected_volume);self.flow=dv/h;self.phase='failed';self.stage='host_capacity_guard';self.valve_target=self.valve_angle=0.;frac=0.
       masses=[x*dv/self.feed_volume for x in self.feed]
@@ -187,7 +284,7 @@ class BuchiEncapsulatorbSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_buchi_encapsulatorb_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -217,7 +314,10 @@ class BuchiEncapsulatorbSession:
             old,result=h._requests[key]
             if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
             return copy.deepcopy(result)
-        result=h.invoke(capability_id,**arguments); op=result.get('operation_id')
+        h._caller=self._principal
+        try: result=h.invoke(capability_id,**arguments)
+        finally: h._caller=None
+        op=result.get('operation_id')
         if op: h._owners.setdefault(op,self._principal)
         response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,
           status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
@@ -246,9 +346,18 @@ class BuchiEncapsulatorbSession:
 def export_buchi_encapsulatorb_contract_metadata():
  caps={};slots={}
  for k,(schema,unit,origin,visibility,components,write) in SLOTS.items():slots[k]=dict(meaning_zh=SLOT_ZH[k],component_ids=components,value_schema=copy.deepcopy(schema),unit=unit,reference_conditions=None,origin=origin,visibility=visibility,access='read_write' if write else 'read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'BuchiEncapsulatorbSession.read(state_ids=[{k!r}])'),write_via=dict(capability_id=write[0],argument=write[1],fixed_arguments={}) if write else None,sampling=dict(mode='instant',time_domain='simulation',window_description=None),source_ids=['simulation_assumption'])
- immediate={'plant.configure':['plant.configured','panel.temperature_c','truth.nozzle_temperature_k'],'method.configure':['method.configured'],'sample.configure':['sample.configured','truth.ledger'],'bath.configure':['bath.configured','truth.ledger'],'air.configure':['air.configured','truth.ledger'],'nozzle.configure':['nozzle.diameter_m'],'power.set':['power.enabled'],'power.toggle':['power.enabled'],'air.set_pressure':['air.target_pa'],'valve.set_opening':['valve.target_fraction'],'vibration.set_frequency':['vibration.target_hz'],'vibration.toggle':['vibration.enabled'],'thermal.set_temperature':['thermal.target_k'],'thermal.toggle':['thermal.enabled'],'electrostatic.set_voltage':['electrostatic.target_v'],'electrostatic.toggle':['electrostatic.enabled'],'electrode.set_gap':['electrode.target_gap_m'],'acquisition.start':['cycle.phase','cycle.stage'],'acquisition.stop':['cycle.phase','cycle.stage'],'product.collect':['truth.ledger']}
+ immediate={'plant.configure':['plant.configured','panel.temperature_c','truth.nozzle_temperature_k'],'method.configure':['method.configured'],'sample.configure':['sample.configured','truth.ledger'],'bath.configure':['bath.configured','truth.ledger'],'air.configure':['air.configured','truth.ledger'],'nozzle.configure':['nozzle.diameter_m'],'power.set':['power.enabled','vibration.target_hz','electrostatic.target_v','thermal.target_k','vibration.amplitude','strobe.intensity'],'power.toggle':['power.enabled','vibration.target_hz','electrostatic.target_v','thermal.target_k','vibration.amplitude','strobe.intensity'],'air.set_pressure':['air.target_pa'],'valve.set_opening':['valve.target_fraction'],'vibration.set_frequency':['vibration.target_hz','vibration.amplitude'],'vibration.set_amplitude':['vibration.amplitude'],'strobe.set_intensity':['strobe.intensity'],'settings.store':['settings.stored'],'vibration.toggle':['vibration.enabled'],'thermal.set_temperature':['thermal.target_k'],'thermal.toggle':['thermal.enabled'],'electrostatic.set_voltage':['electrostatic.target_v'],'electrostatic.toggle':['electrostatic.enabled'],'electrode.set_gap':['electrode.target_gap_m'],'acquisition.start':['cycle.phase','cycle.stage'],'acquisition.stop':['cycle.phase','cycle.stage'],'product.collect':['truth.ledger']}
  evolving=[k for k,v in SLOTS.items() if v[2]!='setpoint']
  for k,(inp,out,components,meaning,kind,vis,example) in CAPS.items():
   async_=k=='acquisition.start';query=kind=='query';caps[k]=dict(function_zh=meaning,kind=kind,visibility=vis,component_ids=components,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.buchi_encapsulatorb.BuchiEncapsulatorbSession.invoke',invocation=f'session.invoke(instance_id="encapsulator_01",capability_id={k!r},arguments={example!r},request_id="unique")'),preconditions=[] if query else [dict(description_zh='有限气体/样品/浴容量、接地、手动喷嘴/电极调整限制与权限；容量边界是宿主数值停机非厂家互锁',state_ids=['cycle.phase','power.enabled','truth.flow_m3_s'],enforced_by='runtime',check='BuchiEncapsulatorbRuntime.invoke guards and step capacity guard')],state_effects=[] if query else [dict(state_id=i,timing='immediate',description_zh='配置/目标/宿主观察事务') for i in immediate.get(k,[])]+[dict(state_id=i,timing='on_step',description_zh='有限气体/液体、Weber成滴、固化泄漏、热响应和机械姿态') for i in evolving],observes=[],model_effects=dict(mode='none',description_zh='实际求值后升格',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='宿主观察排液目标达到；必须操作者关闭手动阀，完成不保证粒径/凝胶或流量自动停止' if async_ else '事务完成，不隐式推进宿主时间',completion_state_ids=['cycle.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['finite_sample','finite_gas','finite_calcium','host_clock','principal_request_cache'],partial_failure_zh='取消/目标达到不自动关手动气液阀；已排出材料、凝胶、泄漏和热量保留；物理持续过程仍随step演化'),errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT','UNKNOWN_REFERENCE']],example_arguments=copy.deepcopy(example),verification=[],limitations=['仅标准单喷嘴开放气压供液；没有B395无菌反应器/注射泵/粒径分析仪'],source_ids=['manufacturer_manual','simulation_assumption'])
- mech=dict(component_ids=['pressure_bottle','flow_valve','nozzle','membrane','electrode','receiving_bath','heater_block'],state_ids=list(slots),meaning_zh='理想气体压力供液、Weber振动成滴、有限Ca结合凝胶/载荷扩散泄漏及双节点喷嘴加热',implementation='lumped',equations=['P_absolute=n_gas*R*T/(V_bottle-V_liquid);P_gauge=P_absolute-101325Pa','gas_initial=supply+bottle+vented;regulator transfer limited by finite supply','Q=max(P_gauge-4sigma/D,0)/(R_line+128muL/(piD^4))*valve_fraction^2','lambda_opt=pi*sqrt(2)*D*sqrt(1+3mu/sqrt(rho*sigma*D));lambda_actual=4Q/(piD^2*f)','stable teaching regime:0.7<=lambda_actual/lambda_opt<=1.3;diameter=(6Q/(pi*f))^(1/3)','accepted_fraction=1-coalescence_host*exp(-voltage/scale_host);unstable liquid becomes bath material,not uniform beads','gelation:dg=(1-gel)*(1-exp(-k_host*c_relative*dt)),limited by remainingCa;Ca_free+Ca_beads+Ca_collected=Ca_initial','payload leakage:k=pi^2*D_host/(bead_radius^2)*(1-gel+gel_permeability*gel);leaked_mass transfers to bath','initial_species=feed+beads+bath+collected for polymer,payload,water;payload_moles=kg/PubChem_molar_mass','C_heater*dTh/dt=P_heat-G*(Th-Tn)-Kh*(Th-Ta);C_nozzle*dTn/dt=G*(Th-Tn)-Kn*(Tn-Ta)-Q*rho*cp*(Tn-Ta)','thermal_energy_change=integrated_power-ambient_loss-liquid_sensible_export;receiver thermal state not solved','manual gas/liquid valve continue without electrical power;observer start/stop do NOT auto-pump/shutflow'],parameters={},source_ids=['manufacturer_manual','manufacturer_technical','pubchem_identity','simulation_assumption'],limitations=['50参考仅PubChem计算分子量/身份，8组为同一藻酸盐家族实测条件；没有50种本机实测输出。','标准单300um外观，8喷嘴语义；flow-vibration80um颗粒、同心核壳和2–4mm大胶囊附件未实现。','压力瓶/浴为外部附件，主机320×340×290mm7kg；附件真实质量未知，场景总质量7kg仅数值假设。','150W是整机最大耗电，不作为加热器实际功率；10–80C为现版目标，30–70C旧版保留证据。','气阀时间常数/阻力、液体温黏关系、电分散、Ca结合、固化、扩散/渗透系数均需标定。','Ca结合仅代理，未实现Na/Ca完整离子交换和水凝胶体积收缩；湿珠体积按排出液体近似。','一次step产一连续统计队列，不模拟每个液滴或将计数宣称为整数测量。','膜片仅解析相位端点，不宣称PhysX解析40–6000Hz真实受力或振幅。','标准B390无内置流量、粒径或包封率传感器；粒径/包封结果只给评价器。','容量守卫为宿主数值停止，非厂家自动安全互锁；取消也不代表现实流路停机。','不预测材料相容性、活性/细胞存活、微生物、生物安全、无菌性或实际药物递送效果。'])
+ mech=dict(component_ids=['pressure_bottle','flow_valve','nozzle','membrane','electrode','receiving_bath','heater_block'],state_ids=list(slots),meaning_zh='理想气体压力供液、Weber振动成滴、有限Ca结合凝胶/载荷扩散泄漏及双节点喷嘴加热',implementation='lumped',equations=['P_absolute=n_gas*R*T/(V_bottle-V_liquid);P_gauge=P_absolute-101325Pa','gas_initial=supply+bottle+vented;regulator transfer limited by finite supply','Q=max(P_gauge-4sigma/D,0)/(R_line+128muL/(piD^4))*valve_fraction^2','lambda_opt=pi*sqrt(2)*D*sqrt(1+3mu/sqrt(rho*sigma*D));lambda_actual=4Q/(piD^2*f)','stable teaching regime:0.7<=lambda_actual/lambda_opt<=1.3 and amplitude within the Table 6-4 window of the nozzle (80/120um 1-4, 150-300um 1-3, 450/750um 2-5, 1mm 2-6);diameter=(6Q/(pi*f))^(1/3)','accepted_fraction=1-coalescence_host*exp(-voltage/scale_host);unstable liquid becomes bath material,not uniform beads','gelation:dg=(1-gel)*(1-exp(-k_host*c_relative*dt)),limited by remainingCa;Ca_free+Ca_beads+Ca_collected=Ca_initial','payload leakage:k=pi^2*D_host/(bead_radius^2)*(1-gel+gel_permeability*gel);leaked_mass transfers to bath','initial_species=feed+beads+bath+collected for polymer,payload,water;payload_moles=kg/PubChem_molar_mass','C_heater*dTh/dt=P_heat-G*(Th-Tn)-Kh*(Th-Ta);C_nozzle*dTn/dt=G*(Th-Tn)-Kn*(Tn-Ta)-Q*rho*cp*(Tn-Ta)','thermal_energy_change=integrated_power-ambient_loss-liquid_sensible_export;receiver thermal state not solved','manual gas/liquid valve continue without electrical power;observer start/stop do NOT auto-pump/shutflow'],parameters={},source_ids=['manufacturer_manual','manufacturer_technical','pubchem_identity','simulation_assumption'],limitations=['50参考仅PubChem计算分子量/身份，8组为同一藻酸盐家族实测条件；没有50种本机实测输出。','标准单300um外观，8喷嘴语义；flow-vibration80um颗粒、同心核壳和2–4mm大胶囊附件未实现。','压力瓶/浴为外部附件，主机320×340×290mm7kg；附件真实质量未知，场景总质量7kg仅数值假设。','150W是整机最大耗电，不作为加热器实际功率；10–80C为现版目标，30–70C旧版保留证据。','气阀时间常数/阻力、液体温黏关系、电分散、Ca结合、固化、扩散/渗透系数均需标定。','Ca结合仅代理，未实现Na/Ca完整离子交换和水凝胶体积收缩；湿珠体积按排出液体近似。','一次step产一连续统计队列，不模拟每个液滴或将计数宣称为整数测量。','膜片仅解析相位端点，不宣称PhysX解析40–6000Hz真实受力或振幅。','标准B390无内置流量、粒径或包封率传感器；粒径/包封结果只给评价器。','容量守卫为宿主数值停止，非厂家自动安全互锁；取消也不代表现实流路停机。','不预测材料相容性、活性/细胞存活、微生物、生物安全、无菌性或实际药物递送效果。'])
+ fx=list(dict.fromkeys(e['state_id'] for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for e in caps[c]['state_effects']))
+ for k,d in PANEL_CAPS.items():
+  e=caps[k];e['source_ids']=['manufacturer_manual','simulation_assumption'];e['limitations']=['前面板只调用本运行层的同名能力（没有第二份仪器逻辑）；画面按手册屏幕图以平面控件近似绘制，不是像素级屏幕。']
+  if d['kind']!='query':
+   e['state_effects']=[dict(state_id=i,timing='immediate',description_zh='手势按界面规则调用的能力所改变的状态') for i in fx];e['preconditions']=[dict(description_zh='通电后触摸屏才起作用（断电时只有主开关）；界面规则按panel_ui.json（手册证据）',state_ids=['power.enabled'],enforced_by='runtime',check='panel_ui.json gates')]
+   e['execution']['completion_criterion']='手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看'
+  else:e['preconditions']=[];e['state_effects']=[]
+ for k in ('vibration.set_amplitude','strobe.set_intensity','settings.store'):caps[k]['limitations']=['触屏控制单元功能（screen 6-1、6-5）的最小模型：幅度决定能否形成稳定珠链（手册表6-4各喷嘴的最佳幅度区间，区间外液流/珠链不稳定、液体成为浴中物料，手册p.49），'
+                                                                        '区间内不改变珠径；亮度只作频闪灯等级，不影响成滴/固化模型。']
  spec=importlib.util.spec_from_file_location('_encapsulator_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'encapsulation':mech},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.configure':(SAMPLE,SAMPLE_EXAMPLE)});mech['parameters']={k.lower():v for k,v in mech['parameters'].items()};return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'encapsulation':mech})

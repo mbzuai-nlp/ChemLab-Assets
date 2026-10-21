@@ -1,0 +1,4695 @@
+{
+ "about": "How examples/preview_menu.py builds each instrument's runtime and brings it to its home screen. host: module and class under scripts/, constructor arguments, instance creation and clock rule; bringup: capability calls ('contract_example' = the example arguments in the contract; evaluator = called by the lab/evaluator principal) and advance_s (seconds of simulated time).",
+ "instruments": {
+  "mt_xpr204e": {
+   "asset_type_id": "instrument.mt_xpr204e",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t4_measure/mt_xpr204e/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t4_measure/mt_xpr204e/panel_ui.json",
+   "main_display": "terminal",
+   "host": {
+    "module": "basic40_runtime_measure",
+    "cls": "XPR204ERuntime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_door_left",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "terminal",
+      "x": 400,
+      "y": 240
+     }
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "mt_hx204": {
+   "asset_type_id": "instrument.mt_hx204",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t4_measure/mt_hx204/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t4_measure/mt_hx204/panel_ui.json",
+   "main_display": "terminal",
+   "host": {
+    "module": "asset_runtime.mt_hx204",
+    "cls": "MtHx204Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_onoff",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "antonpaar_dma5002": {
+   "asset_type_id": "instrument.antonpaar_dma5002",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t4_measure/antonpaar_dma5002/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t4_measure/antonpaar_dma5002/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.antonpaar_dma5002",
+    "cls": "AntonpaarDma5002Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 3.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "antonpaar_abbematadvanced": {
+   "asset_type_id": "instrument.antonpaar_abbematadvanced",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t4_measure/antonpaar_abbematadvanced/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t4_measure/antonpaar_abbematadvanced/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.antonpaar_abbematadvanced",
+    "cls": "AntonpaarAbbematadvancedRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 3.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "metrohm_914": {
+   "asset_type_id": "instrument.metrohm_914",
+   "panel_ui": "text_menu",
+   "contract": "assets/basic40_batch02/t4_measure/metrohm_914/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t4_measure/metrohm_914/panel_ui.json",
+   "main_display": "tft",
+   "host": {
+    "module": "basic40_runtime_measure",
+    "cls": "Metrohm914DeviceRuntime",
+    "create": "type",
+    "advance": "host_step_abs"
+   },
+   "bringup": [
+    {
+     "capability": "probe.set_installed",
+     "arguments": {
+      "slot": "ph",
+      "installed": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "probe.set_installed",
+     "arguments": {
+      "slot": "conductance",
+      "installed": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "onoff",
+      "duration_s": 0.1
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 3.0
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "right",
+      "duration_s": 0.1
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 1.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "mt_mp70": {
+   "asset_type_id": "instrument.mt_mp70",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t4_measure/mt_mp70/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t4_measure/mt_mp70/panel_ui.json",
+   "main_display": "terminal",
+   "host": {
+    "module": "asset_runtime.mt_mp70",
+    "cls": "MtMp70Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_power",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "aqualab_4te": {
+   "asset_type_id": "instrument.aqualab_4te",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t4_measure/aqualab_4te/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t4_measure/aqualab_4te/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.aqualab_4te",
+    "cls": "Aqualab4teRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power",
+      "position": "I"
+     }
+    },
+    {
+     "advance_s": 4.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "ika_plate_rctdigital": {
+   "asset_type_id": "instrument.ika_plate_rctdigital",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch05/t4_measure/ika_plate_rctdigital/asset.contract.json",
+   "panel_spec": "assets/expansion_batch05/t4_measure/ika_plate_rctdigital/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.ika_plate_rctdigital",
+    "cls": "IkaPlateRctdigitalRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "on": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "eppendorf_5910ri": {
+   "asset_type_id": "instrument.eppendorf_5910ri",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t3_analytical/eppendorf_5910ri/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t3_analytical/eppendorf_5910ri/panel_ui.json",
+   "main_display": "touch",
+   "host": {
+    "module": "basic40_runtime_analytical",
+    "cls": "Eppendorf5910Ri",
+    "instance_in_ctor": true,
+    "advance": "host_advance_abs",
+    "agent_session_default": true,
+    "evaluator_register_positional": true
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 95.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "binder_fd056": {
+   "asset_type_id": "instrument.binder_fd056",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch05/t4_measure/binder_fd056/asset.contract.json",
+   "panel_spec": "assets/expansion_batch05/t4_measure/binder_fd056/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.binder_fd056",
+    "cls": "BinderFd056Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "on": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "binder_vd56": {
+   "asset_type_id": "instrument.binder_vd56",
+   "panel_ui": "text_menu",
+   "contract": "assets/basic40_batch02/t1_thermal/binder_vd56/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t1_thermal/binder_vd56/panel_ui.json",
+   "main_display": "display",
+   "host": {
+    "module": "basic40_runtime_thermal",
+    "cls": "BinderVD56Runtime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "hach_tl2300epa": {
+   "asset_type_id": "instrument.hach_tl2300epa",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t4_measure/hach_tl2300epa/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t4_measure/hach_tl2300epa/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.hach_tl2300epa",
+    "cls": "HachTl2300epaRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "button_power",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 1800.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "antonpaar_monowave400": {
+   "asset_type_id": "instrument.antonpaar_monowave400",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t5_automation/antonpaar_monowave400/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t5_automation/antonpaar_monowave400/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.antonpaar_monowave400",
+    "cls": "AntonpaarMonowave400Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 30.0
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "screen",
+      "x": 400,
+      "y": 166
+     }
+    },
+    {
+     "advance_s": 2.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "ika_electrasyn2": {
+   "asset_type_id": "instrument.ika_electrasyn2",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch03/t5_automation/ika_electrasyn2/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t5_automation/ika_electrasyn2/panel_ui.json",
+   "main_display": "tft",
+   "host": {
+    "module": "asset_runtime.ika_electrasyn2",
+    "cls": "IkaElectrasyn2Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "cap.set_lift",
+     "arguments": {
+      "lift_m": 0.08
+     }
+    },
+    {
+     "capability": "sample.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "cap.set_lift",
+     "arguments": {
+      "lift_m": 0.0
+     }
+    },
+    {
+     "capability": "electrodes.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_power",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 2.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.turn"
+   ]
+  },
+  "hepatochem_photoredoxbox": {
+   "asset_type_id": "instrument.hepatochem_photoredoxbox",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch03/t5_automation/hepatochem_photoredoxbox/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t5_automation/hepatochem_photoredoxbox/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.hepatochem_photoredoxbox",
+    "cls": "HepatochemPhotoredoxboxRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "lid.set_lift",
+     "arguments": {
+      "lift_m": 0.12
+     }
+    },
+    {
+     "capability": "rack.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "thermal.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "led.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "sample.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "lid.set_lift",
+     "arguments": {
+      "lift_m": 0.0
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "button",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.turn"
+   ]
+  },
+  "parr_4591": {
+   "asset_type_id": "instrument.parr_4591",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/basic40_batch02/t1_thermal/parr_4591/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t1_thermal/parr_4591/panel_ui.json",
+   "main_display": "ptm",
+   "host": {
+    "module": "basic40_runtime_thermal",
+    "cls": "Parr4591Runtime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "syrris_asiadiscovery": {
+   "asset_type_id": "instrument.syrris_asiadiscovery",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch03/t5_automation/syrris_asiadiscovery/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t5_automation/syrris_asiadiscovery/panel_ui.json",
+   "main_display": "pressure_led",
+   "host": {
+    "module": "asset_runtime.syrris_asiadiscovery",
+    "cls": "SyrrisAsiadiscoveryRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "clamp.set_lift",
+     "arguments": {
+      "lift_m": 0.04
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "clamp.set_lift",
+     "arguments": {
+      "lift_m": 0.0
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 8.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "thalesnano_hcube": {
+   "asset_type_id": "instrument.thalesnano_hcube",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t5_automation/thalesnano_hcube/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t5_automation/thalesnano_hcube/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.thalesnano_hcube",
+    "cls": "ThalesnanoHcubeRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "clamp.set_lift",
+     "arguments": {
+      "lift_m": 0.05
+     }
+    },
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "kinetics.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "clamp.set_lift",
+     "arguments": {
+      "lift_m": 0.0
+     }
+    },
+    {
+     "capability": "water_lid.set_lift",
+     "arguments": {
+      "lift_m": 0.03
+     }
+    },
+    {
+     "capability": "water.fill",
+     "arguments": {
+      "volume_m3": 0.0001,
+      "conductivity_s_m": 1e-06
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "water_lid.set_lift",
+     "arguments": {
+      "lift_m": 0.0
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "I"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "radleys_mya4": {
+   "asset_type_id": "instrument.radleys_mya4",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t1_thermal/radleys_mya4/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t1_thermal/radleys_mya4/panel_ui.json",
+   "main_display": "pad",
+   "host": {
+    "module": "basic40_runtime_thermal",
+    "cls": "RadleysMya4Runtime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "station_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "ika_rv10_digital_v": {
+   "asset_type_id": "instrument.ika_rv10_digital_v",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/basic40_batch02/t2_vacuum/ika_rv10/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t2_vacuum/ika_rv10/panel_ui.json",
+   "main_display": "drive",
+   "host": {
+    "module": "basic40_runtime_vacuum",
+    "cls": "RV10Host",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "on_off_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 3.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "buchi_lyovapor_l250_pro": {
+   "asset_type_id": "instrument.buchi_lyovapor_l250_pro",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t2_vacuum/buchi_lyovapor_l250/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t2_vacuum/buchi_lyovapor_l250/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "basic40_runtime_vacuum",
+    "cls": "LyovaporHost",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "master_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "buchi_minispray": {
+   "asset_type_id": "instrument.buchi_minispray",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t2_vacuum/buchi_minispray/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t2_vacuum/buchi_minispray/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.buchi_minispray",
+    "cls": "BuchiMinisprayRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "master",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "buchi_speedextractore": {
+   "asset_type_id": "instrument.buchi_speedextractore",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch03/t2_vacuum/buchi_speedextractore/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t2_vacuum/buchi_speedextractore/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.buchi_speedextractore",
+    "cls": "BuchiSpeedextractoreRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "gilson_cpc250": {
+   "asset_type_id": "instrument.gilson_cpc250",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t2_vacuum/gilson_cpc250/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t2_vacuum/gilson_cpc250/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.gilson_cpc250",
+    "cls": "GilsonCpc250Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example"
+    },
+    {
+     "capability": "sample.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_power",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 30.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "biotage_extrahera_classic": {
+   "asset_type_id": "instrument.biotage_extrahera_classic",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t2_vacuum/biotage_extrahera/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t2_vacuum/biotage_extrahera/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "basic40_runtime_vacuum",
+    "cls": "ExtraheraHost",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 35.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "sft_sft110": {
+   "asset_type_id": "instrument.sft_sft110",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch03/t2_vacuum/sft_sft110/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t2_vacuum/sft_sft110/panel_ui.json",
+   "main_display": "pressure_led",
+   "host": {
+    "module": "asset_runtime.sft_sft110",
+    "cls": "SftSft110Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "syrris_asiafllex": {
+   "asset_type_id": "instrument.syrris_asiafllex",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch03/t2_vacuum/syrris_asiafllex/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t2_vacuum/syrris_asiafllex/panel_ui.json",
+   "main_display": "display",
+   "host": {
+    "module": "asset_runtime.syrris_asiafllex",
+    "cls": "SyrrisAsiaFllexRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.select",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "biotage_selekt": {
+   "asset_type_id": "instrument.biotage_selekt",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t2_vacuum/biotage_selekt/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t2_vacuum/biotage_selekt/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.biotage_selekt",
+    "cls": "BiotageSelektRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "switch_power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 25.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "genevac_mivac2": {
+   "asset_type_id": "instrument.genevac_mivac2",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch03/t2_vacuum/genevac_mivac2/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t2_vacuum/genevac_mivac2/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.genevac_mivac2",
+    "cls": "GenevacMivac2Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "rotor.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": {
+      "temperature_k": 313.15,
+      "heating_time_s": 300.0,
+      "duration_s": 600.0,
+      "timeout_s": 86400.0,
+      "program": "other",
+      "target_pressure_pa": 1000.0,
+      "endpoint_remaining_fraction": 0.0
+     }
+    },
+    {
+     "capability": "sample.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "lid.set_open",
+     "arguments": {
+      "open": false
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 3.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "retsch_pm100": {
+   "asset_type_id": "instrument.retsch_pm100",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch03/t1_thermal/retsch_pm100/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/retsch_pm100/panel_ui.json",
+   "main_display": "kd",
+   "host": {
+    "module": "asset_runtime.retsch_pm100",
+    "cls": "RetschPm100Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example"
+    },
+    {
+     "capability": "lid.set",
+     "arguments": {
+      "angle_rad": 1.55
+     }
+    },
+    {
+     "advance_s": 5.0
+    },
+    {
+     "capability": "sample.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "mount.configure",
+     "arguments": {
+      "clamped": true,
+      "balanced": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "lid.set",
+     "arguments": {
+      "angle_rad": 0.0
+     }
+    },
+    {
+     "advance_s": 5.0
+    },
+    {
+     "capability": "settings.configure",
+     "arguments": {
+      "language": "English"
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "main_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "retsch_as200": {
+   "asset_type_id": "instrument.retsch_as200",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch03/t1_thermal/retsch_as200/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/retsch_as200/panel_ui.json",
+   "main_display": "amplitude",
+   "host": {
+    "module": "asset_runtime.retsch_as200",
+    "cls": "RetschAs200Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example"
+    },
+    {
+     "capability": "sample.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "cover.set",
+     "arguments": {
+      "lift_m": 0.0
+     }
+    },
+    {
+     "advance_s": 2.0
+    },
+    {
+     "capability": "mount.configure",
+     "arguments": {
+      "clamped": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "main_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 2.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "sonics_vcx750": {
+   "asset_type_id": "instrument.sonics_vcx750",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch03/t1_thermal/sonics_vcx750/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/sonics_vcx750/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.sonics_vcx750",
+    "cls": "SonicsVcx750Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_on",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "thinky_are310s": {
+   "asset_type_id": "instrument.thinky_are310s",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch03/t1_thermal/thinky_are310s/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/thinky_are310s/panel_ui.json",
+   "main_display": "panel",
+   "host": {
+    "module": "asset_runtime.thinky_are310s",
+    "cls": "ThinkyAre310sRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "I"
+     }
+    },
+    {
+     "advance_s": 2.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "metrohm_909uv": {
+   "asset_type_id": "instrument.metrohm_909uv",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch03/t1_thermal/metrohm_909uv/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/metrohm_909uv/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.metrohm_909uv",
+    "cls": "Metrohm909uvRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "start",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "multiwave_7101": {
+   "asset_type_id": "instrument.multiwave_7101",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t1_thermal/multiwave_7101/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t1_thermal/multiwave_7101/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "basic40_runtime_thermal",
+    "cls": "Multiwave7101Runtime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 30.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "velp_udk159": {
+   "asset_type_id": "instrument.velp_udk159",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t1_thermal/velp_udk159/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/velp_udk159/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.velp_udk159",
+    "cls": "VelpUdk159Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "sample.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "stocks.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "coolant.set",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_selector",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "library.select",
+     "arguments": {
+      "index": 1
+     }
+    },
+    {
+     "capability": "tube.set_clamped",
+     "arguments": {
+      "clamped": true
+     }
+    },
+    {
+     "advance_s": 1.0
+    },
+    {
+     "capability": "door.set_open",
+     "arguments": {
+      "open": false
+     }
+    },
+    {
+     "advance_s": 1.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "malvern_leneo": {
+   "asset_type_id": "instrument.malvern_leneo",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t1_thermal/malvern_leneo/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/malvern_leneo/panel_ui.json",
+   "main_display": "touchscreen",
+   "host": {
+    "module": "asset_runtime.malvern_leneo",
+    "cls": "MalvernLeneoRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "sample.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_power",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 2.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "buchi_encapsulatorb": {
+   "asset_type_id": "instrument.buchi_encapsulatorb",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t5_automation/buchi_encapsulatorb/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/buchi_encapsulatorb/panel_ui.json",
+   "main_display": "touch",
+   "host": {
+    "module": "asset_runtime.buchi_encapsulatorb",
+    "cls": "BuchiEncapsulatorbRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "ossila_spincoater": {
+   "asset_type_id": "instrument.ossila_spincoater",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch04/t5_automation/ossila_spincoater/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/ossila_spincoater/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.ossila_spincoater",
+    "cls": "OssilaSpincoaterRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "start",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "ossila_dipcoater": {
+   "asset_type_id": "instrument.ossila_dipcoater",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t5_automation/ossila_dipcoater/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/ossila_dipcoater/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.ossila_dipcoater",
+    "cls": "OssilaDipcoaterRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 3.0
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "ossila_doctorblade": {
+   "asset_type_id": "instrument.ossila_doctorblade",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t5_automation/ossila_doctorblade/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/ossila_doctorblade/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.ossila_doctorblade",
+    "cls": "OssilaDoctorbladeRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 3.0
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "gauge_left_on",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "gauge_right_on",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 1.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "ossila_slotdie": {
+   "asset_type_id": "instrument.ossila_slotdie",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t5_automation/ossila_slotdie/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/ossila_slotdie/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.ossila_slotdie",
+    "cls": "OssilaSlotdieRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 3.0
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "ok",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "gauge_left_on",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "gauge_right_on",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 1.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "thermo_process11": {
+   "asset_type_id": "instrument.thermo_process11",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t5_automation/thermo_process11/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/thermo_process11/panel_ui.json",
+   "main_display": "hmi",
+   "host": {
+    "module": "asset_runtime.thermo_process11",
+    "cls": "ThermoProcess11Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example"
+    },
+    {
+     "capability": "material.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "coolant.set_connected",
+     "arguments": {
+      "connected": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "isolator",
+      "position": "1"
+     }
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "hmi",
+      "x": 400,
+      "y": 300
+     }
+    },
+    {
+     "advance_s": 1.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "linari_rtadvanced": {
+   "asset_type_id": "instrument.linari_rtadvanced",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t5_automation/linari_rtadvanced/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/linari_rtadvanced/panel_ui.json",
+   "main_display": "tablet",
+   "host": {
+    "module": "asset_runtime.linari_rtadvanced",
+    "cls": "LinariRtadvancedRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "collector.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "solution.load",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "vent.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "door.set",
+     "arguments": {
+      "opened": false
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "main_switch",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "tablet",
+      "x": 512,
+      "y": 118
+     }
+    },
+    {
+     "advance_s": 2.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "cytiva_nanoassemblrignite": {
+   "asset_type_id": "instrument.cytiva_nanoassemblrignite",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t5_automation/cytiva_nanoassemblrignite/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/cytiva_nanoassemblrignite/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.cytiva_nanoassemblrignite",
+    "cls": "CytivaNanoassemblrigniteRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "switch_power",
+      "position": "I"
+     }
+    },
+    {
+     "advance_s": 15.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "quorum_q150tes": {
+   "asset_type_id": "instrument.quorum_q150tes",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t5_automation/quorum_q150tes/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/quorum_q150tes/panel_ui.json",
+   "main_display": "touch",
+   "host": {
+    "module": "asset_runtime.quorum_q150tes",
+    "cls": "QuorumQ150tesRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "source.install",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "samples.load",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "chamber.set",
+     "arguments": {
+      "opened": false
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "laboao_cvdltf12p50": {
+   "asset_type_id": "instrument.laboao_cvdltf12p50",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch04/t5_automation/laboao_cvdltf12p50/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t5_automation/laboao_cvdltf12p50/panel_ui.json",
+   "main_display": "pv",
+   "host": {
+    "module": "asset_runtime.laboao_cvdltf12p50",
+    "cls": "LaboaoCvdltf12p50Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "gas.install",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "sample.install",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example"
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "jasco_p4200": {
+   "asset_type_id": "instrument.jasco_p4200",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t3_analytical/jasco_p4200/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t3_analytical/jasco_p4200/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.jasco_p4200",
+    "cls": "JascoP4200Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "hach_dr6000": {
+   "asset_type_id": "instrument.hach_dr6000",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t3_analytical/hach_dr6000/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t3_analytical/hach_dr6000/panel_ui.json",
+   "main_display": "touch",
+   "host": {
+    "module": "basic40_runtime_analytical",
+    "cls": "HachDR6000",
+    "instance_in_ctor": true,
+    "advance": null
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 170.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "shimadzu_tocl": {
+   "asset_type_id": "instrument.shimadzu_tocl",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch03/t3_analytical/shimadzu_tocl/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t3_analytical/shimadzu_tocl/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.shimadzu_tocl",
+    "cls": "ShimadzuToclRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "milestone_dma80": {
+   "asset_type_id": "instrument.milestone_dma80",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t3_analytical/milestone_dma80/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t3_analytical/milestone_dma80/panel_ui.json",
+   "main_display": "terminal",
+   "host": {
+    "module": "asset_runtime.milestone_dma80",
+    "cls": "MilestoneDma80Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "eco_ncld822": {
+   "asset_type_id": "instrument.eco_ncld822",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t3_analytical/eco_ncld822/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t3_analytical/eco_ncld822/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.eco_ncld822",
+    "cls": "EcoNcld822Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "switch_power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 900.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "agilent_gc8890b": {
+   "asset_type_id": "instrument.agilent_gc8890b",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t3_analytical/agilent_gc8890b/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t3_analytical/agilent_gc8890b/panel_ui.json",
+   "main_display": "touch",
+   "host": {
+    "module": "basic40_runtime_analytical",
+    "cls": "AgilentGC8890B",
+    "instance_in_ctor": true,
+    "advance": "host_step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 40.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "thermo_dionexintegrion": {
+   "asset_type_id": "instrument.thermo_dionexintegrion",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t3_analytical/thermo_dionexintegrion/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t3_analytical/thermo_dionexintegrion/panel_ui.json",
+   "main_display": "tablet",
+   "host": {
+    "module": "asset_runtime.thermo_dionexintegrion",
+    "cls": "ThermoDionexintegrionRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example"
+    },
+    {
+     "capability": "sample.load",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 11.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "gas_flavourspec25gc": {
+   "asset_type_id": "instrument.gas_flavourspec25gc",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t3_analytical/gas_flavourspec25gc/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t3_analytical/gas_flavourspec25gc/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.gas_flavourspec25gc",
+    "cls": "GasFlavourspec25gcRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example"
+    },
+    {
+     "capability": "sample.load",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 30.0
+    },
+    {
+     "capability": "gas.set",
+     "arguments": {
+      "enabled": true
+     }
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "metrohm_899": {
+   "asset_type_id": "instrument.metrohm_899",
+   "panel_ui": "text_menu",
+   "contract": "assets/basic40_batch02/t4_measure/metrohm_899/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t4_measure/metrohm_899/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "basic40_runtime_measure",
+    "cls": "Metrohm899DeviceHost",
+    "create": "plain",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "back",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "knauer_k7400s": {
+   "asset_type_id": "instrument.knauer_k7400s",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t4_measure/knauer_k7400s/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t4_measure/knauer_k7400s/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.knauer_k7400s",
+    "cls": "KnauerK7400sRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 303.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "agilent_hs8697": {
+   "asset_type_id": "instrument.agilent_hs8697",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t3_analytical/agilent_hs8697/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t3_analytical/agilent_hs8697/panel_ui.json",
+   "main_display": "gc_touch",
+   "host": {
+    "module": "basic40_runtime_analytical",
+    "cls": "AgilentHS8697",
+    "instance_in_ctor": true,
+    "advance": null
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 25.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "antonpaar_ultrapyc5000": {
+   "asset_type_id": "instrument.antonpaar_ultrapyc5000",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t4_measure/antonpaar_ultrapyc5000/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t4_measure/antonpaar_ultrapyc5000/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.antonpaar_ultrapyc5000",
+    "cls": "AntonpaarUltrapyc5000Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.home",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "ta_dsc2500": {
+   "asset_type_id": "instrument.ta_dsc2500",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t1_thermal/ta_dsc2500/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/ta_dsc2500/panel_ui.json",
+   "main_display": "touchscreen",
+   "host": {
+    "module": "asset_runtime.ta_dsc2500",
+    "cls": "TaDsc2500Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "gas.load",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "I"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "ta_tga5500": {
+   "asset_type_id": "instrument.ta_tga5500",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t1_thermal/ta_tga5500/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/ta_tga5500/panel_ui.json",
+   "main_display": "touchscreen",
+   "host": {
+    "module": "asset_runtime.ta_tga5500",
+    "cls": "TaTga5500Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "gas.load",
+     "arguments": {
+      "gas": "N2",
+      "amount_mol": 0.1,
+      "reference_temperature_k": 298.15,
+      "reference_pressure_pa": 101325.0,
+      "accept_reference_conditions": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "gas.load",
+     "arguments": {
+      "gas": "O2",
+      "amount_mol": 0.1,
+      "reference_temperature_k": 298.15,
+      "reference_pressure_pa": 101325.0,
+      "accept_reference_conditions": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "I"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "ta_dma850": {
+   "asset_type_id": "instrument.ta_dma850",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/ta_dma850/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/ta_dma850/panel_ui.json",
+   "main_display": "touchscreen",
+   "host": {
+    "module": "asset_runtime.ta_dma850",
+    "cls": "TaDma850Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "gas.load",
+     "arguments": {
+      "gas": "air",
+      "amount_mol": 100.0,
+      "reference_temperature_k": 298.15,
+      "reference_pressure_pa": 101325.0,
+      "accept_reference_conditions": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "gas.load",
+     "arguments": {
+      "gas": "N2",
+      "amount_mol": 100.0,
+      "reference_temperature_k": 298.15,
+      "reference_pressure_pa": 101325.0,
+      "accept_reference_conditions": true
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "power_button",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "ta_tma450": {
+   "asset_type_id": "instrument.ta_tma450",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/ta_tma450/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/ta_tma450/panel_ui.json",
+   "main_display": "touchscreen",
+   "host": {
+    "module": "asset_runtime.ta_tma450",
+    "cls": "TaTma450Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "gas.load",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "I"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "antonpaar_mcr503": {
+   "asset_type_id": "instrument.antonpaar_mcr503",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/antonpaar_mcr503/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/antonpaar_mcr503/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.antonpaar_mcr503",
+    "cls": "AntonpaarMcr503Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "geometry.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "lakeshore_measurereadym91": {
+   "asset_type_id": "instrument.lakeshore_measurereadym91",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/lakeshore_measurereadym91/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/lakeshore_measurereadym91/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.lakeshore_measurereadym91",
+    "cls": "LakeShoreMeasurereadyM91Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "geometry.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "thermal.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "field.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "sample.load",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "power_button",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "signatone_quadpro2": {
+   "asset_type_id": "instrument.signatone_quadpro2",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/signatone_quadpro2/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/signatone_quadpro2/panel_ui.json",
+   "main_display": "smu_screen",
+   "host": {
+    "module": "asset_runtime.signatone_quadpro2",
+    "cls": "SignatoneQuadpro2Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "home_key",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "smu_screen",
+      "x": 400,
+      "y": 240
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "shimadzu_ags10knxd": {
+   "asset_type_id": "instrument.shimadzu_ags10knxd",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t1_thermal/shimadzu_ags10knxd/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/shimadzu_ags10knxd/panel_ui.json",
+   "main_display": "vfd",
+   "host": {
+    "module": "asset_runtime.shimadzu_ags10knxd",
+    "cls": "ShimadzuAgs10knxdRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "zwick_hit5p": {
+   "asset_type_id": "instrument.zwick_hit5p",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/zwick_hit5p/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/zwick_hit5p/panel_ui.json",
+   "main_display": "touch",
+   "host": {
+    "module": "asset_runtime.zwick_hit5p",
+    "cls": "ZwickHit5pRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "fixture.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "shield.set_open",
+     "arguments": {
+      "opened": false
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 1.0
+    },
+    {
+     "capability": "pendulum.raise",
+     "arguments": {},
+     "evaluator": true
+    },
+    {
+     "advance_s": 3.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "zwick_mflow": {
+   "asset_type_id": "instrument.zwick_mflow",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/zwick_mflow/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/zwick_mflow/panel_ui.json",
+   "main_display": "touch",
+   "host": {
+    "module": "asset_runtime.zwick_mflow",
+    "cls": "ZwickMflowRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "balance.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "method.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "ametek_oxtran": {
+   "asset_type_id": "instrument.ametek_oxtran",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/ametek_oxtran/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/ametek_oxtran/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.ametek_oxtran",
+    "cls": "AmetekOxtranRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "mt_rc1mxhfcal": {
+   "asset_type_id": "instrument.mt_rc1mxhfcal",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t1_thermal/mt_rc1mxhfcal/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t1_thermal/mt_rc1mxhfcal/panel_ui.json",
+   "main_display": "touchscreen",
+   "host": {
+    "module": "asset_runtime.mt_rc1mxhfcal",
+    "cls": "MtRc1mxhfcalRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "reactor.charge",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_power",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 60.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "ika_c6000": {
+   "asset_type_id": "instrument.ika_c6000",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t1_thermal/ika_c6000/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t1_thermal/ika_c6000/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.ika_c6000",
+    "cls": "IkaC6000Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "mains_switch",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "jeol_jsmit200": {
+   "asset_type_id": "instrument.jeol_jsmit200",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t3_analytical/jeol_jsmit200/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t3_analytical/jeol_jsmit200/panel_ui.json",
+   "main_display": "monitor_screen",
+   "host": {
+    "module": "asset_runtime.jeol_jsmit200",
+    "cls": "JeolJsmit200Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "main_power",
+      "position": "START"
+     }
+    },
+    {
+     "advance_s": 61.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "jeol_jem1400flash": {
+   "asset_type_id": "instrument.jeol_jem1400flash",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch04/t3_analytical/jeol_jem1400flash/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t3_analytical/jeol_jem1400flash/panel_ui.json",
+   "main_display": "tem_center",
+   "host": {
+    "module": "asset_runtime.jeol_jem1400flash",
+    "cls": "JeolJem1400flashRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_beam_blank",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "tem_center",
+      "x": 640,
+      "y": 400
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "airlock_lever",
+      "position": "PUMP"
+     }
+    },
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    },
+    {
+     "capability": "panel.turn",
+     "arguments": {
+      "input_id": "knob_brightness",
+      "detents": 1
+     }
+    },
+    {
+     "capability": "panel.turn",
+     "arguments": {
+      "input_id": "knob_brightness",
+      "detents": -1
+     }
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "bruker_x4poseidon": {
+   "asset_type_id": "instrument.bruker_x4poseidon",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t3_analytical/bruker_x4poseidon/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t3_analytical/bruker_x4poseidon/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.bruker_x4poseidon",
+    "cls": "BrukerX4PoseidonRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "button_mains",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 61.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "biotek_405ts": {
+   "asset_type_id": "instrument.biotek_405ts",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t4_measure/biotek_405ts/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t4_measure/biotek_405ts/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.biotek_405ts",
+    "cls": "Biotek405tsRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "buffer.load",
+     "arguments": {
+      "bottle": "A",
+      "liquid_id": "water_0_1pct_tween20",
+      "volume_m3": 0.004
+     }
+    },
+    {
+     "capability": "buffer.load",
+     "arguments": {
+      "bottle": "B",
+      "liquid_id": "water_0_1pct_tween20",
+      "volume_m3": 0.004
+     }
+    },
+    {
+     "capability": "buffer.load",
+     "arguments": {
+      "bottle": "C",
+      "liquid_id": "water_0_1pct_tween20",
+      "volume_m3": 0.004
+     }
+    },
+    {
+     "capability": "buffer.load",
+     "arguments": {
+      "bottle": "D",
+      "liquid_id": "water_0_1pct_tween20",
+      "volume_m3": 0.004
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "power",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "biorad_miniprotean": {
+   "asset_type_id": "instrument.biorad_miniprotean",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch03/t4_measure/biorad_miniprotean/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t4_measure/biorad_miniprotean/panel_ui.json",
+   "main_display": "display",
+   "host": {
+    "module": "asset_runtime.biorad_miniprotean",
+    "cls": "BioradMiniproteanRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "switch_power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "thermo_ibrightfl1500": {
+   "asset_type_id": "instrument.thermo_ibrightfl1500",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch03/t4_measure/thermo_ibrightfl1500/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t4_measure/thermo_ibrightfl1500/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.thermo_ibrightfl1500",
+    "cls": "ThermoIbrightFl1500Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 300.0
+    },
+    {
+     "capability": "settings.configure",
+     "arguments": {
+      "sleep_mode": false
+     }
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "screen",
+      "x": 382,
+      "y": 548
+     }
+    },
+    {
+     "advance_s": 1.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "eppendorf_cellxpertc170i": {
+   "asset_type_id": "instrument.eppendorf_cellxpertc170i",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t4_measure/eppendorf_cellxpertc170i/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t4_measure/eppendorf_cellxpertc170i/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.eppendorf_cellxpertc170i",
+    "cls": "EppendorfCellxpertC170iRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "switch_mains",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 600.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "biorad_cfxopus": {
+   "asset_type_id": "instrument.biorad_cfxopus",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t4_measure/biorad_cfxopus/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t4_measure/biorad_cfxopus/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.biorad_cfxopus",
+    "cls": "BioradCfxOpusRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "switch_power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 15.0
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "screen",
+      "x": 512,
+      "y": 120
+     }
+    },
+    {
+     "advance_s": 1.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "wtw_oxitopi": {
+   "asset_type_id": "instrument.wtw_oxitopi",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t4_measure/wtw_oxitopi/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t4_measure/wtw_oxitopi/panel_ui.json",
+   "main_display": "h1_lcd",
+   "host": {
+    "module": "asset_runtime.wtw_oxitopi",
+    "cls": "WtwOxitopiRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "h1_m",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "h2_m",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "h3_m",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "h4_m",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "h5_m",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "h6_m",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "head.set_system",
+     "arguments": {
+      "head": "h1",
+      "switch_off_s": 540.0
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "head.set_system",
+     "arguments": {
+      "head": "h2",
+      "switch_off_s": 540.0
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "head.set_system",
+     "arguments": {
+      "head": "h3",
+      "switch_off_s": 540.0
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "head.set_system",
+     "arguments": {
+      "head": "h4",
+      "switch_off_s": 540.0
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "head.set_system",
+     "arguments": {
+      "head": "h5",
+      "switch_off_s": 540.0
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "head.set_system",
+     "arguments": {
+      "head": "h6",
+      "switch_off_s": 540.0
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 1.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "mt_quantos_q2_xpe206dr": {
+   "asset_type_id": "instrument.mt_quantos_q2_xpe206dr",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t5_automation/mt_quantos_q2/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t5_automation/mt_quantos_q2/panel_ui.json",
+   "main_display": "terminal",
+   "host": {
+    "module": "basic40_runtime_automation",
+    "cls": "QuantosQ2Runtime",
+    "create": "scene",
+    "advance": "host_step_dt_world"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "on_off",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "opentrons_flex_single_5_1000ul": {
+   "asset_type_id": "instrument.opentrons_flex_single_5_1000ul",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t5_automation/opentrons_flex/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t5_automation/opentrons_flex/panel_ui.json",
+   "main_display": "touchscreen",
+   "host": {
+    "module": "basic40_runtime_automation",
+    "cls": "OpentronsFlexRuntime",
+    "create": "type",
+    "advance": "host_set_clock_abs"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 3.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "azenta_automated_roll_heat_sealer_a4s": {
+   "asset_type_id": "instrument.azenta_automated_roll_heat_sealer_a4s",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t5_automation/azenta_heat_sealer/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t5_automation/azenta_heat_sealer/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "basic40_runtime_automation",
+    "cls": "AzentaHeatSealerRuntime",
+    "create": "scene",
+    "advance": "host_step_dt_world"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 30.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "azenta_intellixcap_s1_46_0001": {
+   "asset_type_id": "instrument.azenta_intellixcap_s1_46_0001",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/basic40_batch02/t5_automation/azenta_intellixcap_s1/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t5_automation/azenta_intellixcap_s1/panel_ui.json",
+   "main_display": "all",
+   "host": {
+    "module": "basic40_runtime_automation",
+    "cls": "IntelliXcapS1Runtime",
+    "create": "plain",
+    "advance": "host_step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "alicat_mc_1slpm_rev6": {
+   "asset_type_id": "instrument.alicat_mc_1slpm_rev6",
+   "panel_ui": "text_menu",
+   "contract": "assets/basic40_batch02/t5_automation/alicat_mc/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t5_automation/alicat_mc/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "basic40_runtime_automation",
+    "cls": "AlicatMCRuntime",
+    "create": "type",
+    "advance": "host_step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "bronkhorst_p702cv_5bar_gauge_n2": {
+   "asset_type_id": "instrument.bronkhorst_p702cv_5bar_gauge_n2",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/basic40_batch02/t5_automation/bronkhorst_p702cv/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t5_automation/bronkhorst_p702cv/panel_ui.json",
+   "main_display": "all",
+   "host": {
+    "module": "basic40_runtime_automation",
+    "cls": "P702CVRuntime",
+    "ctor": {
+     "upstream_volume_m3": 0.001,
+     "temperature_K": 293.15,
+     "initial_upstream_absolute_pressure_Pa": 301325.0,
+     "downstream_absolute_pressure_Pa": 101325.0,
+     "inflow_mol_s": 0.0001,
+     "valve_conductance_mol_s_Pa": 1e-08,
+     "pressure_reference_Pa": 101325.0,
+     "control_gain_per_Pa_s": 1e-06
+    },
+    "instance_in_ctor": true,
+    "advance": "step_dt_world"
+   },
+   "bringup": [
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch"
+   ]
+  },
+  "vici_euta_2sd6mwe": {
+   "asset_type_id": "instrument.vici_euta_2sd6mwe",
+   "panel_ui": "text_menu",
+   "contract": "assets/basic40_batch02/t5_automation/vici_euta/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t5_automation/vici_euta/panel_ui.json",
+   "main_display": "remote_display",
+   "host": {
+    "module": "basic40_runtime_automation",
+    "cls": "ViciEutaValveRuntime",
+    "instance_in_ctor": true,
+    "advance": "vici_set_time",
+    "host_is_session": true
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "up",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "newera_ne1000": {
+   "asset_type_id": "instrument.newera_ne1000",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch05/t5_automation/newera_ne1000/asset.contract.json",
+   "panel_spec": "assets/expansion_batch05/t5_automation/newera_ne1000/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.newera_ne1000",
+    "cls": "NeweraNe1000Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "on": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "nabertherm_l9": {
+   "asset_type_id": "instrument.nabertherm_l9",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t1_thermal/nabertherm_l9/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t1_thermal/nabertherm_l9/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "basic40_runtime_thermal",
+    "cls": "NaberthermL9Runtime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "I"
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "carbolite_tf1_12_60_300": {
+   "asset_type_id": "instrument.carbolite_tf1_12_60_300",
+   "panel_ui": "text_menu",
+   "contract": "assets/basic40_batch02/t1_thermal/carbolite_tf1/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t1_thermal/carbolite_tf1/panel_ui.json",
+   "main_display": "display",
+   "host": {
+    "module": "basic40_runtime_thermal",
+    "cls": "CarboliteTF1Runtime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "instrument_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 8.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "julabo_corio_cd200f": {
+   "asset_type_id": "instrument.julabo_corio_cd200f",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/basic40_batch02/t1_thermal/julabo_corio_cd200f/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t1_thermal/julabo_corio_cd200f/panel_ui.json",
+   "main_display": "display",
+   "host": {
+    "module": "basic40_runtime_thermal",
+    "cls": "JulaboCorioCD200FRuntime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_down",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "vacuubrand_pc3001_vario_select": {
+   "asset_type_id": "instrument.vacuubrand_pc3001_vario_select",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t2_vacuum/vacuubrand_pc3001/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t2_vacuum/vacuubrand_pc3001/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "basic40_runtime_vacuum",
+    "cls": "VacuumHost",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "rocker",
+      "position": "I"
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "onoff",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 31.0
+    },
+    {
+     "capability": "panel.touch",
+     "arguments": {
+      "display_id": "screen",
+      "x": 240,
+      "y": 483
+     }
+    },
+    {
+     "advance_s": 2.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "inert_purelab_he_2gb": {
+   "asset_type_id": "instrument.inert_purelab_he_2gb",
+   "panel_ui": "touchscreen",
+   "contract": "assets/basic40_batch02/t2_vacuum/inert_purelab_he/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t2_vacuum/inert_purelab_he/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "basic40_runtime_vacuum",
+    "cls": "InertPureLabHost",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "main_power",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.touch",
+    "panel.turn"
+   ]
+  },
+  "elga_purelab_flex3": {
+   "asset_type_id": "instrument.elga_purelab_flex3",
+   "panel_ui": "text_menu",
+   "contract": "assets/basic40_batch02/t2_vacuum/elga_purelab_flex3/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t2_vacuum/elga_purelab_flex3/panel_ui.json",
+   "main_display": "handset",
+   "host": {
+    "module": "basic40_runtime_vacuum",
+    "cls": "PurelabHost",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_supply",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 2.0
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_accept",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_accept",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 2.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "miele_plw6111": {
+   "asset_type_id": "instrument.miele_plw6111",
+   "panel_ui": "text_menu",
+   "contract": "assets/basic40_batch02/t1_thermal/miele_plw6111/asset.contract.json",
+   "panel_spec": "assets/basic40_batch02/t1_thermal/miele_plw6111/panel_ui.json",
+   "main_display": "display",
+   "host": {
+    "module": "basic40_runtime_thermal",
+    "cls": "MielePLW6111Runtime",
+    "create": "type",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_stop",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "enabled": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "tuttnauer_3870elvd": {
+   "asset_type_id": "instrument.tuttnauer_3870elvd",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch03/t2_vacuum/tuttnauer_3870elvd/asset.contract.json",
+   "panel_spec": "assets/expansion_batch03/t2_vacuum/tuttnauer_3870elvd/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.tuttnauer_3870elvd",
+    "cls": "TuttnauerElvdRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "main_switch",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "esco_ac24s8": {
+   "asset_type_id": "instrument.esco_ac24s8",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t2_vacuum/esco_ac24s8/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t2_vacuum/esco_ac24s8/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.esco_ac24s8",
+    "cls": "EscoAc24s8Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "key_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "inficon_ul1000fab": {
+   "asset_type_id": "instrument.inficon_ul1000fab",
+   "panel_ui": "text_menu",
+   "contract": "assets/expansion_batch04/t2_vacuum/inficon_ul1000fab/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t2_vacuum/inficon_ul1000fab/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.inficon_ul1000fab",
+    "cls": "InficonUl1000fabRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "mains",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 181.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press"
+   ]
+  },
+  "peak_precisionhydrogen": {
+   "asset_type_id": "instrument.peak_precisionhydrogen",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t2_vacuum/peak_precisionhydrogen/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t2_vacuum/peak_precisionhydrogen/panel_ui.json",
+   "main_display": "hmi",
+   "host": {
+    "module": "asset_runtime.peak_precisionhydrogen",
+    "cls": "PeakPrecisionhydrogenRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "mains_switch",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 400.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.touch"
+   ]
+  },
+  "eppendorf_cryocubef570n": {
+   "asset_type_id": "instrument.eppendorf_cryocubef570n",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch04/t2_vacuum/eppendorf_cryocubef570n/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t2_vacuum/eppendorf_cryocubef570n/panel_ui.json",
+   "main_display": "display",
+   "host": {
+    "module": "asset_runtime.eppendorf_cryocubef570n",
+    "cls": "EppendorfCryocubef570nRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "battery_switch",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "mains_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.lock",
+    "panel.press",
+    "panel.switch",
+    "panel.unlock"
+   ]
+  },
+  "binder_kbf115": {
+   "asset_type_id": "instrument.binder_kbf115",
+   "panel_ui": "touchscreen",
+   "contract": "assets/expansion_batch04/t2_vacuum/binder_kbf115/asset.contract.json",
+   "panel_spec": "assets/expansion_batch04/t2_vacuum/binder_kbf115/panel_ui.json",
+   "main_display": "screen",
+   "host": {
+    "module": "asset_runtime.binder_kbf115",
+    "cls": "BinderKbf115Runtime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.set",
+     "arguments": {
+      "on": true
+     },
+     "evaluator": true
+    },
+    {
+     "advance_s": 150.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.switch",
+    "panel.touch"
+   ]
+  },
+  "esco_efa5uduvw": {
+   "asset_type_id": "instrument.esco_efa5uduvw",
+   "panel_ui": "parameter_cycle",
+   "contract": "assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/asset.contract.json",
+   "panel_spec": "assets/expansion_batch05/t2_vacuum/esco_efa5uduvw/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.esco_efa5uduvw",
+    "cls": "EscoEfa5uduvwRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "exhaust.configure",
+     "arguments": {
+      "mode": "blower",
+      "blower_speed": 0.9
+     },
+     "evaluator": true
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "fan_switch",
+      "position": "on"
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "light_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 30.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "agilent_7890b_ssl_fid": {
+   "asset_type_id": "instrument.agilent_7890b_ssl_fid",
+   "panel_ui": "text_menu",
+   "contract": "assets/GC7890B/asset.contract.json",
+   "panel_spec": "assets/GC7890B/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.agilent_7890b_ssl_fid",
+    "cls": "GC7890BRuntime",
+    "instance_in_ctor": true,
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "power.connect_mains",
+     "arguments": {
+      "connected": true
+     }
+    },
+    {
+     "capability": "gas.connect",
+     "arguments": {
+      "gas": "carrier",
+      "connected": true
+     }
+    },
+    {
+     "capability": "gas.connect",
+     "arguments": {
+      "gas": "hydrogen",
+      "connected": true
+     }
+    },
+    {
+     "capability": "gas.connect",
+     "arguments": {
+      "gas": "air",
+      "connected": true
+     }
+    },
+    {
+     "capability": "gas.connect",
+     "arguments": {
+      "gas": "makeup",
+      "connected": true
+     }
+    },
+    {
+     "capability": "panel.switch",
+     "arguments": {
+      "input_id": "power_switch",
+      "position": "on"
+     }
+    },
+    {
+     "advance_s": 1500.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch"
+   ]
+  },
+  "ohaus_px224e": {
+   "asset_type_id": "instrument.ohaus_px224e",
+   "panel_ui": "text_menu",
+   "contract": "assets/PX224E/asset.contract.json",
+   "panel_spec": "assets/PX224E/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.ohaus_balance",
+    "cls": "OhausBalanceRuntime",
+    "ctor": {
+     "model": "PX224E"
+    },
+    "instance_kw": "instance_id",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "plant.configure",
+     "arguments": "contract_example",
+     "evaluator": true
+    },
+    {
+     "capability": "power.connect_adapter",
+     "arguments": {
+      "connected": true
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_zero",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 10.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  },
+  "ohaus_spx2201": {
+   "asset_type_id": "instrument.ohaus_spx2201",
+   "panel_ui": "text_menu",
+   "contract": "assets/SPX2201/asset.contract.json",
+   "panel_spec": "assets/SPX2201/panel_ui.json",
+   "main_display": "lcd",
+   "host": {
+    "module": "asset_runtime.ohaus_balance",
+    "cls": "OhausBalanceRuntime",
+    "ctor": {
+     "model": "SPX2201"
+    },
+    "instance_kw": "instance_id",
+    "advance": "step_dt"
+   },
+   "bringup": [
+    {
+     "capability": "power.connect_adapter",
+     "arguments": {
+      "connected": true
+     }
+    },
+    {
+     "capability": "panel.press",
+     "arguments": {
+      "input_id": "key_zero",
+      "duration_s": 0.1
+     }
+    },
+    {
+     "advance_s": 5.0
+    }
+   ],
+   "panel_capabilities": [
+    "panel.capture",
+    "panel.frame",
+    "panel.press",
+    "panel.switch",
+    "panel.turn"
+   ]
+  }
+ }
+}

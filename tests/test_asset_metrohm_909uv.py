@@ -42,7 +42,9 @@ class Tests(unittest.TestCase):
  def test_interruption_pauses_fan(self):
   r=prepared();r.invoke('acquisition.start');r.step(1);r.invoke('power.interrupt');r.step(10);self.assertAlmostEqual(r.cooldown,600);self.assertFalse(r.read()['fan.running']);r.invoke('power.set',enabled=True);r.step(10);self.assertAlmostEqual(r.cooldown,590)
  def test_host_guard(self):
-  r=prepared();r.invoke('acquisition.start');self.reject(r,'shield.set_open',open=True);self.reject(r,'power.set',enabled=False)
+  r=prepared();r.invoke('acquisition.start');self.reject(r,'shield.set_open',open=True)
+  r.step(1);r.invoke('power.set',enabled=False);self.assertEqual(r.phase,'cancelled');self.assertFalse(r.powered)   # mains switch: a power loss (1.2.1)
+  r.step(10);self.assertAlmostEqual(r.cooldown,600);r.invoke('power.set',enabled=True);r.step(10);self.assertAlmostEqual(r.cooldown,590)
  def test_sensor_fault(self):
   r=prepared();r.invoke('acquisition.start');r.step(1);r.invoke('sensor.set_connected',connected=False);self.assertEqual(r.phase,'failed');self.assertIsNone(r.indicated());r.step(600);self.reject(r,'fault.acknowledge');r.invoke('sensor.set_connected',connected=True);r.invoke('fault.acknowledge')
  def test_overtemp(self):

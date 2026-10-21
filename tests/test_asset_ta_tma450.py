@@ -152,6 +152,25 @@ class TestTMA450(unittest.TestCase):
   h=setup();run(h);meta=h.describe();self.assertEqual(set(h.read()),set(meta['state_slots']))
   for key,value in h.read().items():rt.validate(meta['state_slots'][key]['value_schema'],value)
   json.dumps(h.read(),allow_nan=False);json.dumps(call(h,'acquisition.result'),allow_nan=False);self.assertEqual(meta['catalog_id'],'CHEM-134');self.assertEqual(meta['asset_type_id'],'instrument.ta_tma450')
+ def test_40b_touch_screen_probe_calibration_zero_force(self):
+  h=rt.TaTma450Runtime('cal');call(h,'plant.configure',**dict(rt.PLANT_EXAMPLE,force_offset_n=.003));call(h,'power.set',enabled=True);step(h,.5);self.assertAlmostEqual(h.read()['force.indicated_n'],.003,places=12)
+  self.rejected(h,'probe.calibrate','PROBE_MISMATCH',kind='penetration')
+  r=call(h,'probe.calibrate',kind='expansion');self.assertAlmostEqual(r['force_zero_n'],.003,places=12);self.assertEqual(h.read()['probe.calibrated'],'expansion');self.assertAlmostEqual(h.read()['force.indicated_n'],0.,places=12)
+  call(h,'probe.select',kind='penetration');self.assertIsNone(h.read()['probe.calibrated']);call(h,'load.deadweight',force_n=.1);self.rejected(h,'probe.calibrate','STAGE_NOT_EMPTY',kind='penetration')
+ def test_40d_force_calibration_with_weights_corrects_load_cell_errors(self):
+  h=rt.TaTma450Runtime('fcal');call(h,'plant.configure',**rt.PLANT_EXAMPLE);call(h,'power.set',enabled=True);call(h,'sensor.configure_error',force_gain_error=.1,force_offset_n=.02)
+  def weigh(g):call(h,'load.deadweight',force_n=g/1000*rt.G_N);step(h,2.)
+  weigh(100);self.assertAlmostEqual(h.read()['force.indicated_n'],1.1*.0980665*10+.02,places=6)          # uncalibrated: gain and zero errors show
+  self.rejected(h,'force_calibration.capture','FORCE_CAL_ORDER',point='first',mass_g=50);self.rejected(h,'force_calibration.capture','FORCE_CAL_WEIGHT',point='zero',mass_g=5);self.rejected(h,'force_calibration.save','FORCE_CAL_ORDER')
+  weigh(0);self.assertEqual(call(h,'force_calibration.capture',point='zero',mass_g=0)['step'],'first')
+  weigh(50);self.rejected(h,'force_calibration.capture','FORCE_CAL_WEIGHT',point='first',mass_g=5);call(h,'force_calibration.capture',point='first',mass_g=50)
+  weigh(100);self.rejected(h,'force_calibration.capture','FORCE_CAL_WEIGHT',point='second',mass_g=40);r=call(h,'force_calibration.capture',point='second',mass_g=100)
+  self.assertEqual(r['step'],'result');self.assertTrue(r['passed']);self.assertAlmostEqual(r['slope'],1.1,places=6);self.assertAlmostEqual(r['offset_n'],.02,places=6);self.assertEqual(h.read()['force_calibration.state'],r)
+  call(h,'force_calibration.save');self.assertEqual(h.read()['force_calibration.state']['step'],'saved');step(h,.1);self.assertAlmostEqual(h.read()['force.indicated_n'],.980665,places=6)   # calibrated
+  weigh(0);self.assertAlmostEqual(h.read()['force.indicated_n'],0.,places=6)
+  call(h,'force_calibration.capture',point='zero',mass_g=0);weigh(50);call(h,'force_calibration.capture',point='first',mass_g=50);weigh(100);r=call(h,'force_calibration.capture',point='second',mass_g=60)   # wrong weight declared
+  self.assertFalse(r['passed']);self.rejected(h,'force_calibration.save','FORCE_CAL_FAILED');self.assertEqual(call(h,'force_calibration.abort')['step'],'zero');self.assertAlmostEqual(h.calibration['force_gain_correction'],1/1.1,places=6)
+  h2=setup(instance='fcal_sample');self.rejected(h2,'force_calibration.capture','STAGE_NOT_EMPTY',point='zero',mass_g=0);cleanup(h2)
  def test_41_preconfiguration_and_cold_manual_interlocks(self):
   h=rt.TaTma450Runtime();h.step(0);call(h,'sim.step',dt_s=.1);self.assertIsNone(h.plant);self.rejected(h,'power.set','NOT_CONFIGURED',enabled=True);call(h,'plant.configure',**rt.PLANT_EXAMPLE);self.rejected(h,'probe.move','POWER_OFF',position_m=.02);call(h,'power.set',enabled=True);call(h,'furnace.set',opened=False);self.rejected(h,'sample.load','MECHANISM_MOVING',**rt.SAMPLE_EXAMPLE)
  def test_42_force_and_cte_analysis_not_ground_truth_answers(self):
@@ -199,4 +218,21 @@ class TestTMA450(unittest.TestCase):
   self.assertAlmostEqual(h._length(343.15),.005*(1+a*(343.15-plan['ambient'])),places=16);self.rejected(h,'method.configure','REFERENCE_TEMPERATURE_RANGE',**dict(plan['method'],segments=[dict(plan['method']['segments'][0],target_temperature_k=380.)]))
   r=LIB['nist_cryo_teflon'];x,y=source_arrays(r);i=list(x).index(293.)
   coeffs=[float(r['raw_values']['pieces'][0]['published_cells'][q].replace(' ','')) for q in 'abcde'];self.assertAlmostEqual(y[i],1e-5*sum(c*293.**n for n,c in enumerate(coeffs)),places=15)
+ def test_49_heater_start_check_and_length_on_the_device_reading(self):
+  # One error model: the heater and the start check act on the device's own temperature reading; the sample length is the LVDT reading
+  ideal=setup();call(ideal,'thermal.set_temperature',temperature_k=320.,rate_k_s=1.);step(ideal,600.);shown=ideal.read()['furnace.indicated_k'];self.assertAlmostEqual(ideal.furnace,shown,places=9)
+  for plant,cal,shift in [({'temperature_offset_k':2.},{},-2.),({},{'temperature_zero_k':2.},2.)]:
+   h=setup(plant=plant);call(h,'sensor.calibrate',**dict(h.calibration,**cal));call(h,'thermal.set_temperature',temperature_k=320.,rate_k_s=1.);step(h,600.)
+   self.assertAlmostEqual(h.read()['furnace.indicated_k'],shown,delta=.01);self.assertAlmostEqual(h.furnace-ideal.furnace,shift,delta=.02)
+  h=setup();call(h,'sensor.calibrate',**dict(h.calibration,temperature_zero_k=2.));start=h.method['start_temperature_k'];self.rejected(h,'acquisition.start','INITIAL_TEMPERATURE')  # reads 2 K low
+  call(h,'thermal.set_temperature',temperature_k=start,rate_k_s=1.);wait(h,lambda:max(abs(h.read()[k]-start) for k in ['furnace.indicated_k','sample.indicated_k'])<.1)
+  self.assertAlmostEqual(h.sample_temperature-start,2.,delta=.15);self.assertEqual(run(h)['phase'],'succeeded')
+  h=setup(plant={'displacement_gain':1.05,'displacement_offset_m':2e-4});L=h.probe;self.assertAlmostEqual(h.panel_read()['host.length_mm'],(1.05*L+2e-4)*1e3,delta=1e-5)
+  call(h,'sensor.calibrate',**dict(h.calibration,displacement_gain_correction=1/1.05));self.assertAlmostEqual(h.panel_read()['host.length_mm'],(L+2e-4/1.05)*1e3,delta=1e-5)
+  self.assertAlmostEqual(setup().panel_read()['host.length_mm'],rt.SAMPLE_EXAMPLE['length_m']*1e3,delta=1e-5)
+ def test_50_force_calibration_save_refused_during_a_run(self):
+  # A force calibration saved during an experiment would change the running experiment's force readings: refused (BUSY), state unchanged
+  h=setup();call(h,'acquisition.start');step(h,.2);h.force_cal=dict(step='result',points=[],slope=1.1,offset_n=.02,passed=True)
+  self.rejected(h,'force_calibration.save','BUSY');self.assertEqual(h.calibration['force_gain_correction'],rt.TaTma450Runtime('x').calibration['force_gain_correction'])
+  call(h,'acquisition.stop');self.assertEqual(call(h,'force_calibration.save')['step'],'saved');self.assertAlmostEqual(h.calibration['force_gain_correction'],1/1.1,places=12);cleanup(h)
 if __name__=='__main__':unittest.main()

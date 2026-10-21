@@ -160,6 +160,61 @@ class TestDSC2500(unittest.TestCase):
   for x,y in rt.SAMPLER_REGISTERED_XY:self.assertTrue(0<=x<=.330 and 0<=y<=.110)
  def test_41_tiny_gas_at_maximum_molar_rate_consumed_without_loop(self):
   h=setup(gas={'amount_mol':1e-18,'reference_pressure_pa':1e7,'reference_temperature_k':200.},method=quick(),warm=False);call(h,'gas.set_flow',flow_m3_s=1e-5);r=run(h);self.assertEqual(r['error_code'],'GAS_EXHAUSTED');self.assertEqual(h.gas_remaining,0.);self.assertGreater(r['elapsed_s'],0.);self.ledger(h)
+ def test_50_touch_screen_commands_ln2_pump_reset_and_advance(self):
+  # LN Pump dewar (Utilities > LN Pump): full at start, drawn by cooling, Fill stops when full, Auto Fill below 20 %, no cold when empty
+  h=setup(plant={'cooler':'LN2P'},warm=False,method=quick());cap=rt.LN2_DEWAR_KG;self.assertEqual(h.read()['ln2.level_kg'],cap)
+  self.assertEqual(call(h,'ln2.set',fill=True,auto_fill=False),{'fill':False,'auto_fill':False})
+  call(h,'thermal.set_temperature',temperature_k=250.,rate_k_s=1.);step(h,30.);used=cap-h.ln2_level;self.assertGreater(used,0.);self.assertAlmostEqual(used,h.cooler_removed/(rt.LN2_LATENT_J_KG*rt.LN2_EFFICIENCY),places=12)
+  call(h,'ln2.set',fill=True,auto_fill=False);self.assertTrue(h.read()['ln2.fill']);step(h,10.);self.assertFalse(h.read()['ln2.fill']);self.assertGreater(h.ln2_level,cap-.01)  # full: the fill stopped (cooling still draws)
+  h.ln2_level=0.;removed=h.cooler_removed;step(h,2.);self.assertEqual(h.cooler_removed,removed)
+  call(h,'ln2.set',fill=False,auto_fill=True);step(h,.1);self.assertTrue(h.read()['ln2.fill']);level=h.ln2_level;step(h,10.);self.assertGreater(h.ln2_level,level+.19)
+  call(h,'power.set',enabled=False);self.assertFalse(h.read()['ln2.fill']);call(h,'power.set',enabled=True)
+  self.rejected(setup(warm=False,method=quick()),'ln2.set','NO_LN2_PUMP',fill=True,auto_fill=True)
+  # Reset Autosampler: Z up first, then the park position; not while the lid is closed with the arm out
+  call(h,'thermal.disable');call(h,'lid.set',opened=True);step(h,2.1);call(h,'sampler.move',x_m=.165,y_m=0.,z_m=.06);step(h,5.);call(h,'sampler.move',x_m=.165,y_m=0.,z_m=0.);step(h,2.)
+  call(h,'autosampler.reset');self.assertEqual(h.sampler_target,[.165,0.,.06]);step(h,2.);self.assertEqual(h.sampler_target,rt.SAMPLER_PARK);step(h,5.);self.assertEqual(h.sampler,rt.SAMPLER_PARK);self.assertFalse(h.read()['sampler.moving'])
+  call(h,'autosampler.reset');self.assertEqual(h.sampler_queue,[])
+  # Next step of the running method: from the present program temperature; after the last segment the method ends
+  two=dict(start_temperature_k=298.15,segments=[dict(target_k=300.15,rate_k_s=.02,hold_s=50.),dict(target_k=301.15,rate_k_s=.2,hold_s=1.)])
+  h=setup(warm=False,method=two);self.rejected(h,'method.advance','NOT_RUNNING');call(h,'acquisition.start');step(h,5.);t=h.target
+  self.assertEqual(call(h,'method.advance'),{'segment_index':1});self.assertEqual(h.read()['acquisition.stage'],'ramp');step(h,.1);self.assertGreater(h.target,t)
+  self.assertAlmostEqual(h.duration,5.+(301.15-t)/.2+1.,places=6);self.assertEqual(call(h,'method.advance'),{'segment_index':1});self.assertEqual(h.phase,'succeeded')
+ def test_51_autosampler_pan_transfer_tray_cell(self):
+  h=rt.TaDsc2500Runtime('tray');call(h,'plant.configure',**rt.PLANT_EXAMPLE);call(h,'power.set',enabled=True);pan=dict(rt.SAMPLE_EXAMPLE,mass_kg=3e-6)
+  self.rejected(h,'tray.place','INVALID_REFERENCE',position=5,sample=dict(pan,reference_id='nothing'));call(h,'tray.place',position=5,sample=pan);self.assertTrue(h.read()['autosampler.tray_occupied'][4])
+  self.rejected(h,'tray.place','TRAY_POSITION_OCCUPIED',position=5,sample=pan);self.rejected(h,'autosampler.load','TRAY_POSITION_EMPTY',position=6);self.rejected(h,'autosampler.unload','CELL_EMPTY',position=6)
+  call(h,'autosampler.load',position=5);self.assertEqual(h.read()['autosampler.transfer'],'load');self.assertFalse(h.read()['sample.present']);self.rejected(h,'autosampler.load','SAMPLER_MOVING',position=5);self.rejected(h,'lid.set','SAMPLER_MOVING',opened=False)
+  for _ in range(400):
+   step(h,.1)
+   if h.transfer is None:break
+  r=h.read();self.assertTrue(r['sample.present']);self.assertEqual(r['autosampler.cell_origin'],5);self.assertFalse(r['autosampler.tray_occupied'][4]);self.assertEqual(h.sampler,rt.SAMPLER_PARK);self.assertEqual(h.mass_loaded,3e-6)
+  call(h,'tray.place',position=7,sample=pan);self.rejected(h,'autosampler.load','CELL_OCCUPIED',position=7);self.rejected(h,'autosampler.unload','TRAY_POSITION_OCCUPIED',position=7)
+  call(h,'autosampler.unload',position=9)
+  for _ in range(400):
+   step(h,.1)
+   if h.transfer is None:break
+  r=h.read();self.assertFalse(r['sample.present']);self.assertTrue(r['autosampler.tray_occupied'][8]);self.assertIsNone(r['autosampler.cell_origin']);self.assertEqual(h.mass_recovered,3e-6);self.ledger(h)
+  call(h,'tray.remove',position=7);self.rejected(h,'tray.remove','TRAY_POSITION_EMPTY',position=7)
+  call(h,'lid.set',opened=False);step(h,2.1);self.rejected(h,'autosampler.load','SAMPLER_CLEARANCE',position=9)
+ def test_52_controller_holds_the_device_reading_sensor_error_and_calibration_move_the_cell(self):
+  # One error model: the furnace controller acts on the device's own reading (evaluator sensor error + stored temperature calibration)
+  ideal=setup(warm=False);call(ideal,'thermal.set_temperature',temperature_k=330.,rate_k_s=1.);step(ideal,600.);shown=ideal.read()['furnace.indicated_k'];self.assertAlmostEqual(ideal.furnace,shown,places=9)
+  for plant,cal,shift in [({'temperature_offset_k':2.},{},-2.),({},{'temperature_zero_k':2.},2.),({'temperature_gain':1.01},{},330./1.01-330.)]:
+   h=setup(plant=plant,warm=False);call(h,'sensor.calibrate',**dict(rt.CALIBRATION_EXAMPLE,**cal));call(h,'thermal.set_temperature',temperature_k=330.,rate_k_s=1.);step(h,600.)
+   self.assertAlmostEqual(h.read()['furnace.indicated_k'],shown,delta=.01);self.assertAlmostEqual(h.furnace-ideal.furnace,shift,delta=.02)
+  # a user temperature calibration does not block a run started at the set temperature; the cell runs at the calibrated temperature
+  h=setup(warm=False);call(h,'sensor.calibrate',**dict(rt.CALIBRATION_EXAMPLE,temperature_zero_k=2.));start=h.method['start_temperature_k'];call(h,'thermal.set_temperature',temperature_k=start,rate_k_s=1.)
+  for _ in range(3000):
+   step(h,.1)
+   if max(abs(h.read()[k]-start) for k in ['furnace.indicated_k','sample.indicated_k','reference.indicated_k'])<h.method['start_tolerance_k']:break
+  else:raise AssertionError('preconditioning did not settle')
+  self.assertAlmostEqual(h.furnace-start,2.,delta=.3);r=run(h);self.assertEqual(r['phase'],'succeeded');self.assertAlmostEqual(r['rows'][-1]['furnace_k']+2.,h.furnace,delta=.5)
+ def test_53_only_the_run_owner_stops_reads_or_advances_it(self):
+  h=setup(warm=False,method=dict(start_temperature_k=298.15,segments=[dict(target_k=300.15,rate_k_s=.02,hold_s=50.),dict(target_k=301.15,rate_k_s=.2,hold_s=1.)]));h.register_principal('other');a=h.session();b=h.session('other')
+  q=lambda s,k,i:s.invoke(instance_id=h.instance_id,capability_id=k,arguments={},request_id=i)
+  op=q(a,'acquisition.start','s')['operation_id'];step(h,1.);before=state(h)
+  for k in ['method.advance','acquisition.stop','acquisition.result']:self.assertEqual(q(b,k,k)['error']['code'],'ACCESS_DENIED')
+  self.assertEqual(state(h),before);self.assertEqual(q(a,'method.advance','adv')['result'],{'segment_index':1});self.assertEqual(a.cancel(op,'c')['status'],'succeeded');self.assertEqual(a.poll(op)['status'],'cancelled')
  def test_99_every_actual_api_state_and_metadata_schema(self):
   spec=importlib.util.spec_from_file_location('asset_tool_dsc',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);meta=rt.export_ta_dsc2500_contract_metadata();checked=0
   for k,c in meta['capabilities'].items():

@@ -1,6 +1,6 @@
 """CHEM-114 finite-gas dual-direction pycnometry with temperature-aware pressure inversion."""
 from pathlib import Path
-import copy,math,json,importlib.util
+import copy,math,json,importlib.util,hashlib,os,re,tempfile
 PROTOCOL_VERSION='1.0.0';SLUG='antonpaar_ultrapyc5000';CATALOG_ID='CHEM-114';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t4_measure'/SLUG
 class ActionRejected(ValueError):pass
@@ -30,7 +30,9 @@ def validate(s,v):
  elif t=='string' and not isinstance(v,str):raise ActionRejected('INVALID_ARGUMENT')
  elif t=='null' and v is not None:raise ActionRejected('INVALID_ARGUMENT')
  elif t=='object':
-  if not isinstance(v,dict) or not set(s.get('required',[]))<=v.keys() or set(v)-set(s['properties']):raise ActionRejected('INVALID_ARGUMENT')
+  if not isinstance(v,dict):raise ActionRejected('INVALID_ARGUMENT')
+  if 'properties' not in s:return                                         # a free-form object (e.g. the structured panel frame)
+  if not set(s.get('required',[]))<=v.keys() or set(v)-set(s['properties']):raise ActionRejected('INVALID_ARGUMENT')
   for k,x in v.items():validate(s['properties'][k],x)
  elif t=='array':
   if not isinstance(v,list) or not s.get('minItems',0)<=len(v)<=s.get('maxItems',math.inf):raise ActionRejected('INVALID_ARGUMENT')
@@ -81,9 +83,60 @@ for k in ['sample','reference']:slot('pressure.'+k+'_pa',number('Pa',0),'Pa','�
 slot('acquisition.phase',PHASE,'1','异步状态');slot('acquisition.stage',TEXT,'1','热平衡/预处理/膨胀阶段');slot('acquisition.elapsed_s',number('s',0),'s','当前操作已推进时间');slot('acquisition.failure',TEXT,'1','公开失败码')
 for k,u in [('volume_m3','m^3'),('density_kg_m3','kg/m^3'),('rsd','1')]:slot('result.'+k,nullable(number(u)),u,'压力反演得到的结果，不是直接读取密度真值')
 for k in ['pressure','temperature','volume','density']:slot('display.'+k+'_text',TEXT,'1','屏幕字符：pressure kPa/temperature C/volume cm3/density g/cm3；关机空白、无结果横线','derived',c='display_digits')
+# ---------------------------------------------------------------- front panel and its device layer (7 in touch screen; panel_ui.json beside the contract)
+# Approximate: no Ultrapyc 5000 manual is saved.  The menu functions follow the predecessor Ultrapyc 1200e operating manual ('up p.N'):
+# Run (Run Parameters, Sample Parameters, Start), Calibrate (cell), System Settings, User ID, Shutdown; the overview screen follows the
+# brochure ('bro p.3': temperature, pressure, valve status, preliminary results).
+ASSET_VERSION='1.2.0';SHUTDOWN_S=60.
+UP_LANGUAGES=['English','German','French','Spanish','Italian']   # 6-Change Languages (up p.31): the manual names no list; assumed, texts stay English
+UP_SETTINGS=dict(sample_id=dict(type='string',maxLength=16),user_id=dict(type='string',maxLength=16),pressure_unit=enum(['kPa','psig']),gas_name=dict(type='string',maxLength=16),
+                 number_reports=BOOL,language=enum(UP_LANGUAGES))
+UP_DEFAULTS=dict(sample_id='',user_id='',pressure_unit='kPa',gas_name='Helium',number_reports=True,language='English')
+cap('settings.configure',obj({'settings':dict(type='object',properties=UP_SETTINGS,required=[],additionalProperties=False)}),obj({'settings':{'type':'object'}}),['controller','display_digits'],
+    '本机设置：样品ID、用户ID、压力单位、气体名称、报告编号、语言（1200e菜单；语言选择保存、显示并写入报告，文字仍为英文）','configuration',ex={'settings':{'sample_id':'AL-1'}},effects=['device.settings'])
+cap('calibration.run',obj({'kind':enum(['blank','sphere'])}),obj({'operation_id':TEXT,'phase':PHASE}),['controller','valve_0','valve_1','sample_well'],
+    '腔体标定的一次运行（空杯或标定球）：以calibration模式运行当前方法，结束后保存平均压力比',ex={'kind':'blank'},
+    effects=['acquisition.phase','acquisition.stage','device.calibration','panel.page'])
+cap('calibration.apply',obj({'sphere_volume_m3':number('m^3',1e-9,.00013)}),obj({'cell_volume_m3':number('m^3',0),'reference_volume_m3':number('m^3',0)}),['controller','sample_well','reference_large','reference_small'],
+    '由保存的空杯与标定球压力比和球体积计算样品腔与参考腔体积（volume.calibrate）','configuration',ex={'sphere_volume_m3':1e-5},effects=['volume.calibrated','device.calibration'])
+cap('leak_check.start',obj({}),obj({'operation_id':TEXT,'phase':PHASE}),['controller','valve_0','valve_1'],'泄漏检查（1200e System Settings）：以leak模式运行，结果写入报告',
+    effects=['acquisition.phase','acquisition.stage','panel.page'])
+cap('reports.delete',obj({}),obj({'deleted':dict(number('1',0),type='integer')}),['controller'],'删除本机保存的报告（1200e Delete Reports）','configuration',effects=['device.reports'])
+cap('system.shutdown',obj({}),obj({'shutdown':BOOL}),['controller'],'关机程序（1200e 8-Shutdown）：操作系统约1分钟关闭后再关电源开关',effects=['device.status'])
+# Error codes of the 1200e (up p.73-75, Table G-1): the run stops, the display alternates 'Error n occurred' with the message and with 'Restart: Press
+# clear'; CLEAR acknowledges.  13 (network), 14 / 15 (serial port / balance time-out) need hardware absent from the simulated configuration.
+ERROR_CODES={1:'Pressure unstable (system isolated)',2:'Low Pressure',3:'Pressure unstable (VA isolated)',4:'Pressure unstable (VA in)',5:'Pressure A # Pressure B',
+             6:'No pressure for purge',7:'Pressure unstable (open to ambient)',8:'Clock failure',9:'Invalid volume',10:'Divide by zero error',11:'Hardware error',
+             12:'Calculation error',17:'Calibration file error'}
+cap('error.clear',obj({}),obj({'cleared':BOOL}),['controller','display_digits'],'CLEAR确认显示的错误码（1200e p.73-74：Restart: Press clear）；原因未消除时下次运行再次报同一错误',effects=['device.status'])
+cap('fault.inject',obj({'code':dict(type='integer',enum=sorted(ERROR_CODES),**{'x-unit':'1'})}),obj({'code':dict(type='integer',**{'x-unit':'1'}),'phase':PHASE}),['controller','display_digits'],
+    '评测者注入1200e说明书表G-1的错误码（原因：传感器不稳、泄漏、样品杯未密封、低供气压等）：运行中停止测量循环并显示Error n occurred及描述，确认前不能再启动；Error 8（时钟）只记入报告，不影响结果','simulation','evaluator',{'code':2},['device.status','acquisition.phase','fault.cause'])
+cap('fault.clear',obj({}),obj({'cleared':BOOL}),['controller'],'评测者消除注入的错误原因（如重新密封样品杯、修复泄漏、接通气源）；显示的错误仍须CLEAR确认','simulation','evaluator',{},['fault.cause'])
+DEVICE_CAPS=('settings.configure','calibration.run','calibration.apply','leak_check.start','reports.delete','system.shutdown','error.clear')
+for _k,_s,_z in [('device.settings',{'type':'object'},'本机设置'),('device.reports',{'type':'array','items':{'type':'object'}},'本机报告（每次运行：类型、报告文件名、样品ID、用户、体积、密度、RSD、泄漏）'),
+                 ('device.calibration',{'type':'object'},'腔体标定向导：空杯与标定球的平均压力比'),('device.status',{'type':'object'},'关机状态与正在进行的本机程序'),
+                 ('method.settings',nullable({'type':'object'}),'当前方法参数（运行参数页面读取）')]:slot(_k,_s,'1',_z,'setpoint' if _k=='device.settings' else 'derived')
+slot('fault.cause',nullable(dict(type='integer',**{'x-unit':'1'})),'1','评测者注入且未消除的错误原因（1200e错误码），无为null','process_truth','evaluator')
+VALVES={'idle':'all closed','thermal':'vent open','baseline':'vent open','between_runs':'vent open','venting':'vent open','pulse_vent':'vent open','flow':'gas in + vent open',
+        'vacuum':'vacuum open','pulse_fill':'gas in open','fill':'gas in open','leak_fill':'gas in open','expand':'expansion open','leak_hold':'all closed'}
+_ENG=None
+def _engine():
+ global _ENG
+ if _ENG is None:
+  try:
+   from . import _panel_ui as e
+  except ImportError:
+   import sys
+   if '_chemsim_panel_ui' not in sys.modules:
+    sp=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));m=importlib.util.module_from_spec(sp);sys.modules['_chemsim_panel_ui']=m;sp.loader.exec_module(m)
+   e=sys.modules['_chemsim_panel_ui']
+  _ENG=e
+ return _ENG
 class AntonpaarUltrapyc5000Runtime:
  def __init__(self,instance_id='ultrapyc5000_01'):
   self.instance_id=instance_id;self.time_s=0.;self.pending=0.;self.revision=0;self.plant=None;self.method=None;self.powered=False;self.lid=0.;self.lock=1.1;self.seal=1.4;self.cup=0.;self.home=0.;self.home_ticks=0;self.page='home';self.sample=None;self.mass_input=None;self.run_mass=None;self.mass_loaded=0.;self.mass_returned=0.;self.temp=298.15;self.target=298.15;self.power_w=0.;self.cell=50e-6;self.ref=50e-6;self.ns=[0.,0.,0.];self.nr=[0.,0.,0.];self.source=0.;self.source_initial=0.;self.initial_gas=[0.,0.,0.];self.ambient_in=[0.,0.,0.];self.vented=[0.,0.,0.];self.evacuated=[0.,0.,0.];self.cal_pressure=None;self.cal_volume=None;self.heat=0.;self.loss=0.;self.enthalpy=0.;self.loading_work=0.;self.energy0=0.;self.phase='idle';self.stage='idle';self.elapsed=0.;self.stage_time=0.;self.stable_time=0.;self.trace=[];self.runs=[];self.initial_point=None;self.pulses=0;self.leak_rate=None;self.leak_pass=None;self.failure='';self.serial=0;self.operation_id=None;self.records={};self._principals={};self._owners={};self._requests={};self.library=json.loads((ASSET/'density_library.json').read_text())
+  self.dev=self._new_dev();self.panel_state=None;self.panel_capture_dir=None   # touch-screen device layer (plain data) and the panel UI state
+  self.fault=None;self._panel_session=None   # evaluator-injected error cause (1200e code); the session whose panel gesture runs (its caller rules apply)
  def register_principal(self,principal_id,visibility='agent'):
   if visibility not in ['agent','debug','evaluator'] or principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
   self._principals[principal_id]=visibility
@@ -98,18 +151,34 @@ class AntonpaarUltrapyc5000Runtime:
  def pressure(self,i):
   if not self.plant:return 101325.
   return sum(self.ns if i==0 else self.nr)*R*self.temp/self.volumes()[i]
- def indicated_p(self,i):
-  if not self.plant:return 101325.
-  value=self.pressure(i)*self.plant['pressure_gain'][i]+self.plant['pressure_offset_pa'][i]
+ def _reading_of(self,i,p):
+  """What transducer i shows for the absolute pressure p: the plant gain / offset (evaluator errors, default ideal), then the stored pressure calibration."""
+  value=p*self.plant['pressure_gain'][i]+self.plant['pressure_offset_pa'][i]
   if self.cal_pressure:value=(value-self.cal_pressure[i][1])/self.cal_pressure[i][0]
   return value
+ def indicated_p(self,i):
+  if not self.plant:return 101325.
+  return self._reading_of(i,self.pressure(i))
+ def gauge_p(self,i):
+  """The controller's pressure: transducer i reset to zero at ambient before each run (up p.11: 'The transducer is automatically reset to zero
+  prior to each run'; p.28: the pressure above ambient), so a static offset cancels and the gain and the stored calibration slope act."""
+  return self.indicated_p(i)-self._reading_of(i,self.plant['ambient_pa'])
+ def zeroed_p(self,i):
+  """The pressure the volume and leak calculations use: the same zeroed gauge reading as the controller (up p.11; p.94: 'Pa is made to read
+  zero, all pressure measurements are relative to Pa', eq. I.10), referred to the ambient pressure for the temperature-aware inversion.  Ideal
+  sensors (gain 1, offset 0, no calibration): the true pressure, as before; a static offset cancels as it does for the control."""
+  return self.gauge_p(i)+self.plant['ambient_pa']
+ def _true_for_gauge(self,i,g):
+  """The absolute pressure at which transducer i shows the gauge reading g (where the controller's set point lies physically)."""
+  pa=self.plant['ambient_pa'];k=self.plant['pressure_gain'][i]/(self.cal_pressure[i][0] if self.cal_pressure else 1.)
+  return pa+g/k
  def energy(self):return ((self.plant['heat_capacity_j_k'] if self.plant else 1200.)+sum((a+b)*cv for a,b,cv in zip(self.ns,self.nr,CV)))*self.temp
  def _stats(self):
   rows=[r for r in self.runs if r['volume_m3'] is not None]
   if not rows:return None,None,None,None
   rows=rows[-self.method['runs_to_average']:];vs=[r['volume_m3'] for r in rows];mean=sum(vs)/len(vs);sd=math.sqrt(sum((v-mean)**2 for v in vs)/(len(vs)-1)) if len(vs)>1 else None;rho=self.run_mass/mean if self.run_mass is not None and mean>0 else None;return mean,rho,sd,sd/mean if sd is not None and mean>0 else None
  def read(self,visibility='agent'):
-  v,r,sd,rsd=self._stats();d={'plant.configured':bool(self.plant),'method.configured':bool(self.method),'pressure.calibrated':self.cal_pressure is not None,'volume.calibrated':self.cal_volume is not None,'power.enabled':self.powered,'power.angle_rad':.2 if self.powered else 0.,'lid.lift_m':self.lid,'lock.angle_rad':self.lock,'seal.angle_rad':self.seal,'cup.lift_m':self.cup,'home.stroke_m':self.home,'panel.page':self.page,'sample.loaded':bool(self.sample),'sample.entered_mass_kg':self.mass_input,'sample.identity':self.sample['sample_id'] if self.sample else '', 'sample.true_mass_kg':self.sample['true_mass_kg'] if self.sample else 0.,'thermal.target_k':self.target,'thermal.indicated_k':self.temp,'thermal.truth_k':self.temp,'thermal.power_w':self.power_w,'pressure.sample_pa':self.indicated_p(0),'pressure.reference_pa':self.indicated_p(1),'acquisition.phase':self.phase,'acquisition.stage':self.stage,'acquisition.elapsed_s':self.elapsed,'acquisition.failure':self.failure,'result.volume_m3':v,'result.density_kg_m3':r,'result.rsd':rsd};d.update({'display.pressure_text':f'{self.indicated_p(0)/1000:.3f}' if self.powered else '', 'display.temperature_text':f'{self.temp-273.15:.2f}' if self.powered else '', 'display.volume_text':('---' if v is None else f'{v*1e6:.3f}') if self.powered else '', 'display.density_text':('---' if r is None else f'{r/1000:.4f}') if self.powered else ''});return copy.deepcopy({k:v for k,v in d.items() if visibility!='agent' or SLOTS[k][3]=='agent'})
+  v,r,sd,rsd=self._stats();d={'plant.configured':bool(self.plant),'method.configured':bool(self.method),'pressure.calibrated':self.cal_pressure is not None,'volume.calibrated':self.cal_volume is not None,'power.enabled':self.powered,'power.angle_rad':.2 if self.powered else 0.,'lid.lift_m':self.lid,'lock.angle_rad':self.lock,'seal.angle_rad':self.seal,'cup.lift_m':self.cup,'home.stroke_m':self.home,'panel.page':self.page,'sample.loaded':bool(self.sample),'sample.entered_mass_kg':self.mass_input,'sample.identity':self.sample['sample_id'] if self.sample else '', 'sample.true_mass_kg':self.sample['true_mass_kg'] if self.sample else 0.,'thermal.target_k':self.target,'thermal.indicated_k':self.temp,'thermal.truth_k':self.temp,'thermal.power_w':self.power_w,'pressure.sample_pa':self.indicated_p(0),'pressure.reference_pa':self.indicated_p(1),'acquisition.phase':self.phase,'acquisition.stage':self.stage,'acquisition.elapsed_s':self.elapsed,'acquisition.failure':self.failure,'result.volume_m3':v,'result.density_kg_m3':r,'result.rsd':rsd};d.update({'display.pressure_text':f'{self.indicated_p(0)/1000:.3f}' if self.powered else '', 'display.temperature_text':f'{self.temp-273.15:.2f}' if self.powered else '', 'display.volume_text':('---' if v is None else f'{v*1e6:.3f}') if self.powered else '', 'display.density_text':('---' if r is None else f'{r/1000:.4f}') if self.powered else ''});d.update(self._dev_values());return copy.deepcopy({k:v for k,v in d.items() if visibility!='agent' or SLOTS[k][3]=='agent'})
  def _result(self):
   v,r,sd,rsd=self._stats();return dict(phase=self.phase,stage=self.stage,elapsed_s=self.elapsed,runs=copy.deepcopy(self.runs),trace=copy.deepcopy(self.trace),mean_volume_m3=v,mean_density_kg_m3=r,standard_deviation_m3=sd,rsd=rsd,leak_rate_pa_s=self.leak_rate,leak_pass=self.leak_pass,quality='engineering_gas_law_inversion_no_empirical_noise',template_source='NIST XrayMassCoef Table1 nominal solids or J.Mater.Res.Technol doi10.1016/j.jmrt.2026.06.063 Table1; source selection private to host',warnings=['Nominal NIST densities are not measured pycnometry standards; temperature transfer explicitly assumed','Open pores assumed gas-accessible; closed pores are displaced with solid; no real adsorption/permeation kinetics','Repeatability from modeled cycles does not validate manufacturer precision; literature SD not used as noise','Cancellation retains gas consumption; finite venting continues only on step','Only medium50cm3 cup is articulated; other inserts static visual accessories'])
  def _ledger(self):
@@ -117,13 +186,13 @@ class AntonpaarUltrapyc5000Runtime:
  def invoke(self,k,**a):
   if k not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   if k in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
-  validate(CAPS[k][0],a);before=copy.deepcopy({x:v for x,v in self.__dict__.items() if x!='library'})
+  validate(CAPS[k][0],a);before=copy.deepcopy({x:v for x,v in self.__dict__.items() if x not in ('library','_panel_session')})
   try:
    result=self._invoke(k,a);validate(CAPS[k][1],result)
    if CAPS[k][4] not in ['query','analysis']:self.revision+=1
    return result
   except Exception:
-   lib=self.library;self.__dict__.clear();self.__dict__.update(before);self.library=lib;raise
+   lib=self.library;ps=self.__dict__.get('_panel_session');self.__dict__.clear();self.__dict__.update(before);self.library=lib;self._panel_session=ps;raise
  def _reset_ambient(self):
   olde=self.energy();oldh=self.enthalpy;p=self.plant
   for i,n in enumerate([self.ns,self.nr]):
@@ -142,16 +211,24 @@ class AntonpaarUltrapyc5000Runtime:
    if a['regulator_gauge_pa']>a['source_gauge_pa']:raise ActionRejected('INVALID_ARGUMENT')
    self.plant=copy.deepcopy(a);self.temp=a['initial_temperature_k'];self.target=self.temp;self.cell*=a['cell_volume_factor'];self.ref*=a['reference_volume_factor'];self.source=(a['ambient_pa']+a['source_gauge_pa'])*a['source_volume_m3']/(R*a['ambient_k']);self.source_initial=self.source
    self.ns=[0.,a['ambient_pa']*self.cell/(R*self.temp),0.];self.nr=[0.,a['ambient_pa']*self.ref/(R*self.temp),0.];self.initial_gas=[0.,self.ns[1]+self.nr[1],0.];self.energy0=self.energy();return {'configured':True}
+  if k=='fault.inject':
+   self.fault=a['code']
+   if self.powered:self._raise_error(a['code'])
+   return {'code':a['code'],'phase':self.phase}
+  if k=='fault.clear':cleared=self.fault is not None;self.fault=None;return {'cleared':cleared}
+  if k in DEVICE_CAPS:return self._device_invoke(k,a)
+  if k in PANEL_CAPS:return self._panel_command(k,a)
   if k=='panel.home':self.home=.0015;self.home_ticks=2;self.page='home';return {'page':self.page}
   if k=='power.set':
    if not a['enabled'] and self.phase=='running':self._end('cancelled')
+   if a['enabled'] and not self.powered:self.dev['power_epoch']+=1;self.dev['shutdown']=None;self.dev['error']=None   # a power cycle restarts without the shown error
    self.powered=a['enabled'];return a
   if k=='acquisition.stop':
    if self.phase!='running':raise ActionRejected('NOT_RUNNING')
    self._end('cancelled');return {'phase':self.phase}
   if self.phase=='running':raise ActionRejected('BUSY')
   if k in ['lid.set','lock.set','seal.set','cup.set']:
-   if self.plant and max(abs(self.pressure(i)-self.plant['ambient_pa']) for i in [0,1])>30.:raise ActionRejected('PRESSURE_INTERLOCK')
+   if self.plant and max(abs(self.gauge_p(i)) for i in [0,1])>30.:raise ActionRejected('PRESSURE_INTERLOCK')   # the device's own pressure reading
    n=k.split('.')[0];v=next(iter(a.values()))
    if n=='lid' and (self.lock>.01 or self.seal>.01 or (v<.1 and self.cup>.005)):raise ActionRejected('LID_INTERLOCK')
    if n=='lock' and (self.lid>.001 or self.seal>.01):raise ActionRejected('LOCK_SEQUENCE')
@@ -167,7 +244,7 @@ class AntonpaarUltrapyc5000Runtime:
    cv=CELLS[a['cell']];rv=8e-6 if a['reference']=='small' or (a['reference']=='auto' and cv<=10e-6) else 50e-6
    volume_changed=abs(cv*self.plant['cell_volume_factor']-self.cell)>1e-12 or abs(rv*self.plant['reference_volume_factor']-self.ref)>1e-12
    if self.sample and volume_changed:raise ActionRejected('REMOVE_SAMPLE_FIRST')
-   if self.method and volume_changed and (self.lid<.11 or self.cup<.10 or max(abs(self.pressure(i)-self.plant['ambient_pa']) for i in [0,1])>30.):raise ActionRejected('INSERT_ACCESS')
+   if self.method and volume_changed and (self.lid<.11 or self.cup<.10 or max(abs(self.gauge_p(i)) for i in [0,1])>30.):raise ActionRejected('INSERT_ACCESS')
    changed=self.method is None or any(self.method.get(x)!=a[x] for x in ['cell','reference','direction']);self.method=copy.deepcopy(a);self.cell=cv*self.plant['cell_volume_factor'];self.ref=rv*self.plant['reference_volume_factor']
    if changed:self.cal_volume=None
    if volume_changed:self._reset_ambient()
@@ -202,6 +279,7 @@ class AntonpaarUltrapyc5000Runtime:
    self.cal_volume=(cv,rv);return dict(cell_volume_m3=cv,reference_volume_m3=rv)
   if k=='acquisition.start':
    if not self.powered or not self.plant or not self.method or self.lid>.001 or self.cup>.001 or self.lock<1.09 or self.seal<1.39:raise ActionRejected('NOT_READY')
+   if self.dev['error'] is not None:raise ActionRejected('NOT_READY')   # an error is shown: CLEAR first (up p.73-74)
    m=self.method
    if m['mode']=='measure' and (not self.sample or self.mass_input is None or self.cal_volume is None):raise ActionRejected('NOT_READY')
    if m['mode']=='leak' and self.sample:raise ActionRejected('REMOVE_SAMPLE_FIRST')
@@ -213,10 +291,17 @@ class AntonpaarUltrapyc5000Runtime:
  def _end(self,phase,reason=''):
   self.phase=phase;self.failure=reason;self.stage='venting';self.stage_time=0.;self.stable_time=0.
   if self.operation_id:self.records[self.operation_id]=self._result()
+ def _raise_error(self,code):
+  """A 1200e error (up p.73-75): the measurement cycle stops and the display shows 'Error n occurred' until CLEAR; Error 8 (clock calendar
+  circuit) is only printed in the report and does not affect the analysis."""
+  if code==8:return
+  if self.phase=='running':self._end('failed',f'ERROR_{code}')
+  self.dev['error']=dict(code=code,text=ERROR_CODES[code])
  def _goto(self,stage):self.stage=stage;self.stage_time=0.;self.stable_time=0.
  def _source_pressure(self):return min(self.source*R*self.plant['ambient_k']/self.plant['source_volume_m3'],self.plant['ambient_pa']+self.plant['regulator_gauge_pa'])
- def _fill(self,i,target):
-  p=self.plant;n=self.ns if i==0 else self.nr;pres=self.pressure(i);ps=self._source_pressure();v=self.volumes()[i]
+ def _fill(self,i,gauge):
+  """Gas in to chamber i until the controller's gauge reading reaches the set point (the true pressure where the transducer shows it)."""
+  target=self._true_for_gauge(i,gauge);p=self.plant;n=self.ns if i==0 else self.nr;pres=self.pressure(i);ps=self._source_pressure();v=self.volumes()[i]
   if pres>=target-.01:return True
   if ps<=pres+.01:self._end('failed','GAS_DEPLETED');return False
   dn=min(p['fill_conductance_mol_s_pa']*(ps-pres)*DT,(target-pres)*v/(R*self.temp),self.source,(ps-pres)/(R*(self.temp/v+p['ambient_k']/p['source_volume_m3'])));j=GASES.index(p['source_gas']);n[j]+=dn;self.source-=dn;self.enthalpy+=dn*(CV[j]+R)*p['ambient_k'];return self.pressure(i)>=target-.01
@@ -237,7 +322,7 @@ class AntonpaarUltrapyc5000Runtime:
  def _steady(self,condition):
   self.stable_time=self.stable_time+DT if condition else 0.;return self.stable_time+1e-10>=self.method['equilibration_s']
  def _record_run(self):
-  m=self.method;hi,lo,ti=self.initial_point;pf=(self.indicated_p(0)+self.indicated_p(1))/2;tf=self.temp;den=pf/tf-lo/ti;num=hi/ti-pf/tf
+  m=self.method;hi,lo,ti=self.initial_point;pf=(self.zeroed_p(0)+self.zeroed_p(1))/2;tf=self.temp;den=pf/tf-lo/ti;num=hi/ti-pf/tf
   if den<=0 or num<=0:self._end('failed','INVALID_PRESSURE_RATIO');return
   ratio=num/den;vs=None;rho=None
   if m['mode']=='measure':
@@ -247,6 +332,7 @@ class AntonpaarUltrapyc5000Runtime:
   self.runs.append(dict(index=len(self.runs)+1,initial_high_pa=hi,initial_low_pa=lo,final_pa=pf,initial_k=ti,final_k=tf,ratio=ratio,volume_m3=vs,density_kg_m3=rho));self._goto('between_runs')
  def _process_tick(self):
   m=self.method;p=self.plant;pa=p['ambient_pa'];self.elapsed+=DT;self.stage_time+=DT;stage=self.stage
+  if self.fault is not None and self.fault!=8:self._raise_error(self.fault);return   # the injected cause is still there: the same error again
   if self.sample and self.skeleton()+self.sample['open_pore_m3']>=self.cell*.995:self._end('failed','CELL_CAPACITY');return
   if self.stage_time>m['stage_timeout_s'] and stage not in ['flow','vacuum']:self._end('failed','STAGE_TIMEOUT');return
   if stage=='thermal':
@@ -259,31 +345,31 @@ class AntonpaarUltrapyc5000Runtime:
    for i in [0,1]:self._vent(i,p['pump_floor_pa'],True)
    if self.stage_time>=m['preparation_s']:self._goto('baseline')
   elif stage=='pulse_fill':
-   for i in [0,1]:self._fill(i,pa+21000.)
-   if self.phase=='running' and min(self.pressure(0),self.pressure(1))>=pa+20999.:self._goto('pulse_vent')
+   for i in [0,1]:self._fill(i,21000.)
+   if self.phase=='running' and min(self.gauge_p(0),self.gauge_p(1))>=20999.:self._goto('pulse_vent')
   elif stage=='pulse_vent':
    for i in [0,1]:self._vent(i)
-   if max(abs(self.pressure(i)-pa) for i in [0,1])<.1:
+   if max(abs(self.gauge_p(i)) for i in [0,1])<.1:
     self.pulses+=1;self._goto('baseline' if self.pulses>=m['purge_pulses'] else 'pulse_fill')
   elif stage in ['baseline','between_runs']:
    for i in [0,1]:self._vent(i)
-   if self._steady(max(abs(self.pressure(i)-pa) for i in [0,1])<.05 and abs(self.temp-self.target)<=.02):
+   if self._steady(max(abs(self.gauge_p(i)) for i in [0,1])<.05 and abs(self.temp-self.target)<=.02):
     if stage=='between_runs':
      v,r,sd,rsd=self._stats();enough=len(self.runs)>=m['runs_to_average'];auto=m['automatic'] and enough and rsd is not None and rsd<=m['finish_rsd']
      if len(self.runs)>=m['max_runs'] or auto:self._end('succeeded');return
     self._goto('leak_fill' if m['mode']=='leak' else 'fill')
   elif stage=='fill':
-   i=0 if m['direction']=='sample_first' else 1;self._fill(i,pa+m['target_gauge_pa']);self._vent(1-i)
-   if self.phase=='running' and self._steady(abs(self.pressure(i)-(pa+m['target_gauge_pa']))<.05 and abs(self.pressure(1-i)-pa)<.05):self.initial_point=(self.indicated_p(i),self.indicated_p(1-i),self.temp);self._goto('expand')
+   i=0 if m['direction']=='sample_first' else 1;self._fill(i,m['target_gauge_pa']);self._vent(1-i)
+   if self.phase=='running' and self._steady(abs(self.gauge_p(i)-m['target_gauge_pa'])<.05 and abs(self.gauge_p(1-i))<.05):self.initial_point=(self.zeroed_p(i),self.zeroed_p(1-i),self.temp);self._goto('expand')
   elif stage=='expand':
    self._connect()
-   if self._steady(abs(self.pressure(0)-self.pressure(1))<.05):self._record_run()
+   if self._steady(abs(self.pressure(0)-self.pressure(1))<.05):self._record_run()   # flow stopped: the readings are steady whatever their static error
   elif stage=='leak_fill':
-   for i in [0,1]:self._fill(i,pa+m['target_gauge_pa'])
-   if self.phase=='running' and self._steady(max(abs(self.pressure(i)-(pa+m['target_gauge_pa'])) for i in [0,1])<25.):self.initial_point=((self.indicated_p(0)+self.indicated_p(1))/2,self.temp);self._goto('leak_hold')
+   for i in [0,1]:self._fill(i,m['target_gauge_pa'])
+   if self.phase=='running' and self._steady(max(abs(self.gauge_p(i)-m['target_gauge_pa']) for i in [0,1])<25.):self.initial_point=((self.zeroed_p(0)+self.zeroed_p(1))/2,self.temp);self._goto('leak_hold')
   elif stage=='leak_hold':
    if self.stage_time>=m['leak_hold_s']:
-    pi,ti=self.initial_point;pf=(self.indicated_p(0)+self.indicated_p(1))/2;self.leak_rate=abs(pf*ti/self.temp-pi)/self.stage_time;self.leak_pass=self.leak_rate<=m['leak_limit_pa_s'];self._end('succeeded')
+    pi,ti=self.initial_point;pf=(self.zeroed_p(0)+self.zeroed_p(1))/2;self.leak_rate=abs(pf*ti/self.temp-pi)/self.stage_time;self.leak_pass=self.leak_rate<=m['leak_limit_pa_s'];self._end('succeeded')
  def _tick(self):
   self.home_ticks=max(0,self.home_ticks-1)
   if not self.home_ticks:self.home=0.
@@ -299,7 +385,116 @@ class AntonpaarUltrapyc5000Runtime:
  def step(self,dt_s):
   if isinstance(dt_s,bool) or not isinstance(dt_s,(int,float)) or not math.isfinite(dt_s) or dt_s<0 or dt_s>7200:raise ActionRejected('INVALID_ARGUMENT')
   self.pending+=dt_s
-  while self.pending+1e-12>=DT:self.pending=max(0.,self.pending-DT);self.time_s+=DT;self._tick();self.revision+=1
+  while self.pending+1e-12>=DT:self.pending=max(0.,self.pending-DT);self.time_s+=DT;self._tick();self._device_tick();self.revision+=1
+ # ---- device layer of the touch screen
+ def _new_dev(self):return dict(settings=dict(UP_DEFAULTS),reports=[],next_report=1,cal=dict(blank=None,sphere=None),run=None,shutdown=None,power_epoch=0,reported=None,error=None)
+ def _dev_values(self):
+  d=self.dev;sd=d['shutdown']
+  return {'device.settings':copy.deepcopy(d['settings']),'device.reports':copy.deepcopy(d['reports']),'device.calibration':copy.deepcopy(d['cal']),
+          'device.status':dict(shutdown='none' if sd is None else ('closing' if self.time_s<sd-1e-9 else 'done'),run=None if d['run'] is None else d['run']['kind'],power_epoch=d['power_epoch'],
+                                error=copy.deepcopy(d['error'])),
+          'method.settings':copy.deepcopy(self.method)}
+ def _device_invoke(self,k,a):
+  d=self.dev
+  if not self.powered:raise ActionRejected('POWER_OFF')
+  if d['shutdown'] is not None:raise ActionRejected('SHUT_DOWN')
+  if k=='error.clear':cleared=d['error'] is not None;d['error']=None;return {'cleared':cleared}   # CLEAR: restart (up p.73-74)
+  if k=='settings.configure':
+   if not a['settings']:raise ActionRejected('INVALID_ARGUMENT')
+   d['settings'].update(copy.deepcopy(a['settings']));return {'settings':copy.deepcopy(d['settings'])}
+  if k=='system.shutdown':
+   if self.phase=='running':raise ActionRejected('BUSY')
+   d['shutdown']=self.time_s+SHUTDOWN_S;return {'shutdown':True}
+  if self.phase=='running':raise ActionRejected('BUSY')
+  if k=='reports.delete':n=len(d['reports']);d['reports']=[];return {'deleted':n}
+  if k=='calibration.apply':
+   c=d['cal']
+   if c['blank'] is None or c['sphere'] is None:raise ActionRejected('NOT_READY')
+   out=self._invoke('volume.calibrate',dict(blank_ratio=c['blank'],sphere_ratio=c['sphere'],sphere_volume_m3=a['sphere_volume_m3']))
+   self._report('cell calibration',extra=dict(cell_volume_cm3=round(out['cell_volume_m3']*1e6,4),reference_volume_cm3=round(out['reference_volume_m3']*1e6,4)));return out
+  if not self.method:raise ActionRejected('NOT_CONFIGURED')
+  mode='calibration' if k=='calibration.run' else 'leak';old=self.method['mode'];self.method['mode']=mode
+  try:out=self._invoke('acquisition.start',{})
+  except ActionRejected:self.method['mode']=old;raise
+  d['run']=dict(kind=a['kind'] if k=='calibration.run' else 'leak',mode_before=old)
+  if k=='calibration.run':d['cal'][a['kind']]=None
+  return out
+ def _report(self,kind,extra=None):
+  """Save a report.  Report files (up p.34, p.59): run reports ultraReport<SAMPLE_ID>, cell calibration reports vcReport (the blank and sphere
+  runs of the calibration too); with Number Report Files on a repeated name gets -1, -2, ...; off, the new report replaces the older one of
+  that name.  A leak check report has no documented file name and is always kept (assumption)."""
+  d=self.dev;v,rho,sd,rsd=self._stats();s=d['settings']
+  base='ultraReport'+s['sample_id'] if kind=='sample' else 'vcReport' if kind.startswith('cell calibration') or kind.startswith('calibration run') else None
+  name=None
+  if base is not None:
+   same=[x for x in d['reports'] if x.get('file')==base or re.fullmatch(re.escape(base)+r'-\d+',x.get('file') or '')]
+   if not s['number_reports']:d['reports']=[x for x in d['reports'] if x not in same];name=base
+   else:name=base if not same else f"{base}-{1+max(int(x['file'][len(base)+1:]) if x['file']!=base else 0 for x in same)}"
+  rec=dict(id=d['next_report'],kind=kind,file=name,sample_id=s['sample_id'],user_id=s['user_id'],gas=s['gas_name'],language=s['language'],time_s=round(self.time_s,1),phase=self.phase,failure=self.failure,runs=len(self.runs),
+           volume_cm3=None if v is None else round(v*1e6,5),density_g_cm3=None if rho is None else round(rho/1000.,5),rsd_pct=None if rsd is None else round(rsd*100,4),
+           leak_rate_pa_s=self.leak_rate,leak_pass=self.leak_pass,**(extra or {}))
+  if self.fault==8:rec['error']='Error 8 occurred: On-board clock failure'   # up p.74: printed, the results are not affected
+  d['reports'].append(rec);d['next_report']+=1;del d['reports'][:-50]
+ def _device_tick(self):
+  """A run ends: its report is kept (1200e: reports are always saved on the instrument); a calibration run keeps its mean pressure ratio."""
+  d=self.dev
+  if d['shutdown'] is not None and not self.powered:d['shutdown']=None
+  if self.phase=='running' or self.operation_id is None or self.operation_id==d['reported']:return
+  r=d['run']
+  if r is not None:
+   if r['kind'] in ('blank','sphere'):
+    rows=[x['ratio'] for x in self.runs][-self.method['runs_to_average']:]
+    if self.phase=='succeeded' and rows:d['cal'][r['kind']]=sum(rows)/len(rows)
+    self._report(f'calibration run ({r["kind"]})')
+   else:self._report('leak check')
+   self.method['mode']=r['mode_before'];d['run']=None
+  else:self._report('sample')
+  d['reported']=self.operation_id
+ # ---- front panel: host protocol of the engine and the panel.* commands
+ def panel_read(self):
+  out=self.read('agent');out.update({'host.powered':self.powered,'host.power_epoch':self.dev['power_epoch'],'host.readout':self._readout()})
+  return out
+ def _readout(self):
+  d=self.dev;u=d['settings']['pressure_unit'];v,rho,sd,rsd=self._stats()
+  f=lambda i:(f'{self.gauge_p(i)/6894.757:.3f}' if self.plant else '0.000') if u=='psig' else f'{self.indicated_p(i)/1000:.3f}'   # noqa: E731  psig: the zeroed gauge reading
+  return dict(temperature=f'{self.temp-273.15:.2f}',pressure_sample=f(0),pressure_reference=f(1),unit=u,stage=self.stage,
+              valves=VALVES.get(self.stage,self.stage) if self.phase=='running' or self.stage=='venting' else 'all closed',runs=len(self.runs),
+              volume='---' if v is None else f'{v*1e6:.4f}',density='---' if rho is None else f'{rho/1000:.4f}',rsd='---' if rsd is None else f'{rsd*100:.3f}',
+              phase=self.phase,failure=self.failure,target=f'{self.target-273.15:.2f}',sample_id=d['settings']['sample_id'] or '-',user_id=d['settings']['user_id'] or '-',
+              mass='---' if self.mass_input is None else f'{self.mass_input*1000:.4f}',calibrated=self.cal_volume is not None,
+              blank='---' if d['cal']['blank'] is None else f'{d["cal"]["blank"]:.5f}',sphere='---' if d['cal']['sphere'] is None else f'{d["cal"]["sphere"]:.5f}',
+              last=d['reports'][-1] if d['reports'] else None,error_code='' if d['error'] is None else str(d['error']['code']),error_text='' if d['error'] is None else d['error']['text'])
+ def _panel(self):
+  p=_engine().PanelUI(PANEL_SPEC,_PanelHost(self))
+  if self.panel_state is not None:p.ui=self.panel_state
+  return p
+ def _panel_command(self,k,a):
+  e=_engine();p=self._panel()
+  try:
+   if k=='panel.touch':ok=p.touch(a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),(a['to_x'],a['to_y']) if 'to_x' in a and 'to_y' in a else None)
+   elif k=='panel.press':ok=p.press(a['input_id'],float(a.get('duration_s',.1)),())
+   elif k=='panel.switch':ok=p.switch(a['input_id'],a['position'],())
+   elif k=='panel.capture':
+    data,w,h=p.png_bytes(a['display_id']);self.panel_state=p.ui;sha=hashlib.sha256(data).hexdigest()
+    folder=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id
+    folder.mkdir(parents=True,exist_ok=True);path=folder/f'{a["display_id"]}_{sha[:16]}.png'
+    if not path.exists():path.write_bytes(data)
+    return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+   else:
+    f=p.frame();self.panel_state=p.ui;return dict(frame=f)
+  except e.PanelError:
+   self.panel_state=p.ui;raise ActionRejected('INVALID_ARGUMENT') from None
+  self.panel_state=p.ui;return dict(accepted=bool(ok))
+class _PanelHost:
+ """The engine's host protocol (panel_read / panel_invoke / panel_time) on top of a runtime; built per gesture."""
+ def __init__(self,rt):self.rt=rt
+ def panel_read(self):return self.rt.panel_read()
+ def panel_invoke(self,capability_id,arguments):
+  try:
+   if self.rt._panel_session is not None:self.rt._panel_session._guard(capability_id,arguments)   # a gesture made through a session keeps its caller rules
+   return self.rt.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _engine().PanelRejected(str(exc)) from None
+ def panel_time(self):return self.rt.time_s
 
 class AntonpaarUltrapyc5000Session:
  def __init__(self,host,principal_id):self._host=host;self._principal=principal_id
@@ -311,7 +506,7 @@ class AntonpaarUltrapyc5000Session:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  m=export_antonpaar_ultrapyc5000_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  m=export_antonpaar_ultrapyc5000_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -330,10 +525,23 @@ class AntonpaarUltrapyc5000Session:
     old,result=h._requests[key]
     if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
     return copy.deepcopy(result)
-   result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+   self._guard(capability_id,arguments);h._panel_session=self if capability_id.startswith('panel.') else None
+   try:result=h.invoke(capability_id,**arguments)
+   finally:h._panel_session=None
+   op=result.get('operation_id')
    if op:h._owners[op]=self._principal
+   if h.operation_id and h.operation_id not in h._owners:h._owners[h.operation_id]=self._principal   # a run started by a panel gesture
    response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
   except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+ def _guard(self,capability_id,arguments):
+  """Lead rule 2026-10-19: an agent may not stop another agent's run (measurement, calibration run, leak check), nor change the sample /
+  user / gas / report settings that go into its report, by a direct call or a panel gesture alike; the evaluator is not restricted.  The rear
+  power switch (power.set) is a hard switch and the lid / lock rings are physical parts: never refused; a switch-off cancels the run as a power
+  loss, the instrument's own interlocks refuse the lid during a run for everyone."""
+  h=self._host;owner=h._owners.get(h.operation_id) if h.operation_id else None
+  if self._role!='agent' or h.phase!='running' or owner is None or owner==self._principal:return
+  if capability_id=='acquisition.stop' or \
+     (capability_id=='settings.configure' and {k for k,v in arguments.get('settings',{}).items() if h.dev['settings'].get(k)!=v}-{'pressure_unit'}):raise ActionRejected('ACCESS_DENIED')   # the display unit stays free
  def write(self,*,instance_id,state_id,value,request_id):
   self._target(instance_id)
   if state_id not in SLOTS or not SLOTS[state_id][5]:raise ActionRejected('ACCESS_DENIED')
@@ -353,6 +561,13 @@ class AntonpaarUltrapyc5000Session:
 
 
 
+
+_PANEL_SPEC_PATH=ASSET/'panel_ui.json'
+PANEL_SPEC=_engine().load_spec(_PANEL_SPEC_PATH,capabilities=set(CAPS)|{'panel.touch','panel.press','panel.switch','panel.capture','panel.frame'}) \
+ if _PANEL_SPEC_PATH.is_file() and not os.environ.get('UP_PANEL_BUILD') else None
+PANEL_CAPS={k:(d['input_schema'],d['output_schema'],d['component_ids'],d['function_zh'],d['kind'],d['visibility'],d['example_arguments'],[])
+            for k,d in (_engine().capability_definitions(PANEL_SPEC).items() if PANEL_SPEC else [])}
+CAPS.update(PANEL_CAPS)
 
 def export_antonpaar_ultrapyc5000_contract_metadata():
  caps={};slots={}

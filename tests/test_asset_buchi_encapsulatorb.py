@@ -86,4 +86,32 @@ class B390Tests(unittest.TestCase):
    with self.assertRaises(ActionRejected):configured().step(x)
  def test_zero_step(self):
   r=configured();b=r.debug_snapshot();r.step(0);self.assertEqual(b,r.debug_snapshot())
+class ControlUnitFunctions(unittest.TestCase):
+ """1.1 touch-screen functions of the control unit (manual B-390 version E, screens 6-1 and 6-5)."""
+ def test_amplitude_range_follows_frequency(self):
+  r=configured();self.assertEqual(r.read()['vibration.amplitude'],3);r.invoke('vibration.set_amplitude',level=9)
+  with self.assertRaises(ActionRejected):r.invoke('vibration.set_amplitude',level=10)                # 1-9 up to 1500 Hz
+  r.invoke('vibration.set_frequency',frequency_hz=2000.);r.invoke('vibration.set_amplitude',level=12);r.step(.1);self.assertEqual(r.read()['vibration.drive_level'],12.)
+  r.invoke('vibration.set_frequency',frequency_hz=1000.);self.assertEqual(r.amplitude,9)
+  for bad in [0,13,True,2.5]:
+   with self.assertRaises(ActionRejected):r.invoke('vibration.set_amplitude',level=bad)
+  r.invoke('vibration.toggle');r.step(.1);self.assertEqual(r.read()['vibration.drive_level'],0.)
+ def test_amplitude_outside_the_nozzle_window_breaks_the_chain(self):
+  """1.1.1 (sync audit R3): Table 6-4 amplitude window of the nozzle (300 um: 1-3); too low or too high gives an unstable chain (om p.43, p.49)."""
+  self.assertEqual(AMPLITUDE_WINDOW[.0003],(1,3));ok=run_batch();self.assertGreater(len(ok.packets),0)              # default amplitude 3: beads as before
+  r=configured();r.invoke('vibration.set_amplitude',level=6);r=run_batch(r)                                         # too high for 300 um
+  self.assertEqual(len(r.packets),0);self.assertTrue(all(abs(v)<1e-9 for v in balances(r)))                         # the liquid lands in the bath, no beads
+  self.assertGreater(r.bath_material[0],ok.bath_material[0])
+  r=configured();r.invoke('vibration.set_amplitude',level=2);r.invoke('valve.set_opening',fraction=1.);r.step(1.);self.assertGreater(len(r.packets),0)
+ def test_strobe_follows_vibration(self):
+  r=configured();r.invoke('strobe.set_intensity',level=8);self.assertEqual(r.read()['strobe.intensity'],8);r.step(.1);self.assertEqual(r.read()['strobe.flash_hz'],800.)
+  r.invoke('power.set',enabled=False);r.step(.1);self.assertEqual(r.read()['strobe.flash_hz'],0.)
+  with self.assertRaises(ActionRejected):r.invoke('strobe.set_intensity',level=10)
+ def test_store_and_power_up(self):
+  r=configured();r.invoke('vibration.set_frequency',frequency_hz=1130.);r.invoke('electrostatic.set_voltage',voltage_v=1400.);r.invoke('thermal.set_temperature',temperature_k=318.15)
+  r.invoke('power.set',enabled=False);r.invoke('power.set',enabled=True);self.assertEqual((r.freq_target,r.voltage_target,r.t_target),(800.,1000.,313.15))   # not stored: lost
+  r.invoke('vibration.set_frequency',frequency_hz=1130.);r.invoke('strobe.set_intensity',level=7);out=r.invoke('settings.store');self.assertEqual(out['stored']['frequency_hz'],1130.)
+  r.invoke('vibration.set_frequency',frequency_hz=500.);r.invoke('power.toggle');r.invoke('power.toggle');self.assertEqual((r.freq_target,r.strobe),(1130.,7))
+  self.assertEqual(r.read()['settings.stored']['strobe'],7);m=export_buchi_encapsulatorb_contract_metadata()
+  for k in ('vibration.set_amplitude','strobe.set_intensity','settings.store'):self.assertIn(k,m['capabilities'])
 if __name__=='__main__':unittest.main()

@@ -61,4 +61,18 @@ class Tests(unittest.TestCase):
   for d in [-1,float('nan'),True]:
    with self.assertRaises(ActionRejected):r.step(d)
   self.assertEqual(b,r.debug_snapshot())
+ def test_fault_injection_1_2_0(self):
+  r=ready();r.invoke('acquisition.start');r.step(2);o=r.invoke('fault.inject',code='E10');self.assertEqual((o['phase'],r.fault,r.read()['fault.code']),('failed','E10','E10'));r.step(10);self.assertEqual(r.w,0)
+  for cap,a in (('acquisition.start',{}),('cycle.rearm',{}),('acquisition.start_in',dict(delay_s=5.)),('milling.set_speed',dict(speed_rad_s=WMIN))):self.rejected(r,cap,**a)
+  r.invoke('power.set',enabled=False);r.invoke('power.set',enabled=True);self.assertEqual(r.read()['fault.code'],'E10');r.invoke('fault.clear');self.assertIsNone(r.read()['fault.code']);r.invoke('cycle.rearm');r.invoke('acquisition.start');self.assertEqual(r.phase,'running')
+  self.rejected(r,'fault.inject',code='H14');r.invoke('fault.inject',code='H14',speed_rad_s=WMIN);self.assertEqual((r.phase,r.method['speed_rad_s'],r.read()['fault.code']),('running',WMIN,'H14'))
+ def test_run_owner_and_start_in_1_2_0(self):
+  r=ready();r.register_principal('a','agent');r.register_principal('b','agent');a,b=r.session('a'),r.session('b')
+  def inv(s,cap,rid,**args):return s.invoke(instance_id=r.instance_id,capability_id=cap,arguments=args,request_id=rid)
+  inv(a,'acquisition.start_in','s',delay_s=3.);self.assertEqual(inv(b,'acquisition.stop','b1')['error']['code'],'ACCESS_DENIED');r.step(4);op=r.operation_id;self.assertEqual((r.phase,r._owners[op]),('running','a'))
+  before=r.debug_snapshot()
+  for cap,args in (('acquisition.stop',{}),('milling.set_parameters',dict(duration_s=50.))):self.assertEqual(inv(b,cap,'b'+cap,**args)['error']['code'],'ACCESS_DENIED')
+  after=r.debug_snapshot();before.pop('_requests');after.pop('_requests');self.assertEqual(before,after);self.assertEqual(a.poll(op)['status'],'running')
+  self.assertEqual(inv(b,'power.set','boff',enabled=False)['status'],'succeeded')       # the main switch is a hard switch (1.2.1): a power loss,
+  self.assertEqual((r.powered,r.interrupted),(False,True))                               # the grinding is interrupted (remaining time kept, H45)
 if __name__=='__main__':unittest.main()

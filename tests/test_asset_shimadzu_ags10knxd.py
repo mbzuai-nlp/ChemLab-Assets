@@ -73,9 +73,15 @@ class AGSTest(unittest.TestCase):
     def test16_emergency_release_does_not_resume(self):
         h=ready();start(h);h.step(.3);call(h,'emergency.engage');x=h._pos('crosshead');h.step(.2);self.assertEqual(h._pos('crosshead'),x);self.reject(h,'crosshead.move_to','EMERGENCY_ENGAGED',position_m=.001,speed_m_s=.001);call(h,'emergency.reset');h.step(.1);self.assertEqual(h._pos('crosshead'),x);self.assertEqual(h.phase,'cancelled');self.balanced(h)
     def test17_fixture_5000_separate_sensor10000(self):
-        h=ready(sample=dict(host_elastic_modulus_pa=2e11,host_yield_strength_pa=5e9,engineering_strain_at_break=.2));start(h,target_crosshead_m=.01,speed_m_s=.001);h.step(2);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'FIXTURE_FORCE_LIMIT');self.assertAlmostEqual(h.force,5000,delta=.01);self.assertLess(h.force,LOAD_CELL_MAX_N);self.balanced(h)
+        h=ready(plant=dict(force_gain=1.,force_offset_n=0.),sample=dict(host_elastic_modulus_pa=2e11,host_yield_strength_pa=5e9,engineering_strain_at_break=.2));start(h,target_crosshead_m=.01,speed_m_s=.001);h.step(2);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'FIXTURE_FORCE_LIMIT');self.assertAlmostEqual(h.force,5000,delta=.01);self.assertLess(h.force,LOAD_CELL_MAX_N);self.balanced(h)
+        # 1.1.1: with a load cell reading 0.2 % high the 5000 N method stop force acts on the reading, before the fixture's 5000 N
+        h=ready(sample=dict(host_elastic_modulus_pa=2e11,host_yield_strength_pa=5e9,engineering_strain_at_break=.2));start(h,target_crosshead_m=.01,speed_m_s=.001);h.step(2);self.assertEqual(h.terminal_reason,'METHOD_FORCE_STOP');self.assertAlmostEqual(h.read('evaluator')['force.indicated_n'],5000,delta=.011);self.assertAlmostEqual(h.force,(5000-PLANT_EXAMPLE['force_offset_n']+h.force_zero)/PLANT_EXAMPLE['force_gain'],delta=.01);self.balanced(h)
     def test18_method_force_stop(self):
-        h=ready();start(h,force_stop_n=300.);h.step(1);self.assertEqual(h.terminal_reason,'METHOD_FORCE_STOP');self.assertAlmostEqual(h.force,300.,delta=.01);self.reject(h,'acquisition.start','METHOD_FORCE_STOP');self.balanced(h)
+        h=ready(plant=dict(force_gain=1.,force_offset_n=0.));start(h,force_stop_n=300.);h.step(1);self.assertEqual(h.terminal_reason,'METHOD_FORCE_STOP');self.assertAlmostEqual(h.force,300.,delta=.01);self.reject(h,'acquisition.start','METHOD_FORCE_STOP');self.balanced(h)
+        # 1.1.1: the stop force acts on the tester's own reading (plant gain 1.2, as in the sync audit probe; and after a user calibration)
+        h=ready(plant=dict(force_gain=1.2));start(h,force_stop_n=300.);h.step(1);self.assertEqual(h.terminal_reason,'METHOD_FORCE_STOP');self.assertAlmostEqual(h.read('evaluator')['force.indicated_n'],300.,delta=.011);self.assertAlmostEqual(h.force,(300.-PLANT_EXAMPLE['force_offset_n']+h.force_zero)/1.2,delta=.01);self.reject(h,'acquisition.start','METHOD_FORCE_STOP')
+        h=ready(plant=dict(force_gain=1.2));x=200*h._compliance();call(h,'crosshead.move_to',position_m=x,speed_m_s=.0001);h.step(.3);call(h,'force.calibrate',reference_force_n=200.);call(h,'crosshead.move_to',position_m=0.,speed_m_s=.0001);h.step(.3)
+        start(h,force_stop_n=300.);h.step(1);self.assertEqual(h.terminal_reason,'METHOD_FORCE_STOP');self.assertAlmostEqual(h.force,300.,delta=.05);self.assertAlmostEqual(h.read('evaluator')['force.indicated_n'],300.,delta=.05);self.balanced(h)
     def test19_control_rate_and_software_guards(self):
         h=ready();self.reject(h,'method.configure','AUTOMATIC_CONTROL_MAX_100HZ',**dict(METHOD_EXAMPLE,mode='force'));h=ready(fixture=dict(software_trapezium_x=False));self.reject(h,'method.configure','SOFTWARE_OPTION_REQUIRED',**METHOD_EXAMPLE);call(h,'method.configure',**dict(METHOD_EXAMPLE,sample_rate_hz=10));self.check(True,'software_and_100Hz_control_guards')
     def test20_force_control_observed_feedback(self):
@@ -93,7 +99,9 @@ class AGSTest(unittest.TestCase):
     def test26_calibration_external_prior(self):
         h=ready();x=200*h._compliance();call(h,'crosshead.move_to',position_m=x,speed_m_s=.0001);h.step(.3);gain=call(h,'force.calibrate',reference_force_n=200.)['gain'];self.assertAlmostEqual(gain,1/PLANT_EXAMPLE['force_gain'],places=10);self.assertAlmostEqual(h.read('evaluator')['force.indicated_n'],200.,places=9);self.reject(h,'force.zero','UNLOAD_REQUIRED');self.check(True,'calibration_actual_detector_external_reference')
     def test27_force_range_overflow_vs_low_force(self):
-        h=ready(plant=dict(force_gain=100.));start(h,duration_s=.1);h.step(.1);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'LOAD_CELL_OVERFLOW');self.assertIsNone(h.rows[-1]['force_n']);h=ready();start(h,duration_s=.001);h.step(.001);self.assertIsNotNone(h.rows[0]['force_n']);self.assertEqual(h.rows[0]['quality'],'below_documented_accuracy_range');self.check(True,'low_force_not_illegally_rejected')
+        h=ready(plant=dict(force_gain=100.));start(h,duration_s=.1);h.step(.1);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'METHOD_FORCE_STOP');self.assertLess(h.force,LOAD_CELL_MAX_N/100);self.assertIsNotNone(h.rows[-1]['force_n'])   # 1.1.1: the stop force (on the reading) acts before the 10 kN overflow
+        h=ready(plant=dict(force_gain=100.));call(h,'crosshead.move_to',position_m=.00002,speed_m_s=.0001);h.step(.3);self.assertIsNone(h.read('evaluator')['force.indicated_n']);call(h,'method.configure',**METHOD_EXAMPLE);self.reject(h,'acquisition.start','LOAD_CELL_OVERFLOW')
+        h=ready();start(h,duration_s=.001);h.step(.001);self.assertIsNotNone(h.rows[0]['force_n']);self.assertEqual(h.rows[0]['quality'],'below_documented_accuracy_range');self.check(True,'low_force_not_illegally_rejected')
     def test28_loading_sensible_heat(self):
         h=ready(sample=dict(initial_temperature_k=295.65));m=SAMPLE_EXAMPLE['volume_m3']*SAMPLE_EXAMPLE['density_kg_m3'];self.assertAlmostEqual(h.ledger()['sensible_loaded_j'],m*470*3,places=12);self.assertGreater(h.temperature,292.65);self.balanced(h)
     def test29_remove_fractured_inventory(self):
@@ -167,10 +175,10 @@ class AGSTest(unittest.TestCase):
         h=ready(sample=dict(engineering_strain_at_break=.001,temperature_tolerance_k=.001));start(h);h.step(1)
         self.assertTrue(h.broken);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'REFERENCE_TEMPERATURE_RANGE');self.assertEqual(h.rows[-1]['kind'],'fracture_post');self.assertIsNone(h.rows[-1]['force_n']);self.assertGreater(h.ledger()['fracture_heat_j'],0);self.balanced(h);self.check(True,'fracture_event_invalid_data_fails_preserving_physics')
     def test48_non_grid_terminal_invalid_observation(self):
-        h=ready(plant=dict(force_gain=100.));start(h,sample_rate_hz=1,duration_s=.05);h.step(.2);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'LOAD_CELL_OVERFLOW');self.assertAlmostEqual(h.elapsed,.05);self.assertIsNone(h.rows[-1]['force_n']);self.check(True,'terminal_event_invalid_data_fails')
+        h=ready(sample=dict(host_yield_strength_pa=1e6,temperature_tolerance_k=1e-6));start(h,sample_rate_hz=1,duration_s=.05);h.step(.2);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'REFERENCE_TEMPERATURE_RANGE');self.assertAlmostEqual(h.elapsed,.05);self.assertIsNone(h.rows[-1]['force_n']);self.check(True,'terminal_event_invalid_data_fails')
     def test49_initial_or_feedback_invalid_observation(self):
         h=ready(plant=dict(force_gain=100.));call(h,'crosshead.move_to',position_m=.00002,speed_m_s=.0001);h.step(.3);call(h,'method.configure',**METHOD_EXAMPLE);self.reject(h,'acquisition.start','LOAD_CELL_OVERFLOW')
-        h=ready(plant=dict(force_gain=100.,force_control_gain_m_per_n_s=.001));start(h,mode='force',sample_rate_hz=1,speed_m_s=.01,target_force_n=4000.,duration_s=.2);h.step(.2);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'LOAD_CELL_OVERFLOW');self.check(True,'invalid_force_not_substituted_zero_in_feedback')
+        h=ready(sample=dict(host_yield_strength_pa=1e6,temperature_tolerance_k=.001));start(h,mode='force',sample_rate_hz=1,speed_m_s=.01,target_force_n=4000.,duration_s=.2);h.step(.2);self.assertEqual(h.phase,'failed');self.assertEqual(h.terminal_reason,'REFERENCE_TEMPERATURE_RANGE');self.assertEqual(len(h.rows),1);self.check(True,'invalid_force_not_substituted_zero_in_feedback')
 
     def test50_exact_scene_coordinates_are_privileged(self):
         h=ready(fixture={'extensometer_enabled':False});start(h);h.step(.2);h.register_principal('a','agent');s=h.session('a')
@@ -179,5 +187,22 @@ class AGSTest(unittest.TestCase):
             self.assertNotIn(key,h.read());self.assertNotIn(key,public);self.assertNotIn(key,description['state_slots']);self.assertIn(key,h.read('evaluator'))
             with self.assertRaises(ActionRejected):s.read(instance_id=h.instance_id,state_ids=[key])
         self.assertIsNone(public['extensometer.extension_m']['value']);self.check(True,'no_extensometer_no_exact_scene_strain_leak')
+    def test51_zero_force_judged_on_the_reading(self):
+        # 1.1.1: ZERO FORCE is refused only while the tester's own reading shows a load from 1/500 of the 10 kN cell (20 N) up
+        h=ready();x=10*h._compliance();call(h,'crosshead.move_to',position_m=x,speed_m_s=.0001);h.step(.3);self.assertGreater(h.force,9.9)
+        zero=call(h,'force.zero')['zero_n'];self.assertAlmostEqual(zero,PLANT_EXAMPLE['force_gain']*h.force+PLANT_EXAMPLE['force_offset_n'],places=6);self.assertEqual(h.read('evaluator')['force.indicated_n'],0.)   # a small preload is zeroed (operator's choice)
+        h=ready();x=25*h._compliance();call(h,'crosshead.move_to',position_m=x,speed_m_s=.0001);h.step(.3);self.reject(h,'force.zero','UNLOAD_REQUIRED')
+        h=ready(plant=dict(force_gain=.5));x=30*h._compliance();call(h,'crosshead.move_to',position_m=x,speed_m_s=.0001);h.step(.3);self.assertLess(h.read('evaluator')['force.indicated_n'],ZERO_LOAD_N)
+        call(h,'force.zero');self.check(True,'zero_force_on_device_reading')
+    def test52_owner_guards_on_every_path(self):
+        h=ready();h.register_principal('a','agent');h.register_principal('b','agent');a,b=h.session('a'),h.session('b');call(h,'method.configure',**METHOD_EXAMPLE)
+        def inv(s,k,rid,**args):return s.invoke(instance_id=h.instance_id,capability_id=k,arguments=args,request_id=rid)
+        op=inv(a,'acquisition.start','s1')['operation_id'];h.step(.2);self.assertEqual(h._owners[op],'a');self.assertIsNone(h._caller)
+        for k,args in (('acquisition.stop',{}),('acquisition.result',{})):
+            before=copy.deepcopy(h.read('debug'));r=inv(b,k,'b-'+k,**args);self.assertEqual((r['status'],r['error']['code']),('rejected','ACCESS_DENIED'));self.assertEqual(h.read('debug'),before)
+        self.assertEqual(a.poll(op)['status'],'running');self.assertEqual(a.cancel(op,'c1')['status'],'succeeded');self.assertEqual(h.phase,'cancelled');self.assertIsNone(h._caller);self.check(True,'owner_guards_in_runtime')
+        op=inv(a,'acquisition.start','s2')['operation_id'];h.step(.2)                       # the power switch is a hard switch (sweep 2026-10-19):
+        r=inv(b,'power.set','b-off',enabled=False);self.assertEqual(r['status'],'succeeded')   # never refused, the test ends as on a power loss
+        self.assertEqual((h.phase,h.terminal_reason,h.power),('cancelled','POWER_OFF',False))
 
 if __name__=='__main__':unittest.main(verbosity=2)

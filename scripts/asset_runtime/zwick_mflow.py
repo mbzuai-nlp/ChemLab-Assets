@@ -14,6 +14,11 @@ Physics owned by the host clock (``step`` is the only entry that advances time):
   * displacement encoder (0.003 mm), time base (0.002 s), temperature display (0.01 K) quantisation.
 A single MVR/MFR scalar does not identify the rheology: n, Ea, melt density, cp, latent heat, compaction and history are
 explicit host priors (evidence = assumption).  The observed results are computed only from quantised observations.
+
+Touch operating unit (panel.touch / panel.press / panel.switch / panel.capture / panel.frame; approximate panel_ui.json beside the contract, run by
+the shared engine _panel_ui.py): the test page with the live MVR graph, the guided test setup (method.configure, thermal.set_temperature,
+method.set_density), parameter sets (parameters.save / load), the stored results with the USB export (usb.set, results.export), the start / stop /
+cycle keys and the power switch.  The product information describes these functions; the screens are not public, so the panel is approximate.
 """
 from __future__ import annotations
 
@@ -21,6 +26,7 @@ import copy
 import json
 import math
 import re
+import weakref
 from pathlib import Path
 
 PROTOCOL_VERSION = '1.0.0'
@@ -115,7 +121,7 @@ def validate(s, v):
         if not s.get('minimum', -math.inf) <= v <= s.get('maximum', math.inf):
             raise ActionRejected('INVALID_ARGUMENT')
     elif k == 'object':
-        if not isinstance(v, dict) or set(v) != set(s['properties']):
+        if not isinstance(v, dict) or not set(s.get('required', s['properties'])) <= set(v) <= set(s['properties']):
             raise ActionRejected('INVALID_ARGUMENT')
         for key, value in v.items():
             validate(s['properties'][key], value)
@@ -325,6 +331,32 @@ for k, u, c, m, ref in [('truth.barrel_temperature_k', 'K', 'heater', '料筒/�
     slot(k, number(u), u, 'process_truth', c, m, 'evaluator', ref)
 
 
+# ---------------------------------------------------------------- touch operating unit (approximate: product information p.1-3 and the product page
+# describe the 7 in touch display - guided test configuration, parameter sets, live MVR graph, results stored and exported to a USB stick, a user
+# density for the MVR / MFR conversion; the operating instructions are not public)
+ASSET_VERSION = '1.1.2'
+FRONT_ERRORS = ['METHOD_REQUIRED', 'UNKNOWN_PARAMETER_SET', 'TOO_MANY_PARAMETER_SETS', 'NO_USB_STICK']
+MAX_PARAMETER_SETS = 200                     # product information p.3: more than 100 parameter sets
+RESULT_ROW = obj(dict(n=INT, operation_id=TEXT, phase=PHASE, validity=VALIDITY, test_temperature_k=nullable(number('K')), test_load_kg=nullable(number('kg')),
+                      mvr_m3_s=nullable(number('m^3/s')), mfr_kg_s=nullable(number('kg/s'))))
+USB = obj(dict(inserted=BOOL, files=array(TEXT, 0, 10000)))
+cap('parameters.save', obj(dict(name=TEXT)), obj(dict(name=TEXT, sets=INT)), dict(name='PBT 250C 2.16kg'), 'display_glass',
+    '把当前方法、目标温度和用户密度存为命名参数组（产品资料p.3：100组以上；本模型最多200组）')
+cap('parameters.load', obj(dict(name=TEXT)), obj(dict(name=TEXT)), dict(name='PBT 250C 2.16kg'), 'display_glass', '调出参数组：重写方法、目标温度和用户密度（采集中拒绝）')
+cap('method.set_density', obj(dict(density_kg_m3=nullable(number('kg/m^3', 100.0, 5000.0)))), obj(dict(density_kg_m3=nullable(number('kg/m^3')))), dict(density_kg_m3=None),
+    'display_glass', '用户给定测试温度下的熔体密度，用于把MVR换算为MFR（产品资料p.3）；null为不换算')
+cap('usb.set', obj(dict(inserted=BOOL)), USB, dict(inserted=True), 'controller', '插入/拔出U盘（产品页FAQ：结果经U盘导出）')
+cap('results.export', obj({}), USB, {}, 'display_glass', '把保存的全部采集结果导出到U盘（采集中拒绝）')
+FRONT_CAPS = ['parameters.save', 'parameters.load', 'method.set_density', 'usb.set', 'results.export']
+slot('parameters.sets', array(TEXT, 0, MAX_PARAMETER_SETS), '1', 'setpoint', 'display_glass', '保存的参数组名称')
+slot('method.density_kg_m3', nullable(number('kg/m^3')), 'kg/m^3', 'setpoint', 'display_glass', '用户熔体密度（MVR→MFR换算）；null为未设')
+slot('measurement.mfr_from_density_kg_s', nullable(number('kg/s')), 'kg/s', 'derived', 'controller', '最近一次有效MVR×用户熔体密度得到的MFR；未设密度或无有效MVR为null')
+slot('measurement.mvr_trace', array(array(number('1'), 2, 2), 0, 2000), '1', 'derived', 'controller',
+     '屏幕实时MVR曲线：[采集时间s, MVR cm³/10min]，按约4s窗口的量化位移计算（同Live MVR）；新采集开始时重新开始')
+slot('results.list', array(RESULT_ROW, 0, 10000), '1', 'derived', 'controller', '保存的采集结果摘要（编号、状态、有效性、温度、载荷、MVR、MFR）')
+slot('usb', USB, '1', 'derived', 'controller', 'U盘是否插入与已导出的文件')
+
+
 def analyze_flow(start_position_m, end_position_m, start_time_s, end_time_s, area_prior_m2, weighed_segments, melt_density_prior_kg_m3):
     """ISO 1133 arithmetic on external observations only (pure function)."""
     if end_time_s <= start_time_s or start_position_m <= end_position_m:
@@ -412,6 +444,12 @@ class ZwickMflowRuntime:
         self._cancel_operations = {}
         self.book = {k: 0.0 for k in ['loaded_mass_kg', 'collected_mass_kg', 'removed_mass_kg', 'heater_input_j', 'host_work_j', 'loaded_enthalpy_j',
                                       'ambient_export_j', 'extruded_enthalpy_j', 'removed_enthalpy_j', 'friction_heat_j', 'pressure_work_j']}
+        self.param_sets = {}
+        self.density = None
+        self.usb = dict(inserted=False, files=[])
+        self.power_epoch = 0
+        self.panel_capture_dir = None
+        self._panel_session = None                                               # the session whose panel gesture is running (access rules, ownership)
 
     # ------------------------------------------------------------ helpers
     @property
@@ -533,6 +571,9 @@ class ZwickMflowRuntime:
              'measurement.mvr_m3_s': self.last_mvr, 'measurement.mfr_kg_s': self.last_mfr, 'measurement.validity': self.validity,
              'acquisition.phase': self.phase, 'acquisition.elapsed_s': self.elapsed, 'acquisition.points': len(self.rows),
              'segments.count': len(self.segments), 'segments.unweighed': sum(1 for g in self.segments if g['measurement_segment'] and g['status'] != 'weighed'),
+             'parameters.sets': sorted(self.param_sets), 'method.density_kg_m3': self.density,
+             'measurement.mfr_from_density_kg_s': self.last_mvr * self.density if self.last_mvr is not None and self.density is not None else None,
+             'measurement.mvr_trace': self._mvr_trace(), 'results.list': self._results_list(), 'usb': self.usb,
              'truth.barrel_temperature_k': self.T_b, 'truth.sample_temperature_k': T_s, 'truth.melt_fraction': phi,
              'truth.pellet_fraction': self.pellet, 'truth.sample_mass_kg': self.m_s, 'truth.flow_m3_s': self.q_true,
              'truth.thermal_history_s': self.t_hist, 'truth.strand_mass_kg': self.strand_kg, 'truth.heater_power_w': self.heater_w}
@@ -695,6 +736,132 @@ class ZwickMflowRuntime:
         self._start_next_weighing()
 
     # ------------------------------------------------------------ commands
+    # ------------------------------------------------------------ touch operating unit
+    def _mvr_trace(self):
+        """[time, MVR cm3/10 min] of the screen graph: the live-MVR window (about 4 s of quantised displacement) along the current / last run."""
+        pts = [r for r in self.rows if r['encoder_position_m'] is not None]
+        out, j = [], 0
+        for r in pts:
+            while r['time_s'] - pts[j]['time_s'] > LIVE_MVR_WINDOW_S + 1e-9:
+                j += 1
+            f = pts[j]
+            if r['time_s'] > f['time_s']:
+                out.append([r['time_s'], max(0.0, (f['encoder_position_m'] - r['encoder_position_m']) * STANDARD_AREA_M2 / (r['time_s'] - f['time_s'])) * 6e8])
+        return out[-2000:]
+
+    def _results_list(self):
+        return [dict(n=i + 1, operation_id=r['operation_id'], phase=r['phase'], validity=r['validity'], test_temperature_k=r['test_temperature_k'],
+                     test_load_kg=r['test_load_kg'], mvr_m3_s=(r['flow'] or {}).get('mvr_m3_s'), mfr_kg_s=(r['flow'] or {}).get('mfr_kg_s'))
+                for i, r in enumerate(self.records.values())]
+
+    def _status(self):
+        """Instrument state shown on the test page and by the status light."""
+        if not self.power:
+            return 'off'
+        if self.phase == 'running':
+            return 'running'
+        if self.method is None:
+            return 'no_method'
+        if self._indicated_T() is None or abs(self._indicated_T() - self.target_k) > self.method['temperature_tolerance_k'] + 1e-9:
+            return 'heating'
+        if self.sample is None:
+            return 'fill'
+        if not self.contact:
+            return 'insert_piston'
+        if (self.time_ns - self.load_ns) / 1e9 < self.method['preheat_time_s'] - 1e-9:
+            return 'preheat'
+        if self.load_kg is None or abs(self.load_kg - self.method['test_load_kg']) > 1e-9:
+            return 'load'
+        return 'ready'
+
+    def _front(self, k, a):
+        if k == 'usb.set':
+            self.usb['inserted'] = a['inserted']
+            out = copy.deepcopy(self.usb)
+        elif k == 'method.set_density':
+            self.density = a['density_kg_m3']
+            out = dict(density_kg_m3=self.density)
+        elif k == 'parameters.save':
+            name = a['name'].strip()
+            if not name or len(name) > 24:
+                raise ActionRejected('INVALID_ARGUMENT')
+            if self.method is None:
+                raise ActionRejected('METHOD_REQUIRED')
+            if name not in self.param_sets and len(self.param_sets) >= MAX_PARAMETER_SETS:
+                raise ActionRejected('TOO_MANY_PARAMETER_SETS')
+            self.param_sets[name] = dict(method=copy.deepcopy(self.method), target_k=self.target_k, density_kg_m3=self.density)
+            out = dict(name=name, sets=len(self.param_sets))
+        elif k == 'parameters.load':
+            p = self.param_sets.get(a['name'])
+            if p is None:
+                raise ActionRejected('UNKNOWN_PARAMETER_SET')
+            if self.plant is None:
+                raise ActionRejected('PLANT_REQUIRED')
+            self.invoke('method.configure', **copy.deepcopy(p['method']))
+            self.invoke('thermal.set_temperature', target_k=p['target_k'])
+            self.density = p['density_kg_m3']
+            out = dict(name=a['name'])
+        else:
+            if not self.usb['inserted']:
+                raise ActionRejected('NO_USB_STICK')
+            self.usb['files'] = sorted(set(self.usb['files']) | {f'mflow_results/test_{i + 1:03d}.csv' for i in range(len(self.records))})
+            out = copy.deepcopy(self.usb)
+        self.revision += 1
+        return out
+
+    @property
+    def panel(self):
+        p = _PANELS.get(self)
+        if p is None and PANEL_SPEC:
+            p = _PANELS[self] = _panel_ui.PanelUI(PANEL_SPEC, self)
+        return p
+
+    # ------------------------------------------------------------ front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        out = self.read('agent')
+        out.update({'host.powered': self.power, 'host.power_epoch': self.power_epoch, 'host.method': copy.deepcopy(self.method or METHOD_EXAMPLE),
+                    'host.status': self._status()})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        try:
+            if self._panel_session is not None:                                  # a gesture made through a session keeps that caller's access rules
+                self._panel_session._guard(capability_id, arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.time_s
+
+    def _panel_cmd(self, capability, a):
+        if self.panel is None:
+            raise ActionRejected('UNSUPPORTED')
+        try:
+            if capability == 'panel.press':
+                out = dict(accepted=bool(self.panel.press(a['input_id'], float(a.get('duration_s', 0.1)))))
+            elif capability == 'panel.touch':
+                out = dict(accepted=bool(self.panel.touch(a['display_id'], a['x'], a['y'], float(a.get('duration_s', 0.1)), a.get('to'))))
+            elif capability == 'panel.switch':
+                out = dict(accepted=bool(self.panel.switch(a['input_id'], a['position'], held=tuple(a.get('held', ())))))
+            elif capability == 'panel.frame':
+                return dict(frame=self.panel.frame())
+            else:
+                import hashlib
+                import tempfile
+                data, w, h = self.panel.png_bytes(a['display_id'])
+                sha = hashlib.sha256(data).hexdigest()
+                d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+                d.mkdir(parents=True, exist_ok=True)
+                path = d / f"{a['display_id']}_{sha[:16]}.png"
+                if not path.exists():
+                    path.write_bytes(data)
+                return dict(display_id=a['display_id'], time_s=self.time_s, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        self.revision += 1
+        return out
+
     def invoke(self, capability_id, **arguments):
         if capability_id not in CAPS:
             raise ActionRejected('UNKNOWN_CAPABILITY')
@@ -714,6 +881,12 @@ class ZwickMflowRuntime:
         if k == 'sim.step':
             self.step(a['dt_s'])
             return dict(time_s=self.time_s)
+        if k in PANEL_CAPS:
+            if _panel_ui.check_arguments(CAPS[k]['input_schema'], arguments):
+                raise ActionRejected('INVALID_ARGUMENT')
+            return self._panel_cmd(k, a)
+        if k in ('usb.set', 'method.set_density', 'parameters.save'):
+            return self._front(k, a)
         if self.phase == 'running' and k not in ('acquisition.stop', 'power.set', 'balance.weigh', 'thermal.set_temperature', 'cutter.cut'):
             raise ActionRejected('BUSY')
         if k == 'plant.configure':
@@ -754,6 +927,8 @@ class ZwickMflowRuntime:
                     self._cut = None       # blade stops where it is; an uncrossed turn does not cut
                 self.heater_w = 0.0
                 self.integral_w = 0.0
+            if a['enabled'] and not self.power:
+                self.power_epoch += 1
             self.power = a['enabled']
             out = dict(enabled=self.power)
         elif k == 'thermal.set_temperature':
@@ -936,6 +1111,8 @@ class ZwickMflowRuntime:
                 raise ActionRejected('NOT_RUNNING')
             self._finish('cancelled', 'USER_CANCEL')
             out = dict(phase=self.phase, elapsed_s=self.elapsed)
+        elif k in ('parameters.load', 'results.export'):
+            return self._front(k, a)
         else:
             raise ActionRejected('UNKNOWN_CAPABILITY')
         self.revision += 1
@@ -1127,7 +1304,7 @@ class ZwickMflowSession:
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID:
             raise ActionRejected('UNKNOWN_INSTANCE')
         meta = export_zwick_mflow_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION,
                     capabilities={k: v for k, v in meta['capabilities'].items() if v['visibility'] == 'agent' or self._role != 'agent'},
                     state_slots={k: v for k, v in meta['state_slots'].items() if v['visibility'] == 'agent' or self._role != 'agent'})
 
@@ -1172,20 +1349,18 @@ class ZwickMflowSession:
                 if old != digest:
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            # Operations started by another *agent* are private to it; ones started from the physical panel or by the host
-            # (evaluator/debug principals, e.g. a Matterix key press) are visible to every operator at the instrument.
-            owner = h._owners.get(h.operation_id) if h.operation_id else None
-            foreign = owner is not None and owner != self._principal and h._principals.get(owner) == 'agent'
-            if capability_id in ('acquisition.stop', 'acquisition.result') and self._role == 'agent' and foreign:
-                raise ActionRejected('ACCESS_DENIED')
-            if capability_id in ('cutter.cut', 'thermal.set_temperature') and h.phase == 'running' and self._role == 'agent' and foreign:
-                raise ActionRejected('ACCESS_DENIED')
-            if capability_id == 'power.set' and not arguments['enabled'] and h.phase == 'running' and self._role == 'agent' and foreign:
-                raise ActionRejected('ACCESS_DENIED')
-            result = self._filter_result(h.invoke(capability_id, **arguments))
+            self._guard(capability_id, arguments)
+            before = h.operation_id
+            h._panel_session = self if capability_id in PANEL_CAPS else None
+            try:
+                result = self._filter_result(h.invoke(capability_id, **arguments))
+            finally:
+                h._panel_session = None
             operation = result.get('operation_id') if capability_id == 'acquisition.start' else None
             if operation:
                 h._owners[operation] = self._principal
+            elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id != before:
+                h._owners[h.operation_id] = self._principal                      # a test started with the panel START key belongs to the caller
             response = dict(protocol_version=PROTOCOL_VERSION, instance_id=instance_id, request_id=request_id, operation_id=operation,
                             status='accepted' if operation else 'succeeded', state_revision=h.revision, clock={'domain': 'simulation', 'time_s': h.time_s},
                             result=result, observations={}, error=None)
@@ -1196,6 +1371,23 @@ class ZwickMflowSession:
                         status='unsupported' if str(exc) == 'UNSUPPORTED' else 'rejected', state_revision=h.revision,
                         clock={'domain': 'simulation', 'time_s': h.time_s}, result={}, observations={},
                         error=dict(code=str(exc), message=str(exc), retryable=False, side_effects='none'))
+
+    def _guard(self, capability_id, arguments):
+        """Operations started by another caller (directly or with the panel keys; an evaluator-started one too) are private to it: no stop,
+        result, cut or temperature change during it, by a direct call or a panel gesture alike.  The main power switch (power.set) is a hard
+        switch and placing a cut segment on the balance (balance.weigh) is a physical action (lead rules 2026-10-19): never refused; the
+        instrument reacts as to a power loss, the balance records what is weighed under its own preconditions."""
+        h = self._host
+        if self._role != 'agent':
+            return
+        owner = h._owners.get(h.operation_id) if h.operation_id else None
+        foreign = owner is not None and owner != self._principal
+        if not foreign:
+            return
+        if capability_id in ('acquisition.stop', 'acquisition.result'):
+            raise ActionRejected('ACCESS_DENIED')
+        if capability_id in ('cutter.cut', 'thermal.set_temperature') and h.phase == 'running':
+            raise ActionRejected('ACCESS_DENIED')
 
     def write(self, *, instance_id, state_id, value, request_id):
         self._target(instance_id)
@@ -1262,7 +1454,36 @@ EFFECTS = {
 }
 for _k, _v in EFFECTS.items():
     CAPS[_k]['effects'] = _v
-ERRORS = sorted(set(re.findall(r"ActionRejected\('([A-Z_0-9]+)'", Path(__file__).read_text())) |
+for _k, _v in [('parameters.save', ['parameters.sets']), ('parameters.load', ['method.configured', 'method.test_load_kg', 'thermal.target_k', 'method.density_kg_m3']),
+               ('method.set_density', ['method.density_kg_m3', 'measurement.mfr_from_density_kg_s']), ('usb.set', ['usb']), ('results.export', ['usb']),
+               ('acquisition.start', ['measurement.mvr_trace']), ('acquisition.stop', ['results.list', 'measurement.mfr_from_density_kg_s']),
+               ('power.set', ['results.list', 'measurement.mfr_from_density_kg_s'])]:
+    CAPS[_k]['effects'] = CAPS[_k]['effects'] + _v
+
+
+def _panel_engine():
+    try:
+        from asset_runtime import _panel_ui as engine
+        return engine
+    except ImportError:
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET / 'panel_ui.json', capabilities=set(CAPS)) if (ASSET / 'panel_ui.json').exists() else None
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+_PANEL_FX = list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in CAPS[c]['effects']))
+for _k, _v in PANEL_CAPS.items():
+    CAPS[_k] = dict(input_schema=_v['input_schema'], output_schema=_v['output_schema'], example_arguments=_v['example_arguments'], component_ids=_v['component_ids'],
+                    function_zh=_v['function_zh'], visibility=_v['visibility'], kind=_v['kind'], effects=[] if _k in ('panel.capture', 'panel.frame') else _PANEL_FX)
+_PANELS = weakref.WeakKeyDictionary()                                         # one PanelUI per runtime, kept out of __dict__
+ERRORS = sorted(set(re.findall(r"ActionRejected\('([A-Z_0-9]+)'", Path(__file__).read_text())) - set(FRONT_ERRORS) |
                 {'USER_CANCEL', 'POWER_OFF', 'WINDOW_TRAVERSED', 'STARTED_BELOW_WINDOW', 'SAMPLE_EXHAUSTED', 'DURATION_ELAPSED'})
 ASYNC = {'acquisition.start'}
 LIMITATIONS = [
@@ -1282,7 +1503,7 @@ LIMITATIONS = [
     '正向模型的位移—体积换算与方法B分析使用同一ISO平均截面0.711cm²，因此方法B的回收只检验量化与算术，不独立检验截面假设（环隙回流未建模）。',
     '默认n/Ea先验跨条件外推有明显误差：例如B4330G6 HR从250°C/2.16kg外推到260°C/5kg得约16.5cm³/10min，厂家表为19（−13%）；换条件时宿主应改用该条件的厂家数值格或给出更合适的先验。',
     '热历史倍率exp(k·t)限制在1e-3–1e3的数值域；堆积密度不得大于熔体密度（被拒）；每次采集的记录行不超过200000行（方法设定时检查）。',
-    '每次采集保存自己的方法快照、记录行与切段：清走收集区、改方法或称量其它切段都不会改写已完成的结果；晚完成的称量只回填其所属采集。每次采集的切段不超过10000个（手动切刀与自动切段共用预算）；由某个agent启动的采集中，其他agent不能改温度设定、切刀、停止或读取其结果；面板/宿主启动的采集对所有操作者共享。',
+    '每次采集保存自己的方法快照、记录行与切段：清走收集区、改方法或称量其它切段都不会改写已完成的结果；晚完成的称量只回填其所属采集。每次采集的切段不超过10000个（手动切刀与自动切段共用预算）；由某个调用者启动的采集中（直接或经会话按面板START，评测者启动的也一样），其他agent不能改温度设定、切刀、停止或读取其结果（直接命令与面板手势同样拒绝）；主电源开关是硬开关、把切段放上天平称量是物理动作（负责人规则2026-10-19）：从不按调用者拒绝，天平只按自身前提记录所称切段。',
     '没有真实硬件、testXpert连接、机器人装料/压实/清筒、挤出丝接触或卷曲、离模膨胀实测与ISO认证。',
 ]
 
@@ -1316,7 +1537,7 @@ def export_zwick_mflow_contract_metadata():
                                 completion_state_ids=['acquisition.phase'] if async_ else [], timeout_s=None, cancellation='supported' if async_ else 'unsupported',
                                 retry='same_request_id', resources=['host_clock', 'barrel', 'piston', 'cutter', 'encoder'],
                                 partial_failure_zh='停止/断电/超时只终止记录与自动切断；已挤出物、切段、称量记录与热状态全部保留。'),
-                 errors=[dict(code=e, meaning_zh=e, side_effects='partial' if async_ and e in ('USER_CANCEL', 'POWER_OFF', 'SAMPLE_EXHAUSTED', 'DURATION_ELAPSED', 'STARTED_BELOW_WINDOW') else 'none') for e in ERRORS],
+                 errors=[dict(code=e, meaning_zh=e, side_effects='partial' if async_ and e in ('USER_CANCEL', 'POWER_OFF', 'SAMPLE_EXHAUSTED', 'DURATION_ELAPSED', 'STARTED_BELOW_WINDOW') else 'none') for e in ERRORS + (FRONT_ERRORS if k in FRONT_CAPS else [])],
                  verification=[], limitations=LIMITATIONS, source_ids=['manufacturer_primary', 'simulation_assumption', 'template_library'])
         if k in ('acquisition.start', 'piston.insert', 'piston.withdraw', 'cutter.cut', 'thermal.set_temperature', 'power.set', 'balance.weigh', 'weight.configure', 'sample.load'):
             c['state_effects'] += [dict(state_id=s, timing='on_step', description_zh='由统一宿主时钟推进热、熔化、挤出、切刀、称量与量化观测')

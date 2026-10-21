@@ -23,16 +23,25 @@ Process model (fixed 0.1 s grid; standby or no mains with everything at ambient 
     air, the condensate drained and not re-evaporated); the local air temperature carries the documented +-1.7 K spatial field.
   * Ledgers: electric heater + fan energy + condensation heat + sample enthalpy in = node and sample enthalpy + shell and door losses + vented air
     + latent heat + sample enthalpy out; every liquid's mass: placed = on samples + evaporated + boiled + removed; vapour: evaporated + boiled =
-    in the chamber + vented + condensed."""
+    in the chamber + vented + condensed.
+
+Front panel (panel.press / panel.capture / panel.frame): the R4 controller's LCD (four seven-segment digits, dot-matrix text line, status
+icons), its five keys and menu pages from the manual (panel_ui.json beside the contract), run by the generic engine _panel_ui.py on top of the
+capabilities below (no second copy of the logic).  The user-menu settings behind it are device settings here: controller date and time (no
+real-time-clock option: lost when the mains fail), menu language and the L1 / L2 passwords."""
 import copy
+import datetime
+import hashlib
 import json
 import math
 import re
+import tempfile
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
 ASSET_TYPE_ID = "instrument.binder_fd056"
 CATALOG_ID = "CHEM-011"
+ASSET_VERSION = '1.1.1'
 ROOT = Path(__file__).resolve().parents[2]
 ASSET_DIR = ROOT / 'assets/expansion_batch05/t4_measure/binder_fd056'
 LIBS = {'instrument': 'instrument_model.json', 'loads': 'load_templates.json'}
@@ -82,6 +91,8 @@ CLASS1 = (C0 + DOC['overtemp_class1_text']['cut_off_c'], C0 + DOC['overtemp_clas
 LEVELS = (1, 2, 3, 4)
 POSITIONS = ('front_left', 'front_right', 'rear_left', 'rear_right')
 FLAP_TEXT = {0: 'CLOS', 1: '1', 2: '2', 3: '3', 4: 'OPEn'}
+CLOCK_EPOCH = datetime.datetime(2000, 1, 1)                                   # controller clock after power-up without the clock option (assumption)
+LANGUAGES = ('de', 'en', 'fr')
 _M64 = (1 << 64) - 1
 
 
@@ -256,6 +267,13 @@ cap('ledger.read', obj({}), obj(dict(ledger=FREE_OBJ)), {}, ['housing'], '评测
 cap('fault.inject', obj(dict(fault=enum(FAULTS), active=BOOL)), obj(dict(faults=array(TEXT, 0, 16))), dict(fault='ssr_stuck_on', active=True), ['housing'],
     '评测者：注入或清除故障（停电、加热器断路、固态继电器常通、Pt100断线、风机故障、安全控制器失效）', 'evaluator', 'simulation')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 30 * 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=10.0), ['housing'], '推进宿主时钟', 'evaluator', 'simulation')
+cap('clock.set', obj(dict(year=integer(2000, 2099), month=integer(1, 12), day=integer(1, 31), hour=integer(0, 23), minute=integer(0, 59))),
+    obj(dict(datetime=TEXT)), dict(year=2026, month=10, day=18, hour=9, minute=30), ['panel'],
+    '控制器日期与时间（用户菜单或USB记录前输入；无实时时钟选件：断电后须重设，来电时为2000-01-01 00:00；USB记录行带此时间）', 'agent', 'configuration')
+cap('language.set', obj(dict(language=enum(LANGUAGES))), obj(dict(language=enum(LANGUAGES))), dict(language='en'), ['panel'],
+    '菜单语言（用户菜单：德GEr、英EnG、法FrE；改变文字行的标签）', 'agent', 'configuration')
+cap('access.set_password', obj(dict(level=enum(['L1', 'L2']), code=integer(0, 9999))), obj(dict(protection=FREE_OBJ)), dict(level='L1', code=0), ['panel'],
+    '更改密码（用户菜单）：L1保护用户菜单、L2保护全部控制器功能；0000=未设密码（出厂）；面板上按两段两位数输入', 'agent', 'configuration')
 UNSUPPORTED = {
     'fan.set_speed': '风速设定：FD为固定风速（手册：BF、FED才可设风速）。',
     'timer.delayed_on': '定时“延时开启”：只有BF、FED（手册8.1）。',
@@ -268,6 +286,26 @@ UNSUPPORTED = {
 }
 for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, ['housing'], _v)
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.binder_fd056 (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / capture / frame (kept out of CAPS: CAPS stays the
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # instrument's own command set)
 
 # ---------------------------------------------------------------- state slots
 SLOTS = {}
@@ -299,6 +337,9 @@ slot('display.temperature', nullable(number('1')), '1', 'sensor', 'display', '�
 slot('display.text', TEXT, '1', 'derived', 'display', '文字行（七段字形）：设定“SP 150”、风门“FL CLOS”、安全“SAFE 160”、定时“t dhhmm”、斜坡、报警“ALAr tLI”等')
 for _k, _zh in (('heating', '加热图标'), ('timer', '定时图标'), ('alarm', '安全控制器报警图标'), ('standby', '待机图标')):
     slot(f'indicator.{_k}', BOOL, '1', 'derived', {'heating': 'icon_heating', 'timer': 'icon_timer', 'alarm': 'icon_alarm', 'standby': 'icon_standby'}[_k], _zh + '是否点亮')
+slot('controller.datetime', nullable(TEXT), '1', 'derived', 'panel', '控制器日期时间（ISO YYYY-MM-DDTHH:MM，随仿真时钟走；停电时为空；无实时时钟：来电后从2000-01-01 00:00重新开始）')
+slot('controller.language', enum(LANGUAGES), '1', 'setpoint', 'panel', '菜单语言（de/en/fr）')
+slot('access.protection', FREE_OBJ, '1', 'setpoint', 'panel', '是否设了密码：L1（用户菜单）、L2（全部控制器功能）；密码本身不公开')
 slot('truth.process', FREE_OBJ, '1', 'process_truth', 'liner', '加热器、空气、内胆、外壳真实温度，换气，加热功率，样品温度与含湿量，腔内蒸气', 'evaluator')
 slot('truth.faults', array(TEXT, 0, 16), '1', 'process_truth', 'housing', '已注入的故障', 'evaluator')
 SCENE_MIRRORED = {'door.angle_rad', 'flap.angle_rad', 'display.temperature', 'display.text', 'indicator.heating', 'indicator.timer', 'indicator.alarm', 'indicator.standby'}
@@ -336,6 +377,12 @@ class BinderFd056Runtime:
         self.events, self.events_dropped = [], 0
         self.revision = 0
         self.led = None
+        self.clock = dict(base_s=0.0, ref_t=0.0)                              # controller clock: CLOCK_EPOCH + base_s at simulation time ref_t
+        self.language = 'en'                                                  # factory language not stated (assumption)
+        self.passwords = dict(L1=0, L2=0)                                     # 00 00 = no password assigned (manual 6.8)
+        self.power_epoch = 0                                                  # power-ups and standby changes seen by the panel
+        self.panel_capture_dir = None                                         # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self)
         self._principals, self._requests, self._caller = {}, {}, None
 
     # ---- sessions
@@ -420,7 +467,7 @@ class BinderFd056Runtime:
             raise ActionRejected('UNSUPPORTED')
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
         out = fn(**args)
-        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'usb.read'):
+        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'usb.read', 'panel.capture', 'panel.frame'):
             self.revision += 1
         return out
 
@@ -440,6 +487,8 @@ class BinderFd056Runtime:
         self.seed = noise_seed
         if first:
             self.Th = self.Ta = self.Tl = self.Ts = self.Tsens = ambient_k
+            self.clock = dict(base_s=0.0, ref_t=self.t)                       # plugged in: the clock starts at CLOCK_EPOCH
+            self.power_epoch += 1
             self.led = dict(e_heater_j=0.0, e_fan_j=0.0, e_shell_loss_j=0.0, e_door_loss_j=0.0, e_vent_j=0.0, e_latent_j=0.0, e_samples_in_j=0.0, e_samples_out_j=0.0,
                             e_ambient_reset_j=0.0, e_reconfigure_j=0.0, m_placed_kg=0.0, m_evaporated_kg=0.0, m_boiled_kg=0.0, m_removed_kg=0.0,
                             m_vented_kg=0.0, m_condensed_kg=0.0, e_condensation_j=0.0, e_electric_total_j=0.0)
@@ -455,6 +504,7 @@ class BinderFd056Runtime:
             raise ActionRejected('NO_MAINS')
         if on != self.on:
             self.on = on
+            self.power_epoch += 1
             self.ctrl.update(i=0.0, e_prev=None, d=0.0)
             self._event('operation', 'STANDBY_OFF' if on else 'STANDBY_ON', '退出待机（正常显示）' if on else '进入待机')
         return dict(on=self.on)
@@ -541,6 +591,37 @@ class BinderFd056Runtime:
         self.unit = unit
         return dict(unit=unit)
 
+    # ---- user menu settings (date and time, language, passwords)
+    def _clock_at(self, t):
+        return CLOCK_EPOCH + datetime.timedelta(seconds=math.floor(self.clock['base_s'] + (t - self.clock['ref_t']) + 1e-6))
+
+    def _clock_text(self, t):
+        return self._clock_at(t).strftime('%Y-%m-%dT%H:%M')
+
+    def _cmd_clock_set(self, year, month, day, hour, minute):
+        self._need_active()
+        try:
+            when = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute))
+        except ValueError:
+            raise ActionRejected('INVALID_DATE') from None
+        self.clock = dict(base_s=(when - CLOCK_EPOCH).total_seconds(), ref_t=self.t)
+        self._event('operation', 'CLOCK_SET', f'设定日期时间{self._clock_text(self.t)}')
+        return dict(datetime=self._clock_text(self.t))
+
+    def _cmd_language_set(self, language):
+        self._need_active()
+        self.language = language
+        return dict(language=language)
+
+    def _cmd_access_set_password(self, level, code):
+        self._need_active()
+        self.passwords[level] = int(code)
+        self._event('operation', 'PASSWORD_SET', f'密码{level}' + ('已清除（00 00）' if code == 0 else '已更改'))
+        return dict(protection=self._protection())
+
+    def _protection(self):
+        return {k: v != 0 for k, v in sorted(self.passwords.items())}
+
     def _cmd_display_cycle(self):
         self._need_active()
         pages = ['setp', 'flap', 'safety', 'timer', 'ramp', 'usb']
@@ -578,7 +659,7 @@ class BinderFd056Runtime:
         self._need_plant()
         if not self.usb['inserted']:
             raise ActionRejected('NO_STICK')
-        return dict(header=['time_s', 'timer_s', 'actual_c', 'setpoint_c', 'fan', 'flap', 'safety_c', 'heating_percent'],
+        return dict(header=['time_s', 'datetime', 'timer_s', 'actual_c', 'setpoint_c', 'fan', 'flap', 'safety_c', 'heating_percent'],
                     rows=[r for r in self.usb['rows'] if r['time_s'] >= since_s])
 
     def _cmd_rack_set(self, level, present):
@@ -668,6 +749,8 @@ class BinderFd056Runtime:
                     self.class1_reset_armed = False
                     self._event('system', 'OVERTEMP_RESET', '断电≥10 s且已冷却到230 °C以下：1级过温保护复位')
             self.outage_since = None
+            self.clock = dict(base_s=0.0, ref_t=self.t)                       # no real-time clock option: date and time are lost (manual 6.4)
+            self.power_epoch += 1
             u = self.usb
             if u['recording'] and u['next_s'] is not None:                    # recording was interrupted: the rows of the outage are not written
                 while u['next_s'] <= self.t_grid + 1e-9:
@@ -680,6 +763,54 @@ class BinderFd056Runtime:
 
     def _cmd_sim_step(self, dt_s):
         return dict(time_s=self.step(dt_s))
+
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the controller firmware sees: the agent slots plus mains, the power-up / standby count, the remaining timer run-time in
+        days / hours / minutes (rounded up to the minute, as the display counts), the clock fields and the two passwords."""
+        out = self.read('agent')
+        r = int(math.ceil(self.timer['remaining_s'] / 60.0 - 1e-9)) if self.timer['set_s'] > 0 else 0
+        now = self._clock_at(self.t)
+        out.update({'host.mains': self._mains(), 'host.power_epoch': self.power_epoch, 'host.timer_dhm': [r // 1440, r % 1440 // 60, r % 60],
+                    'host.clock': dict(year=now.year, month=now.month, day=now.day, hour=now.hour, minute=now.minute),
+                    'host.password_l1': self.passwords['L1'], 'host.password_l2': self.passwords['L2']})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything)."""
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of the LCD: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
 
     # ---- alarms
     def _alarm_state(self):
@@ -953,7 +1084,8 @@ class BinderFd056Runtime:
         u = self.usb
         if len(u['rows']) >= MAX_USB_ROWS:
             return
-        u['rows'].append(dict(time_s=t, timer_s=(timer_s if timer_s is not None else self.timer['remaining_s']) if self.timer['set_s'] > 0 else None,
+        u['rows'].append(dict(time_s=t, datetime=self._clock_text(t),
+                              timer_s=(timer_s if timer_s is not None else self.timer['remaining_s']) if self.timer['set_s'] > 0 else None,
                               actual_c=None if 'sensor_rupture' in self.faults else round(self._sensor_reading(tick) - C0, 1),
                               setpoint_c=round(self._effective_set() - C0, 1), fan='on' if self._fan_on() else 'off', flap=FLAP_TEXT[self.flap],
                               safety_c=round(self.safe_k - C0), heating_percent=round(100.0 * self.ctrl['duty'])))
@@ -1001,7 +1133,9 @@ class BinderFd056Runtime:
                'samples.placed': [self._sample_public(k) for k in sorted(self.samples)], 'fan.running': bool(pc and self._fan_on()),
                'alarm.state': self._alarm_state() if pc else None, 'display.temperature': d['temp'], 'display.text': d['text'],
                'indicator.heating': bool(act and self.ctrl['heater_w'] > 0.0), 'indicator.timer': bool(act and (self.timer['running'] or self.timer['expired'])),
-               'indicator.alarm': bool(act and self._alarm_state() is not None), 'indicator.standby': bool(pc and self._mains() and not self.on)}
+               'indicator.alarm': bool(act and self._alarm_state() is not None), 'indicator.standby': bool(pc and self._mains() and not self.on),
+               'controller.datetime': self._clock_text(self.t) if pc and self._mains() else None, 'controller.language': self.language,
+               'access.protection': self._protection()}
         if visibility != 'agent':
             out['truth.process'] = (dict(heater_k=self.Th, air_k=self.Ta, liner_k=self.Tl, shell_k=self.Ts, sensor_k=self.Tsens, heater_w=self.ctrl['heater_w'],
                                          duty=self.ctrl['duty'], air_change_kg_s=self._air_change_kg_s(), effective_set_k=self._effective_set(),
@@ -1074,7 +1208,7 @@ class BinderFd056Session:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -1108,13 +1242,13 @@ class BinderFd056Session:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             h._caller = self._principal
             snapshot = copy.deepcopy({k: v for k, v in h.__dict__.items() if k not in ('_principals', '_requests', '_caller')})
             try:
@@ -1158,7 +1292,7 @@ ERROR_ZH = {
     'NO_MAINS': '停电（控制器不工作）', 'STANDBY': '控制器在待机（先按住待机键约3 s）', 'DOOR_CLOSED': '门关着（先开门）', 'NO_STICK': '没有插U盘',
     'RACK_LOADED': '该层搁架上还有样品', 'DUPLICATE_ID': '样品编号已存在', 'NO_RACK': '该层没有搁架', 'POSITION_OCCUPIED': '该位置已有样品',
     'OVERFILL': '液体与固体超过器皿容量', 'NOT_LIQUID': '液体在此温度下不是液体（低于熔点或高于沸点；改环境时：样品上的液体会凝固，凝固未建模）',
-    'OVERLOAD': '超过每层30 kg或总负载70 kg', 'NO_SAMPLE': '没有该样品',
+    'OVERLOAD': '超过每层30 kg或总负载70 kg', 'NO_SAMPLE': '没有该样品', 'INVALID_DATE': '日期不存在（如2月30日）',
 }
 _P = ['PLANT_REQUIRED']
 _A = _P + ['NO_MAINS', 'STANDBY']
@@ -1168,6 +1302,8 @@ CAP_ERRORS = {
     'display.cycle': _A, 'usb.set_stick': _P, 'usb.record': _A + ['NO_STICK'], 'usb.read': _P + ['NO_STICK'], 'rack.set': _P + ['DOOR_CLOSED', 'RACK_LOADED'],
     'sample.place': _P + ['DOOR_CLOSED', 'DUPLICATE_ID', 'NO_RACK', 'POSITION_OCCUPIED', 'OVERFILL', 'NOT_LIQUID', 'OVERLOAD', 'INVALID_ARGUMENT'],
     'sample.remove': _P + ['DOOR_CLOSED', 'NO_SAMPLE'], 'events.read': [], 'truth.inspect': _P, 'ledger.read': [], 'fault.inject': _P, 'sim.step': [],
+    'clock.set': _A + ['INVALID_DATE'], 'language.set': _A, 'access.set_password': _A,
+    **{k: ([] if k == 'panel.frame' else _P) for k in PANEL_CAPS},
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 _CTRL = ('有电且不在待机', ['power.on'])
@@ -1181,12 +1317,17 @@ PRECONDITIONS = {
     'sample.place': ('门开着；该层有搁架且位置空；液体在初温为液体；不超过器皿容量与搁架30 kg、总70 kg', ['door.open', 'racks.levels', 'samples.placed']),
     'sample.remove': ('门开着；样品存在', ['door.open', 'samples.placed']),
     'truth.inspect': ('无', ['plant.configured']), 'fault.inject': ('无', ['plant.configured']),
+    'clock.set': ('有电且不在待机；日期须存在', ['power.on']), 'language.set': _CTRL, 'access.set_password': _CTRL,
+    **{k: ('面板按当前屏幕与手册规则处理手势：停电时无反应，待机时只有按住约3 s的待机键起作用；用户菜单要先输入密码L1，设了L2时功能页先要求L2；'
+           '被调用能力的前提同样适用（被拒时显示不变，手势不被接受）', ['power.on', 'access.protection'])
+       for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
+    'panel.capture': ('无（停电时为暗屏，待机时只亮待机符号）', ['power.on']),
 }
 _DISPLAY = ['display.temperature', 'display.text']
 _IND = ['indicator.heating', 'indicator.timer', 'indicator.alarm', 'indicator.standby']
 _EVOLVE = _DISPLAY + _IND + ['fan.running', 'alarm.state', 'timer.state', 'ramp.state', 'usb.state', 'truth.process']
 EFFECTS = {
-    'plant.configure': ['plant.configured', 'truth.process'] + _DISPLAY + _IND + ['fan.running', 'alarm.state'],
+    'plant.configure': ['plant.configured', 'truth.process'] + _DISPLAY + _IND + ['fan.running', 'alarm.state', 'controller.datetime'],
     'power.set': ['power.on', 'fan.running', 'truth.process'] + _DISPLAY + _IND, 'power.toggle': ['power.on', 'fan.running', 'truth.process'] + _DISPLAY + _IND,
     'door.set': ['door.angle_rad', 'door.open', 'fan.running', 'truth.process', 'indicator.heating'],
     'temperature.set': ['temperature.set_k', 'ramp.state', 'display.text', 'truth.process'], 'temperature.step': ['temperature.set_k', 'ramp.state', 'display.text', 'truth.process'],
@@ -1195,18 +1336,25 @@ EFFECTS = {
     'flap.set': ['flap.position', 'flap.angle_rad', 'display.text', 'truth.process'], 'timer.set': ['timer.state', 'indicator.timer', 'display.text'],
     'ramp.set': ['temperature.set_k', 'ramp.state', 'display.text', 'truth.process'], 'unit.set': ['unit', 'display.temperature', 'display.text'], 'display.cycle': ['display.text'],
     'usb.set_stick': ['usb.state', 'display.text'], 'usb.record': ['usb.state', 'display.text'], 'usb.read': [],
+    'clock.set': ['controller.datetime'], 'language.set': ['controller.language'], 'access.set_password': ['access.protection'],
     'rack.set': ['racks.levels'], 'sample.place': ['samples.placed', 'truth.process'], 'sample.remove': ['samples.placed', 'truth.process'],
-    'fault.inject': ['truth.faults', 'fan.running', 'alarm.state', 'truth.process'] + _DISPLAY + _IND,
+    'fault.inject': ['truth.faults', 'fan.running', 'alarm.state', 'truth.process', 'controller.datetime'] + _DISPLAY + _IND,
     'sim.step': ['clock.time_s'],
 }
 _STEPPED = ('plant.configure', 'power.set', 'power.toggle', 'door.set', 'temperature.set', 'temperature.step', 'safety.set_limit', 'alarm.acknowledge', 'flap.set',
             'timer.set', 'ramp.set', 'sample.place', 'sample.remove', 'fault.inject', 'usb.record')
 ON_STEP = {k: list(_EVOLVE) for k in _STEPPED}
-ON_STEP['sim.step'] = _EVOLVE + ['clock.time_s']
+_PANEL_EFFECTS = list(dict.fromkeys(s for c in _panel_ui.spec_capabilities(PANEL_SPEC) for s in EFFECTS.get(c, [])))
+for _k in PANEL_CAPS:
+    if _k not in ('panel.capture', 'panel.frame'):
+        EFFECTS[_k] = list(_PANEL_EFFECTS)                                   # a gesture changes what the commands it calls change
+        ON_STEP[_k] = list(_EVOLVE)
+ON_STEP['sim.step'] = _EVOLVE + ['clock.time_s', 'controller.datetime']
 ON_STEP_ZH = {'sim.step': '按0.1 s网格积分：加热器、空气、内胆、外壳与样品温度，换气，样品干燥与腔内蒸气，Pt100，控温与斜坡，安全装置，定时，USB记录；'
                           '待机或停电、全部在室温且无湿样品时整段跳过（定时与USB记录解析推进）'}
-EXEC_TEXT = {}
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+EXEC_TEXT = {k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看',)
+             for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')}
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 for _k in ('door.set', 'usb.set_stick', 'rack.set', 'sample.place', 'sample.remove'):
     RESOURCES[_k] = ['host_clock', 'robot_or_operator']
 OBSERVES = {'temperature.set': ['display.temperature'], 'power.set': ['display.temperature', 'indicator.standby'], 'door.set': ['fan.running'],
@@ -1215,19 +1363,28 @@ _WB, _DS, _MAN, _MATS, _NIST, _PC, _LIB, _SIM = ('user_workbook', 'manufacturer_
                                                  'liquid_library', 'simulation_assumption')
 CAP_SOURCES = {k: [_DS, _MAN] for k in CAPS}
 CAP_SOURCES.update({'plant.configure': [_DS, _WB, _SIM], 'sample.place': [_MATS, _NIST, _PC, _LIB, _SIM], 'sample.remove': [_SIM], 'events.read': [_MAN, _SIM],
-                    'truth.inspect': [_SIM], 'ledger.read': [_SIM], 'fault.inject': [_MAN, _SIM], 'sim.step': [_SIM], 'door.set': [_DS, _MAN], 'rack.set': [_DS, _MAN]})
+                    'truth.inspect': [_SIM], 'ledger.read': [_SIM], 'fault.inject': [_MAN, _SIM], 'sim.step': [_SIM], 'door.set': [_DS, _MAN], 'rack.set': [_DS, _MAN],
+                    'clock.set': [_MAN, _SIM], 'language.set': [_MAN], 'access.set_password': [_MAN, _SIM]})
+CAP_SOURCES.update({k: [_MAN, _SIM] for k in PANEL_CAPS})
 PARAM_ZH = {'ambient_k': '室温', 'pressure_pa': '大气压', 'mains_v': '电源电压', 'noise_seed': '噪声种子', 'relative_humidity': '室内相对湿度', 'on': '开或待机',
             'angle_rad': '门开角', 'temperature_k': '温度设定', 'delta_k': '设定增减', 'limit_k': '安全控制器设定', 'position': '风门开度0–4或搁架位置',
             'days': '天', 'hours': '时', 'minutes': '分', 'fan_after': '定时结束后风机', 'gradient_k_min': '斜坡梯度（°C/min）', 'target_k': '斜坡目标',
             'unit': '温度单位', 'inserted': 'U盘插入', 'interval_min': '记录间隔', 'since_s': '起始时间', 'level': '搁架层', 'present': '放入或取出',
             'sample_id': '样品编号', 'ware': '器皿（目录）', 'dry_mass_kg': '干固体质量', 'dry_cp_j_kgk': '干固体比热', 'liquid_id': '湿液体（模板库）',
-            'liquid_mass_kg': '液体质量', 'initial_k': '样品初温', 'fault': '故障名', 'active': '注入或清除', 'dt_s': '推进时间'}
+            'liquid_mass_kg': '液体质量', 'initial_k': '样品初温', 'fault': '故障名', 'active': '注入或清除', 'dt_s': '推进时间',
+            'year': '年', 'month': '月', 'day': '日', 'hour': '时', 'minute': '分', 'language': '菜单语言', 'code': '四位密码（0000=无）',
+            'input_id': '面板按键', 'display_id': '显示件'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.drying_oven_process.limitations。'
 CAP_LIMITS = {
     'sample.place': ['器皿材料与尺寸来自目录（工程尺寸，材料物性有来源）；干固体只有质量与比热（不吸附、不分解）；湿液体为模板库中的单一纯液体；不建模溶剂可燃性与爆炸下限（手册：本机不用于可燃物）。'],
-    'display.cycle': ['R4菜单的方向键/OK/返回导航被抽象为直接能力（设定、风门、安全、定时、斜坡、USB）；返回键在场景中切换文字行页面。'],
-    'temperature.step': ['场景中上、下键各按一次=±1 K（菜单中按住连续变化未建模）。'],
-    'usb.read': ['CSV内容按手册列出的量；日期时间以仿真时钟秒表示；文件名与语言格式未建模。'],
+    'display.cycle': ['场景按键的直接捷径（返回键切换文字行页面，显示状态槽display.text）；手册的方向键/OK/返回逐级菜单由前面板层panel.press实现（panel_ui.json）。'],
+    'temperature.step': ['场景按键的直接捷径（上、下键各按一次=±1 K）；手册中方向键先选菜单页、按OK后才改设定，由前面板层panel.press实现。'],
+    'usb.read': ['CSV内容按手册列出的量，加控制器日期时间列（clock.set；无实时时钟选件时断电后从2000-01-01 00:00重新开始）；文件名与语言格式未建模。'],
+    'clock.set': ['控制器时钟随仿真时钟走（整分显示）；无实时时钟选件：停电后来电时回到2000-01-01 00:00（手册只写须重设，回到的值为假设）；不建模时钟漂移。'],
+    'language.set': ['改变面板文字行的标签：手册与快速指南中出现的德文/法文标签（Soll/Cons、TWB/LimT、Aus、Lüfter/Vent）按其写法，其他标签仍用英文（假设）。'],
+    'access.set_password': ['密码只由面板执行（用户菜单要L1；设了L2时功能页先要L2）；直接能力调用不受密码限制（运行层API代表已授权的操作者）。'],
+    **{k: ['面板层按panel_ui.json（手册页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟（长按只按duration_s判断）；手册未写之处的选择见panel_ui.json的assumptions。']
+       for k in PANEL_CAPS},
 }
 LIMITATIONS = [
     '所选配置：BINDER FD 56（FD056-230V，9010-0303），标准配置（2层镀铬搁架，无选件）；数据表2022版为主来源，手册E3.1（12/2017）补充控制器与安全装置细节。',
@@ -1240,9 +1397,11 @@ LIMITATIONS = [
     '2级安全控制器（限温器）超过设定后完全关闭加热并锁定，降到设定以下后按OK复位；1级过温保护330 °C切断，断电≥10 s且冷却到230 °C以下才复位；出厂安全设定未知，取最大300 °C（假设）。',
     '样品：器皿+干固体（堆积密度默认1500 kg/m³，可声明；固体与液体须装得下）+一种液体；恒速干燥段按湿表面传质（风机开/关两档系数），含湿量低于临界值（工程值0.15）后线性降速；沸点以上过剩热量使液体沸腾；腔内蒸气随换气排出（各蒸气不超过腔温下的饱和蒸气压，超出部分在内胆上冷凝、放出汽化热、冷凝液排走不再蒸发；总蒸气分压不超过大气压，超出部分经排气管挤出），'
     '水的背景按室内相对湿度；不建模冷凝液的再蒸发、吸湿、化学变化与可燃气氛。',
-    'FD为固定风速；延时开启、温度相关延时关闭、风速设定与各选件为unsupported；R4菜单导航（方向键/OK/返回的逐级操作）被抽象为直接能力，场景中五个按键为弹簧键。',
-    '显示文字按七段字形：设定“SP”、风门“FL CLOS/1/2/3/OPEn”、安全“SAFE”、定时“t dhhmm”、斜坡“r”、USB“Usb”、2级报警“ALAr tLI”（手册!TLim）、1级“ALAr OtP”、定时结束“t End”；'
-    '大数字为实际温度（Pt100断线显示1999）。',
+    'FD为固定风速；延时开启、温度相关延时关闭、风速设定与各选件为unsupported；R4菜单导航（方向键/OK/返回的逐级操作）由前面板层（panel.*，panel_ui.json）按手册实现，'
+    'temperature.step与display.cycle保留为场景中五个弹簧键的直接捷径。',
+    '状态槽display.text是运行层的七段摘要：设定“SP”、风门“FL CLOS/1/2/3/OPEn”、安全“SAFE”、定时“t dhhmm”、斜坡“r”、USB“Usb”、2级报警“ALAr tLI”（手册!TLim）、1级“ALAr OtP”、定时结束“t End”；'
+    '大数字为实际温度（Pt100断线显示1999）；控制器屏幕本身（七段数字、点阵文字行如“Setp 105°C”“!TLim”“Off 00:10”、状态符号）由前面板层渲染（panel.capture）。',
+    '用户菜单设定：日期时间随仿真时钟走，无实时时钟选件，停电后回到2000-01-01 00:00（假设）；菜单语言、两级密码为控制器设定；蜂鸣器与以太网菜单属于本配置没有的选件。',
     '场景：箱体、门（双向关节）、三角控制面板（显示、5键）、内腔、2层搁架、风扇罩、排气管与后部风门执行器（随风门开度转动）有几何；样品没有几何（运行层状态）。',
 ]
 
@@ -1258,7 +1417,7 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if CAPS[k]['visibility'] != 'agent' else []
+    extra = ['ACCESS_DENIED'] if ALL_CAPS[k]['visibility'] != 'agent' else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1335,7 +1494,7 @@ def export_binder_fd056_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'BinderFd056Session.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',

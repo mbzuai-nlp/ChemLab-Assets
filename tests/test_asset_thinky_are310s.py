@@ -13,7 +13,18 @@ class ThinkyTest(unittest.TestCase):
   if code:self.assertEqual(str(x.exception),code)
   self.assertEqual(old,r.debug_snapshot())
  def test_metadata(self):
-  m=export_thinky_are310s_contract_metadata();self.assertEqual(len(m['capabilities']),14);self.assertEqual(set(m['state_slots']),set(ThinkyAre310sRuntime().read('evaluator')))
+  m=export_thinky_are310s_contract_metadata();self.assertEqual(len(m['capabilities']),14+len(CONDITION_CAPS)+len(FAULT_CAPS)+len(PANEL_CAPS));self.assertEqual(set(m['state_slots']),set(ThinkyAre310sRuntime().read('evaluator')))
+ def test_panel_conditions_memories(self):
+  r=ThinkyAre310sRuntime();r.invoke('plant.configure',**PLANT_EXAMPLE);self.reject(r,'conditions.set_mode',dict(mode='STEP'),'PRECONDITION_FAILED');r.invoke('power.set',enabled=True)
+  self.assertEqual(r.read()['conditions.current'],dict(mix_time_s=30.,mix_rpm=2000.,defoam_time_s=30.,defoam_rpm=2200.))
+  self.reject(r,'conditions.set_step',dict(mix_time_s=10.,mix_rpm=1500.,defoam_time_s=0.,defoam_rpm=2200.),'INVALID_ARGUMENT');self.reject(r,'conditions.select_step',dict(number=2),'PRECONDITION_FAILED')
+  r.invoke('conditions.set_mode',mode='STEP');r.invoke('conditions.select_memory',number=3);self.assertEqual(r.read()['conditions.current'],zero_step('STEP'))
+  for n,t in [(1,10.),(2,20.),(3,5.)]:r.invoke('conditions.select_step',number=n);r.invoke('conditions.set_step',mix_time_s=t,mix_rpm=1500.,defoam_time_s=0.,defoam_rpm=0.)
+  self.reject(r,'conditions.set_step',dict(mix_time_s=1.,mix_rpm=150.,defoam_time_s=0.,defoam_rpm=0.),'INVALID_ARGUMENT');self.reject(r,'conditions.set_step',dict(mix_time_s=1.5,mix_rpm=1500.,defoam_time_s=0.,defoam_rpm=0.),'INVALID_ARGUMENT')
+  r.invoke('conditions.select_step',number=2);self.assertEqual(r.invoke('conditions.register'),dict(mode='STEP',number=3,steps=2));self.assertEqual([x['mix_time_s'] for x in r.memories['STEP'][2]],[10.,20.,0.,0.,0.])
+  self.assertEqual([x['duration_s'] for x in r.panel_program()],[10.,20.,5.]);r.invoke('power.set',enabled=False);r.invoke('power.set',enabled=True)
+  self.assertEqual(r.read()['conditions.mode'],'STEP');self.assertEqual([x['duration_s'] for x in r.panel_program()],[10.,20.])  # unregistered STEP 3 lost at power-off
+  r.invoke('conditions.select_memory',number=4);self.assertEqual(r.panel_program(),[]);r.invoke('conditions.select_memory',number=3);self.assertEqual(r.step_no,1)
  def test_defaults_are_not_loaded(self):self.reject(ThinkyAre310sRuntime(),'acquisition.start',{})
  def test_only_step_moves_lid(self):
   r=prepared(closed=False);r.invoke('lid.set_open',open=False);self.assertEqual(r.lid_angle,1.5);r.step(.5);self.assertAlmostEqual(r.lid_angle,.75)
@@ -47,7 +58,8 @@ class ThinkyTest(unittest.TestCase):
  def test_start_open_guard(self):self.reject(prepared(closed=False),'acquisition.start',{})
  def test_running_reconfiguration_atomic(self):
   r=prepared();r.invoke('acquisition.start');r.step(1)
-  for cap,a in [('balance.set',dict(gross_mass_kg=.14)),('method.configure',METHOD_EXAMPLE),('lid.set_open',dict(open=True)),('power.set',dict(enabled=False))]:self.reject(r,cap,a)
+  for cap,a in [('balance.set',dict(gross_mass_kg=.14)),('method.configure',METHOD_EXAMPLE),('lid.set_open',dict(open=True))]:self.reject(r,cap,a)
+  r.invoke('power.set',enabled=False);self.assertEqual((r.phase,r.mode,r.powered),('cancelled','power_loss_braking',False))   # the I/O switch is a hard switch (final sync)
  def test_cancel_braking_lid_lock(self):
   r=prepared();r.invoke('acquisition.start');r.step(2);r.invoke('acquisition.stop');self.reject(r,'lid.set_open',dict(open=True));r.step(1);r.invoke('lid.set_open',open=True);r.step(1);self.assertAlmostEqual(r.lid_angle,1.5,12)
  def test_power_loss_no_auto_restart(self):

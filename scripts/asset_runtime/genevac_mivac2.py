@@ -2,15 +2,23 @@
 
 Host thermal control, ideal-Raoult boiling-only mass transfer and trap efficiency
 are assumptions. This is neither calibrated firmware nor a hardware safety model.
+Control panel (manual 04-5057 section 5): SELECT settings (chamber temperature, run type, TOTAL and HEAT time, AUTO display mode), MANUAL / AUTO
+runs, PRE-HEAT (latched by a 5 s hold) and the front panel (panel.press / turn / switch / capture / frame; panel_ui.json beside the contract, run
+by the generic engine _panel_ui.py).
+Self-check error codes (manual section 8, p.16): evaluator fault.inject Er 01-06 / 08-12 and fault.clear (1.2.0); Er 07 follows a rotor imbalance.
 """
 from __future__ import annotations
-import copy,importlib.util,json,math
+import copy,hashlib,importlib.util,json,math,tempfile
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
 from asset_runtime.pccell_ed64002 import validate
-ROOT=Path(__file__).resolve().parents[2];SLUG='genevac_mivac2';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-036';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/genevac_mivac2_evaporation_library/templates.json'
+ROOT=Path(__file__).resolve().parents[2];ASSET_VERSION='1.2.0';SLUG='genevac_mivac2';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-036';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/genevac_mivac2_evaporation_library/templates.json'
 MAX_SPEED=1465*2*math.pi/60;AMBIENT=101325.
 def nullable(s):return {'anyOf':[s,{'type':'null'}]}
+FAULT_CODES={'Er01':'software error - memory failure','Er02':'lid not closed during run','Er03':'lid not locked during run','Er04':'motor drive error','Er05':'rotor failed to spin',
+             'Er06':'rotor failed to reach speed','Er08':'lid failed to lock','Er09':'lid failed to unlock','Er10':'software error - sensor read error',
+             'Er11':'software error - chamber temperature low','Er12':'software error - chamber temperature high'}   # manual p.16 (section 8); Er07 comes from a rotor imbalance
+POWER_OFF_WAIT_S=5.   # manual p.16 NOTE: switch the system power OFF, wait 5 seconds, switch it back ON
 PHASE=dict(type='string',enum=['idle','running','succeeded','cancelled','failed'])
 PLANT=obj({'external_vacuum_confirmed':BOOL,'external_trap_confirmed':BOOL,'compatibility_reviewed':BOOL,'ventilation_clearance_m':number('m',.05,10),'pressure_controller_installed':BOOL,'ultimate_pressure_pa':number('Pa',1,10000),'pressure_tau_s':number('s',.1,1000),'vent_tau_s':number('s',.1,1000),'temperature_tau_s':number('s',.1,10000),'initial_temperature_k':number('K',303.15,353.15),'mass_transfer_mol_s_pa':number('mol/(s*Pa)',1e-14,1e-5),'trap_efficiency':number('1',0,1),'trap_capacity_kg':number('kg',1e-6,100),'acceleration_rad_s2':number('rad/s^2',.1,100),'balance_tolerance_kg':number('kg',1e-9,.001),'program_period_s':number('s',1,3600),'water_pump_duty':number('1',.05,1),'alcohol_pump_duty':number('1',.05,1),'coefficient_evidence':TEXT})
 PLANT_EXAMPLE=dict(external_vacuum_confirmed=True,external_trap_confirmed=True,compatibility_reviewed=True,ventilation_clearance_m=.05,pressure_controller_installed=True,ultimate_pressure_pa=100.,pressure_tau_s=3.,vent_tau_s=2.,temperature_tau_s=20.,initial_temperature_k=303.15,mass_transfer_mol_s_pa=1e-8,trap_efficiency=.95,trap_capacity_kg=.01,acceleration_rad_s2=20.,balance_tolerance_kg=.00001,program_period_s=60.,water_pump_duty=.8,alcohol_pump_duty=.9,coefficient_evidence='explicit_host_assumptions_not_manufacturer_firmware_or_calibration')
@@ -36,6 +44,19 @@ CAPS={
  'evaporation.measure':(obj({}),MEASURE,['display_digits'],'理想化宿主观测，不声称有称重或溶剂在线传感器','query','agent',{}),
  'product.read':(obj({}),obj({'records':dict(type='array',items=PRODUCT_ROW),'nonvolatile_mass_kg':number('kg',0),'evidence':TEXT,'template_source':TEXT}),['plate_'+str(i) for i in range(6)],'保留溶剂、冷阱和尾气的逐物质真值','query','evaluator',{}),
  'history.read':(obj({}),obj({'records':dict(type='array',items=POINT),'evidence':TEXT}),['display_digits'],'宿主时间序列，不是厂家软件数据格式','query','agent',{}),
+ 'run.configure':(obj({'temperature_k':nullable(number('K',303.15,353.15)),'program':dict(type='string',enum=['water','alcohol','other']),'duration_s':number('s',60,86400),
+                     'heating_time_s':number('s',0,86400),'auto_display':dict(type='string',enum=['total','heat'])},optional=('temperature_k','program','duration_s','heating_time_s','auto_display')),
+                   obj({'settings':dict(type='object')}),['encoder','display_digits'],
+                   'SELECT旋钮设定（任何时候，运行中除外）：腔温30–80 C（null=低于30 C不加热，显示--）、运行类型H2O/-OH/---、TOTAL总运行时间、HEAT加热时间、AUTO运行中显示TOTAL或HEAT时间','configuration','agent',dict(program='water',duration_s=3600.)),
+ 'run.start':(obj({'mode':dict(type='string',enum=['manual','auto'])}),obj({'phase':PHASE,'operation_id':TEXT}),['button_manual','button_auto','rotor','chamber_wall'],
+              'MANUAL：运行到STOP（时间正计）；AUTO：运行TOTAL时间后停（时间倒计）；启动取消预热（锁定的预热在运行结束后恢复）','device_command','agent',dict(mode='auto')),
+ 'preheat.set':(obj({'on':BOOL,'latched':BOOL},optional=('latched',)),obj({'on':BOOL,'latched':BOOL}),['button_preheat'],
+                'PRE-HEAT：空转子关盖时把腔体预热到控制温度（V1.09起）；latched=true为按住5 s锁定，两次运行之间保持温热；off取消','device_command','agent',dict(on=True)),
+ 'fault.inject':(obj({'code':dict(type='string',enum=sorted(FAULT_CODES))}),obj({'code':TEXT,'phase':PHASE}),['display_digits','rotor','lid'],
+                 '评测者注入手册第8节自检错误码Er 01–06、08–12（Er 07由转子失衡产生）：正在进行的运行立即停止（failed，转子减速、通气），预热取消，'
+                 '液晶TIME区显示Er xx（运行中不显示错误码）；错误显示期间MANUAL/AUTO启动与预热被拒（双响）；Er 09（盖未能解锁）期间盖保持锁止','simulation','evaluator',dict(code='Er05')),
+ 'fault.clear':(obj({}),obj({'cleared':BOOL}),['display_digits'],
+                '评测者：错误原因已排除（按手册处理：关好盖并扣上锁扣、转子能自由转动、电源在容差内等）；显示的Er xx要等关电源≥5 s再开机才消失（手册p.16注），原因仍在则开机自检后再显示','simulation','evaluator',{}),
  'reference.lookup':(obj({'substance_id':TEXT,'fit_id':TEXT,'temperature_k':number('K',303.15,353.15)}),obj({'pressure_pa':number('Pa',0),'source':TEXT,'evidence':TEXT,'template_source':TEXT}),['chamber_wall'],'查询真实NIST温区内蒸气压，不外推','query','agent',dict(substance_id='water',fit_id='0',temperature_k=313.15))}
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,zh,o='derived',v='agent',c='display_digits',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=zh
@@ -46,10 +67,29 @@ slot('cycle.phase',PHASE,'1','异步作业状态');slot('cycle.fault',TEXT,'1','
 slot('thermal.target_k',number('K',303.15,353.15),'K','腔体温度目标','setpoint',w=('temperature.set','temperature_k'));slot('thermal.temperature_k',number('K',303.15,353.15),'K','受宿主热边界控制的共同温度，不是实测传感器')
 slot('vacuum.pressure_pa',number('Pa',0),'Pa','外部泵/通气一阶模型绝对压力');slot('rotor.speed_rad_s',number('rad/s',0,MAX_SPEED),'rad/s','转速斜坡代理',c='rotor');slot('rotor.angle_rad',number('rad',-math.pi,math.pi),'rad','转子累计角折返，非全速PhysX认证',c='rotor');slot('basket.angle_rad',number('rad',0,1.45),'rad','摆篮角度代理',c='basket_left')
 slot('output.remaining_fraction',nullable(number('1',0,1)),'1','宿主理想剩余挥发物摩尔比例，非设备直接测量');slot('output.captured_mass_kg',number('kg',0),'kg','外部捕集边界累计质量');slot('output.exhaust_mass_kg',number('kg',0),'kg','未捕集溶剂累计外流量')
+slot('controls.state',dict(type='object'),'1','面板控制状态：运行方式manual/auto、预热与锁定、不加热（--）、AUTO显示方式、TOTAL与HEAT时间、运行类型','setpoint',c='panel')
+slot('safety.error_code',nullable(dict(type='string',enum=sorted(FAULT_CODES))),'1','液晶显示的自检错误码Er xx（手册p.16；null=无；Er 07见cycle.fault）')
+slot('truth.fault_cause',nullable(dict(type='string',enum=sorted(FAULT_CODES))),'1','注入的错误原因是否仍在（null=已排除）','process_truth','evaluator','rotor')
 slot('truth.liquid_mol',number('mol',0),'mol','六板全部挥发物库存','process_truth','evaluator','rotor');slot('truth.initial_mol',number('mol',0),'mol','最初挥发物摩尔数','process_truth','evaluator','rotor')
+def _panel_engine():
+ try:
+  from . import _panel_ui as engine                                   # imported as asset_runtime.genevac_mivac2 (tests, Matterix bridge)
+  return engine
+ except ImportError:                                                  # loaded from its file path
+  import sys
+  if '_chemsim_panel_ui' not in sys.modules:
+   sp=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(sp);sp.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine();_SPEC_PATH=ROOT/'assets/expansion_batch03/t2_vacuum'/SLUG/'panel_ui.json'
+PANEL_SPEC=_panel_ui.load_spec(_SPEC_PATH,capabilities=set(CAPS)) if _SPEC_PATH.exists() else None
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+for _k,_v in PANEL_CAPS.items():CAPS[_k]=(_v['input_schema'],_v['output_schema'],_v['component_ids'],_v['function_zh'],_v['kind'],_v['visibility'],_v['example_arguments'])
 class GenevacMivac2Runtime:
  def __init__(self,instance_id='mivac_01'):
   self.instance_id=instance_id;self.time_s=0.;self.revision=0;self.plant=None;self.rotor=None;self.method=None;self.sample=None;self.powered=False;self.open=True;self.phase='idle';self.fault='';self.elapsed_s=0.;self.temperature=303.15;self.pressure=AMBIENT;self.speed=0.;self.angle=0.;self.records=[];self.history=[];self.operation_id=None;self._operation_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={};self.templates={r['substance_id']:r for r in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']}
+  self.run_mode='auto';self.preheat=False;self.preheat_latched=False;self.heat_off=False;self.auto_display='total';self.power_epoch=0
+  self._caller=None                                                    # principal of the session call in progress (set by the session)
+  self.err=None;self.err_cause=None;self.off_at=None                   # 1.2.0: self-check error code shown (manual p.16), its cause, time of the last switch-off
  def register_principal(self,principal_id,visibility='agent'):
   if visibility not in ['agent','evaluator','debug']:raise ActionRejected('INVALID_ARGUMENT')
   if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -69,15 +109,25 @@ class GenevacMivac2Runtime:
   return 1e5*10**(f['A']-f['B_k']/(t+f['C_k']))
  def _fraction(self):return sum(r['liquid_mol'] for r in self.records)/sum(r['initial_mol'] for r in self.records) if self.records else None
  def _mass(self,key):return sum(r[key]*self.templates[r['substance_id']]['molar_mass_kg_mol'] for r in self.records)
- def _locked(self):return self.phase=='running' or self.speed>.01 or abs(self.pressure-AMBIENT)>100.
+ def _locked(self):return self.phase=='running' or self.speed>.01 or abs(self.pressure-AMBIENT)>100. or self.err_cause=='Er09'   # Er 09: the lid failed to unlock
  def _values(self):
-  v={n+'.configured':bool(getattr(self,n)) for n in ['plant','rotor','method','sample']};v.update({'power.enabled':self.powered,'lid.open':self.open,'lid.locked':self._locked(),'lid.angle_rad':1.45 if self.open else 0.,'cycle.phase':self.phase,'cycle.fault':self.fault,'cycle.elapsed_s':self.elapsed_s,'thermal.target_k':self.method['temperature_k'] if self.method else 303.15,'thermal.temperature_k':self.temperature,'vacuum.pressure_pa':self.pressure,'rotor.speed_rad_s':self.speed,'rotor.angle_rad':self.angle,'basket.angle_rad':1.45*self.speed/MAX_SPEED,'output.remaining_fraction':self._fraction(),'output.captured_mass_kg':self._mass('captured_mol'),'output.exhaust_mass_kg':self._mass('exhaust_mol'),'truth.liquid_mol':sum(r['liquid_mol'] for r in self.records),'truth.initial_mol':sum(r['initial_mol'] for r in self.records)});return v
+  v={n+'.configured':bool(getattr(self,n)) for n in ['plant','rotor','method','sample']};v.update({'power.enabled':self.powered,'lid.open':self.open,'lid.locked':self._locked(),'lid.angle_rad':1.45 if self.open else 0.,'cycle.phase':self.phase,'cycle.fault':self.fault,'cycle.elapsed_s':self.elapsed_s,'thermal.target_k':self.method['temperature_k'] if self.method else 303.15,'thermal.temperature_k':self.temperature,'vacuum.pressure_pa':self.pressure,'rotor.speed_rad_s':self.speed,'rotor.angle_rad':self.angle,'basket.angle_rad':1.45*self.speed/MAX_SPEED,'output.remaining_fraction':self._fraction(),'output.captured_mass_kg':self._mass('captured_mol'),'output.exhaust_mass_kg':self._mass('exhaust_mol'),'safety.error_code':self.err,'truth.fault_cause':self.err_cause,'truth.liquid_mol':sum(r['liquid_mol'] for r in self.records),'truth.initial_mol':sum(r['initial_mol'] for r in self.records),
+           'controls.state':dict(run_mode=self.run_mode,preheat=self.preheat,preheat_latched=self.preheat_latched,heat_off=self.heat_off,auto_display=self.auto_display,
+                                 program=self.method['program'] if self.method else None,total_s=self.method['duration_s'] if self.method else None,
+                                 heat_s=self.method['heating_time_s'] if self.method else None)});return v
  def read(self,visibility='agent'):return copy.deepcopy({k:v for k,v in self._values().items() if SLOTS[k][3]=='agent' or visibility in ['debug','evaluator']})
  def debug_snapshot(self):return copy.deepcopy(dict(values=self._values(),plant=self.plant,rotor=self.rotor,method=self.method,sample=self.sample,records=self.records,history=self.history,time=self.time_s,revision=self.revision,operation=self.operation_id))
  def _valid_temperature_path(self,target,plates=None):
   for p in plates if plates is not None else (self.sample or {}).get('plates',[]):
    for s in p['species']:
     for t in [self.temperature,target]:self._psat(s['substance_id'],s['fit_id'],t)
+ def _foreign_run(self,k,a):
+  """An agent may not stop another agent's running evaporation: direct acquisition.stop and the panel STOP key (the session sets _caller around the
+  call); unowned runs and evaluators are not restricted.  1.2.0 (lead rule 10-19): the rear power switch is a hard switch, a physical action that
+  is never refused - switching it off (panel or power.set, which models it) cancels the run as a power loss."""
+  if self.phase!='running' or k!='acquisition.stop':return False
+  owner=self._owners.get(self.operation_id);c=self._caller
+  return owner is not None and c is not None and c!=owner and self._principals.get(c)=='agent'
  def _balanced(self):
   if not self.sample:return False
   masses=[]
@@ -86,7 +136,8 @@ class GenevacMivac2Runtime:
  def invoke(self,capability,**a):
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability][0],a)
-  if self.phase=='running' and capability not in ['power.set','acquisition.stop'] and CAPS[capability][4]!='query':raise ActionRejected('BUSY')
+  if self.phase=='running' and capability not in ['power.set','acquisition.stop'] and CAPS[capability][4] not in ('query','simulation') and capability not in PANEL_CAPS:raise ActionRejected('BUSY')
+  if self._foreign_run(capability,a):raise ActionRejected('ACCESS_DENIED')
   if capability=='plant.configure':
    if self.plant or not all(a[x] for x in ['external_vacuum_confirmed','external_trap_confirmed','compatibility_reviewed']):raise ActionRejected('PRECONDITION_FAILED')
    self.plant=copy.deepcopy(a);self.temperature=a['initial_temperature_k'];out=dict(configured=True)
@@ -109,16 +160,41 @@ class GenevacMivac2Runtime:
    if a['open'] and self._locked():raise ActionRejected('LID_INTERLOCK')
    self.open=a['open'];out=a
   elif capability=='power.set':
+   if a['enabled'] and not self.powered:
+    self.power_epoch+=1
+    if self.err and (self.err_cause or self.off_at is None or self.time_s-self.off_at<POWER_OFF_WAIT_S-1e-9):self.err=self.err_cause or self.err   # self-check at power-up
+    elif self.err:self.err=None
+   if not a['enabled'] and self.powered:self.off_at=self.time_s
    self.powered=a['enabled']
+   if not self.powered:self.preheat=self.preheat_latched=False
    if not self.powered and self.phase=='running':self.phase='cancelled'
    out=a
   elif capability=='temperature.set':
    if not self.method:raise ActionRejected('PRECONDITION_FAILED')
-   self._valid_temperature_path(a['temperature_k']);self.method['temperature_k']=a['temperature_k'];out=a
-  elif capability=='acquisition.start':
-   if not self.powered or self.open or not self.sample or self.phase not in ['idle','cancelled']:raise ActionRejected('PRECONDITION_FAILED')
+   self._valid_temperature_path(a['temperature_k']);self.method['temperature_k']=a['temperature_k'];self.heat_off=False;out=a
+  elif capability in ('acquisition.start','run.start'):
+   if not self.powered or self.open or not self.sample or self.phase not in ['idle','cancelled'] or self.err:raise ActionRejected('PRECONDITION_FAILED')
    if not self._balanced():raise ActionRejected('ROTOR_IMBALANCE')
+   self.run_mode=a.get('mode','auto');self.preheat=False                    # a start button cancels pre-heat (manual p.10)
    self.phase='running';self.fault='';self._operation_count+=1;self.operation_id=self.instance_id+':'+str(self._operation_count);out=dict(phase=self.phase,operation_id=self.operation_id)
+  elif capability=='run.configure':
+   if not self.method:raise ActionRejected('PRECONDITION_FAILED')
+   m=dict(self.method)
+   if a.get('temperature_k') is not None:self._valid_temperature_path(a['temperature_k']);m['temperature_k']=a['temperature_k']
+   for k in ('program','duration_s','heating_time_s'):
+    if k in a:m[k]=a[k]
+   if 'temperature_k' in a:self.heat_off=a['temperature_k'] is None        # below 30 C: no heating (shown as --)
+   if 'auto_display' in a:self.auto_display=a['auto_display']
+   self.method=m;out=dict(settings=self._values()['controls.state'])
+  elif capability=='preheat.set':
+   if not self.powered or not self.method or (a['on'] and self.err):raise ActionRejected('PRECONDITION_FAILED')
+   self.preheat=a['on'];self.preheat_latched=a['on'] and a.get('latched',False);out=dict(on=self.preheat,latched=self.preheat_latched)
+  elif capability=='fault.inject':
+   if self.phase=='running':self.phase='failed';self.fault=a['code']           # the self-check stops the run (rotor runs down, chamber vents in step)
+   self.preheat=self.preheat_latched=False;self.err=self.err_cause=a['code'];out=dict(code=a['code'],phase=self.phase)
+  elif capability=='fault.clear':
+   out=dict(cleared=self.err_cause is not None);self.err_cause=None                  # the code stays on the LCD until a power cycle (>= 5 s off)
+  elif capability in PANEL_CAPS:out=self._panel_cmd(capability,a)
   elif capability=='acquisition.stop':
    if self.phase=='running':self.phase='cancelled'
    out=dict(phase=self.phase)
@@ -134,9 +210,10 @@ class GenevacMivac2Runtime:
   while remaining>1e-12:
    h=min(remaining,.1);p=self.plant;m=self.method;running=self.phase=='running'
    if running:
-    if self.elapsed_s>=m['duration_s']-1e-9 or self._fraction()<=m['endpoint_remaining_fraction']:self.phase='succeeded';running=False
+    auto=self.run_mode=='auto'                                       # MANUAL runs until STOP (manual p.10)
+    if (auto and self.elapsed_s>=m['duration_s']-1e-9) or self._fraction()<=m['endpoint_remaining_fraction']:self.phase='succeeded';running=False
     elif self.elapsed_s>=m['timeout_s']-1e-9:self.phase='failed';self.fault='TIMEOUT';running=False
-    else:h=min(h,m['duration_s']-self.elapsed_s,m['timeout_s']-self.elapsed_s)
+    else:h=min(h,m['duration_s']-self.elapsed_s if auto else h,m['timeout_s']-self.elapsed_s)
    if p:
     target_speed=MAX_SPEED if running else 0.;old_speed=self.speed;self.speed+=max(-p['acceleration_rad_s2']*h,min(p['acceleration_rad_s2']*h,target_speed-self.speed));self.speed=min(MAX_SPEED,max(0.,self.speed));self.angle=(self.angle+.5*(old_speed+self.speed)*h+math.pi)%(2*math.pi)-math.pi
     pump=False
@@ -145,10 +222,14 @@ class GenevacMivac2Runtime:
     target_p=(m['target_pressure_pa'] if m['target_pressure_pa'] is not None else p['ultimate_pressure_pa']) if pump else AMBIENT
     tau=p['pressure_tau_s'] if pump else p['vent_tau_s'];self.pressure=target_p+(self.pressure-target_p)*math.exp(-h/tau)
     # Ideal external heat boundary balances latent heat; no false energy-closure claim.
-    target_t=m['temperature_k'] if running and self.elapsed_s<m['heating_time_s'] else self.temperature
+    heat=(running and self.elapsed_s<m['heating_time_s']) or (not running and self.preheat and self.powered)   # pre-heat: to the control temperature
+    target_t=m['temperature_k'] if heat and not self.heat_off else self.temperature
     next_t=target_t+(self.temperature-target_t)*math.exp(-h/p['temperature_tau_s'])
     try:self._valid_temperature_path(next_t)
-    except ActionRejected:self.phase='failed';self.fault='REFERENCE_RANGE';running=False;next_t=self.temperature
+    except ActionRejected:
+     if running or not self.preheat:self.phase='failed';self.fault='REFERENCE_RANGE';running=False
+     else:self.preheat=False
+     next_t=self.temperature
     self.temperature=next_t
     if running and pump:
      for plate in self.sample['plates']:
@@ -163,9 +244,41 @@ class GenevacMivac2Runtime:
    self.time_s+=h;remaining-=h;self.revision+=1
    if self.sample:self.history.append(dict(time_s=self.time_s,temperature_k=self.temperature,pressure_pa=self.pressure,speed_rad_s=self.speed,remaining_fraction=self._fraction()))
   if self.phase=='running':
-   if self.elapsed_s>=self.method['duration_s']-1e-9 or self._fraction()<=self.method['endpoint_remaining_fraction']:self.phase='succeeded'
+   if (self.run_mode=='auto' and self.elapsed_s>=self.method['duration_s']-1e-9) or self._fraction()<=self.method['endpoint_remaining_fraction']:self.phase='succeeded'
    elif self.elapsed_s>=self.method['timeout_s']-1e-9:self.phase='failed';self.fault='TIMEOUT'
+  if self.phase!='running' and self.preheat_latched and self.powered:self.preheat=True    # latched pre-heat keeps the chamber warm between runs
   return self.read()
+ # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+ @property
+ def panel(self):
+  if '_panel_obj' not in self.__dict__:self._panel_obj=_panel_ui.PanelUI(PANEL_SPEC,self,hooks={})
+  return self._panel_obj
+ def panel_read(self):
+  out=self.read('agent');m=self.method or {};show,icon=None,'total'
+  if self.phase=='running' and self.run_mode=='manual':show=math.floor(self.elapsed_s/60+1e-9)
+  elif self.phase=='running':
+   heat_left=m.get('heating_time_s',0)-self.elapsed_s
+   if self.auto_display=='heat' and heat_left>0 and not self.heat_off:show,icon=math.ceil(heat_left/60-1e-9),'heat'
+   else:show=math.ceil(max(0.,m.get('duration_s',0)-self.elapsed_s)/60-1e-9)
+  elif m:show=round(m['duration_s']/60)
+  err=self.err if self.err and self.phase!='running' else ({'ROTOR_IMBALANCE':'Er07'}.get(self.fault) if self.phase=='failed' else None)   # codes are not shown during a run
+  out.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,'host.time_min':show,'host.time_icon':icon,'host.error':err})
+  return out
+ def panel_invoke(self,capability_id,arguments):
+  try:return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _panel_cmd(self,k,a):
+  if k=='panel.capture':
+   data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest()
+   d=Path(self.__dict__.get('panel_capture_dir') or Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id);d.mkdir(parents=True,exist_ok=True);p=d/f"{a['display_id']}_{sha[:16]}.png"
+   if not p.exists():p.write_bytes(data)
+   return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(p),format='png',width=w,height=h,sha256=sha))
+  if k=='panel.frame':return dict(frame=self.panel.frame())
+  g={'panel.press':lambda:self.panel.press(a['input_id'],float(a.get('duration_s',.1))),'panel.switch':lambda:self.panel.switch(a['input_id'],a['position']),
+     'panel.turn':lambda:self.panel.turn(a['input_id'],a['detents'])}[k]
+  try:return dict(accepted=bool(g()))
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
 class GenevacMivac2Session:
     """Host registers principals; public calls have no visibility override."""
     def __init__(self,host,principal_id): self._host=host; self._principal=principal_id
@@ -179,7 +292,7 @@ class GenevacMivac2Session:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_genevac_mivac2_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -209,8 +322,12 @@ class GenevacMivac2Session:
             old,result=h._requests[key]
             if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
             return copy.deepcopy(result)
-        result=h.invoke(capability_id,**arguments); op=result.get('operation_id')
+        before=h.operation_id; h._caller=self._principal
+        try: result=h.invoke(capability_id,**arguments)
+        finally: h._caller=None
+        op=result.get('operation_id')
         if op: h._owners[op]=self._principal
+        elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before: h._owners[h.operation_id]=self._principal   # a run started by MANUAL / AUTO belongs to the caller
         response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,
           status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
         h._requests[key]=(digest,copy.deepcopy(response)); return response

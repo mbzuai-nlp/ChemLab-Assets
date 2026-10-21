@@ -534,8 +534,9 @@ class HostClockConservationSessions(unittest.TestCase):
         r1 = s1.invoke(instance_id=INST, capability_id='wash.run', arguments=dict(protocol=rt.WASH_EXAMPLE), request_id='w')
         self.assertEqual(s1.invoke(instance_id=INST, capability_id='wash.run', arguments=dict(protocol=rt.WASH_EXAMPLE), request_id='w'), r1)
         self.assertEqual(s1.invoke(instance_id=INST, capability_id='waste.empty', arguments={}, request_id='w')['error']['code'], 'REQUEST_CONFLICT')
-        self.assertEqual(s2.invoke(instance_id=INST, capability_id='buffer.load', arguments=dict(bottle='B', liquid_id='water', volume_m3=0.001),
-                                   request_id='b')['error']['code'], 'ACCESS_DENIED')
+        self.assertEqual(s2.invoke(instance_id=INST, capability_id='buffer.load', arguments=dict(bottle='A', liquid_id='water', volume_m3=0.001),
+                                   request_id='b')['error']['code'], 'OPERATION_RUNNING')   # a physical act: only the device's rule (bottle in use)
+        self.assertEqual(s2.invoke(instance_id=INST, capability_id='waste.empty', arguments={}, request_id='e2')['error']['code'], 'OPERATION_RUNNING')
         run(h)
         self.assertEqual(s2.invoke(instance_id=INST, capability_id='records.list', arguments={}, request_id='r')['result']['records'], ['PR0001'])   # the host's own prime has no owner
         self.assertEqual(s1.poll(r1['operation_id'])['status'], 'succeeded')

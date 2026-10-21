@@ -666,10 +666,12 @@ class Framework(unittest.TestCase):
         self.assertEqual(r['status'], 'succeeded')
         self.assertEqual(s1.invoke(instance_id=INST, capability_id='vessel.provide', arguments=dict(rt.VESSEL_EXAMPLE, vessel_id='own'), request_id='p'), r)
         self.assertEqual(s1.invoke(instance_id=INST, capability_id='door.outer', arguments=dict(open=True), request_id='p')['error']['code'], 'REQUEST_CONFLICT')
-        self.assertEqual(s2.invoke(instance_id=INST, capability_id='vessel.discard', arguments=dict(vessel_id='own'), request_id='d')['error']['code'], 'ACCESS_DENIED')
         self.assertEqual(s1.invoke(instance_id=INST, capability_id='vessel.inspect', arguments=dict(vessel_id='own'), request_id='i')['error']['code'], 'ACCESS_DENIED')
         self.assertEqual(s2.read(instance_id=INST)['observations']['vessels.on_bench']['value'], [])
         self.assertEqual(s1.read(instance_id=INST)['observations']['vessels.on_bench']['value'], ['own'])
+        r = s2.invoke(instance_id=INST, capability_id='vessel.discard', arguments=dict(vessel_id='own'), request_id='d')   # 1.2.0: handling is physical:
+        self.assertEqual(r['status'], 'succeeded')                                                                       # not owner-guarded
+        self.assertEqual(s1.read(instance_id=INST)['observations']['vessels.on_bench']['value'], [])
         check('truth_isolation_ownership')
 
     def test_switch_ports_control_flags_and_discard(self):
@@ -771,6 +773,12 @@ def _build(name):
         h.invoke('htd.start')
         h.step(1800.0)
         return h
+    if name == 'users':                                                     # user management on (administrator logged in, one user), a custom task
+        h = _scenario('steady')
+        h.invoke('users.enable', login_mode='pin', admin_name='admin', secret='4711')
+        h.invoke('user.create', name='op')
+        h.invoke('recurring_task.define', name='CO2 cylinder', warn=True, interval='daily', reminder_days=0)
+        return h
     if name == 'failed_gas':
         h = ready(settle=3 * 3600.0)
         h.invoke('gas.pressure_monitor', enabled=False)
@@ -789,7 +797,7 @@ def _scenario(name):
     return copy.deepcopy(_SC[name])
 
 
-SCENARIOS = ['fresh', 'off', 'warming', 'steady', 'outer_open', 'open', 'loaded', 'loaded_open', 'alarm', 'htd_ready', 'htd', 'failed_gas']
+SCENARIOS = ['fresh', 'off', 'warming', 'steady', 'outer_open', 'open', 'loaded', 'loaded_open', 'alarm', 'htd_ready', 'htd', 'failed_gas', 'users']
 STEP_DTS = (0.5, 5.0, 60.0)
 
 
@@ -809,6 +817,19 @@ def _variants(cap):
         'fault.inject': [dict(fault=f, active=True) for f in ('power_loss', 'heater_failure', 'heater_stuck_on', 'co2_valve_stuck_closed', 'gasket_leak', 'ndir_drift')]
                         + [dict(fault='vessel_contamination', active=True, vessel_id='v'), dict(fault='power_loss', active=False)],
         'sim.step': [dict(dt_s=0.5), dict(dt_s=30.0)],
+        # device functions behind the touch screen (panel_ui 1.1.0)
+        'settings.configure': [dict(settings={'display.brightness': 60, 'relay.ch1': 'any'}), dict(settings={'home.functions': ['temperature', 'co2', 'rh']}),
+                               dict(settings={'screenlock.auto': True, 'screenlock.timer_s': 60.0, 'datetime.timezone': 'Asia/Tokyo'})],
+        'clock.set': [dict(date='2026-10-19', time='08:30')], 'network.create_certificate': [{}], 'relay.test': [{}],
+        'screen.lock': [dict(locked=True), dict(locked=False)], 'users.enable': [dict(login_mode='pin', admin_name='admin', secret='4711')],
+        'users.disable': [dict(secret='4711')], 'user.login': [dict(user_id=2, secret='0000'), dict(user_id=1, secret='4711')], 'user.logout': [{}],
+        'user.create': [dict(name='op2')], 'user.update': [dict(user_id=2, full_name='A B', role='user')], 'user.delete': [dict(user_id=2)],
+        'user.reset_secret': [dict(user_id=2)], 'user.change_secret': [dict(current='4711', new='1234')], 'message.acknowledge': [dict(all=False), dict(all=True)],
+        'recurring_task.define': [dict(name='t', warn=True, interval='daily', reminder_days=0)],
+        'recurring_task.edit': [dict(task='water_refill', warn=False, interval='weekly', reminder_days=1)], 'recurring_task.delete': [dict(task='custom_1')],
+        'recurring_task.confirm': [dict(task='chamber_cleaning'), dict(task='custom_1')],
+        'operation_record.create': [dict(name='e', start_date='2026-01-01', finish_date='2026-01-02')], 'export.files': [dict(kinds=['chart', 'service_data'])],
+        'panel.touch': [dict(display_id='screen', x=740, y=450), dict(display_id='screen', x=400, y=240)], 'panel.switch': [dict(input_id='switch_mains', position='on')],
     }
     return V.get(cap, [])
 
@@ -1117,6 +1138,88 @@ class ReviewRound2(unittest.TestCase):
         h.invoke('power.set', enabled=False)
         self.assertIsNone(h.read()['sensor.water_present'])
         check('water_sensor_interlock')
+
+
+class DeviceFunctions(unittest.TestCase):
+    """The device functions behind the touch screen (panel_ui 1.1.0) through the instrumented runtime API: settings, clock, certificate, relays,
+    screen lock, users and rights, the information bar, recurring tasks, operation records, export and the panel commands themselves."""
+
+    def test_settings_clock_relays_screen_lock(self):
+        h = ready(settle=1800.0)
+        h.invoke('settings.configure', settings={'relay.ch4': 'any', 'datetime.timezone': 'UTC', 'acoustic.mode': 'alarms'})
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('settings.configure', settings={'display.brightness': 5})
+        self.assertEqual(h.invoke('clock.set', date='2026-10-19', time='08:30')['clock'], '2026-10-19 08:30:00')
+        h.invoke('settings.configure', settings={'datetime.automatic': True})
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('clock.set', date='2026-10-19', time='08:30')
+        self.assertEqual(len(h.invoke('network.create_certificate')['fingerprint']), 40)
+        h.invoke('relay.test')
+        self.assertEqual(h.read()['bms.relays'], [True] * 4)
+        h.step(16.0)
+        h.invoke('door.outer', open=True)
+        h.step(40.0)                                                           # 'Alarms' mode: the door alarm is shown but does not sound
+        self.assertIn('DOOR_OPEN', h.read()['alarms.active'])
+        self.assertFalse(h.read()['alarm.sound'])
+        self.assertTrue(h.read()['bms.relays'][3])                             # relay 4 now reports any alarm
+        h.invoke('door.outer', open=False)
+        h.step(2.0)
+        self.assertTrue(h.invoke('screen.lock', locked=True)['locked'])
+        self.assertFalse(h.invoke('screen.lock', locked=False)['locked'])
+        h.invoke('settings.configure', settings={'screenlock.auto': True, 'screenlock.timer_s': 60.0})
+        h.step(61.0)
+        self.assertTrue(h.read()['screen.locked'])
+        h.invoke('settings.configure', settings={'home.functions': ['temperature', 'co2']})
+        self.assertIsNone(h.read()['sensor.o2_fraction'])
+        check('device_settings')
+
+    def test_users_messages_tasks_records_export_and_panel(self):
+        h = ready(settle=1800.0)
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('user.login', user_id=1, secret='4711')
+        h.invoke('users.enable', login_mode='pin', admin_name='admin', secret='4711')
+        new = h.invoke('user.create', name='op')
+        h.invoke('user.update', user_id=new['user_id'], full_name='Op Erator', role='user')
+        h.invoke('user.reset_secret', user_id=new['user_id'])
+        h.invoke('user.change_secret', current='4711', new='1234')
+        h.invoke('user.logout')
+        self.assertIsNone(h.read()['users.state']['logged_in'])
+        h.invoke('user.login', user_id=1, secret='1234')
+        h.invoke('user.delete', user_id=new['user_id'])
+        h.invoke('users.disable', secret='1234')
+        self.assertFalse(h.read()['users.state']['management'])
+        h.invoke('door.outer', open=True)
+        h.step(40.0)
+        h.invoke('door.outer', open=False)
+        h.step(2.0)
+        self.assertEqual(h.read()['messages.unacknowledged'][0]['code'], 'DOOR_OPEN')   # stays until acknowledged
+        h.invoke('message.acknowledge', all=False)
+        self.assertEqual(h.read()['messages.unacknowledged'], [])
+        h.invoke('door.outer', open=True)
+        h.step(40.0)
+        h.invoke('door.outer', open=False)
+        h.step(2.0)
+        h.invoke('message.acknowledge', all=True)
+        self.assertEqual(h.read()['messages.unacknowledged'], [])
+        t = h.invoke('recurring_task.define', name='CO2 cylinder', warn=True, interval='daily', reminder_days=0)['task']
+        h.invoke('recurring_task.edit', task=t, warn=True, interval='weekly', reminder_days=1)
+        h.step(6 * 86400.0)
+        self.assertIn(t, h.read()['tasks.due'])
+        h.invoke('recurring_task.confirm', task=t)
+        self.assertNotIn(t, h.read()['tasks.due'])
+        h.invoke('recurring_task.delete', task=t)
+        rid = h.invoke('operation_record.create', name='Exp 1', start_date='2026-01-01', finish_date='2026-01-07')['record_id']
+        self.assertEqual(h.invoke('operation_records.list')['records'][0]['record_id'], rid)
+        files = h.invoke('export.files', kinds=['chart', 'operation_records', 'user_data'])['files']
+        self.assertEqual([f['kind'] for f in files], ['chart', 'operation_records', 'user_data'])
+        h.panel_capture_dir = None
+        self.assertEqual(h.invoke('panel.capture', display_id='screen')['image']['width'], 800)
+        self.assertEqual(h.invoke('panel.frame')['frame']['screen'], 'gui')
+        h.invoke('panel.touch', display_id='screen', x=740, y=450)
+        self.assertEqual(h.invoke('panel.frame')['frame']['ui']['page'], 'menu')
+        h.invoke('panel.switch', input_id='switch_mains', position='off')
+        self.assertFalse(h.read()['power.enabled'])
+        check('device_functions_users_tasks_records')
 
 
 class ZDeclaredEffects(unittest.TestCase):

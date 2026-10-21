@@ -726,7 +726,9 @@ class MflowTest(unittest.TestCase):
         self.assertAlmostEqual(b['load_potential_j'], 2.16 * GRAVITY * PISTON_TRAVEL_M, places=9)
         self.check(True, 'manual_lift_and_weights_host_work')
 
-    def test49_panel_started_operation_visible_to_operators(self):
+    def test49_evaluator_started_operation_is_protected(self):
+        # lead decision 2026-10-19: an operation started by an evaluator session belongs to it like any owned run (Matterix now sends gestures
+        # as the agent session); agents cannot read or stop it, the evaluator can
         h = charged()
         h.register_principal('panel', 'evaluator')
         h.register_principal('a', 'agent')
@@ -735,10 +737,12 @@ class MflowTest(unittest.TestCase):
         self.assertEqual(started['status'], 'accepted')
         h.step(2.0)
         r = h.session('a').invoke(instance_id=h.instance_id, capability_id='acquisition.result', arguments={}, request_id='r')
-        self.assertEqual(r['status'], 'succeeded')
+        self.assertEqual((r['status'], r['error']['code']), ('rejected', 'ACCESS_DENIED'))
         stop = h.session('b').invoke(instance_id=h.instance_id, capability_id='acquisition.stop', arguments={}, request_id='s')
+        self.assertEqual((stop['status'], stop['error']['code']), ('rejected', 'ACCESS_DENIED'))
+        stop = h.session('panel').invoke(instance_id=h.instance_id, capability_id='acquisition.stop', arguments={}, request_id='s')
         self.assertEqual(stop['status'], 'succeeded')
-        self.check(True, 'panel_or_host_started_operation_shared_with_operators')
+        self.check(True, 'evaluator_started_operation_protected_like_owned_runs')
 
     # ------------------------------------------------------------ regressions for the independent review findings
     def test50_agent_never_sees_exact_position(self):

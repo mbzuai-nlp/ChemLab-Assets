@@ -10,7 +10,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='thermo_process11'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-057'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.2.0'
+SLUG='thermo_process11'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-057'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.4.0'
 TEMPLATE_REL='assets/reactions/thermo_process11_extrusion_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -113,7 +113,7 @@ cap('acquisition.stop',obj({}),obj({'phase':PHASE}),['display_digits','motor'],'
 cap('emergency.stop',obj({}),obj({'latched':BOOL}),['button_emergency'],'宿主急停锁存，停止热源/驱动/进料',effects=['safety.pressed','safety.latched','safety.fault','drive.enabled','thermal.enabled','cycle.phase'])
 cap('emergency.release',obj({}),obj({'released':BOOL}),['button_emergency'],'仅释放急停，不自动复位故障','configuration','agent',{},['safety.pressed'])
 cap('fault.reset',obj({}),obj({'reset':BOOL}),['display_digits'],'电源关、急停已释放且不过温时人工复位；教学互锁','configuration','agent',{},['safety.latched','safety.fault'])
-cap('extrusion.measure',obj({}),RESULT,['display_digits'],'理想扭矩/压力/七区温度读数，非材料实测曲线','query')
+cap('extrusion.measure',obj({}),RESULT,['display_digits'],'理想扭矩/七区温度读数与口模压力探头读数（含探头零漂与去皮，同HMI），非材料实测曲线','query')
 cap('product.read',obj({}),PRODUCT,['die','receiver'],'双组分与热能/平均年龄账本','query','evaluator')
 cap('product.collect',obj({'recipient_id':TEXT,'accept_hot_output':BOOL}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['receiver'],'宿主接收已排出的材料，显式处理热料','configuration','evaluator',{'recipient_id':'extrudate','accept_hot_output':True},['truth.ledger'])
 cap('material.clear',obj({'accept_hot_residue':BOOL}),obj({'emptied':BOOL}),['feed_port','barrel_lower','waste_port'],'宿主停止后移除料斗/筒内残料；非自动清洗','configuration','evaluator',{'accept_hot_residue':True},['truth.ledger'])
@@ -140,14 +140,109 @@ slot('thermal.targets_k',array(TEMP,7),'K','七加热区目标；冷却进料段
 slot('thermal.enabled',BOOL,'1','七区加热命令','setpoint',c='barrel_lower',w=('thermal.set_enabled','enabled'))
 for i in range(7):slot('thermal.zone_'+str(i)+'_k',number('K',1),'K','第'+str(i+1)+'区筒体/物料瞬时等温假设理想读数','derived',c='heater_'+str(i))
 slot('extrusion.torque_per_shaft_nm',number('N*m',0),'N*m','每轴合成负载，限值6Nm，不与总轴12Nm混用','derived',c='display_digits')
-slot('extrusion.die_pressure_gauge_pa',number('Pa',0),'Pa','口模相对外部环境压差；100bar按教学表压解释','derived',c='pressure_sensor')
+slot('extrusion.die_pressure_gauge_pa',number('Pa',0),'Pa','口模压力探头读数（相对外部环境；探头零漂与去皮零点作用于此读数，与HMI压力相同）；100bar按教学表压解释','derived',c='pressure_sensor')
 slot('extrusion.output_kg_s',number('kg/s',0),'kg/s','出口实际有限质量流量，非实机称量','derived',c='die')
 slot('cycle.phase',PHASE,'1','定时程序状态，成功不等于所有料已排净',c='display_digits')
 slot('cycle.elapsed_s',number('s',0),'s','当前定时进料操作宿主累计时间',c='display_digits')
 for k,z in [('pressed','宿主急停按下'),('latched','教学故障锁存')]:slot('safety.'+k,BOOL,'1',z,c='button_emergency')
 slot('safety.fault',TEXT,'1','压力/扭矩/过热、冷料或文献降解起始温度故障代码',c='display_digits')
 slot('truth.ledger',PRODUCT,'1','有限双组分库存及整体能量和年龄账本','process_truth','evaluator','receiver')
+BASE_CAPS=list(CAPS);BASE_SLOTS=list(SLOTS)
 
+# ---- touch-screen HMI model (operating manual ch.6): die heating zone, feeder control and set-up, pressure probe, alarms, recipes, trends,
+# torque unit, clocks.  Every control of panel_ui.json calls one of these or an existing command.
+HMI_ZONES=['Zone 2','Zone 3','Zone 4','Zone 5','Zone 6','Zone 7','Zone 8','Die']   # runtime zones 0..6 = HMI zones 2..8, then the die heater
+ALARM_DEFAULT_K=15.;TEMP_ENTRY_MAX_K=553.15;PRESSURE_MAX_PA=100e5;TARE_MAX_PA=5e5;DEVIATION_WINDOW_S=60.;TREND_DT_S=1.;TREND_MAX=3600
+EPOCH='2026-10-19T08:00:00'
+FEED_MODES=['gravimetric','volumetric','gravimetric_discharge','discharge']
+# feeder (manual 6.13): the feed screw moves a fixed volume per turn, so its mass rate is screw speed x screw volume x the powder's true bulk density.
+# The nominal screw volume is chosen so that the factory bulk density 500 kg/m3 gives the model's maximum feed rate at 100 % screw speed (assumption).
+# Gravimetric mode: feed-forward screw speed = setpoint / stored maximum output, plus an integral correction on the weighed (loss-in-weight) rate whose
+# time constant is FEED_LOOP_S / control gain (gain 1 by default, 0 = no correction, 2 = most aggressive; manual p.6-31).
+BULK_DEFAULT=500.;FEED_LOOP_S=10.;CALC_S=60.;OUTPUT_MAX=FEED_MAX*3000/BULK_DEFAULT
+FREE={'type':'object'};INT1=lambda lo,hi:{'type':'integer','minimum':lo,'maximum':hi,'x-unit':'1'}
+def opt(p):return dict(type='object',properties=p,required=[],additionalProperties=False)
+FEEDER_CFG=dict(mode=dict(type='string',enum=FEED_MODES),setpoint_pct=number('%',0,100),min_fill_kg=number('kg',0,.05),max_fill_kg=number('kg',0,.05),
+    max_deviation_pct=number('%',0,100),bulk_density_kg_m3=number('kg/m^3',50,3000),gain=number('1',0,2),max_output_kg_s=number('kg/s',FEED_MIN,OUTPUT_MAX))
+APP_ERRORS=['EXTRUDER_NOT_RUNNING','PRESSURE_TOO_HIGH','EMPTY_RECIPE','BAD_CLOCK','NOT_RUNNING']
+cap('die.set_temperature',obj({'temperature_k':TEMP}),obj({'temperature_k':TEMP}),['die'],'口模加热区设定（HMI温度区Die；与七个筒体区同一控温开关）',ex={'temperature_k':438.15},effects=['die.target_k'])
+cap('feeder.set_running',obj({'running':BOOL,'test':BOOL}),obj({'running':BOOL}),['feed_port'],'喂料器启停（喂料器图标）；挤出机未运转时拒绝，除设置页的试运行（test：出料进收集容器）',ex={'running':True,'test':False},effects=['feeder.state'])
+cap('feeder.configure',opt(FEEDER_CFG),obj({'configured':BOOL}),['feed_port'],'喂料器设置：模式（重量/容积/重量排空到下限/全部排空）、容积设定%（设定螺杆转速）、料斗下/上限、最大偏差、堆密度（未同时给最大产量时，控制器按名义螺杆容积×堆密度估算最大产量）、控制增益（重量模式螺杆转速校正环的放大倍数0–2）、最大产量（100 %螺杆转速的质量流量，重量模式前馈用）',ex={'mode':'volumetric'},effects=['feeder.state'])
+cap('feeder.action',obj({'action':dict(type='string',enum=['tare','reset_throughput','refill','calc_max_output'])}),obj({'action':TEXT,'value':number('1')}),['feed_port'],'喂料器操作：去皮、产量清零、加料暂停/继续、计算最大产量（以设定螺杆转速向容器喂料1 min，称得的质量流量折算到100 %转速后写入最大产量；value为剩余秒数）',ex={'action':'tare'},effects=['feeder.state'])
+cap('pressure.tare',obj({}),obj({'offset_pa':number('Pa')}),['pressure_sensor'],'压力探头在工作温度下去皮（未去皮探头读数过高时拒绝）；去皮零点作用于探头的全部读数：HMI压力、Die pressure high报警、extrusion.die_pressure_gauge_pa与extrusion.measure（100 bar跳闸仍按真实压力）',effects=['pressure.offset_pa','pressure.display_pa','extrusion.die_pressure_gauge_pa'])
+cap('pressure.set_limit',obj({'limit_pa':number('Pa',0,PRESSURE_MAX_PA)}),obj({'limit_pa':number('Pa',0)}),['pressure_sensor'],'口模工作压力上限（超过时报警）',ex={'limit_pa':50e5},effects=['pressure.limit_pa'])
+cap('alarms.acknowledge',obj({}),obj({'acknowledged':INT1(0,1024)}),['display_digits'],'Mute/Reset：确认报警并关闭报警消息框（锁存故障仍需fault.reset）',effects=['alarms.active'])
+cap('recipe.save',obj({'index':INT1(1,10),'name':dict(type='string',maxLength=24),'speed_rad_s':OMEGA,'temperatures_k':array(TEMP,8),'alarm_deviation_k':array(number('K',0,100),8),'feed_kg_s':RATE}),obj({'index':INT1(1,10)}),['display_digits'],'配方编辑器保存：名称、转速、七个筒体区与口模温度、各区报警偏差、喂料速率',ex={'index':1,'name':'PVA 165C','speed_rad_s':200*TAU/60,'temperatures_k':[438.15]*8,'alarm_deviation_k':[15.]*8,'feed_kg_s':.5/3600},effects=['recipes'])
+cap('recipe.write',obj({'index':INT1(1,10)}),obj({'index':INT1(1,10)}),['display_digits'],'把配方写入PLC：为安全先停螺杆和喂料，再写入转速、各区与口模温度、报警偏差和喂料速率',ex={'index':1},effects=['recipe.loaded','drive.enabled','drive.target_rad_s','thermal.targets_k','die.target_k','alarm.deviation_k','feed.target_kg_s','feeder.state','cycle.phase'])
+cap('display.configure',obj({'torque_unit':dict(type='string',enum=['Nm','%','kW'])}),obj({'torque_unit':TEXT}),['display_digits'],'扭矩显示单位（触摸扭矩区在Nm/%/kW间切换）',ex={'torque_unit':'Nm'},effects=['display.torque_unit'])
+cap('trend.control',obj({'action':dict(type='string',enum=['clear','pause','resume'])}),obj({'action':TEXT}),['display_digits'],'趋势记录：LOG CLR清除、暂停/继续记录',ex={'action':'pause'},effects=['trend.paused'])
+cap('clock.set',opt({'hmi_time':TEXT,'hmi_date':TEXT}),obj({'hmi':TEXT}),['display_digits'],'设定HMI时间（hh.mm.ss）或日期（dd.mm.yy）；PLC时钟不自动同步',ex={'hmi_time':'09.30.00'},effects=['clock'])
+cap('clock.sync',obj({}),obj({'plc':TEXT}),['display_digits'],'Sync HMI/PLC Clocks：PLC时钟取HMI时间',effects=['clock'])
+cap('sensor.configure_error',opt({'pressure_zero_drift_pa_per_k':number('Pa/K',-10000,10000)}),obj({'pressure_zero_drift_pa_per_k':number('Pa/K')}),['pressure_sensor'],'评测者设置压力探头随口模升温的零点漂移（Pa/K×（口模温度−环境温度）；默认0=理想探头）；在工作温度下去皮可补偿（手册6.14）','configuration','evaluator',{'pressure_zero_drift_pa_per_k':500.},['pressure.display_pa','extrusion.die_pressure_gauge_pa','truth.die_pressure_pa'])
+cap('feeder.configure_material',obj({'bulk_density_kg_m3':number('kg/m^3',50,3000)}),obj({'bulk_density_kg_m3':number('kg/m^3')}),['feed_port'],'评测者设置料斗中粉料的真实堆密度（默认500 kg/m³，等于出厂堆密度设定）：螺杆质量流量=转速×名义螺杆容积×真实堆密度','configuration','evaluator',{'bulk_density_kg_m3':650.},['feeder.state','feed.actual_kg_s','truth.bulk_density_kg_m3'])
+APP_CAPS=[k for k in CAPS if k not in BASE_CAPS]
+# Alarm Help (operating manual 6.19, p.6-44..6-48): every documented alarm code.  Codes with a cause in the model come from it (PE001 over torque =
+# TORQUE_LIMIT, PE011 temperature reached, PE100 die pressure, EE001 emergency stop); the others are evaluator-only fault.inject {code} and
+# fault.clear {code} (the remedy: an electrician resets the breaker, the battery is replaced, ...).  Kinds: 'drive' stops the extruder (a timed run
+# fails) and refuses a drive start until cleared; 'heat' / 'die_heat' cut the barrel / die heater power (breaker) until cleared; 'feeder' stops
+# feeder 1 and refuses its start until cleared; 'alarm' raises the alarm only.  ack=True: Mute/Reset also clears it (the manual says "press Mute/
+# Reset to continue" and names no repair).  The alarm text on the status bar is the code and the manual's headline.
+ALARM_CODES={
+    'ME001':('drive',False,'Extruder drive alarm'),'ME002':('drive',False,'Extruder drive circuit breaker tripped'),
+    'ME003':('heat',False,'Heating circuit breaker tripped'),'ME004':('drive',False,'Barrel safety switch tripped'),
+    'ME005':('die_heat',False,'Die heating circuit breaker tripped'),'PE002':('drive',True,'Extruder drive user settable torque limit alarm'),
+    'FE001':('feeder',False,'Feeder 1 drive alarm'),'FE002':('feeder',True,'Gravimetric feeder 1 alarm'),
+    **{f'PE00{z+1}':('alarm',True,f'Zone {z} temperature alarm') for z in range(2,9)},'PE010':('alarm',True,'Die zone temperature alarm'),
+    'PE012':('alarm',False,'Thermocouple fault'),'PE101':('alarm',False,'Torque transducer alarm'),'HE001':('alarm',False,'PLC low battery alarm'),
+    'HE002':('alarm',False,'HMI low battery alarm'),'HE003':('alarm',False,'Extruder calibration/service due')}
+cap('fault.inject',obj({'code':dict(type='string',enum=sorted(ALARM_CODES))}),obj({'latched':dict(type='array',items=TEXT,maxItems=32)}),['display_digits'],
+    '评测者注入手册6.19报警（ME001-ME005、PE002、FE001-FE002、PE003-PE010、PE012、PE101、HE001-HE003）：状态栏显示代码与标题；驱动类停螺杆（定时运行失败）并在清除前拒绝启动，'
+    '加热断路器类切断筒体/口模加热，喂料器类停喂料器1并拒绝启动，其余只报警','simulation','evaluator',{'code':'ME002'},['alarms.active','drive.enabled','cycle.phase','feeder.state'])
+cap('fault.clear',obj({'code':dict(type='string',enum=sorted(ALARM_CODES))}),obj({'latched':dict(type='array',items=TEXT,maxItems=32)}),['display_digits'],
+    '评测者清除报警原因（电工复位断路器、换电池等）；状态栏消息仍需Mute/Reset确认','simulation','evaluator',{'code':'ME002'},['alarms.active'])
+APP_CAPS=[k for k in CAPS if k not in BASE_CAPS]
+RUN_GUARDED={'acquisition.stop','method.configure','drive.set_enabled','drive.set_speed','feed.set_rate','thermal.set_zone','thermal.set_enabled','die.set_temperature',
+             'feeder.set_running','feeder.configure','feeder.action','pressure.tare','pressure.set_limit','recipe.write'}   # see ThermoProcess11Runtime._guard
+for _k in ['power.set','power.toggle','coolant.set_connected','drive.set_enabled','acquisition.stop','emergency.stop']:   # the feeder stops with the drive; latched faults are alarms
+    CAPS[_k][7].extend(['feeder.state','alarms.active','alarms.log','alarms.summary'])
+slot('die.target_k',TEMP,'K','口模加热区设定','setpoint',c='die')
+slot('die.temperature_k',number('K',1),'K','口模加热区理想化温度（与筒体区同一加热参数，不进入熔体模型）',c='die')
+slot('heater.power_fraction',array(number('1',0,1),8),'1','七个筒体区与口模的加热功率占比（温度曲线页功率指示）',c='barrel_lower')
+slot('feeder.state',FREE,'1','喂料器：运行、模式、试运行、加料暂停、料斗读数、实际/设定、偏差、产量、限值、堆密度、增益、最大产量','setpoint',c='feed_port')
+slot('pressure.display_pa',number('Pa'),'Pa','HMI压力读数：探头读数（真实压力+零漂）减去皮零点，与extrusion.die_pressure_gauge_pa相同',c='pressure_sensor')
+slot('pressure.offset_pa',number('Pa'),'Pa','压力探头去皮零点','setpoint',c='pressure_sensor')
+slot('pressure.limit_pa',number('Pa',0),'Pa','口模工作压力报警上限','setpoint',c='pressure_sensor')
+slot('alarm.deviation_k',array(number('K',0),8),'K','各区允许温度偏差（配方写入；默认15 K）','setpoint',c='display_digits')
+slot('alarms.active',{'type':['string','null']},'1','当前未确认的报警消息',c='display_digits')
+slot('alarms.log',dict(type='array',items=FREE),'1','报警记录（最近1024条）',c='display_digits')
+slot('alarms.summary',FREE,'1','各报警出现次数',c='display_digits')
+slot('recipes',dict(type='array',items=FREE),'1','10个配方（空配方名为空）','setpoint',c='display_digits')
+slot('recipe.loaded',{'type':['integer','null']},'1','已写入PLC的配方号','setpoint',c='display_digits')
+slot('display.torque_unit',dict(type='string',enum=['Nm','%','kW']),'1','扭矩显示单位','setpoint',c='display_digits')
+slot('trend.paused',BOOL,'1','趋势记录暂停','setpoint',c='display_digits')
+slot('clock',FREE,'1','HMI与PLC时钟（文字）',c='display_digits')
+slot('truth.die_pressure_pa',number('Pa',0),'Pa','口模真实压差（评测者；探头读数=真实+零漂−去皮零点）','process_truth','evaluator','pressure_sensor')
+slot('truth.bulk_density_kg_m3',number('kg/m^3',0),'kg/m^3','料斗粉料真实堆密度（评测者；默认500）','process_truth','evaluator','feed_port')
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                    # imported as asset_runtime.thermo_process11 (tests, bridges)
+        return engine
+    except ImportError:                                      # loaded from its file path
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+import os
+_panel_ui=_panel_engine();ASSET_DIR=ROOT/'assets/expansion_batch04/t5_automation'/SLUG
+PANEL_SPEC=None if os.environ.get('PROCESS11_PANEL_BUILD') else _panel_ui.load_spec(ASSET_DIR/'panel_ui.json',capabilities=set(CAPS))
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+_PANEL_EFFECTS=list(dict.fromkeys(e for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for e in CAPS[c][7]))
+for _k,_d in PANEL_CAPS.items():cap(_k,_d['input_schema'],_d['output_schema'],_d['component_ids'],_d['function_zh'],_d['kind'],_d['visibility'],_d['example_arguments'],[] if _k in ('panel.capture','panel.frame') else _PANEL_EFFECTS)
+class _Panel(_panel_ui.PanelUI):
+    """The panel's UI state belongs to the instrument: two panels are equal when their UI states are (state snapshots compare runtimes)."""
+    def __eq__(self,o):return isinstance(o,_panel_ui.PanelUI) and self.ui==o.ui
+    __hash__=None
 class ThermoProcess11Runtime:
     def __init__(self,instance_id='process11_01'):
         self.instance_id=instance_id;self.templates=json.loads((ROOT/TEMPLATE_REL).read_text())['templates']
@@ -158,7 +253,8 @@ class ThermoProcess11Runtime:
         self.phase='idle';self.elapsed_s=0.;self.pressed=False;self.latched=False;self.fault=''
         self.initial=[0.,0.];self.hopper=[0.,0.];self.zones=[[0.,0.] for _ in range(7)];self.product=[0.,0.];self.collected=[0.,0.];self.waste=[0.,0.]
         self.age_mass=[0.]*7;self.output_age_mass=0.;self.heater_energy=0.;self.mechanical_energy=0.;self.loss_energy=0.;self.exported_enthalpy=0.
-        self.operation_id='';self._operation_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+        self.operation_id='';self._operation_count=0;self._principals={'__public_agent__':'agent'};self._requests={};self._owners={};self._caller=None
+        self._app_init()
     def register_principal(self,principal_id,visibility='agent'):
         if visibility not in ('agent','debug','evaluator') or not isinstance(principal_id,str) or not principal_id:raise ActionRejected('INVALID_ARGUMENT')
         if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -184,7 +280,7 @@ class ThermoProcess11Runtime:
         return d
     def _measure(self):
         return dict(phase=self.phase,elapsed_s=self.elapsed_s,speed_rad_s=self.speed,torque_per_shaft_nm=self.torque,
-            die_pressure_gauge_pa=self.pressure,flow_kg_s=self.output_rate,zone_temperature_k=self.temps.copy(),fault=self.fault,
+            die_pressure_gauge_pa=self._pressure_reading(),flow_kg_s=self.output_rate,zone_temperature_k=self.temps.copy(),fault=self.fault,
             evidence=self._evidence('synthetic_not_measured_trace'),template_source=TEMPLATE_REL)
     def read(self,visibility='agent'):
         if visibility not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
@@ -193,10 +289,11 @@ class ThermoProcess11Runtime:
         'drive.enabled':self.drive,'drive.target_rad_s':self.speed_target,'drive.speed_rad_s':self.speed,
         'screw.a_angle_rad':self.angle,'screw.b_angle_rad':(self.angle+math.pi/2)%TAU,
         'feed.target_kg_s':self.feed_target,'feed.actual_kg_s':self.actual_feed,'thermal.targets_k':self.targets.copy(),'thermal.enabled':self.heating,
-        'extrusion.torque_per_shaft_nm':self.torque,'extrusion.die_pressure_gauge_pa':self.pressure,'extrusion.output_kg_s':self.output_rate,
+        'extrusion.torque_per_shaft_nm':self.torque,'extrusion.die_pressure_gauge_pa':self._pressure_reading(),'extrusion.output_kg_s':self.output_rate,
         'cycle.phase':self.phase,'cycle.elapsed_s':self.elapsed_s,'safety.pressed':self.pressed,'safety.latched':self.latched,'safety.fault':self.fault}
         d.update({'thermal.zone_'+str(i)+'_k':v for i,v in enumerate(self.temps)})
-        if visibility!='agent':d['truth.ledger']=self._ledger()
+        d.update(self._app_read())
+        if visibility!='agent':d.update({'truth.ledger':self._ledger(),'truth.die_pressure_pa':self.pressure,'truth.bulk_density_kg_m3':self.bulk_true})
         return copy.deepcopy(d)
     def _idle(self):
         if self.drive or self.phase=='running':raise ActionRejected('BUSY')
@@ -275,6 +372,9 @@ class ThermoProcess11Runtime:
     def invoke(self,capability,**a):
         if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
         validate(CAPS[capability][0],a);c=capability
+        if c in PANEL_CAPS:return self._panel_cmd(c,a)
+        if c in APP_CAPS:
+            r=self._app_invoke(c,a);self._app_sync();self.revision+=1;return r
         if c=='extrusion.measure':return self._measure()
         if c=='product.read':return self._ledger()
         if c=='reference.lookup':return self._reference(a['reference_id'],a['temperature_k'],a.get('screw_speed_rad_s'),a.get('variant'))
@@ -297,6 +397,7 @@ class ThermoProcess11Runtime:
         elif c in ['power.set','power.toggle']:
             value=a['enabled'] if c=='power.set' else not self.powered
             if value and (not self.plant or self.latched):raise ActionRejected('PRECONDITION_FAILED')
+            if value and not self.powered:self.power_epoch+=1
             self.powered=value
             if not value:self.heating=False;self._halt()
             r={'enabled':value}
@@ -313,6 +414,7 @@ class ThermoProcess11Runtime:
         elif c=='drive.set_enabled':
             if a['enabled']:
                 self._ready()
+                if any(ALARM_CODES[x][0]=='drive' for x in getattr(self,'alarm_latched',[])):raise ActionRejected('PRECONDITION_FAILED')
                 if any(sum(z)>0 for z in self.zones) and min(self.temps)<self.material['minimum_processing_k']:raise ActionRejected('COLD_MATERIAL')
                 self.drive=True
             else:self._halt()
@@ -330,7 +432,8 @@ class ThermoProcess11Runtime:
             if self.phase=='running':raise ActionRejected('BUSY')
             if not self.drive or not self.method or not self.material or sum(self.hopper)<=0:raise ActionRejected('PRECONDITION_FAILED')
             if min(self.temps)<self.material['minimum_processing_k']:raise ActionRejected('COLD_MATERIAL')
-            self._operation_count+=1;self.operation_id=self.instance_id+':'+str(self._operation_count);self.phase='running';self.elapsed_s=0.
+            if self.feeder['calculating']:raise ActionRejected('BUSY')
+            self._operation_count+=1;self.operation_id=self.instance_id+':'+str(self._operation_count);self.phase='running';self.elapsed_s=0.;self.feeder['corr_kg_s']=0.
             r={'phase':self.phase,'operation_id':self.operation_id}
         elif c=='acquisition.stop':
             self._halt();r={'phase':self.phase}
@@ -356,7 +459,7 @@ class ThermoProcess11Runtime:
                 for z in self.zones:z[j]=0.
             self.age_mass=[0.]*7;r={'emptied':True}
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
-        self.revision+=1;return r
+        self._app_sync();self.revision+=1;return r
 
     def _advance(self,dt):
         p=self.plant
@@ -379,7 +482,9 @@ class ThermoProcess11Runtime:
             fraction=min(1.,p['transport_per_rev']*omega/TAU/method['mixing_factor']*dt)
             dm[-1]=masses[-1]*fraction
             for i in range(5,-1,-1):dm[i]=min(masses[i]*fraction,max(0.,p['zone_capacity_kg']-masses[i+1]+dm[i+1]))
-            if self.phase=='running':feed=min(self.feed_target*dt,sum(self.hopper),max(0.,p['zone_capacity_kg']-masses[0]+dm[0]))
+            if self.phase=='running' or self._feeding():
+                feed=min(self._screw_rate()*dt,sum(self.hopper),max(0.,p['zone_capacity_kg']-masses[0]+dm[0]))
+                if self._gravimetric():self._feeder_loop(feed/dt,dt)
             Q=dm[-1]/dt/rho
             # die: apparent wall shear rate 4Q/(pi R^3); shear thinning only when the library record carries measured Cross/Carreau-Yasuda parameters
             mu_die=self._viscosity(self.temps[-1],4*Q/(math.pi*method['die_radius_m']**3)) if mat.get('shear') else mu[-1]
@@ -402,7 +507,8 @@ class ThermoProcess11Runtime:
         self.output_age_mass+=age_out[-1];self.exported_enthalpy+=h_out[-1];self.mechanical_energy+=work
         self.age_mass=[age[i]-age_out[i]+(age_out[i-1] if i else 0.) for i in range(7)]
         for i in range(7):
-            heat=min(p['heater_max_w'],max(0.,p['controller_w_k']*(self.targets[i]-self.temps[i]))) if self.heating and self.powered and not self.latched else 0.
+            heat=min(p['heater_max_w'],max(0.,p['controller_w_k']*(self.targets[i]-self.temps[i]))) if self.heating and self.powered and not self.latched and 'ME003' not in self.alarm_latched else 0.
+            self.heat_frac[i]=heat/p['heater_max_w']
             loss=p['loss_w_k']*(self.temps[i]-amb)
             energies[i]+=heat*dt-loss*dt+work/7+(h_out[i-1] if i else 0.)-h_out[i]
             self.heater_energy+=heat*dt;self.loss_energy+=loss*dt
@@ -415,13 +521,255 @@ class ThermoProcess11Runtime:
                 self.elapsed_s=self.method['duration_s'];self._halt('succeeded')
     def step(self,dt_s):
         if isinstance(dt_s,bool) or not isinstance(dt_s,(int,float)) or not math.isfinite(dt_s) or not 0<dt_s<=3600:raise ActionRejected('INVALID_ARGUMENT')
-        left=dt_s
+        left=dt_s;h0=sum(self.hopper)
         while left>1e-12:
             dt=min(left,.01)
             if self.phase=='running':dt=min(dt,self.method['duration_s']-self.elapsed_s)
             if dt<=1e-12:self._halt('succeeded');continue
-            self._advance(dt);self.time_s+=dt;left-=dt
-        self.revision+=1;return self.read('evaluator')
+            self._advance(dt);self.time_s+=dt;left-=dt;self._trend_sample()
+        self._app_step(dt_s,h0-sum(self.hopper));self.revision+=1;return self.read('evaluator')
+    # ---- touch-screen HMI model (operating manual ch.6); panel_ui.json calls these commands
+    def _app_init(self):
+        self.die_target=298.15;self.die_k=298.15;self.heat_frac=[0.]*8;self.power_epoch=0;self._last_fault=''
+        self.feeder=dict(running=False,test=False,mode='gravimetric',refill=False,setpoint_pct=50.,tare_kg=0.,throughput_kg=0.,min_fill_kg=.001,max_fill_kg=.05,
+            max_deviation_pct=10.,bulk_density_kg_m3=BULK_DEFAULT,gain=1.,max_output_kg_s=FEED_MAX,deviation_s=0.,deviation_pct=0.,low_warned=False,high_warned=False,
+            corr_kg_s=0.,calculating=False,calc_s=0.,calc_kg=0.)
+        self.bulk_true=BULK_DEFAULT;self.press_drift=0.
+        self.press_offset=0.;self.press_limit=PRESSURE_MAX_PA;self.deviation_k=[ALARM_DEFAULT_K]*8;self.reached=[False]*8;self.temp_reached=False
+        self.alarm_log=[];self.alarm_summary={};self.alarm_active=None;self.alarm_latched=[]
+        self.recipes=[dict(index=i,name='',speed_rad_s=None,temperatures_k=None,alarm_deviation_k=None,feed_kg_s=None) for i in range(1,11)];self.recipe_loaded=None
+        self.torque_unit='%';self.trend=[];self.trend_paused=False;self._trend_t=None;self.hmi_offset=0.;self.plc_offset=0.
+        self.panel=_Panel(PANEL_SPEC,self) if PANEL_SPEC else None
+    def _hmi_temps(self):return self.temps+[self.die_k]
+    def _wall(self,offset):
+        import datetime
+        return datetime.datetime.fromisoformat(EPOCH)+datetime.timedelta(seconds=self.time_s+offset)
+    def _feeder_view(self):
+        f=self.feeder;w=sum(self.hopper)-f['tare_kg'];run=(f['running'] and not f['refill']) or f['calculating']
+        rate=(self.actual_feed if not f['test'] and f['mode'] in ('gravimetric','volumetric') and not f['calculating'] else self._screw_rate()) if run else 0.
+        return dict({k:v for k,v in f.items() if k not in ('deviation_s','low_warned','high_warned','corr_kg_s','calc_kg')},hopper_kg=w,actual_kg_s=rate,setpoint_kg_s=self.feed_target,
+            screw_speed_pct=100*self._screw_fraction() if run else 0.,plugged=True)
+    def _pressure_raw(self):
+        """Untared pressure-probe signal: the true die pressure plus the probe's zero drift with the die heating (evaluator, default 0)."""
+        amb=self.plant['ambient_k'] if self.plant else 298.15
+        return self.pressure+self.press_drift*(self.die_k-amb)
+    def _pressure_reading(self):
+        """The device's die-pressure reading (HMI, alarm, extrusion.die_pressure_gauge_pa, extrusion.measure): probe signal minus the tare."""
+        return max(0.,self._pressure_raw()-self.press_offset)
+    def _app_read(self):
+        return {'die.target_k':self.die_target,'die.temperature_k':self.die_k,'heater.power_fraction':list(self.heat_frac),'feeder.state':self._feeder_view(),
+            'pressure.display_pa':self._pressure_reading(),'pressure.offset_pa':self.press_offset,'pressure.limit_pa':self.press_limit,'alarm.deviation_k':list(self.deviation_k),
+            'alarms.active':self.alarm_active,'alarms.log':copy.deepcopy(self.alarm_log[-1024:]),'alarms.summary':dict(self.alarm_summary),'recipes':copy.deepcopy(self.recipes),
+            'recipe.loaded':self.recipe_loaded,'display.torque_unit':self.torque_unit,'trend.paused':self.trend_paused,
+            'clock':dict(hmi=self._wall(self.hmi_offset).strftime('%H.%M.%S %d.%m.%y'),plc=self._wall(self.plc_offset).strftime('%H.%M.%S %d.%m.%y'))}
+    def _alarm(self,text):
+        self.alarm_log=(self.alarm_log+[dict(time_s=self.time_s,text=text,when=self._wall(self.hmi_offset).strftime('%d.%m.%y %H:%M:%S'))])[-1024:]
+        self.alarm_summary[text]=self.alarm_summary.get(text,0)+1;self.alarm_active=text
+    FAULT_TEXT={'TORQUE_LIMIT':'Extruder torque above 100 %','PRESSURE_LIMIT':'Die pressure above 100 bar','OVERTEMPERATURE':'Barrel over temperature',
+        'COLD_MATERIAL':'Material below processing temperature','DEGRADATION_ONSET':'Material degradation temperature reached','EMERGENCY_STOP':'Emergency stop pressed'}
+    def _feeding(self):
+        f=self.feeder;return f['running'] and not f['refill'] and not f['test'] and f['mode'] in ('gravimetric','volumetric')
+    def _gravimetric(self):
+        """The screw speed is set by the gravimetric controller: a timed run (acquisition.start) or gravimetric feeding into the extruder."""
+        f=self.feeder;return self.phase=='running' or (self._feeding() and f['mode']=='gravimetric')
+    def _screw_full(self):
+        return FEED_MAX*(self.bulk_true/BULK_DEFAULT)                   # mass rate at 100 % screw speed: nominal screw volume x true bulk density
+    def _grav_command(self):
+        f=self.feeder;return min(f['max_output_kg_s'],max(0.,self.feed_target+f['corr_kg_s']))   # commanded rate, screw speed = command / maximum output
+    def _screw_fraction(self):
+        f=self.feeder
+        if f['calculating']:return f['setpoint_pct']/100
+        if self._gravimetric():return self._grav_command()/f['max_output_kg_s']
+        return f['setpoint_pct']/100 if f['mode']=='volumetric' else 1.  # volumetric: the set screw speed; test run in gravimetric mode and discharge: full speed
+    def _screw_rate(self):
+        """Mass rate the feed screw delivers now (before the hopper / barrel limits)."""
+        f=self.feeder
+        if self._gravimetric() and not f['calculating']:return self._grav_command()*(self._screw_full()/f['max_output_kg_s'])
+        return self._screw_full()*self._screw_fraction()
+    def _feeder_loop(self,measured,dt):
+        """Gravimetric control: integral screw-speed correction on the weighed feed rate, scaled by the control gain (manual p.6-31)."""
+        f=self.feeder
+        f['corr_kg_s']=min(f['max_output_kg_s']-self.feed_target,max(-self.feed_target,f['corr_kg_s']+f['gain']*dt/FEED_LOOP_S*(self.feed_target-measured)))
+    def _app_sync(self):
+        # the feeders stop with the extruder drive (test runs from the set-up page excepted); new latched faults become alarms
+        f=self.feeder
+        if f['running'] and not f['test'] and f['mode'] in ('gravimetric','volumetric') and not (self.drive and self.powered):f['running']=False
+        if not self.powered:f.update(running=False,calculating=False,calc_s=0.,calc_kg=0.)
+        if self.fault!=self._last_fault:
+            if self.fault:self._alarm(self.FAULT_TEXT.get(self.fault,self.fault))
+            self._last_fault=self.fault
+    def _app_step(self,dt,fed):
+        p=self.plant;f=self.feeder
+        if p:                                                  # die heater: the zone parameters, no material in the die model
+            n=max(1,int(math.ceil(dt/.5)));h=dt/n;C=p['zone_heat_capacity_j_k'];amb=p['ambient_k']
+            for _ in range(n):
+                heat=min(p['heater_max_w'],max(0.,p['controller_w_k']*(self.die_target-self.die_k))) if self.heating and self.powered and not self.latched and 'ME005' not in self.alarm_latched else 0.
+                self.heat_frac[7]=heat/p['heater_max_w'];self.die_k+=(heat-p['loss_w_k']*(self.die_k-amb))*h/C;self.heater_energy+=heat*h;self.loss_energy+=p['loss_w_k']*(self.die_k-amb)*h
+        if f['calculating']:                                   # Calc.Max.Output: one minute at the set screw speed into a container, weighed
+            run=min(dt,f['calc_s']);take=min(self._screw_rate()*run,sum(self.hopper));hs=sum(self.hopper)
+            for j in range(2):
+                q=self.hopper[j]*take/hs if hs else 0.;self.hopper[j]-=q;self.waste[j]+=q
+            fed+=take;f['calc_kg']+=take;f['calc_s']-=run
+            if f['calc_s']<=1e-9:                              # result scaled to 100 % screw speed
+                f.update(calculating=False,calc_s=0.,max_output_kg_s=min(OUTPUT_MAX,max(FEED_MIN,f['calc_kg']/CALC_S/(f['setpoint_pct']/100))),calc_kg=0.)
+        elif f['running'] and not f['refill'] and (f['test'] or f['mode'] in ('gravimetric_discharge','discharge')):   # test run / discharge: into a container
+            take=min(self._screw_rate()*dt,sum(self.hopper));hs=sum(self.hopper)
+            for j in range(2):
+                q=self.hopper[j]*take/hs if hs else 0.;self.hopper[j]-=q;self.waste[j]+=q
+            fed+=take
+            w=sum(self.hopper)-f['tare_kg']
+            if (f['mode']=='gravimetric_discharge' and w<=f['min_fill_kg']+1e-12) or sum(self.hopper)<=1e-12:
+                f.update(running=False,mode='gravimetric')
+        f['throughput_kg']+=max(0.,fed)
+        if self._feeding() and self.drive and f['mode']=='gravimetric' and self.feed_target>0:   # deviation control: stop after 60 s outside the limit
+            dev=100*(self.actual_feed-self.feed_target)/self.feed_target;f['deviation_pct']=dev
+            f['deviation_s']=f['deviation_s']+dt if abs(dev)>f['max_deviation_pct'] else 0.
+            if f['deviation_s']>=DEVIATION_WINDOW_S:f.update(running=False,deviation_s=0.);self._alarm('Feeder 1 deviation alarm')
+        w=sum(self.hopper)-f['tare_kg']
+        if w<=f['min_fill_kg'] and not f['low_warned'] and self.material:f['low_warned']=True;self._alarm('Feeder 1 hopper at minimum fill level')
+        elif w>f['min_fill_kg']:f['low_warned']=False
+        if w>=f['max_fill_kg'] and not f['high_warned']:f['high_warned']=True;self._alarm('Feeder 1 hopper at maximum fill level')
+        elif w<f['max_fill_kg']:f['high_warned']=False
+        if self.heating and self.powered and not self.latched:  # temperature alarms: each zone once it has reached its setpoint
+            tg=self.targets+[self.die_target];tt=self._hmi_temps()
+            for i in range(8):
+                d=abs(tt[i]-tg[i])
+                if d<=self.deviation_k[i]:self.reached[i]=True
+                elif self.reached[i]:self.reached[i]=False;self._alarm(HMI_ZONES[i]+' temperature deviation')
+            if all(self.reached) and not self.temp_reached:self.temp_reached=True;self._alarm('Temperature reached')
+        else:self.reached=[False]*8;self.temp_reached=False
+        if self._pressure_reading()>self.press_limit+1e-6 and self.alarm_active!='Die pressure high':self._alarm('Die pressure high')
+        self._app_sync()
+    def _trend_sample(self):
+        if self.drive and self.powered and not self.trend_paused:      # trend log: recorded while the extruder screws run, one sample per second
+            t=self.time_s
+            if self._trend_t is None or t-self._trend_t>=TREND_DT_S-1e-9:
+                self._trend_t=t;tq=200*self.torque/12.
+                self.trend=(self.trend+[[t]+[round(x-273.15,3) for x in self._hmi_temps()]+[self.speed*60/TAU,tq,100*self.actual_feed/self.feeder['max_output_kg_s']]])[-TREND_MAX:]
+    def _app_invoke(self,c,a):
+        f=self.feeder
+        if c=='sensor.configure_error':
+            if 'pressure_zero_drift_pa_per_k' in a:self.press_drift=a['pressure_zero_drift_pa_per_k']
+            return {'pressure_zero_drift_pa_per_k':self.press_drift}
+        if c=='feeder.configure_material':self.bulk_true=a['bulk_density_kg_m3'];return dict(a)
+        if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
+        if c=='die.set_temperature':
+            if a['temperature_k']<self.plant['ambient_k']:raise ActionRejected('INVALID_ARGUMENT')
+            self.die_target=a['temperature_k'];self.reached[7]=False;self.temp_reached=False;return dict(a)
+        if c in ('clock.set','clock.sync','display.configure','trend.control','alarms.acknowledge'):
+            if c=='alarms.acknowledge':
+                self.alarm_latched=[x for x in self.alarm_latched if not ALARM_CODES[x][1]]   # 'press Mute/Reset to continue'
+                n=1 if self.alarm_active else 0;self.alarm_active=None;return {'acknowledged':n}
+            if c=='display.configure':self.torque_unit=a['torque_unit'];return dict(a)
+            if c=='trend.control':
+                if a['action']=='clear':self.trend=[];self._trend_t=None
+                else:self.trend_paused=a['action']=='pause'
+                return dict(a)
+            if c=='clock.sync':self.plc_offset=self.hmi_offset;return {'plc':self._wall(self.plc_offset).strftime('%H.%M.%S %d.%m.%y')}
+            import datetime
+            w=self._wall(self.hmi_offset)
+            try:
+                if 'hmi_time' in a:
+                    hh,mm,ss=(int(x) for x in a['hmi_time'].split('.'));w=w.replace(hour=hh,minute=mm,second=ss)
+                if 'hmi_date' in a:
+                    dd,mo,yy=(int(x) for x in a['hmi_date'].split('.'));w=w.replace(year=2000+yy,month=mo,day=dd)
+            except (ValueError,TypeError):raise ActionRejected('BAD_CLOCK')
+            if not a:raise ActionRejected('INVALID_ARGUMENT')
+            self.hmi_offset=(w-datetime.datetime.fromisoformat(EPOCH)).total_seconds()-self.time_s;return {'hmi':self._wall(self.hmi_offset).strftime('%H.%M.%S %d.%m.%y')}
+        if not self.powered:raise ActionRejected('PRECONDITION_FAILED')
+        if c in ('fault.inject','fault.clear'):
+            code=a['code'];kind=ALARM_CODES[code][0]
+            if c=='fault.clear':
+                self.alarm_latched=[x for x in self.alarm_latched if x!=code];return {'latched':list(self.alarm_latched)}
+            if code not in self.alarm_latched:self.alarm_latched.append(code)
+            self._alarm(code+' '+ALARM_CODES[code][2])
+            if kind=='drive':self._halt('failed')
+            if kind=='feeder':f.update(running=False,calculating=False,calc_s=0.,calc_kg=0.)
+            return {'latched':list(self.alarm_latched)}
+        if c=='feeder.set_running':
+            if a['running'] and any(ALARM_CODES[x][0]=='feeder' for x in self.alarm_latched):raise ActionRejected('PRECONDITION_FAILED')
+            if a['running'] and not a['test'] and not self.drive:raise ActionRejected('EXTRUDER_NOT_RUNNING')
+            if a['running'] and (not self.material or sum(self.hopper)<=0):raise ActionRejected('PRECONDITION_FAILED')
+            f.update(running=a['running'],test=a['test'] and a['running'],refill=False,deviation_s=0.,corr_kg_s=0.,calculating=False,calc_s=0.,calc_kg=0.)
+            if not a['running'] and f['mode'] in ('gravimetric_discharge','discharge'):f['mode']='gravimetric'
+            return {'running':f['running']}
+        if c=='feeder.configure':
+            if not a:raise ActionRejected('INVALID_ARGUMENT')
+            g=dict(f,**a)
+            if g['min_fill_kg']>=g['max_fill_kg']:raise ActionRejected('INVALID_ARGUMENT')
+            if 'bulk_density_kg_m3' in a and 'max_output_kg_s' not in a:      # the controller's estimate until Calc.Max.Output (or a typed value) replaces it
+                g['max_output_kg_s']=min(OUTPUT_MAX,max(FEED_MIN,FEED_MAX*(a['bulk_density_kg_m3']/BULK_DEFAULT)))
+            if 'mode' in a and a['mode']!=f['mode']:g['corr_kg_s']=0.
+            if a.get('mode') in ('gravimetric_discharge','discharge'):
+                if f['mode']==a['mode'] and f['running']:g.update(running=False,mode='gravimetric')        # pressed again: stop
+                elif not self.material or sum(self.hopper)<=0:raise ActionRejected('PRECONDITION_FAILED')
+                else:g.update(running=True,test=False,refill=False)
+            self.feeder.update(g);return {'configured':True}
+        if c=='feeder.action':
+            x=a['action'];v=0.
+            if x=='tare':f['tare_kg']=sum(self.hopper);v=f['tare_kg']
+            elif x=='reset_throughput':f['throughput_kg']=0.
+            elif x=='refill':f['refill']=not f['refill'];v=float(f['refill'])
+            else:                                                               # one minute at the set screw speed (volumetric setpoint) into a container
+                if (f['running'] and not f['test']) or self.phase=='running' or f['setpoint_pct']<=0 or not self.material or sum(self.hopper)<=0:raise ActionRejected('PRECONDITION_FAILED')
+                f.update(running=False,test=False,refill=False,calculating=True,calc_s=CALC_S,calc_kg=0.);v=CALC_S
+            return {'action':x,'value':v}
+        if c=='pressure.tare':
+            raw=self._pressure_raw()
+            if raw>TARE_MAX_PA:raise ActionRejected('PRESSURE_TOO_HIGH')
+            self.press_offset=raw;return {'offset_pa':self.press_offset}
+        if c=='pressure.set_limit':self.press_limit=a['limit_pa'];return dict(a)
+        if c=='recipe.save':
+            self.recipes[a['index']-1]=copy.deepcopy(a);return {'index':a['index']}
+        if c=='recipe.write':
+            r=self.recipes[a['index']-1]
+            if r['speed_rad_s'] is None:raise ActionRejected('EMPTY_RECIPE')
+            if min(r['temperatures_k'])<self.plant['ambient_k']:raise ActionRejected('INVALID_ARGUMENT')
+            self._halt();f.update(running=False,refill=False)                                   # extruder and feeder speeds to zero for safety
+            self.speed_target=r['speed_rad_s'];self.targets=list(r['temperatures_k'][:7]);self.die_target=r['temperatures_k'][7]
+            self.deviation_k=list(r['alarm_deviation_k']);self.feed_target=r['feed_kg_s'];self.reached=[False]*8;self.temp_reached=False;self.recipe_loaded=a['index']
+            return {'index':a['index']}
+        raise ActionRejected('UNKNOWN_CAPABILITY')
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        out=self.read('agent');t=self.trend;tq=200*self.torque/12.
+        out.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,'host.temps_c':[x-273.15 for x in self._hmi_temps()],
+            'host.targets_c':[x-273.15 for x in self.targets+[self.die_target]],'host.torque_text':{'Nm':f'{2*self.torque:.2f} Nm','%':f'{tq:.1f} %','kW':f'{2*self.torque*self.speed/1000:.3f} kW'}[self.torque_unit],
+            'host.melt_c':self.temps[-1]-273.15,'host.rpm':self.speed*60/TAU,'host.set_rpm':self.speed_target*60/TAU,'host.serial':self.instance_id,
+            'host.tr':dict({f'z{i}':[[r[0]/60,r[1+i]] for r in t] for i in range(8)},speed=[[r[0]/60,r[9]/10] for r in t],torque=[[r[0]/60,r[10]] for r in t],feed=[[r[0]/60,r[11]] for r in t]),
+            'host.trend_end':(t[-1][0]/60 if t else 0.),'host.torque_pct':tq,'host.feed_pct':100*self.actual_feed/self.feeder['max_output_kg_s'],
+            'host.alarms_newest':list(reversed(self.alarm_log[-200:])),'host.alarm_summary':[dict(text=k,count=v) for k,v in sorted(self.alarm_summary.items())]})
+        return out
+    def _guard(self,k,principal):
+        """Caller rule (final sync 2026-10-19): a timed run belongs to the session that started it; another agent may not stop it or change its drive,
+        feed, temperatures, feeder, pressure probe or recipe while it runs (direct call or HMI gesture).  The isolator and the emergency stop are
+        never refused."""
+        if principal is not None and self._principals.get(principal)=='agent' and k in RUN_GUARDED and self.phase=='running':
+            owner=self._owners.get(self.operation_id)
+            if owner is not None and owner!=principal:raise ActionRejected('ACCESS_DENIED')
+    def panel_invoke(self,capability_id,arguments):
+        """A panel action calls the same command a direct call would (each command checks before it changes anything); a gesture made through a
+        session keeps that caller's access rules (_guard)."""
+        try:
+            self._guard(capability_id,self._caller)
+            return self.invoke(capability_id,**arguments)
+        except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+    def panel_time(self):return self.time_s
+    def _panel_cmd(self,k,a):
+        p=self.panel
+        try:
+            if k=='panel.switch':r={'accepted':bool(p.switch(a['input_id'],a['position']))}
+            elif k=='panel.touch':r={'accepted':bool(p.touch(a['display_id'],a['x'],a['y'],a.get('duration_s',.1),(a['to_x'],a['to_y']) if 'to_x' in a and 'to_y' in a else None))}
+            elif k=='panel.frame':return {'frame':p.frame()}
+            else:
+                import hashlib,tempfile
+                data,w,hh=p.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest()
+                d=Path(getattr(self,'panel_capture_dir',None) or Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id);d.mkdir(parents=True,exist_ok=True)
+                path=d/f"{a['display_id']}_{sha[:16]}.png"
+                if not path.exists():path.write_bytes(data)
+                return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=hh,sha256=sha))
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+        self.revision+=1;return r
 class ThermoProcess11Session:
     """Only the trusted host assigns roles; returned data obey the same boundary."""
     def __init__(self,host,principal_id):self._host=host;self._principal=principal_id
@@ -451,7 +799,10 @@ class ThermoProcess11Session:
                 old,result=h._requests[key]
                 if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(result)
-            result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+            h._guard(capability_id,self._principal);h._caller=self._principal   # an HMI gesture acts as this session's caller
+            try:result=h.invoke(capability_id,**arguments)
+            finally:h._caller=None
+            op=result.get('operation_id')
             if op:h._owners[op]=self._principal
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
         except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
@@ -475,7 +826,7 @@ def _library_limitations():
         f"material.configure 仅支持70/30 PCM-Affinisol 显式假设参数；material.load_reference 支持{sm['process_model_records']}种文献黏度律材料（{sm['process_model_with_real_density_and_cp']}种密度/热容全真实，其余缺项需宿主显式假设）；模型仍不能代表实测药物/塑料工艺或用于剂型制备。",
         f"库共{sm['distinct_records']}条真实数据记录，运行时可用{sm['runtime_usable_records']}条（{'达到' if sm['target_50_met'] else '低于'}50条目标）；工况多来自Pharma 11/ZE12/ZSE12同级机及专用口模，只按原工况精确返回，不用于标定当前圆口模。",
         '剪切变稀只在口模按表观壁面剪切率施加且仅限有实测Cross/Carreau-Yasuda参数的记录，无Rabinowitsch修正；筒内拖曳仍用零剪切黏度；无黏弹性/熔融潜热/降解动力学/挥发/返流/泄漏/溶解结晶；混合仅为两组分理想均匀账本。',
-        '七区瞬时等温且轴功均匀沉积，进料区水冷只为宿主边界；无冷却水温量或真实温控辨识。','控制界面菜单未复刻，完整安全联锁/机器人/硬件/接触力/部署隔离均not_run。']
+        '七区瞬时等温且轴功均匀沉积，进料区水冷只为宿主边界；无冷却水温量或真实温控辨识。','触摸屏HMI由前面板层（panel_ui.json）驱动本运行层；完整安全联锁/机器人/硬件/接触力/部署隔离均not_run。']
 def export_thermo_process11_contract_metadata():
     caps={};slots={}
     for k,(s,u,o,v,c,w) in SLOTS.items():
@@ -502,7 +853,7 @@ def export_thermo_process11_contract_metadata():
                 completion_state_ids=['cycle.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',
                 retry='same_request_id',resources=['host_clock','finite_charge','barrel','request_cache'],
                 partial_failure_zh='取消/故障保留已排出与筒内物质，热量不回滚；断电后仍散热；没有跨重启幂等'),
-            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','AMBIGUOUS_REFERENCE','REFERENCE_NOT_RUNTIME_USABLE','COLD_MATERIAL']],
+            errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','PRECONDITION_FAILED','BUSY','ACCESS_DENIED','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_OUT_OF_RANGE','AMBIGUOUS_REFERENCE','REFERENCE_NOT_RUNTIME_USABLE','COLD_MATERIAL']+(APP_ERRORS if k in APP_CAPS else [])],
             example_arguments=copy.deepcopy(ex),verification=[],limitations=['外置喂料和拆装由宿主；真实固件、安全认证、材料标定未完成'],source_ids=['manufacturer_primary','simulation_assumption'])
     mech=dict(component_ids=['motor','screw_a','screw_b','barrel_lower','barrel_upper','feed_port','die','receiver'],
         state_ids=list(slots),meaning_zh='双螺杆七有限完全混合区、圆口模牛顿压降和轴功/电热/带料焓平衡',implementation='lumped',

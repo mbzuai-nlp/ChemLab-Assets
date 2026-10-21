@@ -6,7 +6,7 @@ against the declared schemas (asset_tool validate_value), asynchronous completio
 on_step effects over scenario states; plus the electrophoresis physics against the manufacturer data: TGX SDS-PAGE start / final current per gel, run
 time and buffer temperature at 100 / 200 / 300 V (bulletin 1658100 Tables 3.1-3.2), 200 V hand-cast Tris-HCl runs of 35-45 min (Tetra manual),
 Precision Plus bands at the chart positions (TGX gels), 700 / 1000 mL buffer for 2 / 4 gels; PowerPac regulation (CV, CC crossover, 75 W limit), timer,
-keys, display accuracy, error codes E1 / E2 / E7 / E9 / E5; cell circuit rules (lid interlock, leads, tape, buffer dam, companion module overheating),
+keys (held keys: auto-repeat, Pfd, dE9), display accuracy, error codes E1 / E2 / E7 / E9 / E5; cell circuit rules (lid interlock, leads, tape, buffer dam, companion module overheating),
 reducing vs non-reducing samples, run-off, reversed polarity, overload broadening, smile, native PAGE of basic proteins, well overflow, dye-front
 observation and prestained markers.
 """
@@ -378,6 +378,47 @@ class PowerSupplyAndCell(unittest.TestCase):
         self.assertEqual(rec['status'], 'completed')
         self.assertAlmostEqual(rec['run_time_s'], 120.0, delta=0.5)
         check('timer_keys_display', displayed_v=v, true_v=h.V)
+
+    def test_held_keys_auto_repeat_pfd_and_de9(self):
+        """PowerPac manual p.3-5: a held scroll key steps by 10 after 5 units; stop held ~2 s on the time display (time set) switches on power-failure
+        detection (Pfd), on the current display switches the change-in-resistance detection off (dE9) until the run ends; otherwise a press."""
+        h = assembled()
+        self.assertEqual(h.invoke('psu.hold_key', key='up', duration_s=0.3)['display_value'], 201)          # short: one step
+        h.invoke('psu.hold_key', key='up', duration_s=1.3)                                                # 1 + 4 repeats: +5
+        self.assertEqual(h.read()['psu.voltage_set_v'], 206.0)
+        h.invoke('psu.hold_key', key='down', duration_s=2.1)                                              # 1 + 8 repeats: -5 - 4 x 10
+        self.assertEqual(h.read()['psu.voltage_set_v'], 161.0)
+        h.invoke('psu.hold_key', key='up', duration_s=60.0)                                               # stops at the range end
+        self.assertEqual(h.read()['psu.voltage_set_v'], 300.0)
+        h.invoke('psu.press_key', key='display_mode')
+        h.invoke('psu.press_key', key='display_mode')                                                     # time display, untimed
+        h.invoke('psu.hold_key', key='stop', duration_s=2.0)
+        self.assertFalse(h.read()['psu.power_failure_detection'])                                         # Pfd only for timed runs
+        h.invoke('psu.hold_key', key='up', duration_s=1.0)                                                # 3 min
+        h.invoke('psu.hold_key', key='stop', duration_s=1.0)                                              # too short: a press
+        self.assertFalse(h.read()['psu.power_failure_detection'])
+        h.invoke('psu.hold_key', key='stop', duration_s=2.0)
+        self.assertTrue(h.read()['psu.power_failure_detection'])
+        h.invoke('psu.press_key', key='display_mode')                                                     # V
+        h.invoke('psu.press_key', key='display_mode')                                                     # mA
+        h.invoke('psu.hold_key', key='stop', duration_s=2.5)
+        self.assertFalse(h.read()['psu.resistance_check'])                                                # dE9
+        h.invoke('psu.hold_key', key='run_pause', duration_s=3.0)                                         # any other key: a press (start)
+        h.step(60.0)
+        h.invoke('fault.inject', fault='lead_break', active=True)
+        h.step(1.0)
+        self.assertEqual(h.psu['error'], 'E1')                                                            # no E9 hold: the open circuit ends the run (no load)
+        self.assertEqual((h.read()['psu.resistance_check'], h.read()['psu.power_failure_detection']), (True, False))   # both revert after the run
+        h.invoke('fault.inject', fault='lead_break', active=False)
+        h.invoke('psu.hold_key', key='stop', duration_s=2.0)                                              # with an error code: clears it
+        self.assertEqual((h.psu['state'], h.read()['psu.resistance_check']), ('stopped', True))
+        h.invoke('psu.start')
+        h.step(5.0)
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('psu.hold_key', key='down', duration_s=1.0)                                          # mA limit while running in CV
+        h.invoke('psu.hold_key', key='stop', duration_s=2.0)                                              # during a run: stop
+        self.assertEqual((h.psu['state'], h.records['EP0002']['status'], h.read()['psu.resistance_check']), ('stopped', 'stopped', True))
+        check('held_keys', repeat_delay_s=rt.KEY_REPEAT_DELAY_S, repeat_hz=rt.KEY_REPEAT_HZ)
 
     def test_error_codes(self):
         h = assembled()
@@ -1046,6 +1087,7 @@ def _variants(cap):
         'power.set': [dict(enabled=True), dict(enabled=False)], 'power.press_switch': [{}],
         'psu.program': [dict(rt.PSU_EXAMPLE), dict(rt.PSU_EXAMPLE, constant='current', current_a=0.030, time_s=0.0)],
         'psu.press_key': [dict(key=k) for k in rt.PANEL_KEYS], 'psu.start': [{}], 'psu.stop': [{}],
+        'psu.hold_key': [dict(key=k, duration_s=d) for k in ('up', 'down', 'stop', 'display_mode') for d in (1.5, 2.0)],
         'lid.place': [{}], 'lid.remove': [{}], 'leads.connect': [dict(polarity='normal'), dict(polarity='reversed')], 'leads.disconnect': [{}],
         'companion.install': [{}], 'companion.remove': [{}], 'gel.provide': [dict(gel_id='new', gel_type=TGX)],
         'gel.prepare': [dict(gel_id='g1', remove_comb=True, remove_tape=True, rinse_wells=True), dict(gel_id='g1', remove_comb=True, remove_tape=False, rinse_wells=True)],

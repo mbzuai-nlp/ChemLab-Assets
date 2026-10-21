@@ -1,8 +1,12 @@
-"""CHEM133 linear-tension DMA: measured anchors and explicit generalized Maxwell response."""
+"""CHEM133 linear-tension DMA: measured anchors and explicit generalized Maxwell response.
+
+Front panel (panel.press / panel.switch / panel.touch / panel.capture / panel.frame): the One-Touch-Away app-style touch screen, the round power
+button and the Power Control Box switch (panel_ui.json beside the contract, approximate: the Discovery screen pages are not documented) run by the
+generic engine _panel_ui.py on top of the capabilities below (no second copy of the logic)."""
 from pathlib import Path
-import copy,json,math,importlib.util,bisect
+import copy,json,math,importlib.util,bisect,hashlib,os,tempfile,weakref
 import numpy as np
-PROTOCOL_VERSION='1.0.0';SLUG='ta_dma850';CATALOG_ID='CHEM-133';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.1';SLUG='ta_dma850';CATALOG_ID='CHEM-133';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch04/t1_thermal'/SLUG
 DT=.1;R_GAS=8.31446261815324
 class ActionRejected(ValueError):pass
@@ -147,6 +151,7 @@ cap('ledger.read',obj({}),LEDGER,['controller'],'有限样片/空气/N2/LN2与�
 cap('sim.step',obj({'dt_s':number('s',0,3600)}),obj({'time_s':number('s',0)}),['controller'],'唯一宿主时钟','simulation','evaluator',{'dt_s':.1})
 cap('emergency.stop',obj({}),obj({'latched':BOOL}),['controller'],'软件停机保持应变/残留弹性能')
 cap('emergency.reset',obj({}),obj({'latched':BOOL}),['controller'],'冷态明确复位，不自动恢复振动')
+OWNER_GUARDED=('acquisition.stop','acquisition.result')  # owner-only while another agent's run is the current one
 UNSUPPORTED=['fixture.bending','fixture.shear','fixture.compression','fixture.immersion','autostrain.native','tts.native','creep.certified','noise.empirical','accuracy.certification','hardware.connect','robot.load','sample.fracture']
 for k in UNSUPPORTED:cap(k,obj({}),obj({}),['controller'],'明确未实现：'+k)
 for k,c in [('plant.configured','controller'),('power.enabled','power_switch'),('sample.present','specimen'),('gas.opened','air_bearing'),('thermal.enabled','furnace'),('emergency.latched','controller'),('furnace.opened','furnace'),('furnace.moving','furnace'),('clamp.locked','clamp_jaw'),('clamp.moving','clamp_jaw'),('drive.moving','drive_shaft')]:slot(k,BOOL,'1','实际状态/工程互锁',component=c)
@@ -158,6 +163,24 @@ for k,u in [('truth.force_n','N'),('truth.strain','1'),('truth.elastic_j','J'),(
 slot('clock.time_s',number('s',0),'s','宿主物理时钟');slot('acquisition.phase',PHASE,'1','异步状态');slot('acquisition.elapsed_s',number('s',0),'s','实际采集时间');slot('acquisition.points',integer(0,2000000),'1','内部观测点数');slot('acquisition.block_index',integer(0,99),'1','温频区块');slot('acquisition.stage',enum(['conditioning','settle','measure']),'1','实际预调温/稳态等待/测量');slot('panel.temperature_text',TEXT,'1','断电空温度C一位小数');slot('panel.displacement_text',TEXT,'1','断电空实际位移mm四位小数')
 BLOCK_RESULT['properties'].update(force_target_n=nullable(number('N')),force_tracking_error_n=nullable(number('N')));BLOCK_RESULT['required']=list(BLOCK_RESULT['properties'])
 _t=np.linspace(0,2,257);CAPS['analysis.modulus']['example_arguments']=dict(time_s=_t.tolist(),force_n=(.2+.01*np.sin(2*np.pi*_t)+.002*np.cos(2*np.pi*_t)).tolist(),displacement_m=(1e-6*np.sin(2*np.pi*_t)).tolist(),frequency_hz=1.,length_m=.01,area_m2=8e-7)
+def _panel_engine():
+ """The shared front-panel engine (_panel_ui.py beside this file): as a package module, else loaded from its file path."""
+ try:
+  from . import _panel_ui as engine;return engine
+ except ImportError:
+  import sys
+  if '_chemsim_panel_ui' not in sys.modules:
+   s=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(s);s.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=None if os.environ.get('TA_PANEL_BUILD') else _panel_ui.load_spec(ASSET/'panel_ui.json',capabilities=set(CAPS))  # TA_PANEL_BUILD: spec being written
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}  # panel.* kept out of CAPS: CAPS stays the instrument's own command set
+ALL_CAPS=dict(CAPS,**PANEL_CAPS);_PANELS=weakref.WeakKeyDictionary()
+def validate_arguments(k,v):
+ """Capability arguments: the instrument's own validator; panel.* schemas (optional keys) by the engine's checker."""
+ if k in PANEL_CAPS:
+  if not isinstance(v,dict) or _panel_ui.check_arguments(PANEL_CAPS[k]['input_schema'],v):raise ActionRejected('INVALID_ARGUMENT')
+ else:validate(CAPS[k]['input_schema'],v)
 
 def source_pair(record,temperature_k,frequency_hz):
  if not record.get('runtime_usable'):raise ActionRejected('INVALID_REFERENCE')
@@ -189,7 +212,7 @@ def source_frequencies(record):
 
 class TaDma850Runtime:
  def __init__(self,instance_id='dma850_01'):
-  self.instance_id=instance_id;self.plant=None;self.sample=None;self.reference=None;self.E=0.;self.branches=[];self.stress=[];self.power=False;self.emergency=False;self.furnace_lift=.15;self.furnace_target=.15;self.clamp=.002;self.clamp_target=.002;self.drive=0.;self.drive_target=0.;self.drive_mode='hold';self.drive_velocity=0.;self.preload=0.;self.gases={};self.gas_remaining={'air':0.,'N2':0.};self.gas_loaded={'air':0.,'N2':0.};self.gas_used={'air':0.,'N2':0.};self.gas_recovered={'air':0.,'N2':0.};self.gas_open=False;self.coolant_present=False;self.coolant_remaining=0.;self.coolant_loaded=0.;self.coolant_used=0.;self.coolant_recovered=0.;self.coolant_cold_used=0.;self.thermal_enabled=False;self.target=298.15;self.final_target=298.15;self.rate=1/6;self.furnace=298.15;self.sample_temperature=298.15;self.sample_energy=0.;self.heater_input=0.;self.cooling_removed=0.;self.ambient_loss=0.;self.recovered_sensible=0.;self.mechanical_input=0.;self.mechanical_recovered=0.;self.dissipated=0.;self.recovered_elastic=0.;self.mass_loaded=0.;self.mass_recovered=0.;self.obs_force=0.;self.obs_displacement=0.;self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.method=copy.deepcopy(METHOD_EXAMPLE);self.phase='idle';self.stage='conditioning';self.elapsed=0.;self.block_index=0;self.block_elapsed=0.;self.block_amplitude=0.;self.bias=0.;self.rows=[];self.results=[];self.error=None;self.pending_fault=None;self.operation_id=None;self.operation_reference=None;self.operation_source=None;self.operation_method=None;self.operation_calibration=None;self.records={};self._counter=0;self.time_s=0.;self._ticks=0;self._remainder=0.;self.revision=0;self._requests={};self._owners={};self._cancel_operations={};self._principals={'agent':'agent','evaluator':'evaluator'};self.anchor=None;self.constitutive_update=0.;self.center0=0.
+  self.instance_id=instance_id;self.plant=None;self.sample=None;self.reference=None;self.E=0.;self.branches=[];self.stress=[];self.power=False;self.emergency=False;self.furnace_lift=.15;self.furnace_target=.15;self.clamp=.002;self.clamp_target=.002;self.drive=0.;self.drive_target=0.;self.drive_mode='hold';self.drive_velocity=0.;self.preload=0.;self.gases={};self.gas_remaining={'air':0.,'N2':0.};self.gas_loaded={'air':0.,'N2':0.};self.gas_used={'air':0.,'N2':0.};self.gas_recovered={'air':0.,'N2':0.};self.gas_open=False;self.coolant_present=False;self.coolant_remaining=0.;self.coolant_loaded=0.;self.coolant_used=0.;self.coolant_recovered=0.;self.coolant_cold_used=0.;self.thermal_enabled=False;self.target=298.15;self.final_target=298.15;self.rate=1/6;self.furnace=298.15;self.sample_temperature=298.15;self.sample_energy=0.;self.heater_input=0.;self.cooling_removed=0.;self.ambient_loss=0.;self.recovered_sensible=0.;self.mechanical_input=0.;self.mechanical_recovered=0.;self.dissipated=0.;self.recovered_elastic=0.;self.mass_loaded=0.;self.mass_recovered=0.;self.obs_force=0.;self.obs_displacement=0.;self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.method=copy.deepcopy(METHOD_EXAMPLE);self.phase='idle';self.stage='conditioning';self.elapsed=0.;self.block_index=0;self.block_elapsed=0.;self.block_amplitude=0.;self.bias=0.;self.rows=[];self.results=[];self.error=None;self.pending_fault=None;self.operation_id=None;self.operation_reference=None;self.operation_source=None;self.operation_method=None;self.operation_calibration=None;self.records={};self._counter=0;self.time_s=0.;self._ticks=0;self._remainder=0.;self.revision=0;self._requests={};self._owners={};self._cancel_operations={};self._principals={'agent':'agent','evaluator':'evaluator'};self.anchor=None;self.constitutive_update=0.;self.center0=0.;self.power_epoch=0;self.panel_capture_dir=None;self._caller=None
  def register_principal(self,principal_id,visibility='agent'):
   if not isinstance(principal_id,str) or not principal_id or principal_id in self._principals or visibility not in ('agent','debug','evaluator'):raise ActionRejected('REQUEST_CONFLICT')
   self._principals[principal_id]=visibility
@@ -222,9 +245,26 @@ class TaDma850Runtime:
  def _ready(self):
   if not self.power or self.emergency or not self.sample or self.furnace_lift>1e-12 or self.clamp>1e-12 or not self.gas_open or self.gas_remaining['air']<=0 or self.gas_remaining['N2']<=0:raise ActionRejected('NOT_READY')
   if self.drive_mode!='hold' or abs(self.furnace_lift-self.furnace_target)>1e-12:raise ActionRejected('MECHANISM_MOVING')
+ def _shown_k(self,T):
+  """The device's temperature reading of a true temperature: evaluator sensor gain/offset, then the stored calibration."""
+  p=self.plant;c=self.calibration;return (p['temperature_gain']*T+p['temperature_offset_k']-c['temperature_zero_k'])*c['temperature_gain_correction']
+ def _control_k(self,t):
+  """Inverse of _shown_k: the controller holds the device's furnace reading at the program temperature, so a sensor error or a temperature
+  calibration moves the furnace and the specimen."""
+  p=self.plant;c=self.calibration;return (t/c['temperature_gain_correction']+c['temperature_zero_k']-p['temperature_offset_k'])/p['temperature_gain']
+ def _position_reading(self,x):
+  """The drive position the optical encoder reports (displacement channel gain/offset and the stored gain calibration; the signal zero of
+  sensor.zero belongs to the oscillation displacement signal, not to the absolute position)."""
+  p=self.plant;return (p['displacement_gain']*x+p['displacement_offset_m'])*self.calibration['displacement_gain_correction']
+ def _position_target(self,position):
+  """Inverse of _position_reading: Position moves the drive until the encoder reading shows the requested position."""
+  p=self.plant;return (position/self.calibration['displacement_gain_correction']-p['displacement_offset_m'])/p['displacement_gain']
+ def _guard(self,k,principal,role):
+  """A run belongs to the operator who started it: another agent may not stop it or read its result (direct call or panel gesture)."""
+  if k in OWNER_GUARDED and role=='agent' and self.operation_id is not None and self._owners.get(self.operation_id)!=principal:raise ActionRejected('ACCESS_DENIED')
  def _indicated(self):
   if not self.power or not self.plant:return dict(force=None,displacement=None,furnace=None,sample=None)
-  p=self.plant;c=self.calibration;F=(self.obs_force-c['force_zero_n'])*c['force_gain_correction'];x=(self.obs_displacement-c['displacement_zero_m'])*c['displacement_gain_correction'];return dict(force=F if abs(F)<=18 else None,displacement=float(round(x/1e-10)*1e-10),furnace=(p['temperature_gain']*self.furnace+p['temperature_offset_k']-c['temperature_zero_k'])*c['temperature_gain_correction'],sample=(p['temperature_gain']*self.sample_temperature+p['temperature_offset_k']-c['temperature_zero_k'])*c['temperature_gain_correction'])
+  c=self.calibration;F=(self.obs_force-c['force_zero_n'])*c['force_gain_correction'];x=(self.obs_displacement-c['displacement_zero_m'])*c['displacement_gain_correction'];return dict(force=F if abs(F)<=18 else None,displacement=float(round(x/1e-10)*1e-10),furnace=self._shown_k(self.furnace),sample=self._shown_k(self.sample_temperature))
  def read(self,role='evaluator'):
   a=self._indicated();d={'plant.configured':self.plant is not None,'power.enabled':self.power,'sample.present':self.sample is not None,'gas.opened':self.gas_open,'thermal.enabled':self.thermal_enabled,'emergency.latched':self.emergency,'furnace.opened':self.furnace_lift>=.15-1e-12,'furnace.moving':abs(self.furnace_lift-self.furnace_target)>1e-12,'clamp.locked':self.clamp<1e-12,'clamp.moving':abs(self.clamp-self.clamp_target)>1e-12,'drive.moving':self.drive_mode!='hold','furnace.lift_m':self.furnace_lift,'furnace.target_m':self.furnace_target,'clamp.release_m':self.clamp,'clamp.target_m':self.clamp_target,'drive.displacement_m':self.drive,'drive.target_m':self.drive_target,'power.angle_rad':.28 if self.power else 0.,'drive.preload_n':self.preload,'drive.mode':self.drive_mode,'thermal.target_k':self.target,'thermal.final_target_k':self.final_target,'force.indicated_n':a['force'],'displacement.indicated_m':a['displacement'],'furnace.indicated_k':a['furnace'],'sample.indicated_k':a['sample'],'truth.force_n':self._force(),'truth.strain':self._strain(),'truth.elastic_j':self._elastic(),'truth.sample_k':self.sample_temperature,'truth.furnace_k':self.furnace,'truth.air_mol':self.gas_remaining['air'],'truth.n2_mol':self.gas_remaining['N2'],'truth.coolant_kg':self.coolant_remaining,'truth.sample_mass_kg':self.sample['mass_kg'] if self.sample else 0.,'clock.time_s':self.time_s,'acquisition.phase':self.phase,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'acquisition.block_index':self.block_index,'acquisition.stage':self.stage,'panel.temperature_text':'' if a['furnace'] is None else f"{a['furnace']-273.15:.1f}",'panel.displacement_text':'' if a['displacement'] is None else f"{a['displacement']*1000:.4f}"};return {k:v for k,v in d.items() if role!='agent' or SLOTS[k]['visibility']=='agent'}
  def _ledger(self):
@@ -244,7 +284,45 @@ class TaDma850Runtime:
   return dict(operation_id=self.operation_id,phase=self.phase,elapsed_s=self.elapsed,rows=copy.deepcopy(self.rows),blocks=copy.deepcopy(self.results),reference_id=self.operation_reference,template_source=self.operation_source,method_json=json.dumps(self.operation_method,sort_keys=True) if self.operation_method else None,calibration_json=json.dumps(self.operation_calibration,sort_keys=True) if self.operation_calibration else None,evidence='Uniform uniaxial linear tension. Raw F/x observations with independent gain/offset/dynamics and displacement quantization drive OLS complex modulus, never direct material coefficients. Source-anchor SLS matches one measured T/f pair using explicitly assumed relaxation time; it is not an identified broadband spectrum. Source-curve mode re-anchors that local SLS at the own (T,f) of every block from the same real record (temperature/frequency sweeps through measured Eprime/Esecond), ramping centre and amplitude over the settle cycles; between blocks the previous anchor holds and the fixed-strain elastic-energy change is ledgered as constitutive_update_j. Non-tension source modes (cantilever/bending/compression) are used only under explicit accept_condition_transfer. Engineering Maxwell spectra/temperature shift are separate evaluator inputs. Force-amplitude path is ideal harmonic displacement feedforward, not OEM closed-loop force control; actual tracking error is reported. Internal>=64 samples/cycle prevent host0.1s aliasing. Static preload, unilateral unload and retained Maxwell memory conserve work/elastic energy/heat; no fracture or sample loss.',error_code=self.error)
  def _finish(self,phase,error=None):
   self.phase=phase;self.error=error;self.thermal_enabled=False;self.drive_mode='hold';self.drive_target=self.drive;self._record();self.records[self.operation_id]=self._result()
+ @property
+ def panel(self):
+  """Front-panel UI state (engine object, kept outside __dict__ so state snapshots and atomic rollback stay plain data)."""
+  if self not in _PANELS:_PANELS[self]=_panel_ui.PanelUI(PANEL_SPEC,self)
+  return _PANELS[self]
+ def panel_read(self):
+  """What the panel firmware sees: the agent slots plus power, power-up count, serial, cooling accessory, the last go-to-temperature rate, the
+  running step's drive frequency, the fit of the last completed step (its real-time signals page) and the drive position as the optical encoder
+  reports it (measured position and the position set point, both in the device's own reading)."""
+  last=next((b['analysis'] for b in reversed(self.results) if b['analysis']),None)
+  q=self.power and self.plant is not None
+  d=self.read('agent');d.update({'host.powered':self.power,'host.power_epoch':self.power_epoch,'host.instance_id':self.instance_id,'host.cooler':self.plant['cooler'] if self.plant else 'none','host.thermal_rate_k_s':self.rate,
+                                 'host.position_m':float(round(self.obs_displacement*self.calibration['displacement_gain_correction']/1e-10)*1e-10) if q else None,
+                                 'host.position_set_m':self._position_reading(self.drive_target) if q else None,'host.frequency_hz':self.method['blocks'][self.block_index]['frequency_hz'] if self.phase=='running' else None,'host.last_block':copy.deepcopy(last)});return d
+ def panel_invoke(self,capability_id,arguments):
+  """A panel action takes the path of a direct call (atomic; a refusal is shown as the device's message); a gesture made through a session keeps
+  that caller's access rules (_guard)."""
+  try:
+   if self._caller:self._guard(capability_id,*self._caller)
+   return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _panel_command(self,k,a):
+  validate_arguments(k,a)
+  if not self.plant:raise ActionRejected('NOT_CONFIGURED')
+  if k=='panel.frame':return dict(frame=self.panel.frame())
+  if k=='panel.capture':
+   data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);p=d/f"{a['display_id']}_{sha[:16]}.png"
+   if not p.exists():p.write_bytes(data)
+   return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(p),format='png',width=w,height=h,sha256=sha))
+  if ('to_x' in a)!=('to_y' in a):raise ActionRejected('INVALID_ARGUMENT')
+  try:
+   if k=='panel.press':ok=self.panel.press(a['input_id'],float(a.get('duration_s',.1)))
+   elif k=='panel.switch':ok=self.panel.switch(a['input_id'],a['position'])
+   else:ok=self.panel.touch(a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),to=(a['to_x'],a['to_y']) if 'to_x' in a else None)
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  self.revision+=1;return {'accepted':bool(ok)}
  def invoke(self,capability,**kwargs):
+  if capability in PANEL_CAPS:return self._panel_command(capability,kwargs)
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability]['input_schema'],kwargs)
   if capability in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
@@ -306,7 +384,8 @@ class TaDma850Runtime:
    if self.phase=='running' or self.thermal_enabled:raise ActionRejected('BUSY')
    self.coolant_recovered+=self.coolant_remaining;self.coolant_remaining=0.;self.coolant_present=False;return {'unloaded':True}
   if k=='power.set':
-   if self.phase=='running':raise ActionRejected('BUSY')
+   if self.phase=='running' and not a['enabled']:self._finish('failed','POWER_LOSS')  # the power switch is a hard switch (final sync): never refused; a running experiment ends as on a power loss
+   if a['enabled'] and not self.power:self.power_epoch+=1
    self.power=a['enabled']
    if not self.power:self.thermal_enabled=False;self.gas_open=False;self.drive_mode='hold';self.drive_target=self.drive;self.furnace_target=self.furnace_lift;self.clamp_target=self.clamp
    return {'enabled':self.power}
@@ -321,7 +400,7 @@ class TaDma850Runtime:
   if k=='drive.move':
    self._mechanical()
    if self.sample or self.furnace_lift<.15-1e-12 or self.clamp<.002-1e-12 or not self.power or not self.gas_open:raise ActionRejected('EMPTY_DRIVE_ONLY')
-   self.drive_target=a['position_m'];self.drive_velocity=self.plant['drive_speed_m_s'];self.drive_mode='move';return {'accepted':True}
+   self.drive_target=self._position_target(a['position_m']);self.drive_velocity=self.plant['drive_speed_m_s'];self.drive_mode='move';return {'accepted':True}   # held on the encoder reading
   if k in ['drive.preload','drive.unload']:
    if self.phase=='running' or self.drive_mode!='hold':raise ActionRejected('BUSY')
    if not self.sample or self.clamp>1e-12 or not self.power or self.emergency or not self.gas_open:raise ActionRejected('NOT_READY')
@@ -411,7 +490,7 @@ class TaDma850Runtime:
    self.pending_fault='FORCE_OR_LINEAR_DOMAIN';self.drive_mode='hold';new_drive=self.drive;result=maxwell_step(eps0,eps0,self.stress,self.E,branches,h,self._volume())
   self.drive=new_drive;self.stress=result['stress_pa'];w=result['work_j'];self.mechanical_input+=max(w,0.);self.mechanical_recovered+=max(-w,0.);self.dissipated+=result['dissipated_j'];return result['dissipated_j']
  def _heat(self,h,diss):
-  p=self.plant;amb=p['ambient_k'];C=self._cp();G=p['sample_conductance_w_k'];cf=p['furnace_capacity_j_k'];ga=p['ambient_conductance_w_k'];gain=p['controller_gain_w_k'] if self.thermal_enabled and self.power and not self.emergency else 0.;energy=self.sample_energy+diss;den=C+h*G;a=energy/den;b=h*G/den;base=cf/h+ga+G*(1-b);rhs=cf/h*(self.furnace-amb)+G*a;target=self.target-amb;x=(rhs+gain*target)/(base+gain);power=gain*(target-x);maximum_cold=min(p['cooler_max_w'],self.coolant_remaining*p['coolant_latent_j_kg']*p['coolant_efficiency']/h) if p['cooler']=='NPC' else 0.
+  p=self.plant;amb=p['ambient_k'];C=self._cp();G=p['sample_conductance_w_k'];cf=p['furnace_capacity_j_k'];ga=p['ambient_conductance_w_k'];gain=p['controller_gain_w_k'] if self.thermal_enabled and self.power and not self.emergency else 0.;energy=self.sample_energy+diss;den=C+h*G;a=energy/den;b=h*G/den;base=cf/h+ga+G*(1-b);rhs=cf/h*(self.furnace-amb)+G*a;target=self._control_k(self.target)-amb;x=(rhs+gain*target)/(base+gain);power=gain*(target-x);maximum_cold=min(p['cooler_max_w'],self.coolant_remaining*p['coolant_latent_j_kg']*p['coolant_efficiency']/h) if p['cooler']=='NPC' else 0.
   if power>p['heater_max_w']:power=p['heater_max_w'];x=(rhs+power)/base
   if power<-maximum_cold:power=-maximum_cold;x=(rhs+power)/base
   self.furnace=amb+x;self.sample_temperature=amb+a+b*x;self.sample_energy=C*(self.sample_temperature-amb);self.heater_input+=max(power,0.)*h;removed=max(-power,0.)*h;self.cooling_removed+=removed;self.ambient_loss+=ga*x*h
@@ -435,7 +514,7 @@ class TaDma850Runtime:
    h=min(.01,left);running=self.phase=='running';b=self.method['blocks'][self.block_index]
    if running:
     self.final_target=b['temperature_k'];self.rate=self.method['heating_rate_k_s'] if self.final_target>=self.target else self.method['cooling_rate_k_s'];h=min(h,max(0.,self.method['timeout_s']-self.elapsed))
-    if self.stage=='conditioning' and max(abs(self.furnace-b['temperature_k']),abs(self.sample_temperature-b['temperature_k']))<=self.method['temperature_tolerance_k']:
+    if self.stage=='conditioning' and max(abs(self._shown_k(self.furnace)-b['temperature_k']),abs(self._shown_k(self.sample_temperature)-b['temperature_k']))<=self.method['temperature_tolerance_k']:   # equilibrated by the device's own readings
      try:
       if self.sample['response']['mode']=='source_curve':self._reanchor(b)
       self.block_amplitude,self.bias=self._validate_block(b)
@@ -500,7 +579,7 @@ class TaDma850Session:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  meta=export_ta_dma850_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  meta=export_ta_dma850_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;values=h.read(self._role);ids=list(values) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -510,17 +589,20 @@ class TaDma850Session:
   h=self._host
   try:
    self._target(instance_id)
-   if not isinstance(capability_id,str) or capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-   if self._role=='agent' and CAPS[capability_id]['visibility']!='agent':raise ActionRejected('ACCESS_DENIED')
+   if not isinstance(capability_id,str) or capability_id not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+   if self._role=='agent' and ALL_CAPS[capability_id]['visibility']!='agent':raise ActionRejected('ACCESS_DENIED')
    if not isinstance(request_id,str) or not request_id:raise ActionRejected('INVALID_ARGUMENT')
-   validate(CAPS[capability_id]['input_schema'],arguments);key=(self._principal,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+   validate_arguments(capability_id,arguments);key=(self._principal,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
    if key in h._requests:
     old,result=h._requests[key]
     if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
     return copy.deepcopy(result)
-   if capability_id in ('acquisition.stop','acquisition.result') and self._role=='agent' and h.operation_id is not None and h._owners.get(h.operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
-   result=h.invoke(capability_id,**arguments);operation=result.get('operation_id') if capability_id=='acquisition.start' else None
+   h._guard(capability_id,self._principal,self._role);started=h.operation_id;h._caller=(self._principal,self._role)
+   try:result=h.invoke(capability_id,**arguments)
+   finally:h._caller=None
+   operation=result.get('operation_id') if capability_id=='acquisition.start' else None
    if operation:h._owners[operation]=self._principal
+   if capability_id in PANEL_CAPS and h.operation_id!=started:h._owners[h.operation_id]=self._principal  # Start on the touch screen: the run belongs to the operator who pressed it
    response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
   except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
  def write(self,*,instance_id,state_id,value,request_id):
@@ -552,7 +634,7 @@ EFFECTS={'plant.configure':['plant.configured','truth.furnace_k','truth.sample_k
 'sample.remove':['sample.present','truth.sample_mass_kg','drive.preload_n','truth.force_n','truth.strain','truth.elastic_j']+OBSERVATIONS,
 'gas.load':['truth.air_mol','truth.n2_mol'],'gas.unload':['truth.air_mol','truth.n2_mol'],'gas.set_open':['gas.opened','thermal.enabled'],
 'coolant.load':['truth.coolant_kg'],'coolant.unload':['truth.coolant_kg'],
-'power.set':['power.enabled','power.angle_rad','thermal.enabled','gas.opened','drive.mode','drive.moving','drive.target_m','furnace.target_m','furnace.moving','clamp.target_m','clamp.moving']+OBSERVATIONS,
+'power.set':['power.enabled','power.angle_rad','thermal.enabled','acquisition.phase','acquisition.points','gas.opened','drive.mode','drive.moving','drive.target_m','furnace.target_m','furnace.moving','clamp.target_m','clamp.moving']+OBSERVATIONS,
 'furnace.set':['furnace.target_m','furnace.moving'],'clamp.set':['clamp.target_m','clamp.moving'],
 'drive.move':['drive.mode','drive.moving','drive.target_m'],'drive.preload':['drive.mode','drive.moving','drive.target_m','drive.preload_n'],'drive.unload':['drive.mode','drive.moving','drive.target_m','drive.preload_n'],
  'thermal.set_temperature':['thermal.final_target_k','thermal.enabled'],'thermal.disable':['thermal.enabled'],'sensor.calibrate':OBSERVATIONS,'sensor.zero':OBSERVATIONS,
@@ -561,13 +643,25 @@ EFFECTS={'plant.configure':['plant.configured','truth.furnace_k','truth.sample_k
 'emergency.stop':['emergency.latched','acquisition.phase','acquisition.points','thermal.enabled','gas.opened','drive.mode','drive.moving','drive.target_m','furnace.target_m','furnace.moving','clamp.target_m','clamp.moving'],
 'emergency.reset':['emergency.latched'],'sim.step':list(SLOTS)}
 for k,v in EFFECTS.items():CAPS[k]['effects']=v
+_PANEL_EFFECTS=list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in CAPS[c]['effects']))
+for k in PANEL_CAPS:PANEL_CAPS[k]['effects']=[] if k in ('panel.capture','panel.frame') else list(_PANEL_EFFECTS)  # a gesture changes what the commands it calls change
+PANEL_LIMITATIONS=['面板层按panel_ui.json解释手势并调用本运行层的同名能力；Discovery触屏页面无公开操作手册，页面布局、标签与提示文字为近似（approximate），见panel_ui.json的assumptions。','手势不推进仿真时钟；长按无文档含义（按短按处理）；屏幕无超时。']
+def _panel_contract_entry(k):
+ """Contract fields of a panel.* capability that differ from the instrument commands."""
+ query=k in ('panel.capture','panel.frame')
+ return dict(preconditions=[] if query else [dict(description_zh='已声明plant（否则NOT_CONFIGURED）；关机时屏幕暗、只有电源按钮与电源控制箱开关起作用；被调用能力的前提同样适用，被拒时显示仪器的错误对话框且手势不被接受，状态不变。',state_ids=['plant.configured','power.enabled','acquisition.phase'],enforced_by='runtime',check='TaDma850Runtime._panel_command')],
+  errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['NOT_CONFIGURED','INVALID_ARGUMENT','UNKNOWN_CAPABILITY','UNKNOWN_INSTANCE','ACCESS_DENIED','REQUEST_CONFLICT']],
+  model_effects=dict(mode='none',description_zh='屏幕纹理与按键关节触发属于后续Matterix步骤',binding_ids=[]),
+  execution=dict(mode='synchronous',time_domain='simulation',completion_criterion='手势瞬时完成：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看' if not query else '查询即时返回，不改变状态',completion_state_ids=[],timeout_s=None,cancellation='unsupported',retry='same_request_id',resources=['host_clock'],partial_failure_zh='一次手势可调用多个能力；被拒的能力原子回滚并显示错误对话框，此前已执行的能力保留（与实机逐次按键一致）。'),
+  limitations=list(PANEL_LIMITATIONS),source_ids=['simulation_assumption'])
 ERRORS=['EMERGENCY_LATCHED','UNKNOWN_CAPABILITY','UNKNOWN_INSTANCE','UNKNOWN_OPERATION','INVALID_ARGUMENT','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','BUSY','NOT_RUNNING','INITIALIZATION_ONLY','MODEL_NOT_ACCEPTED','NOT_CONFIGURED','HOT_CELL','THERMAL_CONTROL_ACTIVE','MECHANISM_MOVING','ALREADY_LOADED','NOT_LOADED','INVALID_REFERENCE','CONDITION_TRANSFER_NOT_ACCEPTED','REFERENCE_CONDITIONS_NOT_ACCEPTED','NO_GAS','NO_SAMPLE','NOT_READY','COOLER_TEMPERATURE_RANGE','NO_COOLANT','COOLING_RATE','COOLER_NOT_CONFIGURED','SAMPLE_GEOMETRY_NOT_READY','SAMPLE_NOT_UNLOADED','CLAMP_UNDER_LOAD','EMPTY_DRIVE_ONLY','LINEAR_FORCE_DOMAIN','ZERO_REQUIRES_EMPTY','TOO_MANY_POINTS','SOURCE_ANCHOR_ONLY','NO_PRELOAD','LINEAR_AMPLITUDE_DOMAIN','TENSION_FORCE_DOMAIN','FORCE_OR_LINEAR_DOMAIN','THERMAL_MODEL_RANGE','SOURCE_TEMPERATURE_RANGE','SOURCE_FREQUENCY_RANGE','NONPASSIVE_SOURCE','NONPASSIVE_ANCHOR','COOLANT_EXHAUSTED','GAS_EXHAUSTED','TIMEOUT','SOFTWARE_STOP','ANALYSIS_DATA','HARMONIC_WINDOW','DISPLACEMENT_UNRESOLVED','STORAGE_UNRESOLVED','TRANSITION_DATA','MECHANICAL_DOMAIN']
 def export_ta_dma850_contract_metadata():
  slots={};caps={}
  for k,v in SLOTS.items():slots[k]=dict(meaning_zh=v['meaning'],component_ids=[v['component']],value_schema=copy.deepcopy(v['schema']),unit=v['unit'],reference_conditions='SI. Gas volume uses explicit absolute reference T/P; airbearing pressure410..450kPa is gauge. Displacement0.1nm is quantization, not calibrated accuracy. Positive drive moves lower clamp down; physical gap=.010m+drive, specimen rest offset=L-.010.',origin=v['origin'],visibility=v['visibility'],access='read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'TaDma850Session.read(state_ids=[{k!r}])'),write_via=None,sampling=dict(mode='instant',time_domain='simulation',window_description='Host0.1s fixed partitions; physical substeps<=.01s and >=64 samples per cycle; reads never advance time.'),source_ids=['simulation_assumption'])
- for k,c in CAPS.items():
+ for k,c in ALL_CAPS.items():
   un=k in UNSUPPORTED;asynchronous=k=='acquisition.start';caps[k]={key:copy.deepcopy(c[key]) for key in ['input_schema','output_schema','component_ids','function_zh','kind','visibility','example_arguments']};caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ['scene','robot','hardware'] else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.ta_dma850.TaDma850Session.invoke',invocation=f'session.invoke(instance_id="dma850_01",capability_id={k!r},arguments={c["example_arguments"]!r},request_id="unique")'),preconditions=[] if c['kind'] in ['query','analysis'] or un else [dict(description_zh='冷态开炉/无载夹紧、有限airbearing与N2、正拉伸预载、源T/f域或显式工程谱，原子拒绝',state_ids=['power.enabled','furnace.lift_m','sample.present','gas.opened','drive.mode','acquisition.phase'],enforced_by='runtime',check='atomic invocation and mechanical, thermal, source-domain guards')],state_effects=[dict(state_id=x,timing='immediate',description_zh='实际命令即时状态变化') for x in c['effects']],observes=[],model_effects=dict(mode='none',description_zh='五关节（四独立运动状态）与双数值屏由场景独立验证；Matterix参考试片网格不形变',binding_ids=[]),execution=dict(mode='asynchronous' if asynchronous else 'synchronous',time_domain='simulation',completion_criterion='真实预调温、settle周期和完整观测周期全部完成；不保证已校准材料本构' if asynchronous else '命令接受后有限运动与热/应力过程等待宿主step',completion_state_ids=['acquisition.phase'] if asynchronous else [],timeout_s=None,cancellation='supported' if asynchronous else 'unsupported',retry='same_request_id',resources=['host_clock','furnace','drive_shaft','specimen','load_cell','air','N2','NPC_LN2'],partial_failure_zh='取消/断气/软件停机保留实际应变、Maxwell支路应力、弹性能与余热；终态观测不可变，不自动复原。'),errors=[dict(code=e,meaning_zh=e,side_effects='partial' if asynchronous and e in ['FORCE_OR_LINEAR_DOMAIN','THERMAL_MODEL_RANGE','SOURCE_TEMPERATURE_RANGE','COOLANT_EXHAUSTED','GAS_EXHAUSTED','TIMEOUT','SOFTWARE_STOP'] else 'none') for e in ERRORS],verification=[],limitations=['仅线性单轴拉伸film/fiber，其他夹具无默认支持','实测锚只在原频率和来源允许温区内插值，单点SLS谱依赖显式tau，并非由单点辨识材料谱','source_curve按每个区块自身(T,f)用同一真实记录重新锚定，区块之间保持上一锚点，固定应变下弹性能变化单独记入constitutive_update_j','悬臂/三点弯/压缩来源只在显式accept_condition_transfer下作为小应变各向同性E*转用于拉伸，剪切G*与未知频率记录仍仅参考','力幅值模式是谐波位移前馈，实际力跟踪误差另报，不冒称原机伺服','内部观测谐波拟合含显式传感器增益、零点、相位延迟，未制造噪声分布/厂家accuracy','NPC冷量/气量有限；炉/试片两节点工程热模型不是原机热校准；no cooler不能主动冷到ambient以下'],source_ids=['manufacturer_specs','simulation_assumption'])
   if k in ['acquisition.start','acquisition.stop','emergency.stop','power.set','thermal.set_temperature','thermal.disable','furnace.set','clamp.set','drive.move','drive.preload','drive.unload','gas.set_open']:caps[k]['state_effects'] += [dict(state_id=x,timing='on_step',description_zh='宿主推进有限运动/粘弹应力/热/独立观测/气耗') for x in SLOTS if x not in ['plant.configured','power.enabled','power.angle_rad','sample.present','emergency.latched']]
+  if k in PANEL_CAPS:caps[k].update(_panel_contract_entry(k))
  mechanism=dict(component_ids=['controller','furnace','specimen','drive_shaft','load_cell','air_bearing'],state_ids=list(slots),meaning_zh='有限资源线性拉伸Maxwell响应、观测谐波模量与机械热能守恒',implementation='lumped',equations=[
  'Geometry: A=W*t (film) or pi*d^2/4 (fiber), V=A*L, strain=(drive-(L-.010))/L. Positive lower-clamp displacement stretches sample. All A/L/mass/Cp/linear-strain limits are explicitly supplied geometry/engineering inputs.',
  'Generalized Maxwell: sigma=Einf*epsilon+sum(qi); dqi/dt=Ei*d(epsilon)/dt-qi/taui(T). With linear strain within each internal step: qi1=qi0*exp(-h/taui)+Ei*delta_epsilon*(1-exp(-h/taui))/(h/taui). tau(T)=tau_ref*exp[Ea/R*(1/T-1/Tref)] only for accepted engineering model; moduli are held constant. Exponent bounded+-40 is explicit numerical domain assumption.',
@@ -576,7 +670,7 @@ def export_ta_dma850_contract_metadata():
  'Measured-source anchor (source_anchor: one block T/f; source_curve: every block re-anchored at its own T/f, piecewise constant between blocks, centre/amplitude ramped over settle cycles, elastic-energy change at fixed strain ledgered as constitutive_update_j): interpolate positive Eprime/Esecond versus T only within explicitly published runtime domain at one actual source frequency; exact f matching. Raw arrays are preserved, temperature rows are sorted and duplicate temperatures use first value. A single explicitly supplied tau constructs SLS with Ei=Esecond*(1+(omega*tau)^2)/(omega*tau), Einf=Eprime-Esecond*omega*tau>0. This is a local equivalent response, not recovered broadband kinetics. Unknown specimen strain/geometry requires explicit transfer acceptance.',
  'Displacement-controlled sine uses explicit strain amplitude. Force-amplitude setting calculates harmonic displacement amplitude=Famp*L/(A*abs(E*(omega))), with same real Maxwell transient and actual sensor fitting; this is feedforward, and fitted amplitude minus target is exported. Static preload exceeds dynamic force and combined force<=18N; instantaneous transient excursions fail, never silently clamp sensors into range.',
  'F/x sensors are independent linear first-order channels with explicit gain/zero/time constant; x quantization1e-10m. Observed E*=Fphasor/Xphasor*L/A via OLS DC+linear trend+sin/cos on uniform integer-cycle windows; Re(Z exp(iwt)) convention. Negative observed loss caused by calibration/phase bias is preserved and passive_compatible=false, never clipped. No hidden material coefficient is returned as a measurement.',
- 'Thermal: Cf*dTf/dt=Pheater-Pcool-Gambient*(Tf-Tamb)-Gs*(Tf-Ts); Cs*dTs/dt=Gs*(Tf-Ts)+Ddot. Implicit energy-conserving two-node update with bounded heater/cooler; parameters explicitly engineering. NPC cooling consumes finite LN2 with supplied effective latent heat, and30L/min finite N2; none accessory cools passively to ambient only. Heat removal and signed ambient exchange stay in ledger.',
+ 'Thermal: Cf*dTf/dt=Pheater-Pcool-Gambient*(Tf-Tamb)-Gs*(Tf-Ts); Cs*dTs/dt=Gs*(Tf-Ts)+Ddot. Implicit energy-conserving two-node update with bounded heater/cooler; parameters explicitly engineering. The heater acts on the furnace reading of the device: target Tcontrol=(Tprogram/temperature_gain_correction+temperature_zero_k-temperature_offset_k)/temperature_gain (inverse of the indicated-temperature map; identity with zero errors and no calibration), and block conditioning waits for the indicated furnace and specimen temperatures, so sensor errors and the stored temperature calibration move the specimen. NPC cooling consumes finite LN2 with supplied effective latent heat, and30L/min finite N2; none accessory cools passively to ambient only. Heat removal and signed ambient exchange stay in ledger.',
  'Airbearing2L/min and N2purge use finite inventories dn=qref*Pref/(R*Tref)*dt; reference states explicitly accepted. Exhaust moles are tracked separately. Gas enthalpy, pressure regulator dynamics and real bearing stiffness are not modeled.',
  'All oscillations internally resolve at least64 points/cycle even at200Hz with hostdt.1s; physical signal points have their actual simulation timestamps. Finite inventory endpoints, method boundaries and complete cycles split steps. Cancellation freezes partial observations but retains actual stress/heat and permits passive relaxation.',
  'Temperature/frequency sweep modulus is observed per complete block. External transition analysis reports a discrete interior tan(delta) maximum at fixed frequency only; boundary maxima remain null, and no preassigned Tg is returned.'

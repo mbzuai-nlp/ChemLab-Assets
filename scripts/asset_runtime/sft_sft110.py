@@ -1,10 +1,14 @@
-"""SFT110100mL: finite pure-CO2 process with measured binary solubility references."""
+"""SFT110100mL: finite pure-CO2 process with measured binary solubility references.
+
+Front panel (panel.press / panel.switch / panel.capture / panel.frame): pump keypad with its pressure LED display, the two PID temperature
+controllers (vessel oven, restrictor) and the two heater switches, from the data sheet only (no operating manual: panel_ui.json is marked
+approximate), run by the shared engine _panel_ui.py on top of the commands below (setpoint.set, heater.set, acquisition.*, power.set)."""
 from __future__ import annotations
 import copy,functools,importlib.util,json,math,sys
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
 from asset_runtime.antonpaar_abbematadvanced import validate
-ROOT=Path(__file__).resolve().parents[2];SLUG='sft_sft110';OUT=ROOT/'outputs/expansion_batch03/t2_vacuum/sft_sft110';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-032';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/sft_sft110_solubility_library/templates.json';VMAX=100e-6;PMAX=68.9e6;MWCO2=.0440098
+ROOT=Path(__file__).resolve().parents[2];ASSET_VERSION='1.1.2';SLUG='sft_sft110';OUT=ROOT/'outputs/expansion_batch03/t2_vacuum/sft_sft110';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-032';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/sft_sft110_solubility_library/templates.json';VMAX=100e-6;PMAX=68.9e6;MWCO2=.0440098
 def cp():
  sys.path.insert(0,str(OUT/'vendor')) if str(OUT/'vendor') not in sys.path else None
  import CoolProp.CoolProp as C
@@ -39,17 +43,34 @@ CAPS={
  'extraction.measure':(obj({}),RESULT,['display_digits_temperature','display_digits_restrictor','display_digits_pressure','gas_flowmeter'],'模型派生温压流量与文献平衡参考，不是实测产率','query','agent',{},[]),
  'product.read':(obj({}),PRODUCT,['collection_vial','vessel','restrictor'],'萃取物/残余/溶解/沉积真值；非真实回收标定','query','evaluator',{},[]),
  'history.read':(obj({}),obj({'records':arr(POINT),'evidence':TEXT}),['display_digits_pressure'],'教学程序过程曲线','query','agent',{},[]),
+ 'setpoint.set':(obj({'setpoint':{'type':'string','enum':['pressure_gauge_pa','temperature_k','restrictor_temperature_k']},'value':number('1',0,PMAX)}),obj({'setpoint':TEXT,'value':number('1',0)}),['pump_key_0','display_digits_pressure','display_digits_temperature','display_digits_restrictor'],'泵恒压设定（表压Pa）与两只PID温控器设定（K）；运行中可改，与方法同一校验（量纲按设定项：Pa或K）','device_command','agent',{'setpoint':'pressure_gauge_pa','value':20e6},['thermal.target_k','pressure.target_abs_pa']),
+ 'heater.set':(obj({'heater':{'type':'string','enum':['oven','restrictor']},'on':BOOL}),obj({'heater':TEXT,'on':BOOL}),['heater_toggle_0','heater_toggle_1','heater','restrictor'],'烘箱加热与限流器加热开关（关时向室温松弛）','device_command','agent',{'heater':'oven','on':True},['heater.oven_on','heater.restrictor_on']),
  'reference.lookup':(obj({'substance_id':TEXT,'temperature_k':number('K',0),'pressure_abs_pa':number('Pa',0)}),REF,['vessel'],'60物质313.15K实验等温线内插；无外推','query','agent',{'substance_id':SAMPLE_EXAMPLE['substance_id'],'temperature_k':313.15,'pressure_abs_pa':20e6},[])}
 SLOTS={};SLOT_ZH={}
 def slot(k,s,u,zh,o='derived',v='agent',c='display_digits_pressure',w=None):SLOTS[k]=(s,u,o,v,[c],w);SLOT_ZH[k]=zh
 for k,s,u,zh in [('power.enabled',BOOL,'1','主电源状态'),('plant.configured',BOOL,'1','宿主供液/床与系数是否配置'),('method.configured',BOOL,'1','方法是否配置'),('sample.configured',BOOL,'1','样品是否已装入'),('cycle.phase',PHASE,'1','运行状态'),('cycle.stage',TEXT,'1','顺序器当前阶段'),('cycle.fault',TEXT,'1','最近过程故障'),('cycle.elapsed_s',number('s',0),'s','累计运行时间'),('thermal.target_k',number('K',0),'K','烘箱目标温度'),('thermal.temperature_k',number('K',0),'K','集中参数容器温度'),('restrictor.temperature_k',number('K',0),'K','集中参数限流器温度'),('pressure.target_abs_pa',number('Pa',0),'Pa','方法腔内目标绝压'),('pressure.indicated_gauge_pa',number('Pa',0),'Pa','理想显示表压，相对宿主环境压'),('pressure.bed_drop_pa',number('Pa',0),'Pa','Ergun样品床压差，不是表压'),('flow.liquid_inlet_m3_s',number('m^3/s',0),'m^3/s','入口CO2在宿主供液温压的实际液体积流量'),('flow.expanded_reference_m3_s',number('m^3/s',0),'m^3/s','排气参考体积流量，参考273.15K/101325Pa'),('reference.solubility_y',nullable(number('1',0,1)),'1','方法条件二元平衡溶解度参考；无样品为null')]:slot(k,s,u,zh,o='setpoint' if k in ['thermal.target_k','pressure.target_abs_pa'] else 'derived')
+slot('heater.oven_on',BOOL,'1','烘箱加热开关（面板拨动开关）',o='setpoint',c='heater_toggle_0');slot('heater.restrictor_on',BOOL,'1','限流器加热开关（面板拨动开关）',o='setpoint',c='heater_toggle_1')
 for k,s,u,zh,c in [('door.angle_rad',number('rad',0,1.5),'rad','宿主手动烘箱门角','door'),('cap.lift_m',number('m',0,.07),'m','宿主高压闭合件教学升程','vessel_cap'),('valve.angle_rad',number('rad',0,math.pi/2),'rad','静动态阀教学角，运行程序驱动','static_dynamic_valve')]:slot(k,s,u,zh,o='scene' if k!='valve.angle_rad' else 'derived',c=c)
 for group,places in [('co2',['initial','tank','chamber','exhaust']),('solute',['initial','residue','dissolved','collected','deposit'])]:
  for place in places:slot('truth.'+place+'_'+group+'_kg',number('kg',0),'kg',dict(initial='初始总计',tank='供液罐中',chamber='容器中',exhaust='累计排出',residue='残余样品中',dissolved='CO2溶解相中',collected='已收集中',deposit='限流器沉积中')[place]+dict(co2='CO2质量',solute='溶质质量')[group],o='process_truth',v='evaluator',c='vessel')
 slot('truth.inert_matrix_kg',number('kg',0),'kg','不反应惰性基质质量',o='process_truth',v='evaluator',c='sample_basket')
+def _panel_engine():
+ try:
+  from asset_runtime import _panel_ui as engine
+  return engine
+ except ImportError:
+  if '_chemsim_panel_ui' not in sys.modules:
+   spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+_SPEC_PATH=ROOT/'assets/expansion_batch03/t2_vacuum'/SLUG/'panel_ui.json'
+PANEL_SPEC=_panel_ui.load_spec(_SPEC_PATH,capabilities=set(CAPS)) if _SPEC_PATH.exists() else None
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+_PANEL_FX=list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in CAPS[c][7]))
+for _k,_v in PANEL_CAPS.items():CAPS[_k]=(_v['input_schema'],_v['output_schema'],_v['component_ids'],_v['function_zh'],_v['kind'],_v['visibility'],_v['example_arguments'],[] if _k in ('panel.capture','panel.frame') else _PANEL_FX)
 class SftSft110Runtime:
  def __init__(self,instance_id='sft110_01'):
-  self.instance_id=instance_id;self.time_s=0.;self.revision=0;self.plant=None;self.method=None;self.sample=None;self.powered=False;self.phase='idle';self.stage='standby';self.fault='';self.elapsed_s=0.;self.stage_elapsed=0.;self.operation_id=None;self._operation_count=0;self.door=0.;self.cap=0.;self.temperature=293.15;self.restrictor_temperature=293.15;self.pressure=101325.;self.tank=0.;self.mco2=0.;self.initial_chamber=0.;self.exhaust=0.;self.residue=0.;self.dissolved=0.;self.collected=0.;self.deposit=0.;self.qin=0.;self.qgas=0.;self.drop=0.;self.ysat=None;self.history=[];self.next_record=0.;self.templates={x['substance_id']:x for x in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']};self._principals={'__public_agent__':'agent'};self._requests={};self._owners={};self._eos=None
+  self.instance_id=instance_id;self.time_s=0.;self.revision=0;self.plant=None;self.method=None;self.sample=None;self.powered=False;self.phase='idle';self.stage='standby';self.fault='';self.elapsed_s=0.;self.stage_elapsed=0.;self.operation_id=None;self._operation_count=0;self.door=0.;self.cap=0.;self.temperature=293.15;self.restrictor_temperature=293.15;self.pressure=101325.;self.tank=0.;self.mco2=0.;self.initial_chamber=0.;self.exhaust=0.;self.residue=0.;self.dissolved=0.;self.collected=0.;self.deposit=0.;self.qin=0.;self.qgas=0.;self.drop=0.;self.ysat=None;self.history=[];self.next_record=0.;self.heaters=dict(oven=True,restrictor=True);self.power_epoch=0;self.panel_capture_dir=None;self.panel=_panel_ui.PanelUI(PANEL_SPEC,self) if PANEL_SPEC else None;self._panel_session=None;self.templates={x['substance_id']:x for x in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']};self._principals={'__public_agent__':'agent'};self._requests={};self._owners={};self._eos=None
  def register_principal(self,principal_id,visibility='agent'):
   if visibility not in ('agent','evaluator','debug'):raise ActionRejected('INVALID_ARGUMENT')
   if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -65,7 +86,7 @@ class SftSft110Runtime:
   self._eos.update(cp().DmassT_INPUTS,max(1e-8,self.mco2/self._free()),self.temperature);self.pressure=max(self._ambient(),self._eos.p())
  def _valve_angle(self):return math.pi/2 if self.phase=='running' and self.stage in ['dynamic','venting'] else 0.
  def _values(self):
-  v={'power.enabled':self.powered,'plant.configured':bool(self.plant),'method.configured':bool(self.method),'sample.configured':bool(self.sample),'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.fault':self.fault,'cycle.elapsed_s':self.elapsed_s,'thermal.target_k':self.method['temperature_k'] if self.method else 293.15,'thermal.temperature_k':self.temperature,'restrictor.temperature_k':self.restrictor_temperature,'pressure.target_abs_pa':self.method['pressure_gauge_pa']+self._ambient() if self.method else self._ambient(),'pressure.indicated_gauge_pa':max(0,self.pressure-self._ambient()),'pressure.bed_drop_pa':self.drop,'flow.liquid_inlet_m3_s':self.qin,'flow.expanded_reference_m3_s':self.qgas,'reference.solubility_y':self.ysat,'door.angle_rad':self.door,'cap.lift_m':self.cap,'valve.angle_rad':self._valve_angle(),'truth.initial_co2_kg':(self.plant['tank_mass_kg'] if self.plant else 0.)+self.initial_chamber,'truth.tank_co2_kg':self.tank,'truth.chamber_co2_kg':self.mco2,'truth.exhaust_co2_kg':self.exhaust,'truth.initial_solute_kg':self.sample['solute_mass_kg'] if self.sample else 0.,'truth.residue_solute_kg':self.residue,'truth.dissolved_solute_kg':self.dissolved,'truth.collected_solute_kg':self.collected,'truth.deposit_solute_kg':self.deposit,'truth.inert_matrix_kg':self.sample['inert_matrix_mass_kg'] if self.sample else 0.};return v
+  v={'power.enabled':self.powered,'heater.oven_on':self.heaters['oven'],'heater.restrictor_on':self.heaters['restrictor'],'plant.configured':bool(self.plant),'method.configured':bool(self.method),'sample.configured':bool(self.sample),'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.fault':self.fault,'cycle.elapsed_s':self.elapsed_s,'thermal.target_k':self.method['temperature_k'] if self.method else 293.15,'thermal.temperature_k':self.temperature,'restrictor.temperature_k':self.restrictor_temperature,'pressure.target_abs_pa':self.method['pressure_gauge_pa']+self._ambient() if self.method else self._ambient(),'pressure.indicated_gauge_pa':max(0,self.pressure-self._ambient()),'pressure.bed_drop_pa':self.drop,'flow.liquid_inlet_m3_s':self.qin,'flow.expanded_reference_m3_s':self.qgas,'reference.solubility_y':self.ysat,'door.angle_rad':self.door,'cap.lift_m':self.cap,'valve.angle_rad':self._valve_angle(),'truth.initial_co2_kg':(self.plant['tank_mass_kg'] if self.plant else 0.)+self.initial_chamber,'truth.tank_co2_kg':self.tank,'truth.chamber_co2_kg':self.mco2,'truth.exhaust_co2_kg':self.exhaust,'truth.initial_solute_kg':self.sample['solute_mass_kg'] if self.sample else 0.,'truth.residue_solute_kg':self.residue,'truth.dissolved_solute_kg':self.dissolved,'truth.collected_solute_kg':self.collected,'truth.deposit_solute_kg':self.deposit,'truth.inert_matrix_kg':self.sample['inert_matrix_mass_kg'] if self.sample else 0.};return v
  def read(self,visibility='agent'):return copy.deepcopy({k:v for k,v in self._values().items() if SLOTS[k][3]=='agent' or visibility in ('evaluator','debug')})
  def debug_snapshot(self):return copy.deepcopy(dict(state=self.read('evaluator'),method=self.method,sample=self.sample,stage_elapsed=self.stage_elapsed,time_s=self.time_s))
  def _reference(self,sid,t,p):
@@ -82,8 +103,11 @@ class SftSft110Runtime:
   rho,mu=eos_tp(t,p);v=q/rho/self.plant['bed_area_m2'];ep=self.plant['porosity'];d=self.plant['particle_diameter_m'];return self.plant['bed_length_m']*(150*mu*(1-ep)**2/ep**3/d**2*v+1.75*rho*(1-ep)/ep**3/d*v*v)
  def invoke(self,capability,**a):
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+  if capability in PANEL_CAPS:
+   if _panel_ui.check_arguments(CAPS[capability][0],a):raise ActionRejected('INVALID_ARGUMENT')
+   return self._panel_cmd(capability,a)
   validate(CAPS[capability][0],a)
-  if self.phase=='running' and CAPS[capability][4]!='query' and capability not in ('acquisition.stop','power.set'):raise ActionRejected('BUSY')
+  if self.phase=='running' and CAPS[capability][4]!='query' and capability not in ('acquisition.stop','power.set','setpoint.set','heater.set'):raise ActionRejected('BUSY')
   if capability=='plant.configure':
    if self.plant or not all(a[k] for k in ['dip_tube_liquid_confirmed','exhaust_connected','compatible_dry_sample_reviewed','initial_co2_purge_confirmed','emulated_manual_sequence_confirmed']) or not a['coefficient_evidence'] or a['bed_area_m2']*a['bed_length_m']>=VMAX:raise ActionRejected('PRECONDITION_FAILED')
    if cp().PhaseSI('T',a['supply_temperature_k'],'P',a['supply_pressure_abs_pa'],'CO2')!='liquid':raise ActionRejected('LIQUID_SUPPLY_REQUIRED')
@@ -104,7 +128,7 @@ class SftSft110Runtime:
    ref=self._reference(a['substance_id'],self.method['temperature_k'],self.method['pressure_gauge_pa']+self._ambient());self.sample=copy.deepcopy(a);self.residue=a['solute_mass_kg'];self.ysat=ref['mole_fraction'];out=dict(configured=True,attachment_event='host_attach:'+a['sample_id'])
   elif capability=='power.set':
    if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
-   self.powered=a['enabled']
+   self.power_epoch+=1 if a['enabled'] and not self.powered else 0;self.powered=a['enabled']
    if not self.powered and self.phase=='running':self.phase='cancelled';self.qin=self.qgas=self.drop=0.
    out={'enabled':self.powered}
   elif capability in ['acquisition.start','pressure.vent']:
@@ -121,11 +145,42 @@ class SftSft110Runtime:
   elif capability=='extraction.measure':out=dict(phase=self.phase,stage=self.stage,fault=self.fault,temperature_k=self.temperature,restrictor_temperature_k=self.restrictor_temperature,pressure_gauge_pa=max(0,self.pressure-self._ambient()),liquid_inlet_m3_s=self.qin,expanded_reference_m3_s=self.qgas,reference_mole_fraction=self.ysat,evidence='pure_CO2_reference_EOS_with_measured_solubility_and_synthetic_transport_capture',template_source=TEMPLATE_REL)
   elif capability=='product.read':out=dict(substance_id=self.sample['substance_id'] if self.sample else None,collected_kg=self.collected,residue_kg=self.residue,dissolved_kg=self.dissolved,restrictor_deposit_kg=self.deposit,inert_matrix_kg=self.sample['inert_matrix_mass_kg'] if self.sample else 0.,measured_SFT110_recovery=None,evidence='conditional_conservative_model_not_measured_SFT110_recovery',template_source=TEMPLATE_REL)
   elif capability=='history.read':out=dict(records=copy.deepcopy(self.history),evidence='synthetic_process_curve')
+  elif capability=='setpoint.set':
+   if not self.plant or not self.method:raise ActionRejected('PRECONDITION_FAILED')
+   m=dict(self.method,**{a['setpoint']:float(a['value'])})
+   validate(METHOD,m)
+   if m['temperature_k']<self.plant['ambient_k'] or m['restrictor_temperature_k']<self.plant['ambient_k']:raise ActionRejected('PRECONDITION_FAILED')
+   rho=eos_tp(self.plant['supply_temperature_k'],self.plant['supply_pressure_abs_pa'])[0]
+   if m['pressure_gauge_pa']+self._bed_drop(m['temperature_k'],m['pressure_gauge_pa']+self._ambient(),m['liquid_flow_m3_s']*rho)>PMAX:raise ActionRejected('PUMP_PRESSURE_ENVELOPE')
+   y=self._reference(self.sample['substance_id'],m['temperature_k'],m['pressure_gauge_pa']+self._ambient())['mole_fraction'] if self.sample else self.ysat
+   self.method=m;self.ysat=y;out=dict(setpoint=a['setpoint'],value=float(a['value']))
+  elif capability=='heater.set':self.heaters[a['heater']]=a['on'];out=dict(heater=a['heater'],on=a['on'])
   elif capability=='reference.lookup':out=self._reference(a['substance_id'],a['temperature_k'],a['pressure_abs_pa'])
   else:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability][1],out)
   if CAPS[capability][4]!='query':self.revision+=1
   return out
+ def panel_read(self):
+  out=self.read('agent');out.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,'host.method':bool(self.method),'host.pressure_set_gauge_pa':self.method['pressure_gauge_pa'] if self.method else None,'host.restrictor_target_k':self.method['restrictor_temperature_k'] if self.method else None});return out
+ def panel_invoke(self,capability_id,arguments):
+  try:
+   if self._panel_session is not None:self._panel_session._guard(capability_id,arguments)   # a key pressed through a session keeps that caller's access rules
+   return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _panel_cmd(self,capability,a):
+  if self.panel is None:raise ActionRejected('UNSUPPORTED')
+  try:
+   if capability=='panel.press':out=dict(accepted=bool(self.panel.press(a['input_id'],float(a.get('duration_s',.1)))))
+   elif capability=='panel.switch':out=dict(accepted=bool(self.panel.switch(a['input_id'],a['position'])))
+   elif capability=='panel.frame':return dict(frame=self.panel.frame())
+   else:
+    import hashlib,tempfile
+    data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);path=d/f"{a['display_id']}_{sha[:16]}.png"
+    if not path.exists():path.write_bytes(data)
+    return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  self.revision+=1;return out
  def _fail(self,code):self.phase='failed';self.fault=code;self.qin=self.qgas=self.drop=0.
  def _next(self,stage):self.stage=stage;self.stage_elapsed=0.
  def _transfer(self,dt):
@@ -139,20 +194,21 @@ class SftSft110Runtime:
  def _tick(self,dt):
   self.qin=self.qgas=self.drop=0.
   if not self.plant:return
-  target=self.method['temperature_k'] if self.powered and self.method else self.plant['ambient_k'];rtarget=self.method['restrictor_temperature_k'] if self.powered and self.method else self.plant['ambient_k'];tau=self.plant['thermal_tau_s'] if self.powered else self.plant['cooling_tau_s'];self.temperature=target+(self.temperature-target)*math.exp(-dt/tau);self.restrictor_temperature=rtarget+(self.restrictor_temperature-rtarget)*math.exp(-dt/(self.plant['restrictor_tau_s'] if self.powered else self.plant['cooling_tau_s']));self._update_pressure()
+  target=self.method['temperature_k'] if self.powered and self.method and self.heaters['oven'] else self.plant['ambient_k'];rtarget=self.method['restrictor_temperature_k'] if self.powered and self.method and self.heaters['restrictor'] else self.plant['ambient_k'];tau=self.plant['thermal_tau_s'] if self.powered else self.plant['cooling_tau_s'];self.temperature=target+(self.temperature-target)*math.exp(-dt/tau);self.restrictor_temperature=rtarget+(self.restrictor_temperature-rtarget)*math.exp(-dt/(self.plant['restrictor_tau_s'] if self.powered else self.plant['cooling_tau_s']));self._update_pressure()
   if self.pressure-self._ambient()>PMAX+1:self._fail('OVERPRESSURE_MODEL_GUARD');return
   if self.phase!='running':return
   if self.stage!='venting' and self.elapsed_s>=self.method['timeout_s']:self._fail('TIMEOUT');return
   self.elapsed_s+=dt;self.stage_elapsed+=dt
   if self.stage=='conditioning':
-   if abs(self.temperature-target)<.01 and abs(self.restrictor_temperature-rtarget)<.1:self.temperature=target;self.restrictor_temperature=rtarget;self._update_pressure();self._next('pressurizing')
+   want,rwant=self.method['temperature_k'],self.method['restrictor_temperature_k']   # the method set points (a heater switched off never reaches them)
+   if abs(self.temperature-want)<.01 and abs(self.restrictor_temperature-rwant)<.1 and target==want and rtarget==rwant:self.temperature=target;self.restrictor_temperature=rtarget;self._update_pressure();self._next('pressurizing')
   elif self.stage=='pressurizing':
-   wanted=eos_tp(target,self.method['pressure_gauge_pa']+self._ambient())[0]*self._free();rho=eos_tp(self.plant['supply_temperature_k'],self.plant['supply_pressure_abs_pa'])[0];dm=min(max(0,wanted-self.mco2),24e-6/60*rho*dt)
+   wanted=eos_tp(self.method['temperature_k'],self.method['pressure_gauge_pa']+self._ambient())[0]*self._free();rho=eos_tp(self.plant['supply_temperature_k'],self.plant['supply_pressure_abs_pa'])[0];dm=min(max(0,wanted-self.mco2),24e-6/60*rho*dt)
    if dm>self.tank+1e-15:self._fail('CO2_SUPPLY_EMPTY');return
    self.tank-=dm;self.mco2+=dm;self.qin=dm/rho/dt;self._update_pressure()
    if abs(self.mco2-wanted)<1e-12:self._next('static' if self.method['static_s']>0 else 'dynamic')
   elif self.stage in ['static','dynamic']:
-   if abs(self.temperature-target)>1e-6:self._fail('REFERENCE_ISOTHERM_REQUIRED');return
+   if abs(self.temperature-self.method['temperature_k'])>1e-6:self._fail('REFERENCE_ISOTHERM_REQUIRED');return
    if self.stage=='dynamic':
     rho=eos_tp(self.plant['supply_temperature_k'],self.plant['supply_pressure_abs_pa'])[0];dm=self.method['liquid_flow_m3_s']*rho*dt;dm=min(dm,.02*self.mco2);self.drop=self._bed_drop(self.temperature,self.pressure,dm/dt)
     if self.pressure-self._ambient()+self.drop>PMAX:self._fail('PUMP_PRESSURE_ENVELOPE');return
@@ -198,7 +254,7 @@ class SftSft110Session:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_sft_sft110_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -222,17 +278,29 @@ class SftSft110Session:
         if not isinstance(capability_id,str) or capability_id not in CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
         if self._role=='agent' and CAPS[capability_id][5]!='agent': raise ActionRejected('ACCESS_DENIED')
         if not isinstance(request_id,str) or not request_id: raise ActionRejected('INVALID_ARGUMENT')
-        validate(CAPS[capability_id][0],arguments)
+        if capability_id in PANEL_CAPS:
+            if _panel_ui.check_arguments(CAPS[capability_id][0],arguments): raise ActionRejected('INVALID_ARGUMENT')
+        else: validate(CAPS[capability_id][0],arguments)
         key=(self._principal,instance_id,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
         if key in h._requests:
             old,result=h._requests[key]
             if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
             return copy.deepcopy(result)
-        result=h.invoke(capability_id,**arguments); op=result.get('operation_id')
+        self._guard(capability_id,arguments); before=h.operation_id; h._panel_session=self if capability_id in PANEL_CAPS else None
+        try: result=h.invoke(capability_id,**arguments)
+        finally: h._panel_session=None
+        op=result.get('operation_id')
         if op: h._owners[op]=self._principal
+        elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before: h._owners[h.operation_id]=self._principal   # a run started by the RUN key belongs to the caller
         response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,
           status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
         h._requests[key]=(digest,copy.deepcopy(response)); return response
+
+    def _guard(self,capability_id,arguments):
+        """An agent may not stop or change the set points of another agent's running sequence (direct call or panel key alike).  The main power
+        switch and the two heater toggle switches are hard switches (lead rule 2026-10-19): never refused; the unit reacts as to a power loss."""
+        h=self._host; owner=h._owners.get(h.operation_id)
+        if self._role=='agent' and h.phase=='running' and owner is not None and owner!=self._principal and capability_id in ('acquisition.stop','setpoint.set'): raise ActionRejected('ACCESS_DENIED')
 
     def write(self,*,instance_id,state_id,value,request_id):
         self._target(instance_id)
@@ -280,10 +348,10 @@ def export_sft_sft110_contract_metadata():
             completion_criterion='cycle.phase=succeeded且降压到环境；不保证取出回收或安全认证' if async_ else '同步更新宿主配置/命令或查询，不推进物理时钟',
             completion_state_ids=['cycle.phase'] if async_ else effects,timeout_s=None,cancellation='supported' if async_ else 'unsupported',
             retry='same_request_id',resources=['target_instance','principal_request_cache'],partial_failure_zh='参数拒绝不改状态。取消/断电关闭模型泵阀，保留残压/溶解/收集/沉积；热松弛继续。物理故障保留已发生传质。不是紧急释放或安全认证；去重仅当前进程'),
-          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT']],
+          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT']+(['PUMP_PRESSURE_ENVELOPE','TEMPLATE_RANGE_UNAVAILABLE'] if key=='setpoint.set' else ['UNSUPPORTED'] if key.startswith('panel.') else [])],
           example_arguments=copy.deepcopy(example),verification=[],limitations=['工程代理，无真实硬件连接；进程内过滤不能替代文件和进程部署隔离。'],source_ids=['manufacturer_primary','simulation_assumption'])
     evolving=list(slots)
-    for key in ['acquisition.start','pressure.vent','acquisition.stop','power.set','plant.configure','sample.configure']:
+    for key in ['acquisition.start','pressure.vent','acquisition.stop','power.set','plant.configure','sample.configure']+[k for k in ('panel.press','panel.switch') if k in caps]:
         caps[key]['state_effects'] += [dict(state_id=k,timing='on_step' if key in ['acquisition.start','pressure.vent'] else 'immediate',description_zh='有限CO2/溶质账本、热松弛、残压与教学阀位') for k in evolving if k not in [x['state_id'] for x in caps[key]['state_effects']]]
     for key in ['sample.configure','reference.lookup']:caps[key]['errors'].append(dict(code='TEMPLATE_RANGE_UNAVAILABLE',meaning_zh='物质或温压在测得等温线之外，拒绝外推',side_effects='none'))
     for key,code in [('plant.configure','LIQUID_SUPPLY_REQUIRED'),('method.configure','PUMP_PRESSURE_ENVELOPE'),('acquisition.start','RECONDITION_REQUIRED')]:caps[key]['errors'].append(dict(code=code,meaning_zh=code,side_effects='none'))

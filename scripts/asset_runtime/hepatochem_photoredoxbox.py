@@ -1,7 +1,12 @@
-"""Four-source, multi-vial absorption/dose and fan-only thermal proxy; no yield prediction."""
+"""Four-source, multi-vial absorption/dose and fan-only thermal proxy; no yield prediction.
+
+Front panel (panel.press / panel.turn / panel.capture / panel.frame; approximate, no user manual is saved): the small LCD, the knob and the
+single button, after the vendor brochure (light intensity control with digital display, temperature control RT-60 C, stirring), run by the
+generic engine _panel_ui.py on top of the capabilities below; led.set_intensity is the panel's dimmer."""
 from __future__ import annotations
 from asset_runtime import _annotations as _ann
-import bisect,copy,json,math
+import bisect,copy,hashlib,json,math,tempfile,weakref
+from asset_runtime import _panel_ui
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT,PHASE
 from asset_runtime.antonpaar_abbematadvanced import validate
@@ -51,10 +56,23 @@ slot('truth.samples',arr(SAMPLE_TRUTH),'1','process_truth','evaluator','sample_r
 for k,u in [('chamber_temperature_k','K'),('thermal_input_j','J'),('ambient_loss_j','J'),('stored_thermal_j','J'),('emitted_energy_j','J'),('absorbed_energy_j','J'),('container_loss_j','J'),('transmitted_energy_j','J'),('uncaptured_energy_j','J'),('nonthermal_energy_j','J')]:slot('truth.'+k,number(u),u,'process_truth','evaluator','sample_rack')
 for ax,u in [('kg','kg'),('m3','m^3')]:
  for k in ['input','retained','removed']:slot(f'sample.{k}_{ax}',number(u,0),u,'process_truth','evaluator','sample_rack')
+# ---------------------------------------------------------------- front panel (approximate: no user manual is saved, see panel_ui.json)
+ASSET_VERSION='1.2.0';ASSET_DIR=ROOT/'assets/expansion_batch03/t5_automation/hepatochem_photoredoxbox'
+PANEL_DEVICE_CAPS={
+ 'led.set_intensity':(obj({'intensity':FRAC}),obj({'intensity':FRAC}),['knob_encoder','led_0','led_1','led_2','led_3'],'面板调光：四个LED模块同一强度0–1（宣传页Light intensity control with digital display；四路共用一个调光值为假设）；照射中可调','device_command','agent',{'intensity':.5},['optics.intensities'])}
+PANEL_SPEC=_panel_ui.load_spec(ASSET_DIR/'panel_ui.json',capabilities=set(CAPS)|set(PANEL_DEVICE_CAPS))
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC)      # panel.press / panel.turn / panel.capture / panel.frame
+PANEL_GESTURES=[k for k in PANEL_CAPS if k not in ('panel.capture','panel.frame')]
+ALL_CAPS={**CAPS,**PANEL_DEVICE_CAPS}
+_PANELS=weakref.WeakKeyDictionary()                                        # runtime -> its panel (kept out of the runtime's own data)
+
+
 class HepatochemPhotoredoxboxRuntime:
  def __init__(self,instance_id='photoredoxbox_01'):
   self.instance_id=instance_id;self.time_s=0.;self.revision=0;self.powered=False;self.lift=0.;self.rack='8x4ml';self.leds=None;self.thermal=None;self.samples={};self.target_k=298.15;self.chamber_k=298.15;self.target_speed=0.;self.actual_speed=0.;self.fan=0.;self.duration_s=2.;self.phase='idle';self.fault='';self.elapsed_s=0.;self.run_start_s=0.;self.operation_id=None;self._operation_count=0;self.history=[];self.history_truncated=False;self.next_record_s=0.;self.run_emitted=0.;self.run_incident=0.;self.input_kg=0.;self.removed_kg=0.;self.input_m3=0.;self.removed_m3=0.;self.removed_stored_j=0.
   self.energy={k:0. for k in ['emitted','absorbed','container_loss','transmitted','uncaptured','nonthermal','thermal_input','ambient_loss']};self.templates={r['substance_id']:r for r in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']};self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+  self._caller=None                                                    # session principal while a session call runs (panel gestures act as that caller)
+  self.power_epoch=0;self.panel_capture_dir=None
  def register_principal(self,principal_id,visibility='agent'):
   if visibility not in ('agent','evaluator','debug'):raise ActionRejected('INVALID_ARGUMENT')
   if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -78,11 +96,18 @@ class HepatochemPhotoredoxboxRuntime:
  def debug_snapshot(self):return dict(state=self.read('evaluator'),samples=copy.deepcopy(self.samples),history=copy.deepcopy(self.history))
  def _measure(self):return dict(phase=self.phase,fault=self.fault,elapsed_s=self.elapsed_s,indicated_temperature_k=self._values()['temperature.indicated_k'],emitted_energy_j=self.run_emitted,incident_energy_j=self.run_incident,stir_speed_rad_s=self.actual_speed,conversion_fraction=None,yield_fraction=None,template_source=TEMPLATE_REL,evidence='synthetic_conditioned_dose_and_temperature; measured_literature_absorption_shapes_and_anchors')
  def invoke(self,capability,**a):
+  if capability in PANEL_CAPS:return self._panel_command(capability,a)
+  if capability=='led.set_intensity':
+   validate(PANEL_DEVICE_CAPS[capability][0],a)
+   if not self.leds:raise ActionRejected('PRECONDITION_FAILED')
+   for src in self.leds['sources']:src['intensity']=float(a['intensity'])
+   self.revision+=1;return {'intensity':float(a['intensity'])}
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability][0],a)
   if 'slot' in a and (type(a['slot']) is not int or not 0<=a['slot']<=7):raise ActionRejected('INVALID_ARGUMENT')
   if self.phase=='running' and capability not in ('power.set','acquisition.stop','irradiation.measure','history.read','product.read','temperature.set','stir.set_speed'):raise ActionRejected('BUSY')
   if capability=='power.set':
+   if a['enabled'] and not self.powered:self.power_epoch+=1
    self.powered=a['enabled']
    if not self.powered:
     if self.phase=='running':self.phase='cancelled'
@@ -152,6 +177,43 @@ class HepatochemPhotoredoxboxRuntime:
     self.history.append(dict(time_s=self.time_s,elapsed_s=self.elapsed_s,indicated_temperature_k=self._values()['temperature.indicated_k'],incident_energy_j=self.run_incident,phase=self.phase));self.next_record_s=self.time_s+1.
     if len(self.history)>1000:self.history.pop(0);self.history_truncated=True
   self.revision+=1;return self.read('evaluator')
+ # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+ @property
+ def panel(self):
+  p=_PANELS.get(self)
+  if p is None:p=_PANELS[self]=_panel_ui.PanelUI(PANEL_SPEC,self)
+  return p
+ def panel_read(self):
+  """What the controller shows: the agent slots plus power, power-up count and the remaining irradiation time."""
+  out=self.read('agent')
+  out.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,'host.remaining_s':max(0.,self.duration_s-self.elapsed_s) if self.phase=='running' else self.duration_s})
+  return out
+ def panel_invoke(self,capability_id,arguments):
+  """A panel action calls the same command a direct call would (each command checks before it changes anything).  A gesture made through a
+  session acts as that session's caller: the session's ownership guard applies (stopping or switching off another agent's irradiation is refused)."""
+  try:
+   if self._caller is not None:HepatochemPhotoredoxboxSession(self,self._caller)._guard(capability_id,arguments)
+   return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _panel_command(self,capability,a):
+  validate(PANEL_CAPS[capability]['input_schema'],a)
+  if _panel_ui.check_arguments(PANEL_CAPS[capability]['input_schema'],a):raise ActionRejected('INVALID_ARGUMENT')
+  try:
+   if capability=='panel.press':out=dict(accepted=bool(self.panel.press(a['input_id'],float(a.get('duration_s',.1)))))
+   elif capability=='panel.turn':out=dict(accepted=bool(self.panel.turn(a['input_id'],int(a['detents']))))
+   elif capability=='panel.capture':return self._panel_capture(a['display_id'])
+   else:return dict(frame=self.panel.frame())
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  self.revision+=1;return out
+ def _panel_capture(self,display_id):
+  """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+  data,w,h=self.panel.png_bytes(display_id);sha=hashlib.sha256(data).hexdigest()
+  d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id
+  d.mkdir(parents=True,exist_ok=True);path=d/f'{display_id}_{sha[:16]}.png'
+  if not path.exists():path.write_bytes(data)
+  return dict(display_id=display_id,time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+_CONTROL_GUARDED={'acquisition.stop','power.set','temperature.set','stir.set_speed','led.set_intensity'}   # end or change another agent's irradiation
 class HepatochemPhotoredoxboxSession:
     """Host registers principals; public calls have no visibility override."""
     def __init__(self,host,principal_id): self._host=host; self._principal=principal_id
@@ -164,9 +226,9 @@ class HepatochemPhotoredoxboxSession:
         if (instance_id is None)==(asset_type_id is None): raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
-        meta=export_hepatochem_photoredoxbox_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
-          capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
+        meta=export_hepatochem_photoredoxbox_contract_metadata();caps=dict(meta['capabilities'],**export_hepatochem_photoredoxbox_panel_metadata()['capabilities'])
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
+          capabilities={k:v for k,v in caps.items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
     def read(self,*,instance_id,state_ids=None):
@@ -186,20 +248,34 @@ class HepatochemPhotoredoxboxSession:
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host
-        if not isinstance(capability_id,str) or capability_id not in CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
-        if self._role=='agent' and CAPS[capability_id][5]!='agent': raise ActionRejected('ACCESS_DENIED')
+        if not isinstance(capability_id,str) or (capability_id not in ALL_CAPS and capability_id not in PANEL_CAPS): raise ActionRejected('UNKNOWN_CAPABILITY')
+        vis,schema=(PANEL_CAPS[capability_id]['visibility'],PANEL_CAPS[capability_id]['input_schema']) if capability_id in PANEL_CAPS else (ALL_CAPS[capability_id][5],ALL_CAPS[capability_id][0])
+        if self._role=='agent' and vis!='agent': raise ActionRejected('ACCESS_DENIED')
         if not isinstance(request_id,str) or not request_id: raise ActionRejected('INVALID_ARGUMENT')
-        validate(CAPS[capability_id][0],arguments)
+        validate(schema,arguments)
         key=(self._principal,instance_id,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
         if key in h._requests:
             old,result=h._requests[key]
             if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
             return copy.deepcopy(result)
-        result=h.invoke(capability_id,**arguments); op=result.get('operation_id')
+        before=h.operation_id
+        self._guard(capability_id,arguments); h._caller=self._principal
+        try: result=h.invoke(capability_id,**arguments)
+        finally: h._caller=None
+        op=result.get('operation_id')
         if op: h._owners[op]=self._principal
+        elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before: h._owners[h.operation_id]=self._principal   # a run started by a panel key belongs to the caller
         response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,
           status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
         h._requests[key]=(digest,copy.deepcopy(response)); return response
+
+    def _guard(self,capability_id,arguments):
+        """An agent may not stop, switch off or change (light intensity, temperature, stirring) another agent's running irradiation (direct call
+        or panel button / knob); unowned runs and the evaluator are not restricted."""
+        h=self._host
+        if self._role!='agent' or capability_id not in _CONTROL_GUARDED or h.phase!='running': return
+        if capability_id=='power.set' and (arguments.get('enabled') or not h.powered): return
+        if h._owners.get(h.operation_id) not in (None,self._principal): raise ActionRejected('ACCESS_DENIED')
 
     def write(self,*,instance_id,state_id,value,request_id):
         self._target(instance_id)
@@ -259,3 +335,38 @@ def export_hepatochem_photoredoxbox_contract_metadata():
     mechanism=dict(component_ids=['sample_rack','led_0','led_1','led_2','led_3','ir_probe','cooling_fan'],state_ids=truth,meaning_zh='原溶剂吸收谱驱动的四源光子/能量账本与风冷热模型；不预测真实合成产物',implementation='lumped',equations=['epsilon_SI=0.1*epsilon_L_mol_cm; linear interpolation only inside measured spectrum, negative baseline clipped zero','A=epsilon_SI*c_mol_m3*path_m; transmitted_fraction=10**(-A)','Eincident_ij=Pj*intensity_j*capture_ij*dt; no redistribution of empty-slot light','Eabsorbed=Eincident*container_transmission*(1-10**(-A)); nphoton=Eabsorbed*lambda/(NA*h*c)','Eemitted=Eabsorbed+Econtainer_loss+Etransmitted+Euncaptured','Eabsorbed=heat_fraction*Eabsorbed+nonthermal_energy; nonthermal is not chemical yield','Cs*dTs=Qabsorbed_heat+UA_sample*(Tchamber-Tsample)*dt','Cc*dTc=LED_waste_heat*dt-sum(sample_transfer)-UA_fan*(Tc-Tambient)*dt','fan=clip(0.2*(Tc-Ttarget),0,1) if powered; no heater or chiller','Ethermal_input=stored_delta_U+removed_delta_U+ambient_loss; retained+removed=loaded mass/volume'],parameters={},source_ids=['absorption_templates','manufacturer_primary','simulation_assumption'],limitations=['Actual spectrum/bandwidth, optical power, irradiance, thermal capacity/UA and all motion dimensions are uncalibrated host inputs or stated proxies.','Four monochromatic modules, solvent exact match; no temperature/concentration dependence, photobleaching, scattering, chemical pathways or yields.','IR holder modeled as chamber lump, not actual liquid truth; fan-only target cannot force heating.','Nominal vial capacities are constraints, not safety fill recommendations.','Default8x4mL Matterix mesh;4x20mL alternative mesh is separately delivered, no automatic scene mesh swap.'])
     _ann.annotate_export('hepatochem_photoredoxbox',caps,slots,{'photon_and_heat_balance':mechanism},inputs={'thermal.configure':(THERMAL,EXAMPLE)})
     return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'photon_and_heat_balance':mechanism})
+
+
+PANEL_PRECONDITION_ZH='面板（近似模型，无用户手册）：关机时只有按键起作用；主屏按旋钮进入设定（光强、温度设定、搅拌、照射时间），转动改值、按旋钮存入并到下一项；按键开始或停止照射、长按2 s关机；被调用能力的前提同样适用（被拒时LCD显示提示，手势不被接受）'
+PANEL_LIMITATION_ZH='面板为近似模型：本资产没有保存用户手册，屏幕内容、旋钮与按键逻辑、取值范围按宣传页与照片假设（panel_ui.json approximate与assumptions）；面板动作调用本运行层的同名能力；手势不推进仿真时钟。'
+
+
+def export_hepatochem_photoredoxbox_panel_metadata():
+    """The panel's dimmer (led.set_intensity) and the panel capabilities; the instrument's fifteen commands and all slots are in
+    export_hepatochem_photoredoxbox_contract_metadata()."""
+    base=['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT']
+    meta=export_hepatochem_photoredoxbox_contract_metadata()
+    effects={k:[e['state_id'] for e in v['state_effects']] for k,v in meta['capabilities'].items()}
+    effects['led.set_intensity']=PANEL_DEVICE_CAPS['led.set_intensity'][7]
+    def entry(key,inp,out,components,meaning,kind,vis,example,fx,pre,errors,limitations,gesture=False):
+        return dict(function_zh=meaning,kind=kind,visibility=vis,component_ids=list(components),availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),
+          implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),
+          binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.hepatochem_photoredoxbox.HepatochemPhotoredoxboxSession.invoke',invocation=f'session.invoke(instance_id="photoredoxbox_01", capability_id={key!r}, arguments={example!r}, request_id="unique")'),
+          preconditions=pre,state_effects=[dict(state_id=k,timing='immediate',description_zh=meaning if not gesture else '面板手势调用的能力的效果（与直接调用同一能力相同）') for k in fx],observes=[],
+          model_effects=dict(mode='none',description_zh='屏幕纹理与旋钮/按键关节联动属于后续Matterix步骤，本版本只在过程层。',binding_ids=[]),
+          execution=dict(mode='synchronous',time_domain='simulation',completion_criterion='手势瞬时完成（不推进仿真时钟）；结果只说明是否被仪器接受，屏幕须用panel.capture查看' if gesture else '设定写入或观测返回；不推进物理时钟',
+            completion_state_ids=list(fx),timeout_s=None,cancellation='unsupported',retry='same_request_id',resources=['target_instance','principal_request_cache'],
+            partial_failure_zh='拒绝不改过程；手势调用的每个能力各自先检查再修改。去重只在当前进程内存有效。'),
+          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in errors],example_arguments=copy.deepcopy(example),verification=[],limitations=limitations,
+          source_ids=['manufacturer_primary','simulation_assumption'])
+    inp,out,comps,meaning,kind,vis,example,fx=PANEL_DEVICE_CAPS['led.set_intensity']
+    caps={'led.set_intensity':entry('led.set_intensity',inp,out,comps,meaning,kind,vis,example,fx,
+                                    [dict(description_zh='四个LED模块已由宿主配置（led.configure）',state_ids=['optics.configured'],enforced_by='runtime',check='optics configured')],
+                                    base+['PRECONDITION_FAILED','REQUEST_CONFLICT'],['单一调光值同时作用于四个LED模块（假设）；不改辐射功率与捕获矩阵。'])}
+    fxp=list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in effects.get(c,[])))
+    for key,d in PANEL_CAPS.items():
+        g=key in PANEL_GESTURES;comps=sorted(set(d['component_ids'])|({'display_digits','display_bezel'} if key in ('panel.capture','panel.frame') else set())|({'chrome_crown'} if key=='panel.turn' else set()))
+        caps[key]=entry(key,d['input_schema'],d['output_schema'],comps,d['function_zh'],d['kind'],d['visibility'],d['example_arguments'],fxp if g else [],
+                        [dict(description_zh=PANEL_PRECONDITION_ZH,state_ids=['power.enabled','cycle.phase','optics.configured','thermal.configured'],enforced_by='runtime',check='panel_ui.json screens, gates and bindings')] if g else [],
+                        base+['REQUEST_CONFLICT'],[PANEL_LIMITATION_ZH],gesture=g)
+    return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps)

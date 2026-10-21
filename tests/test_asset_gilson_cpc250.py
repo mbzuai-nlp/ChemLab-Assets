@@ -35,7 +35,7 @@ class TestCpc(unittest.TestCase):
   h=configured();h.invoke('power.set',enabled=False);h.invoke('power.set',enabled=True)
   with self.assertRaises(ActionRejected):h.invoke('acquisition.start')
   h.step(30);h.invoke('acquisition.start');h.step(1)
-  with self.assertRaises(ActionRejected):h.invoke('power.set',enabled=False)
+  h.invoke('power.set',enabled=False);self.assertEqual(h.phase,'failed')   # sweep 2026-10-19: the MAINS key is a hard switch (a power loss)
  def test_10_exceptional_speed(self):
   h=GilsonCpc250Runtime()
   with self.assertRaises(ActionRejected):h.invoke('method.configure',**dict(METHOD_EXAMPLE,speed_rad_s=WMAX))

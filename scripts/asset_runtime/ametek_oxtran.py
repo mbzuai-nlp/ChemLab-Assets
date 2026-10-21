@@ -10,9 +10,13 @@ Physics owned by the host clock (``step`` is the only entry that advances time):
     test-gas edge leak and TruSeal-flushed ambient ingress into the carrier side, air-equilibrated film when mounted;
   * one shared Coulox sensor (Faraday: I = 4 F eta n_O2, 1 cc/day = 0.000199 A, first-order response, 10 pA counts, noise)
     multiplexed by the sequencer through cell exams and ReZero exams (carrier only, system baseline);
-  * reported OTR = (I_exam - I_rezero) / (4 F) / area x 760 mmHg / P_baro x 100 / permeant % (no user gain: the 2/22 has no documented
-    sensor adjustment; out-of-spec certified films mean service),
-    quantised to the documented resolution; conditioning, individual zero, standard / convergence / continuous test modes.
+  * reported OTR = (I_exam - I_rezero) / (4 F) / area x 760 mmHg / P_baro x 100 / permeant % x the gain of the assigned Permeant
+    Sensor (OTR Adjustment) record (manual appendix G; 1 when none is assigned),
+    quantised to the documented resolution; conditioning, individual zero (beginning / end / use last), standard / convergence by
+    cycles or hours / continuous test modes, the Auto-Test rule set, sequential tests, saved methods, Abort / Advance / GoTo.
+Separate Test-gas and Carrier-gas RH set points (manual p.34, appendix D).  Front panel (panel.press / panel.switch / panel.touch /
+panel.capture / panel.frame): the touch screen, Load/Unload keys, status lamps and power switch of the manual (panel_ui.json beside the
+contract) run by the generic engine _panel_ui.py on top of the capabilities below (no second copy of the logic).
 Permeation templates (P, D at 298 K) come from the asset's oxygen_permeation_library.json (polyVERSE experimental rows);
 activation energies, humidity coefficients, chamber volumes, leaks, sensor lag/noise and the thermal plant are explicit host
 priors (evidence = assumption).  Observed results are computed only from the quantised sensor observations.
@@ -20,13 +24,17 @@ priors (evidence = assumption).  Observed results are computed only from the qua
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
+import os
 import random
 import re
+import tempfile
 from pathlib import Path
 
 PROTOCOL_VERSION = '1.0.0'
+ASSET_VERSION = '1.1.2'
 SLUG = 'ametek_oxtran'
 ASSET_TYPE_ID = 'instrument.' + SLUG
 CATALOG_ID = 'CHEM-147'
@@ -72,6 +80,16 @@ MAX_SUBSTEP_S = 10.0
 OPEN_WINDOW_MOL_S_PA = 1e-9                      # empty cartridge: conductance of the open 50 cm2 window between the chambers (engineering)
 MAX_READINGS = 5000                              # readings per test record (schema maxItems)
 CELLS = ('A', 'B')
+VERY_GOOD_BARRIER_CC_M2_DAY = 0.1                # manual p.3-1: a Very Good Barrier is below 0.1 cc/(m2 day)
+AUTO_EXAM_MINUTES = (30.0, 60.0)                 # Auto-Test exam time: normal / Very Good Barrier (manual p.3-1 "longer exam times"; values assumed)
+AUTO_WINDOWS = (3, 6)                            # Auto-Test "Current" / "Historical" data sets (exams; manual D-4 names them, sizes assumed)
+AUTO_MAX_CYCLES = 200
+MAX_SEQUENCE_STEPS = 10                          # manual p.4-1, D-4: up to ten tests in the Sequential Test Parameters table
+MAX_METHODS = 50                                 # saved Advanced Test Methods (count not documented)
+MAX_ADJUSTMENT_RECORDS = 20                      # Permeant Sensor calibration records (count not documented)
+ADJUSTMENT_GAIN_RANGE = (0.8, 1.25)              # accepted record gain ("slight differences in efficiency", appendix G; bounds assumed)
+MAX_TEXT = 40                                    # characters of IDs and names
+MAX_PANEL_ROWS = 500                             # exam rows the Cell Status table / graph and the report show (the latest)
 
 
 class ActionRejected(ValueError):
@@ -128,10 +146,13 @@ def validate(s, v):
         if not s.get('minimum', -math.inf) <= v <= s.get('maximum', math.inf):
             raise ActionRejected('INVALID_ARGUMENT')
     elif k == 'object':
-        if not isinstance(v, dict) or set(v) != set(s['properties']):
+        if not isinstance(v, dict):
             raise ActionRejected('INVALID_ARGUMENT')
-        for key, value in v.items():
-            validate(s['properties'][key], value)
+        if 'properties' in s:                                                # (a bare {'type': 'object'} is any object, e.g. panel.frame)
+            if not set(s.get('required', s['properties'])) <= set(v) <= set(s['properties']):
+                raise ActionRejected('INVALID_ARGUMENT')
+            for key, value in v.items():
+                validate(s['properties'][key], value)
     elif k == 'array':
         if not isinstance(v, list) or not s.get('minItems', 0) <= len(v) <= s.get('maxItems', math.inf):
             raise ActionRejected('INVALID_ARGUMENT')
@@ -139,7 +160,7 @@ def validate(s, v):
             validate(s['items'], x)
     elif k == 'boolean' and type(v) is not bool:
         raise ActionRejected('INVALID_ARGUMENT')
-    elif k == 'string' and not isinstance(v, str):
+    elif k == 'string' and (not isinstance(v, str) or not s.get('minLength', 0) <= len(v) <= s.get('maxLength', math.inf)):
         raise ActionRejected('INVALID_ARGUMENT')
     elif k == 'null' and v is not None:
         raise ActionRejected('INVALID_ARGUMENT')
@@ -210,8 +231,10 @@ MOUNT = obj(dict(cell=CELL, template_id=TEXT, thickness_m=number('m', 1e-6, MAX_
                  humidity_coefficient=nullable(number('1', 0.0, 20.0)), accept_transport_assumptions=BOOL))
 TEST_CFG_EXAMPLE = dict(cell='A', test_mode='convergence', cycles=10, exam_minutes=30.0, conditioning_hours=0.5, individual_zero='end', convergence_percent=1.0,
                         convergence_count=3, max_cycles=60, report_basis='area', declared_area_m2=TEST_AREA_M2, declared_thickness_m=100e-6, temperature_tolerance_k=0.2)
-TEST_CFG = obj(dict(cell=CELL, test_mode=enum(['continuous', 'standard', 'convergence']), cycles=number('1', 1, 1000), exam_minutes=number('min', 1.0, 600.0),
-                    conditioning_hours=number('h', 0.0, 200.0), individual_zero=enum(['none', 'start', 'end', 'both']), convergence_percent=number('%', 0.1, 20.0),
+TEST_MODES = ['continuous', 'standard', 'convergence', 'convergence_hours']   # 1.1.0: + convergence by hours (convergence_count = hours)
+INDIVIDUAL_ZERO = ['none', 'start', 'end', 'both', 'use_last']               # 1.1.0: + use last (manual p.3-3)
+TEST_CFG = obj(dict(cell=CELL, test_mode=enum(TEST_MODES), cycles=number('1', 1, 1000), exam_minutes=number('min', 1.0, 600.0),
+                    conditioning_hours=number('h', 0.0, 200.0), individual_zero=enum(INDIVIDUAL_ZERO), convergence_percent=number('%', 0.1, 20.0),
                     convergence_count=number('1', 2, 20), max_cycles=number('1', 1, 2000), report_basis=enum(['area', 'package']),
                     declared_area_m2=number('m^2', *MASK_AREA_RANGE_M2), declared_thickness_m=nullable(number('m', 1e-6, MAX_FILM_THICKNESS_M)),
                     temperature_tolerance_k=number('K', 0.05, 5.0)))
@@ -295,6 +318,51 @@ cap('ledger.read', obj({}), LEDGER, {}, 'controller_board', '受限O₂物质账
 cap('provenance.read', obj({}), obj(dict(cell_a=nullable(TEXT), cell_b=nullable(TEXT), operations=array(obj(dict(operation_id=TEXT, source=nullable(TEXT))), 0, MAX_PROVENANCE))), {}, 'controller_board',
     '受限：两池当前膜样与最近1000次测试所用模板记录的来源', 'evaluator', 'query')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=60.0), 'controller_board', '唯一宿主时间推进（纳秒整数时钟，余数累计）', 'evaluator', 'simulation')
+# 1.1.0: functions of the touch-screen software the manual documents (front panel; each is also a direct command)
+RH_ARG = number('1', 0.0, RH_RANGE[1])
+NAME = {'type': 'string', 'minLength': 1, 'maxLength': MAX_TEXT}
+ID_TEXT = {'type': 'string', 'maxLength': MAX_TEXT}
+IDENT = dict(test_id=ID_TEXT, sample_id=ID_TEXT, material_id=ID_TEXT)
+STEP_INDEX = INT | dict(minimum=1, maximum=MAX_SEQUENCE_STEPS)
+CONDITIONS = dict(target_k=number('K', *TEMPERATURE_RANGE_K), test_rh_fraction=RH_ARG, carrier_rh_fraction=RH_ARG)
+cap('humidity.set_streams', obj(dict(test_rh_fraction=RH_ARG, carrier_rh_fraction=RH_ARG)), obj(dict(test_rh_fraction=number('1'), carrier_rh_fraction=number('1'))),
+    dict(test_rh_fraction=0.5, carrier_rh_fraction=0.5), 'rh_generator',
+    '分别写入测试气与载气的相对湿度目标（各为0=干气或5–90%；手册p.5-8仪器参数Test Gas RH、Carrier Gas RH，两路各有加湿器）；实际湿度各按一阶响应趋近')
+cap('cell.set_identification', obj(dict(cell=CELL, **IDENT)), obj(dict(cell=CELL, **IDENT)), dict(cell='A', test_id='T-001', sample_id='PET 100um', material_id='PET'),
+    'controller_board', '单池标识（Test ID、Sample ID、Material ID，手册G-3/认证膜说明）：保存在池参数中，下一次测试开始时写入该测试记录与报告', 'agent', 'configuration')
+cap('test.start_auto', CELL_ARG, obj(dict(operation_id=TEXT)), dict(cell='A'), ['controller_board', 'coulox_sensor'],
+    '开始单池Auto-Test（手册p.3-4、D-4）：只需标识与温湿度；内部规则按测得OTR动态设定检测时长与单池零点，按“当前/历史”两个窗口相差<1%或低于噪声底判定平衡')
+cap('test.abort', CELL_ARG, obj(dict(cell=CELL, phase=PHASE, exam_count=INT)), dict(cell='A'), 'controller_board',
+    'Abort控制（手册p.5-8）：终止该池测试（已记录读数保留，结果为cancelled）；顺序测试的其余各项一并终止')
+cap('test.advance', CELL_ARG, obj(dict(cell=CELL, phase=PHASE, cell_phase=CELL_PHASE)), dict(cell='A'), 'controller_board',
+    'Advance控制（手册p.5-8、G-3）：把该池推进到下一状态——单池零点→调理/检测，调理→检测，检测→结束零点或Test Complete（按已测读数给出结果），结束零点→Test Complete')
+cap('sequence.goto', obj(dict(target=enum(['bypass', 'rezero']))), obj(dict(target=enum(['bypass', 'rezero']), route=enum(['bypass', 'A', 'B', 'Z']))),
+    dict(target='bypass'), ['controller_board', 'flow_controllers'],
+    'GoTo控制（手册p.5-4）：ByPass把传感器停在旁路并暂停检测轮换（进行中的测试保持，调理计时继续）；ReZero立即开始一个ReZero检测时段，之后恢复轮换')
+cap('sequence.set_step', obj(dict(cell=CELL, index=STEP_INDEX, **CONDITIONS)), obj(dict(cell=CELL, steps=INT)),
+    dict(cell='A', index=1, target_k=296.15, test_rh_fraction=0.0, carrier_rh_fraction=0.0), 'controller_board',
+    'Sequential Test Parameters表（手册p.3-4、D-4，最多10项）：写入或追加第index项的测试温度、测试气RH与载气RH（index=项数+1为追加）', 'agent', 'configuration')
+cap('sequence.delete_step', obj(dict(cell=CELL, index=STEP_INDEX)), obj(dict(cell=CELL, steps=INT)), dict(cell='A', index=1), 'controller_board',
+    '删除顺序测试表的第index项（后面的项前移）', 'agent', 'configuration')
+cap('sequence.enable', obj(dict(cell=CELL, enabled=BOOL)), obj(dict(cell=CELL, enabled=BOOL)), dict(cell='A', enabled=True), 'controller_board',
+    '开关该池方法的Sequential Test功能：开启时test.start按表依次执行各项（每项先等温湿度稳定，再按方法测试；完成一项自动开始下一项）', 'agent', 'configuration')
+cap('method.save', obj(dict(name=NAME, cell=CELL)), obj(dict(name=TEXT, methods=INT)), dict(name='PET 23C 0%RH', cell='A'), 'controller_board',
+    'Save Method（手册p.3-4、p.5-8）：把该池测试参数、仪器参数、温湿度设定与顺序表存为命名的Advanced Test Method（同名覆盖）', 'agent', 'configuration')
+cap('method.recall', obj(dict(name=NAME, cell=CELL)), obj(dict(name=TEXT, cell=CELL)), dict(name='PET 23C 0%RH', cell='A'), 'controller_board',
+    'Methods控制：把已存方法调入指定池（池测试参数与顺序表）并恢复其仪器参数与温湿度设定（有测试进行时拒绝）', 'agent', 'configuration')
+cap('method.delete', obj(dict(name=NAME)), obj(dict(name=TEXT, methods=INT)), dict(name='PET 23C 0%RH'), 'controller_board', '删除已存方法', 'agent', 'configuration')
+cap('sensor.adjustment_create', obj(dict(name=NAME, cell=CELL, reference_value=number('1', 1e-7, 1e4))), obj(dict(name=TEXT, gain=number('1'), measured_value=number('1'))),
+    dict(name='Cert film #2', cell='A', reference_value=0.05), 'coulox_sensor',
+    'OTR Adjustment（手册附录G）：用该池最近完成的参考膜测试建立Permeant Sensor校准记录：增益=参考值/测得值（参考值与测得值按该测试的报告基准，'
+    '整包cc/(pkg·day)或cc/(m²·day)）；记录只保存，须assign后才生效', 'agent', 'configuration')
+cap('sensor.adjustment_assign', obj(dict(name=nullable(NAME))), obj(dict(name=nullable(TEXT), gain=number('1'))), dict(name='Cert film #2'), 'coulox_sensor',
+    '指定（assign）或停用（null）Permeant Sensor校准记录：之后报告的OTR乘该记录的增益（有测试进行时拒绝，避免同一测试混用两种校准）', 'agent', 'configuration')
+cap('sensor.adjustment_delete', obj(dict(name=NAME)), obj(dict(name=TEXT, records=INT)), dict(name='Cert film #2'), 'coulox_sensor',
+    '删除未被指定的校准记录', 'agent', 'configuration')
+cap('sensor.configure_error', obj(dict(gain_error=number('1', -0.2, 0.2), offset_a=number('A', -1e-9, 1e-9))), obj(dict(gain_error=number('1'), offset_a=number('A'))),
+    dict(gain_error=0.0, offset_a=0.0), 'coulox_sensor',
+    '评测者：Coulox测量通道的系统误差（相对增益误差与电流偏置，测得电流=I×(1+增益误差)+偏置+噪声）；缺省0（理想），真实误差留给后续“校准/仿真与现实差距”任务',
+    'evaluator', 'configuration')
 UNSUPPORTED = {
     'hardware.connect': '无真实Ethernet/USB通信、WinPerm 2/PermWare或PERM-NET Lite连接',
     'robot.mount_film': '无机器人切膜、涂脂、装夹与抽屉操作验证（由宿主sample.mount/drawer.move代理）',
@@ -302,17 +370,38 @@ UNSUPPORTED = {
     'cartridge.reduced_area': '未选5.64cm²缩小面积测试盒（量程上限×9）；仅支持箔掩膜覆盖面积',
     'cartridge.edge_effect': '未选边缘效应测试盒',
     'cartridge.blister': '未选泡罩测试盒',
-    'test_mode.convergence_by_hours': '“按小时收敛”模式的判据未公开（帮助系统不可得），未实现',
-    'test.qc_mode': 'QC通过/不通过模式未实现',
-    'test.auto_method': '自动测试方法开发（Auto-Test）未实现',
-    'test.sequencing': '多条件顺序测试（Sequential testing）未实现；可由宿主按条件重复test.configure/test.start',
-    'report.export': '报告打印/USB导出未实现（结果经test.result返回）',
+    'test.qc_mode': 'QC通过/不通过模式未实现（操作手册未写）',
+    'report.export': '报告打印与导出需要打印机或USB存储器，本模拟配置未接（结果经test.result返回，屏幕上显示报告）',
     'accuracy.certification': '无认证膜实测、NIST可溯源验证或厂家准确度实验',
-    'sensor.adjust': '2/22认证膜说明：认证膜结果超出允差时“分析仪可能需要维修”（联系厂家服务），只有2/12R要求校准；产品页与规格书称Coulox为绝对传感器、无需校准。'
-                     '“Permeant Sensor Adjustment”只见于同机身2/28手册附录F，2/22未公开该功能，故不提供用户增益调整',
 }
 for k, v in UNSUPPORTED.items():
     cap(k, obj({}), obj({}), {}, 'controller_board', v)
+DEFAULT_CFG = dict(test_mode='continuous', cycles=10, exam_minutes=30.0, conditioning_hours=0.0, individual_zero='none', convergence_percent=1.0, convergence_count=3,
+                   max_cycles=60, report_basis='area', declared_area_m2=TEST_AREA_M2, declared_thickness_m=None, temperature_tolerance_k=TEMPERATURE_ACCURACY_K)
+DEFAULT_INSTRUMENT = dict(permeant_concentration_percent=100.0, rezero_enabled=True, rezero_frequency=2, rezero_exam_minutes=30.0, barometer_mode='auto',
+                          manual_barometer_pa=None)   # what the panel shows before a method is set (manual p.3-2: ReZero on, every two exams; p.3-3: no zero)
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as (scripts.)asset_runtime.ametek_oxtran (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_PATH = ASSET / 'panel_ui.json'
+_PANEL_BUILD = os.environ.get('OXTRAN_PANEL_BUILD') == '1' or not PANEL_PATH.is_file()   # the spec builder imports the runtime without the spec
+PANEL_SPEC = None if _PANEL_BUILD else _panel_ui.load_spec(PANEL_PATH, capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}   # panel.press / switch / touch / capture / frame, kept out of CAPS
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                                  # (CAPS stays the instrument's own command set)
 
 # ---------------------------------------------------------------- state slots
 SLOTS = {}
@@ -322,6 +411,11 @@ def slot(k, schema, unit, origin, component, meaning, visibility='agent', refere
     SLOTS[k] = dict(schema=schema, unit=unit, origin=origin, component=component, meaning=meaning, visibility=visibility, reference=reference)
 
 
+IDENT_S = dict(test_id=TEXT, sample_id=TEXT, material_id=TEXT)
+TEST_INFO = obj(dict(method=nullable(enum(['advanced', 'auto'])), operation_id=nullable(TEXT), sequence_step=nullable(INT), **IDENT_S,
+                     auto_log=array(obj(dict(time_s=number('s'), parameter=TEXT, value=TEXT)), 0, 200)))
+SEQ_S = obj(dict(enabled=BOOL, steps=array(obj(dict(target_k=number('K'), test_rh_fraction=number('1'), carrier_rh_fraction=number('1'))), 0, MAX_SEQUENCE_STEPS),
+                 current_step=nullable(INT)))
 OTR_REF = '按760mmHg与100%渗透物归一的单位面积氧透过率（cc指0°C、101.325kPa标准体积；×1.9366e9=cc/(m²·day)）。'
 slot('clock.time_s', number('s'), 's', 'derived', 'controller_board', '宿主时钟；read不推进')
 for k, c, m in [('plant.configured', 'thermal_module', '工程过程参数已声明'), ('gas.configured', 'carrier_gas_inlet', '外部气源已声明'),
@@ -331,12 +425,21 @@ for k, c, m in [('plant.configured', 'thermal_module', '工程过程参数已声
     slot(k, BOOL, '1', 'derived', c, m)
 slot('thermal.target_k', number('K'), 'K', 'setpoint', 'thermal_module', '测试池目标温度，只是目标')
 slot('thermal.indicated_k', nullable(number('K')), 'K', 'sensor', 'thermal_module', '测试池温度显示（0.01K量化，含±0.2K内的静态偏差）；断电为null')
-slot('humidity.target_fraction', number('1'), '1', 'setpoint', 'rh_generator', '载气与测试气相对湿度目标，只是目标（0=干气）')
-slot('humidity.indicated_fraction', nullable(number('1')), '1', 'sensor', 'rh_generator', '仪器显示的相对湿度（按其控制模型；不含静态偏差，0.001量化）；断电为null')
+slot('humidity.target_fraction', number('1'), '1', 'setpoint', 'rh_generator', '测试气相对湿度目标，只是目标（0=干气；humidity.set同时写入载气目标）')
+slot('humidity.indicated_fraction', nullable(number('1')), '1', 'sensor', 'rh_generator', '仪器显示的测试气相对湿度（按其控制模型；不含静态偏差，0.001量化）；断电为null')
+slot('humidity.carrier_target_fraction', number('1'), '1', 'setpoint', 'rh_generator', '载气相对湿度目标，只是目标（0=干气）')
+slot('humidity.carrier_indicated_fraction', nullable(number('1')), '1', 'sensor', 'rh_generator', '仪器显示的载气相对湿度（按其控制模型；不含静态偏差，0.001量化）；断电为null')
 slot('barometer.indicated_pa', nullable(number('Pa')), 'Pa', 'sensor', 'barometer', '内置气压计读数（10Pa量化）；断电为null', reference='绝对大气压。')
 slot('sensor.raw_counts', nullable(INT), '1', 'sensor', 'coulox_sensor', '传感器当前电流原始计数（1计数≈10pA，含与检测读数同源的相关测量噪声）；断电为null')
 slot('sensor.route', enum(['bypass', 'A', 'B', 'Z']), '1', 'derived', 'flow_controllers', '当前送往传感器的气流：旁路/A池/B池/ReZero')
 slot('sequence.slot_remaining_s', nullable(number('s')), 's', 'derived', 'controller_board', '当前检测时段剩余时间；无序列为null')
+slot('sequence.held', BOOL, '1', 'derived', 'flow_controllers', 'GoTo ByPass：传感器停在旁路、检测轮换暂停（GoTo ReZero、开始测试或断电解除）')
+slot('methods.saved', array(TEXT, 0, MAX_METHODS), '1', 'derived', 'controller_board', '已存Advanced Test Method的名称（按保存顺序）')
+slot('sensor.adjustment', obj(dict(name=nullable(TEXT), gain=number('1'))), '1', 'derived', 'coulox_sensor', '已指定的Permeant Sensor校准记录与其增益（未指定为null与1）')
+slot('sensor.adjustment_records', array(obj(dict(name=TEXT, gain=number('1'), reference_value=number('1'), measured_value=number('1'), basis=enum(['area', 'package']),
+                                               operation_id=TEXT, created_s=number('s'), assigned=BOOL)), 0, MAX_ADJUSTMENT_RECORDS), '1', 'derived', 'coulox_sensor',
+     'OTR Adjustment屏的校准记录（名称、增益、参考值与测得值、报告基准、所用测试、建立时间、是否已指定）')
+slot('sensor.error', obj(dict(gain_error=number('1'), offset_a=number('A'))), '1', 'process_truth', 'coulox_sensor', '评测者设定的传感器测量系统误差（缺省0）', 'evaluator')
 for c in 'ab':
     C_ = c.upper()
     slot(f'drawer_{c}.position_m', number('m', 0.0, DRAWER_TRAVEL_M), 'm', 'scene', f'drawer_{c}', f'{C_}池抽屉拉出距离（0=推到底，0.190m=全开）', 'evaluator',
@@ -354,11 +457,16 @@ for c in 'ab':
          f'{C_}池最近一次检测报告的OTR（量化后；未检测为null；前面板公开显示）', reference=OTR_REF)
     slot(f'cell_{c}.final_otr_mol_m2_s', nullable(number('mol/(m^2*s)')), 'mol/(m^2*s)', 'sensor', 'controller_board', f'{C_}池最近一次完成测试的最终OTR（扣除单池零点；前面板公开显示）',
          reference=OTR_REF)
+    slot(f'cell_{c}.identification', obj(IDENT_S), '1', 'derived', 'controller_board', f'{C_}池标识设定（Test ID、Sample ID、Material ID；下一次测试开始时写入记录）')
+    slot(f'cell_{c}.test_info', TEST_INFO, '1', 'derived', 'controller_board',
+         f'{C_}池最近一次测试的方法（advanced/auto）、操作ID、顺序测试项号、标识与Auto-Test参数日志（前面板公开显示）')
+    slot(f'cell_{c}.sequence', SEQ_S, '1', 'derived', 'controller_board', f'{C_}池Sequential Test：是否启用、参数表与正在执行的项号（1起）')
     for k, u, m in [('flux_mol_s', 'mol/s', '膜向载气腔的真实O₂通量（膜出口面）'), ('film_o2_mol', 'mol', '膜内溶解氧总量'),
                     ('test_side_o2_pa', 'Pa', '测试气腔O₂分压'), ('carrier_side_o2_mol', 'mol', '载气腔内O₂量'), ('leak_mol_s', 'mol/s', '边缘泄漏与环境渗入之和')]:
         slot(f'truth.cell_{c}.{k}', number(u), u, 'process_truth', f'cartridge_{c}' if k != 'test_side_o2_pa' else f'cell_head_{c}', f'{C_}池' + m, 'evaluator',
              '测试气腔内O₂的绝对分压（全混体积）。' if k == 'test_side_o2_pa' else None)
-for k, u, c, m in [('truth.block_temperature_k', 'K', 'thermal_module', '测试池块真实温度'), ('truth.rh_fraction', '1', 'rh_generator', '气流真实相对湿度（含静态偏差）'),
+for k, u, c, m in [('truth.block_temperature_k', 'K', 'thermal_module', '测试池块真实温度'), ('truth.rh_fraction', '1', 'rh_generator', '测试气流真实相对湿度（含静态偏差）'),
+                   ('truth.carrier_rh_fraction', '1', 'rh_generator', '载气流真实相对湿度（含静态偏差）'),
                    ('truth.sensor_current_a', 'A', 'coulox_sensor', '传感器真实电流（无量化与噪声）'), ('truth.sensor_input_mol_s', 'mol/s', 'coulox_sensor', '进入传感器的O₂摩尔流'),
                    ('truth.tec_power_w', 'W', 'thermal_module', '热电模块瞬时热功率（正=加热）')]:
     slot(k, number(u), u, 'process_truth', c, m, 'evaluator')
@@ -485,12 +593,23 @@ class AmetekOxtranRuntime:
         self.T = 296.15
         self.integral_w = 0.0
         self.tec_w = 0.0
-        self.rh_target = 0.0
+        self.rh_target = 0.0       # test-gas stream (humidity.set writes both streams)
         self.rh_model = 0.0
+        self.rh_target_c = 0.0     # carrier-gas stream
+        self.rh_model_c = 0.0
         self.rng = random.Random(0)
         self.cells = {c: dict(cfg=None, drawer=0.0, drawer_move=None, clamp=0.0, clamp_move=None, clamped=False, film=None, conc=None,
                               p_up=0.0, n_h=0.0, test=None, last_otr=None, final_otr=None, test_counter=0, exam_count=0, phase='idle', source=None,
-                              flux=0.0, leak=0.0) for c in CELLS}
+                              flux=0.0, leak=0.0, ids=dict(test_id='', sample_id='', material_id=''), seq=dict(enabled=False, steps=[]), seq_run=None,
+                              last_zero=None) for c in CELLS}
+        self.held = False          # GoTo ByPass
+        self.methods = {}          # saved Advanced Test Methods by name
+        self.adjust = dict(name=None, gain=1.0)
+        self.adjust_records = {}
+        self.sensor_error = dict(gain_error=0.0, offset_a=0.0)
+        self.power_epoch = 0       # power-ups seen by the front panel
+        self.panel_capture_dir = None
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self) if PANEL_SPEC else None
         self.sensor_I = 0.0        # total sensor current = O2 part + background part (noise-free, evaluator truth)
         self.sensor_I_o2 = 0.0
         self.sensor_I_bg = 0.0
@@ -508,6 +627,7 @@ class AmetekOxtranRuntime:
         self._principals = {}
         self._requests = {}
         self._owners = {}
+        self._caller = None        # principal of the session call in progress (a panel gesture acts as that caller)
         self._cancel_operations = {}
         self.book = {k: 0.0 for k in LEDGER_KEYS if k not in ('film_content_mol', 'film_residual_mol', 'carrier_chamber_mol', 'carrier_residual_balance_mol',
                                                                'sensor_in_transit_mol', 'sensor_balance_residual_mol', 'block_thermal_j', 'energy_residual_j')}
@@ -522,8 +642,10 @@ class AmetekOxtranRuntime:
         self.book[key] = t_
 
     def _measured_current(self):
-        """Sensor current as the instrument measures it: truth plus correlated additive and proportional noise."""
-        return self.sensor_I + self.noise_abs + self.noise_rel * max(self.sensor_I_o2, 0.0)
+        """Sensor current as the instrument measures it: truth (with the evaluator's gain / offset error, default 0) plus correlated additive and
+        proportional noise."""
+        e = self.sensor_error
+        return self.sensor_I * (1.0 + e['gain_error']) + e['offset_a'] + self.noise_abs + self.noise_rel * max(self.sensor_I_o2, 0.0)
 
     @property
     def time_s(self):
@@ -550,10 +672,15 @@ class AmetekOxtranRuntime:
         pw = (self.plant['ambient_rh'] if self.plant else 0.0) * saturation_pressure_pa(Ta)
         return AIR_O2_FRACTION * (self._baro() - pw)
 
-    def _rh_true(self):
-        if self.rh_model <= 0.0:
+    def _rh_true(self, model=None):
+        """True RH of the test-gas stream (or of the stream whose model value is given): the model plus the static bias."""
+        model = self.rh_model if model is None else model
+        if model <= 0.0:
             return 0.0
-        return min(1.0, max(0.0, self.rh_model + (self.plant['rh_bias'] if self.plant else 0.0)))
+        return min(1.0, max(0.0, model + (self.plant['rh_bias'] if self.plant else 0.0)))
+
+    def _rh_true_c(self):
+        return self._rh_true(self.rh_model_c)
 
     def _carrier_residual_fraction(self):
         """O2 left in the carrier after the H2/catalyst stage (manual: 1-3 % H2 needed for catalytic removal)."""
@@ -604,6 +731,11 @@ class AmetekOxtranRuntime:
              'instrument.configured': self.instrument is not None, 'power.enabled': self.power, 'gas.supply_ok': self._supply_ok(), 'sensor.over_range': self.over_range,
              'thermal.target_k': self.target_k, 'thermal.indicated_k': self._indicated_T(), 'humidity.target_fraction': self.rh_target,
              'humidity.indicated_fraction': quantize(self.rh_model, RH_DISPLAY_RESOLUTION) if self.power else None,
+             'humidity.carrier_target_fraction': self.rh_target_c,
+             'humidity.carrier_indicated_fraction': quantize(self.rh_model_c, RH_DISPLAY_RESOLUTION) if self.power else None,
+             'sequence.held': self.held, 'methods.saved': list(self.methods), 'sensor.adjustment': dict(self.adjust),
+             'sensor.adjustment_records': [dict(r, assigned=r['name'] == self.adjust['name']) for r in self.adjust_records.values()],
+             'sensor.error': dict(self.sensor_error), 'truth.carrier_rh_fraction': self._rh_true_c(),
              'barometer.indicated_pa': quantize(self._baro(), BAROMETER_RESOLUTION_PA) if self.power else None,
              'sensor.raw_counts': self._panel_counts(), 'sensor.route': self.route,
              'sequence.slot_remaining_s': None if self.seq is None else (self.seq['end_ns'] - self.time_ns) / 1e9,
@@ -620,8 +752,17 @@ class AmetekOxtranRuntime:
                       f'cell_{k}.phase': c['phase'], f'cell_{k}.exam_count': c['exam_count'], f'cell_{k}.last_otr_mol_m2_s': c['last_otr'],
                       f'cell_{k}.final_otr_mol_m2_s': c['final_otr'],
                       f'truth.cell_{k}.flux_mol_s': c['flux'], f'truth.cell_{k}.film_o2_mol': self._film_content(cell), f'truth.cell_{k}.test_side_o2_pa': c['p_up'],
-                      f'truth.cell_{k}.carrier_side_o2_mol': c['n_h'], f'truth.cell_{k}.leak_mol_s': c['leak']})
+                      f'truth.cell_{k}.carrier_side_o2_mol': c['n_h'], f'truth.cell_{k}.leak_mol_s': c['leak'],
+                      f'cell_{k}.identification': dict(c['ids']), f'cell_{k}.test_info': self._test_info(cell),
+                      f'cell_{k}.sequence': dict(enabled=c['seq']['enabled'], steps=copy.deepcopy(c['seq']['steps']),
+                                                 current_step=None if c['seq_run'] is None else c['seq_run'] + 1)})
         return {k: copy.deepcopy(v) for k, v in d.items() if visibility != 'agent' or SLOTS[k]['visibility'] == 'agent'}
+
+    def _test_info(self, cell):
+        t = self.cells[cell]['test']
+        if t is None:
+            return dict(method=None, operation_id=None, sequence_step=None, test_id='', sample_id='', material_id='', auto_log=[])
+        return dict(method=t['method'], operation_id=t['op'], sequence_step=t['seq_step'], **t['ids'], auto_log=copy.deepcopy(t['auto_log'][-200:]))
 
     def _panel_counts(self):
         if not self.power:
@@ -645,17 +786,25 @@ class AmetekOxtranRuntime:
         return b
 
     # ------------------------------------------------------------ test bookkeeping
-    def _new_test(self, cell):
+    def _new_test(self, cell, method='advanced', cfg=None, wait=False):
+        """A new test record on a cell.  method 'auto' carries its own rule-set cfg; wait (sequential tests) keeps the cell conditioning, sensor
+        bypassed, until the cell temperature and both RH streams are within tolerance of their set points, then enters the method's first phase."""
         c = self.cells[cell]
         c['test_counter'] += 1
         op = f'{self.instance_id}:test:{cell}:{c["test_counter"]}'
-        cfg = copy.deepcopy(c['cfg'])
+        cfg = copy.deepcopy(c['cfg'] if cfg is None else cfg)
         inst = copy.deepcopy(self.instrument)
         first = 'zero_start' if cfg['individual_zero'] in ('start', 'both') else ('conditioning' if cfg['conditioning_hours'] > 0 else 'testing')
         t = dict(op=op, cell=cell, cfg=cfg, inst=inst, phase='running', cell_phase=first, start_ns=self.time_ns, end_ns=None, readings=[], zeros=[],
                  individual_zero=None, zero_run=[], zero_stable=None, conditioning_end_ns=None, converged=False, validity='not_completed', terminal_reason=None, final=None,
-                 temperature_excursion=False, humidity_excursion=False, target_k=self.target_k, target_rh=self.rh_target, source=c['source'])
-        if first == 'conditioning':
+                 temperature_excursion=False, humidity_excursion=False, target_k=self.target_k, target_rh=self.rh_target, source=c['source'],
+                 target_rh_c=self.rh_target_c, method=method, ids=dict(c['ids']), seq_step=None if c['seq_run'] is None else c['seq_run'] + 1, auto_log=[],
+                 first=first, waiting=bool(wait), gain=self.adjust['gain'])
+        if cfg['individual_zero'] == 'use_last':
+            t['individual_zero'] = c['last_zero']
+        if wait:
+            first = t['cell_phase'] = 'conditioning'
+        elif first == 'conditioning':
             t['conditioning_end_ns'] = self.time_ns + round(cfg['conditioning_hours'] * 3600e9)
         c['test'] = t
         c['phase'] = first
@@ -690,7 +839,9 @@ class AmetekOxtranRuntime:
         exams = [r for r in t['readings'] if r['kind'] == 'exam']
         fin = None
         if exams:
-            k = cfg['convergence_count'] if cfg['test_mode'] == 'convergence' else 1
+            k = cfg['convergence_count'] if cfg['test_mode'] == 'convergence' else AUTO_WINDOWS[0] if cfg['test_mode'] == 'auto' else 1
+            if cfg['test_mode'] == 'convergence_hours':                     # the exams of the last convergence_count hours
+                k = len([r for r in exams if r['time_s'] >= exams[-1]['time_s'] - cfg['convergence_count'] * 3600.0 - 1e-6])
             window = [r['otr_mol_m2_s'] for r in exams[-k:]]
             zero = t['individual_zero'] or 0.0
             otr = sum(window) / len(window) - zero
@@ -716,7 +867,7 @@ class AmetekOxtranRuntime:
             validity = 'temperature_out_of_tolerance'
         elif t['humidity_excursion']:
             validity = 'humidity_out_of_tolerance'
-        elif (cfg['test_mode'] == 'convergence' and not t['converged']) or t['zero_stable'] is False:
+        elif (cfg['test_mode'] in ('convergence', 'convergence_hours', 'auto') and not t['converged']) or t['zero_stable'] is False:
             validity = 'not_converged'
         else:
             lo, hi = OTR_RANGE_CC_M2_DAY
@@ -726,6 +877,12 @@ class AmetekOxtranRuntime:
         c['phase'] = t['cell_phase']
         c['final_otr'] = None if fin is None or validity != 'valid' else fin['otr']
         self.records[t['op']] = self._result_of(t)
+        if phase == 'succeeded' and c['seq_run'] is not None and c['seq_run'] + 1 < len(c['seq']['steps']) and self.power:
+            c['seq_run'] += 1                                                   # sequential test: the next row starts without user intervention
+            self._apply_step(cell, c['seq_run'])
+            self._new_test(cell, wait=True)
+        else:
+            c['seq_run'] = None                                                 # an abort or a fatal error ends the rest of the sequence
 
     def _result(self, cell):
         t = self.cells[cell]['test']
@@ -830,7 +987,7 @@ class AmetekOxtranRuntime:
         base = self.zero_current if self.zero_current is not None else 0.0
         n_meas = (I - base) / (4.0 * FARADAY)
         P_used = self._baro() if inst['barometer_mode'] == 'auto' else inst['manual_barometer_pa']
-        pkg = n_meas * (STD_PRESSURE_PA / P_used) * (100.0 / inst['permeant_concentration_percent'])
+        pkg = n_meas * (STD_PRESSURE_PA / P_used) * (100.0 / inst['permeant_concentration_percent']) * t['gain']   # x assigned OTR Adjustment gain
         pkg_cc = quantize(pkg * CC_DAY_PER_MOL_S, OTR_RESOLUTION_CC_M2_DAY * TEST_AREA_M2)
         pkg = pkg_cc / CC_DAY_PER_MOL_S
         otr = pkg / cfg['declared_area_m2']
@@ -847,11 +1004,11 @@ class AmetekOxtranRuntime:
         if kind == 'individual_zero':
             # the zero is repeated until it is stable: after the test gas is removed the film keeps desorbing dissolved O2
             t['zero_run'].append(otr)
-            k = cfg['convergence_count']
+            k = cfg['convergence_count'] if cfg['test_mode'] != 'convergence_hours' else AUTO_WINDOWS[0]
             run = t['zero_run']
             stable = is_stable(run, k, cfg['convergence_percent'], floor)
             if stable or len(run) >= cfg['max_cycles']:
-                t['individual_zero'] = otr
+                t['individual_zero'] = c['last_zero'] = otr
                 t['zero_stable'] = t['zero_stable'] and stable if t['zero_stable'] is not None else stable
                 t['zero_run'] = []
                 if c['phase'] == 'zero_start':
@@ -866,7 +1023,8 @@ class AmetekOxtranRuntime:
         c['last_otr'] = otr
         if Ti is not None and abs(Ti - t['target_k']) > cfg['temperature_tolerance_k'] + 1e-9:
             t['temperature_excursion'] = True
-        if abs(self.rh_target - t['target_rh']) > 1e-12 or abs(self.rh_model - t['target_rh']) > RH_ACCURACY + 1e-9:
+        if abs(self.rh_target - t['target_rh']) > 1e-12 or abs(self.rh_model - t['target_rh']) > RH_ACCURACY + 1e-9 or \
+                abs(self.rh_target_c - t['target_rh_c']) > 1e-12 or abs(self.rh_model_c - t['target_rh_c']) > RH_ACCURACY + 1e-9:
             t['humidity_excursion'] = True
         exams = [r['otr_mol_m2_s'] for r in t['readings'] if r['kind'] == 'exam']
         done = False
@@ -875,11 +1033,102 @@ class AmetekOxtranRuntime:
         elif cfg['test_mode'] == 'convergence':
             t['converged'] = is_stable(exams, cfg['convergence_count'], cfg['convergence_percent'], floor)
             done = t['converged'] or len(exams) >= cfg['max_cycles']
+        elif cfg['test_mode'] == 'convergence_hours':
+            # convergence by hours: every step and the drift over the exams of the last convergence_count hours within the criterion, once the test
+            # has examined for at least that long (Help-System criterion not available: the cycles rule over a time window)
+            rows = [r for r in t['readings'] if r['kind'] == 'exam']
+            span = cfg['convergence_count'] * 3600.0
+            win = [r['otr_mol_m2_s'] for r in rows if r['time_s'] >= rows[-1]['time_s'] - span - 1e-6]
+            t['converged'] = rows[-1]['time_s'] - rows[0]['time_s'] >= span - 1e-6 and len(win) >= 2 and \
+                is_stable(win, len(win) - 1, cfg['convergence_percent'], floor)
+            done = t['converged'] or len(exams) >= cfg['max_cycles']
+        elif cfg['test_mode'] == 'auto':
+            done = self._auto_rules(t, exams, floor)
         if done:
             if cfg['individual_zero'] in ('end', 'both'):
                 c['phase'] = t['cell_phase'] = 'zero_end'
             else:
                 self._finish(cell, 'succeeded', 'TEST_COMPLETE')
+
+    def _auto_rules(self, t, exams, floor):
+        """Auto-Test rule set (manual p.3-4, D-4): the measured transmission rate sets the exam time (longer for a Very Good Barrier) and whether an
+        individual zero follows the test phase; equilibrium when the 'Current' rate is below the noise floor or differs from the 'Historical' rate
+        by less than 1 %.  Every change is logged with the cell examination data."""
+        cfg = t['cfg']
+        vg = VERY_GOOD_BARRIER_CC_M2_DAY / CC_DAY_PER_MOL_S
+        cur = exams[-AUTO_WINDOWS[0]:]
+        cur = sum(cur) / len(cur)
+        now = quantize(self.time_s - t['start_ns'] / 1e9, 1.0)
+        if abs(cur) < vg and cfg['exam_minutes'] < AUTO_EXAM_MINUTES[1]:
+            cfg['exam_minutes'] = AUTO_EXAM_MINUTES[1]
+            t['auto_log'].append(dict(time_s=now, parameter='Exam Minutes', value=f'{AUTO_EXAM_MINUTES[1]:g}'))
+        eq = False
+        if len(exams) >= AUTO_WINDOWS[0] and abs(cur) < floor:
+            eq = True
+        elif len(exams) >= AUTO_WINDOWS[1]:
+            hist = sum(exams[-AUTO_WINDOWS[1]:]) / AUTO_WINDOWS[1]
+            eq = abs(cur - hist) <= 0.01 * abs(cur)
+        if eq:
+            t['converged'] = True
+            t['auto_log'].append(dict(time_s=now, parameter='Equilibrium', value='reached'))
+            if abs(cur) < vg:
+                cfg['individual_zero'] = 'end'
+                t['auto_log'].append(dict(time_s=now, parameter='Individual Zero', value='End'))
+        return eq or len(exams) >= cfg['max_cycles']
+
+    def _apply_step(self, cell, i):
+        """Set points of row i of a cell's Sequential Test Parameters table."""
+        st = self.cells[cell]['seq']['steps'][i]
+        self.target_k, self.rh_target, self.rh_target_c = st['target_k'], st['test_rh_fraction'], st['carrier_rh_fraction']
+
+    def _conditions_stable(self, t):
+        """Cell temperature within the method's tolerance and both RH streams within the RH accuracy of their set points."""
+        Ti = self._indicated_T()
+        return (Ti is not None and abs(Ti - self.target_k) <= t['cfg']['temperature_tolerance_k'] + 1e-9 and abs(self.rh_model - self.rh_target) <= RH_ACCURACY
+                and abs(self.rh_model_c - self.rh_target_c) <= RH_ACCURACY)
+
+    def _enter_first(self, cell):
+        """End the wait for stable conditions: the method's first phase (individual zero, conditioning or testing) starts now."""
+        c = self.cells[cell]
+        t = c['test']
+        t['waiting'] = False
+        c['phase'] = t['cell_phase'] = t['first']
+        if t['first'] == 'conditioning':
+            t['conditioning_end_ns'] = self.time_ns + round(t['cfg']['conditioning_hours'] * 3600e9)
+        self._route()
+
+    def _ensure_sequence(self):
+        """Start the exam rotation when tests run without one (a test started or continued while no slot was scheduled), unless held in ByPass."""
+        if self.seq is None and self._active_cells() and self.power and not self.held:
+            self._next_slot(None)
+
+    def _advance(self, cell):
+        """Advance control: the cell's next state (waiting -> first phase, individual zero -> conditioning / testing, conditioning -> testing, testing ->
+        end zero or Test Complete, end zero -> Test Complete); a zero advanced early keeps its latest reading."""
+        c = self.cells[cell]
+        t = c['test']
+        cfg = t['cfg']
+        if self.seq is not None and self.route == cell:
+            self.seq['routed_since_ns'] = self.time_ns                       # the running exam slot is not a complete exam of the new state
+        if t['waiting']:
+            self._enter_first(cell)
+        elif c['phase'] == 'zero_start':
+            if t['zero_run']:
+                t['individual_zero'] = c['last_zero'] = t['zero_run'][-1]
+            t['zero_run'] = []
+            nxt = 'conditioning' if cfg['conditioning_hours'] > 0 else 'testing'
+            c['phase'] = t['cell_phase'] = nxt
+            if nxt == 'conditioning':
+                t['conditioning_end_ns'] = self.time_ns + round(cfg['conditioning_hours'] * 3600e9)
+        elif c['phase'] == 'conditioning':
+            t['conditioning_end_ns'] = None
+            c['phase'] = t['cell_phase'] = 'testing'
+        elif c['phase'] == 'testing' and cfg['individual_zero'] in ('end', 'both'):
+            c['phase'] = t['cell_phase'] = 'zero_end'
+        else:
+            if c['phase'] == 'zero_end' and t['zero_run']:
+                t['individual_zero'] = c['last_zero'] = t['zero_run'][-1]
+            self._finish(cell, 'succeeded', 'OPERATOR_STOP')
 
     def _abort_test(self, cell):
         """Cancellation of the asynchronous test operation: always an abort (readings kept), unlike the graceful continuous stop."""
@@ -889,13 +1138,15 @@ class AmetekOxtranRuntime:
 
     # ------------------------------------------------------------ commands
     def invoke(self, capability_id, **arguments):
-        if capability_id not in CAPS:
+        if capability_id not in ALL_CAPS:
             raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability_id]['input_schema'], arguments)
+        validate(ALL_CAPS[capability_id]['input_schema'], arguments)
         k = capability_id
         a = copy.deepcopy(arguments)
         if k in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED')
+        if k in PANEL_CAPS:
+            return self._panel_command(k, a)
         if k == 'test.result':
             return self._result(a['cell'])
         if k == 'ledger.read':
@@ -965,7 +1216,10 @@ class AmetekOxtranRuntime:
                         if cc['clamped']:
                             self._open_cell(c)                # release stroke interrupted: the seal is already broken
                         cc['clamped'] = False
+            if not a['enabled']:
+                self.held = False
             if a['enabled'] and not self.power:
+                self.power_epoch += 1
                 self.noise_abs = self.plant['sensor_noise_a'] * self.rng.gauss(0.0, 1.0)          # stationary start of the noise process
                 self.noise_rel = self.plant['sensor_relative_noise'] * self.rng.gauss(0.0, 1.0)
             self.power = a['enabled']
@@ -980,8 +1234,15 @@ class AmetekOxtranRuntime:
                 raise ActionRejected('PLANT_REQUIRED')
             if 0.0 < a['rh_fraction'] < RH_RANGE[0]:
                 raise ActionRejected('RH_OUTSIDE_CONTROLLED_RANGE')
-            self.rh_target = a['rh_fraction']
+            self.rh_target = self.rh_target_c = a['rh_fraction']                # both streams
             out = dict(rh_fraction=self.rh_target)
+        elif k == 'humidity.set_streams':
+            if self.plant is None:
+                raise ActionRejected('PLANT_REQUIRED')
+            if any(0.0 < a[x] < RH_RANGE[0] for x in ('test_rh_fraction', 'carrier_rh_fraction')):
+                raise ActionRejected('RH_OUTSIDE_CONTROLLED_RANGE')
+            self.rh_target, self.rh_target_c = a['test_rh_fraction'], a['carrier_rh_fraction']
+            out = dict(test_rh_fraction=self.rh_target, carrier_rh_fraction=self.rh_target_c)
         elif k == 'drawer.move':
             if self.plant is None:
                 raise ActionRejected('PLANT_REQUIRED')
@@ -1039,12 +1300,168 @@ class AmetekOxtranRuntime:
                 raise ActionRejected('CELL_NOT_CLAMPED')
             if self._test_active(cell):
                 raise ActionRejected('BUSY')
-            op = self._new_test(cell)
+            if c['cfg']['individual_zero'] == 'use_last' and c['last_zero'] is None:
+                raise ActionRejected('NO_INDIVIDUAL_ZERO')
+            sequential = c['seq']['enabled'] and bool(c['seq']['steps'])
+            c['seq_run'] = 0 if sequential else None
+            if sequential:
+                self._apply_step(cell, 0)                                     # row 1 of the Sequential Test Parameters table
+            self.held = False                                                 # a start leaves a GoTo ByPass hold
+            op = self._new_test(cell, wait=sequential)
             if self.seq is None:
                 self._next_slot(None)
             else:
                 self._route()
             out = dict(operation_id=op)
+        elif k == 'test.start_auto':
+            cell = a['cell']
+            c = self.cells[cell]
+            if self.plant is None or self.gas is None:
+                raise ActionRejected('PLANT_REQUIRED')
+            if not self.power:
+                raise ActionRejected('POWER_OFF')
+            if self.instrument is None:
+                raise ActionRejected('METHOD_REQUIRED')
+            if not self._supply_ok():
+                raise ActionRejected('GAS_SUPPLY_PRESSURE_OUT_OF_RANGE')
+            if not c['clamped'] or c['clamp_move'] is not None:
+                raise ActionRejected('CELL_NOT_CLAMPED')
+            if self._test_active(cell):
+                raise ActionRejected('BUSY')
+            cfg = dict(c['cfg'] or DEFAULT_CFG, test_mode='auto', cycles=1, exam_minutes=AUTO_EXAM_MINUTES[0], conditioning_hours=0.0, individual_zero='none',
+                       convergence_percent=1.0, convergence_count=AUTO_WINDOWS[0], max_cycles=AUTO_MAX_CYCLES)   # the sample fields of the cell stay
+            c['seq_run'] = None
+            self.held = False
+            op = self._new_test(cell, method='auto', cfg=cfg)
+            if self.seq is None:
+                self._next_slot(None)
+            else:
+                self._route()
+            out = dict(operation_id=op)
+        elif k == 'test.abort':
+            cell = a['cell']
+            if not self._test_active(cell):
+                raise ActionRejected('NOT_RUNNING')
+            c = self.cells[cell]
+            t = c['test']
+            c['seq_run'] = None
+            self._finish(cell, 'cancelled', 'USER_CANCEL')
+            self._route()
+            out = dict(cell=cell, phase=t['phase'], exam_count=len([r for r in t['readings'] if r['kind'] == 'exam']))
+        elif k == 'test.advance':
+            cell = a['cell']
+            if not self._test_active(cell):
+                raise ActionRejected('NOT_RUNNING')
+            self._advance(cell)
+            self._route()
+            self._ensure_sequence()
+            c = self.cells[cell]
+            out = dict(cell=cell, phase=c['test']['phase'], cell_phase=c['phase'])
+        elif k == 'sequence.goto':
+            if self.plant is None:
+                raise ActionRejected('PLANT_REQUIRED')
+            if not self.power:
+                raise ActionRejected('POWER_OFF')
+            if a['target'] == 'bypass':
+                self.held = True                                              # the sensor stays bypassed; tests keep running, conditioning timers continue
+                self.seq = None
+            else:
+                if self.instrument is None:
+                    raise ActionRejected('METHOD_REQUIRED')
+                self.held = False
+                self.exams_since_zero = 0
+                self.seq = dict(kind='Z', start_ns=self.time_ns, end_ns=self.time_ns + max(1, round(self.instrument['rezero_exam_minutes'] * 60e9)), manual=True)
+            self._route()
+            out = dict(target=a['target'], route=self.route)
+        elif k == 'cell.set_identification':
+            cell = a.pop('cell')
+            self.cells[cell]['ids'] = a
+            out = dict(cell=cell, **a)
+        elif k in ('sequence.set_step', 'sequence.delete_step', 'sequence.enable'):
+            cell = a['cell']
+            c = self.cells[cell]
+            if self._test_active(cell):
+                raise ActionRejected('BUSY')
+            steps = c['seq']['steps']
+            if k == 'sequence.enable':
+                c['seq']['enabled'] = a['enabled']
+                out = dict(cell=cell, enabled=a['enabled'])
+            else:
+                i = a['index'] - 1
+                if i > len(steps) or (k == 'sequence.delete_step' and i == len(steps)):
+                    raise ActionRejected('STEP_INDEX_OUT_OF_RANGE')
+                if k == 'sequence.delete_step':
+                    del steps[i]
+                else:
+                    if any(0.0 < a[x] < RH_RANGE[0] for x in ('test_rh_fraction', 'carrier_rh_fraction')):
+                        raise ActionRejected('RH_OUTSIDE_CONTROLLED_RANGE')
+                    row = {x: a[x] for x in ('target_k', 'test_rh_fraction', 'carrier_rh_fraction')}
+                    if i == len(steps):
+                        steps.append(row)
+                    else:
+                        steps[i] = row
+                out = dict(cell=cell, steps=len(steps))
+        elif k == 'method.save':
+            c = self.cells[a['cell']]
+            if self.instrument is None or c['cfg'] is None:
+                raise ActionRejected('METHOD_REQUIRED')
+            if a['name'] not in self.methods and len(self.methods) >= MAX_METHODS:
+                raise ActionRejected('METHOD_STORE_FULL')
+            self.methods[a['name']] = dict(cfg=copy.deepcopy(c['cfg']), instrument=copy.deepcopy(self.instrument), target_k=self.target_k, rh_test=self.rh_target,
+                                           rh_carrier=self.rh_target_c, sequence=copy.deepcopy(c['seq']))
+            out = dict(name=a['name'], methods=len(self.methods))
+        elif k == 'method.recall':
+            m = self.methods.get(a['name'])
+            if m is None:
+                raise ActionRejected('METHOD_NOT_FOUND')
+            if self.plant is None:
+                raise ActionRejected('PLANT_REQUIRED')
+            if any(self._test_active(c) for c in CELLS):
+                raise ActionRejected('BUSY')
+            c = self.cells[a['cell']]
+            c['cfg'], c['seq'] = copy.deepcopy(m['cfg']), copy.deepcopy(m['sequence'])
+            self.instrument = copy.deepcopy(m['instrument'])
+            self.target_k, self.rh_target, self.rh_target_c = m['target_k'], m['rh_test'], m['rh_carrier']
+            out = dict(name=a['name'], cell=a['cell'])
+        elif k == 'method.delete':
+            if a['name'] not in self.methods:
+                raise ActionRejected('METHOD_NOT_FOUND')
+            del self.methods[a['name']]
+            out = dict(name=a['name'], methods=len(self.methods))
+        elif k == 'sensor.adjustment_create':
+            if a['name'] in self.adjust_records:
+                raise ActionRejected('RECORD_EXISTS')
+            if len(self.adjust_records) >= MAX_ADJUSTMENT_RECORDS:
+                raise ActionRejected('RECORD_STORE_FULL')
+            t = self.cells[a['cell']]['test']
+            if t is None or t['phase'] != 'succeeded' or t['final'] is None:
+                raise ActionRejected('NO_COMPLETED_TEST')
+            basis = t['cfg']['report_basis']
+            measured = t['final']['otr_pkg_cc'] if basis == 'package' else t['final']['otr_cc']
+            raw = measured / t['gain']                                        # the reference test without the gain it ran with
+            gain = a['reference_value'] / raw if raw > 0 else math.inf
+            if not ADJUSTMENT_GAIN_RANGE[0] <= gain <= ADJUSTMENT_GAIN_RANGE[1]:
+                raise ActionRejected('GAIN_OUT_OF_RANGE')
+            self.adjust_records[a['name']] = dict(name=a['name'], gain=gain, reference_value=a['reference_value'], measured_value=raw, basis=basis,
+                                                  operation_id=t['op'], created_s=self.time_s)
+            out = dict(name=a['name'], gain=gain, measured_value=raw)
+        elif k == 'sensor.adjustment_assign':
+            if a['name'] is not None and a['name'] not in self.adjust_records:
+                raise ActionRejected('RECORD_NOT_FOUND')
+            if any(self._test_active(c) for c in CELLS):
+                raise ActionRejected('BUSY')
+            self.adjust = dict(name=a['name'], gain=1.0 if a['name'] is None else self.adjust_records[a['name']]['gain'])
+            out = dict(self.adjust)
+        elif k == 'sensor.adjustment_delete':
+            if a['name'] not in self.adjust_records:
+                raise ActionRejected('RECORD_NOT_FOUND')
+            if self.adjust['name'] == a['name']:
+                raise ActionRejected('RECORD_ASSIGNED')
+            del self.adjust_records[a['name']]
+            out = dict(name=a['name'], records=len(self.adjust_records))
+        elif k == 'sensor.configure_error':
+            self.sensor_error = dict(a)
+            out = dict(self.sensor_error)
         elif k == 'test.stop':
             cell = a['cell']
             if not self._test_active(cell):
@@ -1063,6 +1480,7 @@ class AmetekOxtranRuntime:
             else:
                 self._finish(cell, 'cancelled', 'USER_CANCEL')
             self._route()
+            self._ensure_sequence()
             out = dict(cell=cell, phase=t['phase'], exam_count=n_exam)
         else:  # pragma: no cover
             raise ActionRejected('UNKNOWN_CAPABILITY')
@@ -1197,8 +1615,12 @@ class AmetekOxtranRuntime:
             self.rh_model = self.rh_target + (self.rh_model - self.rh_target) * math.exp(-dt / p['rh_time_constant_s'])
             if self.rh_target == 0.0 and self.rh_model < 1e-6:
                 self.rh_model = 0.0
-        aw = self._rh_true()
+            self.rh_model_c = self.rh_target_c + (self.rh_model_c - self.rh_target_c) * math.exp(-dt / p['rh_time_constant_s'])
+            if self.rh_target_c == 0.0 and self.rh_model_c < 1e-6:
+                self.rh_model_c = 0.0
+        aw = self._rh_true()                                                 # test-gas stream: dilutes the O2 driving pressure
         pw = aw * saturation_pressure_pa(self.T)
+        aw_film = 0.5 * (aw + self._rh_true_c())                             # film water activity: mean of its two faces (equal streams: the same)
         g = self.gas
         n_c = molar_flow(CARRIER_FLOW_SCCM)
         # ---- per cell: chambers, film, leaks
@@ -1240,7 +1662,7 @@ class AmetekOxtranRuntime:
             film_out = 0.0
             open_flow = 0.0
             if film is not None:
-                _, D, S = self._transport(film, self.T, aw)
+                _, D, S = self._transport(film, self.T, aw_film)
                 j_top, j_bot, n_new, out = self._film_chamber_advance(c, D, S * p_up, S * GAS_CONSTANT * self.T / V_h, q_in, kh, dt)
                 film_out = j_bot * film['area']           # mol/s averaged over the sub-step
                 self._add('film_test_side_in_mol', j_top * film['area'] * dt)
@@ -1333,6 +1755,77 @@ class AmetekOxtranRuntime:
         c['conc'] = conc
         return jt / dt, jb / dt
 
+    # ------------------------------------------------------------ front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the instrument software sees: the agent slots plus host values (power-up count, the cells' and the instrument's current method
+        parameters or the defaults shown before one is set, the latest test record of each cell as its Cell Status / report shows it)."""
+        out = self.read('agent')
+        out.update({'host.powered': self.power, 'host.power_epoch': self.power_epoch, 'host.instance_id': self.instance_id, 'host.asset_version': ASSET_VERSION,
+                    'host.instrument': dict(self.instrument or DEFAULT_INSTRUMENT), 'host.instrument_set': self.instrument is not None})
+        for cell in CELLS:
+            c, k = self.cells[cell], cell.lower()
+            cfg = dict(c['cfg'] or DEFAULT_CFG)
+            res = AmetekOxtranSession._filter_result(self._result(cell))
+            res['readings'] = [r for r in res['readings'] if r['kind'] == 'exam'][-MAX_PANEL_ROWS:]
+            plot = [[r['time_s'] / 3600.0, r['otr_cc_m2_day']] for r in res['readings']]
+            out.update({f'host.cfg_{k}': cfg, f'host.cfg_{k}_set': c['cfg'] is not None, f'host.result_{k}': res, f'host.plot_{k}': plot,
+                        f'host.plot_span_{k}': max([1.0] + [p[0] - plot[0][0] for p in plot[-1:]]), f'host.plot_end_{k}': plot[-1][0] if plot else 0.0,
+                        f'host.form_{k}': dict(conditioning_on=cfg['conditioning_hours'] > 0, zero_on=cfg['individual_zero'] != 'none',
+                                               zero_mode=cfg['individual_zero'] if cfg['individual_zero'] in ('start', 'end', 'use_last') else 'start',
+                                               package=cfg['report_basis'] == 'package'),
+                        f'host.waiting_{k}': bool(c['test'] and c['test']['phase'] == 'running' and c['test']['waiting'])})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (the commands check before they change anything).  A gesture made through a
+        session acts as that session's caller: the same ownership rule as a direct call (another agent's test can be viewed, not stopped or changed),
+        and a test it starts belongs to that caller."""
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            caller = self._caller
+            if caller is not None:
+                AmetekOxtranSession(self, caller)._check_access(capability_id, arguments)
+            out = self.invoke(capability_id, **arguments)
+            if caller is not None and capability_id in ASYNC and isinstance(out, dict) and out.get('operation_id'):
+                self._owners[out['operation_id']] = caller
+            return out
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.time_s
+
+    def _panel_command(self, k, a):
+        if self.plant is None:
+            raise ActionRejected('PLANT_REQUIRED')
+        if k == 'panel.frame':
+            return dict(frame=self.panel.frame())
+        if k == 'panel.capture':
+            return self._panel_capture(a['display_id'])
+        try:
+            if k == 'panel.press':
+                ok = self.panel.press(a['input_id'], float(a.get('duration_s', 0.1)))
+            elif k == 'panel.switch':
+                ok = self.panel.switch(a['input_id'], a['position'])
+            else:
+                to = (a['to_x'], a['to_y']) if 'to_x' in a and 'to_y' in a else None
+                ok = self.panel.touch(a['display_id'], a['x'], a['y'], float(a.get('duration_s', 0.1)), to)
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        self.revision += 1
+        return dict(accepted=bool(ok))
+
+    def _panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.time_s, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
     def step(self, dt_s):
         validate(number('s', 0.0, 86400.0), dt_s)
         raw = dt_s * 1e9 + self._clock_remainder_ns
@@ -1367,11 +1860,14 @@ class AmetekOxtranRuntime:
                     cc['phase'] = t['cell_phase'] = 'testing'
                     t['conditioning_end_ns'] = None
                     self._route()
+                elif t is not None and t['phase'] == 'running' and t['waiting'] and self._conditions_stable(t):
+                    self._enter_first(cell)                     # sequential test: conditions reached, the method starts
             if self.seq is not None and self.time_ns >= self.seq['end_ns']:
                 self._complete_slot()
-            if self.seq is not None and not self._active_cells():
+            if self.seq is not None and not self._active_cells() and not self.seq.get('manual'):
                 self.seq = None
                 self.route = 'bypass'
+            self._ensure_sequence()
             if self.over_range and self.route == 'bypass' and self._measured_current() < 0.5 * OVER_RANGE_CURRENT_A:
                 self.over_range = False                         # routing resumes with the next slot; the tripped stream is not re-entered
         self.revision += 1
@@ -1398,7 +1894,8 @@ class AmetekOxtranSession:
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID:
             raise ActionRejected('UNKNOWN_INSTANCE')
         meta = copy.deepcopy(export_ametek_oxtran_contract_metadata())
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0',
+        meta['capabilities'].update(export_panel_contract_metadata())
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION,
                     capabilities={k: v for k, v in meta['capabilities'].items() if v['visibility'] == 'agent' or self._role != 'agent'},
                     state_slots={k: v for k, v in meta['state_slots'].items() if v['visibility'] == 'agent' or self._role != 'agent'})
 
@@ -1430,17 +1927,30 @@ class AmetekOxtranSession:
         owner = h._owners.get(t['op']) if t is not None else None
         return owner is not None and owner != self._principal and h._principals.get(owner) == 'agent'
 
+    def _check_access(self, capability_id, arguments):
+        """Tests started by another *agent* are private to it (also through the front panel); host-started tests are shared by every operator."""
+        h = self._host
+        if self._role != 'agent':
+            return
+        cell = arguments.get('cell') if isinstance(arguments, dict) else None
+        if capability_id in _CELL_GUARDED and cell in CELLS and self._foreign(cell):
+            raise ActionRejected('ACCESS_DENIED')
+        if capability_id in _SHARED_GUARDED and any(self._foreign(c) and h._test_active(c) for c in CELLS):
+            raise ActionRejected('ACCESS_DENIED')
+        # the I/O power switch (power.set) is a hard switch (lead clarification 10-19): physical, never refused; power off cancels the
+        # running tests (POWER_OFF) as on a power loss
+
     def invoke(self, *, instance_id, capability_id, arguments, request_id):
         h = self._host
         try:
             self._target(instance_id)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(request_id, str) or not request_id:
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             key = (self._principal, request_id)
             digest = json.dumps([capability_id, arguments], sort_keys=True, allow_nan=False)
             if key in h._requests:
@@ -1448,18 +1958,13 @@ class AmetekOxtranSession:
                 if old != digest:
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            # Tests started by another *agent* are private to it; panel/host-started tests are shared by every operator.
-            if self._role == 'agent':
-                cell = arguments.get('cell') if isinstance(arguments, dict) else None
-                if capability_id in ('test.stop', 'test.result', 'test.configure', 'cell.load_unload') and cell in CELLS and self._foreign(cell):
-                    raise ActionRejected('ACCESS_DENIED')
-                if capability_id in ('thermal.set_temperature', 'humidity.set', 'instrument.configure') and any(
-                        self._foreign(c) and h._test_active(c) for c in CELLS):
-                    raise ActionRejected('ACCESS_DENIED')
-                if capability_id == 'power.set' and not arguments['enabled'] and any(self._foreign(c) and h._test_active(c) for c in CELLS):
-                    raise ActionRejected('ACCESS_DENIED')
-            result = self._filter_result(h.invoke(capability_id, **arguments))
-            operation = result.get('operation_id') if capability_id == 'test.start' else None
+            self._check_access(capability_id, arguments)
+            h._caller = self._principal                                       # panel gestures in this call act as this principal
+            try:
+                result = self._filter_result(h.invoke(capability_id, **arguments))
+            finally:
+                h._caller = None
+            operation = result.get('operation_id') if capability_id in ASYNC else None
             if operation:
                 h._owners[operation] = self._principal
             response = dict(protocol_version=PROTOCOL_VERSION, instance_id=instance_id, request_id=request_id, operation_id=operation,
@@ -1540,6 +2045,23 @@ PRECONDITIONS = {
                    ['plant.configured', 'gas.configured', 'instrument.configured', 'cell_a.method_configured', 'cell_b.method_configured', 'power.enabled',
                     'gas.supply_ok', 'cell_a.clamped', 'cell_b.clamped'] + _PHASES),
     'test.stop': ('该池有进行中的测试', _PHASES),
+    'humidity.set_streams': ('须已声明工程参数；两路目标各为0（干气）或5–90%', ['plant.configured']),
+    'cell.set_identification': ('无（下一次测试开始时写入记录；进行中的测试保留开始时的标识）', ['cell_a.identification', 'cell_b.identification']),
+    'test.start_auto': ('同test.start，但不需要该池测试方法（Auto-Test用自带规则，面积、厚度与报告基准按该池已设参数，未设时为50cm²、面积基准）',
+                        ['plant.configured', 'gas.configured', 'instrument.configured', 'power.enabled', 'gas.supply_ok', 'cell_a.clamped', 'cell_b.clamped'] + _PHASES),
+    'test.abort': ('该池有进行中的测试', _PHASES), 'test.advance': ('该池有进行中的测试', _PHASES),
+    'sequence.goto': ('须已声明工程参数并通电；ReZero还须已设定仪器参数（ReZero检测时长）', ['plant.configured', 'power.enabled', 'instrument.configured']),
+    'sequence.set_step': ('该池没有进行中的测试；index不超过现有项数+1（最多10项）；两路RH各为0或5–90%', _PHASES + ['cell_a.sequence', 'cell_b.sequence']),
+    'sequence.delete_step': ('该池没有进行中的测试；index为现有的项', _PHASES + ['cell_a.sequence', 'cell_b.sequence']),
+    'sequence.enable': ('该池没有进行中的测试', _PHASES),
+    'method.save': ('已设定仪器参数与该池测试方法；新名称时已存方法少于50个', ['instrument.configured', 'cell_a.method_configured', 'cell_b.method_configured', 'methods.saved']),
+    'method.recall': ('方法存在；已声明工程参数；两池都没有进行中的测试', ['methods.saved', 'plant.configured'] + _PHASES),
+    'method.delete': ('方法存在', ['methods.saved']),
+    'sensor.adjustment_create': ('名称未用且记录少于20条；该池最近一次测试已完成（succeeded）并有最终结果；增益在0.8–1.25',
+                                 ['sensor.adjustment_records', 'cell_a.phase', 'cell_b.phase']),
+    'sensor.adjustment_assign': ('记录存在（null为停用）；两池都没有进行中的测试', ['sensor.adjustment_records'] + _PHASES),
+    'sensor.adjustment_delete': ('记录存在且未被指定', ['sensor.adjustment_records', 'sensor.adjustment']),
+    'sensor.configure_error': ('无（评测者设定，缺省0）', ['sensor.error']),
 }
 ERROR_ZH = {
     'INVALID_ARGUMENT': '参数不符合输入结构、类型或范围（或收敛判据与最大周期数矛盾）', 'ACCESS_DENIED': '该角色无权调用，或该池测试属于另一个agent',
@@ -1556,9 +2078,17 @@ ERROR_ZH = {
     'GAS_SUPPLY_PRESSURE_OUT_OF_RANGE': '载气或测试气供气表压不在厂家范围', 'CELL_NOT_CLAMPED': '该池未夹紧', 'NOT_RUNNING': '该池没有进行中的测试',
     'USER_CANCEL': '测试被停止或取消（已记录读数保留）', 'SENSOR_OVER_RANGE': '传感器超量程保护使测试失败（池通道：该池；ReZero通道：全部进行中的测试）',
     'TOO_MANY_READINGS': '读数达到5000条记录上限，测试失败',
+    'NO_INDIVIDUAL_ZERO': '单池零点为Use Last但该池还没有测过单池零点', 'STEP_INDEX_OUT_OF_RANGE': '顺序测试表的项号超出现有项（写入时最多为项数+1）',
+    'METHOD_STORE_FULL': '已存方法达到50个', 'METHOD_NOT_FOUND': '没有该名称的已存方法', 'RECORD_EXISTS': '已有同名的校准记录',
+    'RECORD_STORE_FULL': '校准记录达到20条', 'NO_COMPLETED_TEST': '该池最近一次测试没有完成（succeeded）或没有最终结果',
+    'GAIN_OUT_OF_RANGE': '参考值与测得值之比超出0.8–1.25（参考膜或测试不合适）', 'RECORD_NOT_FOUND': '没有该名称的校准记录',
+    'RECORD_ASSIGNED': '记录正被指定，先停用再删除',
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
-_GUARDED = {'test.stop', 'test.result', 'test.configure', 'cell.load_unload', 'thermal.set_temperature', 'humidity.set', 'instrument.configure', 'power.set'}
+_CELL_GUARDED = ('test.stop', 'test.result', 'test.configure', 'cell.load_unload', 'test.abort', 'test.advance', 'sequence.set_step', 'sequence.delete_step',
+                 'sequence.enable', 'method.recall', 'sensor.adjustment_create')   # an adjustment record returns the cell's measured value
+_SHARED_GUARDED = ('thermal.set_temperature', 'humidity.set', 'instrument.configure', 'humidity.set_streams', 'sequence.goto', 'sensor.adjustment_assign')
+_GUARDED = set(_CELL_GUARDED) | set(_SHARED_GUARDED)
 
 
 def _errors_of(k):
@@ -1576,25 +2106,38 @@ CAP_ERRORS = {
     'sample.mount': ['PLANT_REQUIRED', 'FILM_ALREADY_MOUNTED', 'DRAWER_NOT_OPEN', 'ENGINEERING_ACCEPTANCE_REQUIRED', 'UNKNOWN_TEMPLATE', 'DIFFUSIVITY_REQUIRED',
                      'HUMIDITY_COEFFICIENT_NOT_APPLICABLE', 'HUMIDITY_COEFFICIENT_REQUIRED'],
     'sample.unmount': ['NO_FILM', 'DRAWER_NOT_OPEN'], 'cell.load_unload': ['PLANT_REQUIRED', 'POWER_OFF', 'CLAMP_BUSY', 'TEST_ACTIVE', 'DRAWER_NOT_CLOSED'],
-    'test.start': ['PLANT_REQUIRED', 'POWER_OFF', 'METHOD_REQUIRED', 'GAS_SUPPLY_PRESSURE_OUT_OF_RANGE', 'CELL_NOT_CLAMPED', 'BUSY', 'USER_CANCEL', 'SENSOR_OVER_RANGE',
-                   'TOO_MANY_READINGS'],
+    'test.start': ['PLANT_REQUIRED', 'POWER_OFF', 'METHOD_REQUIRED', 'GAS_SUPPLY_PRESSURE_OUT_OF_RANGE', 'CELL_NOT_CLAMPED', 'BUSY', 'NO_INDIVIDUAL_ZERO', 'USER_CANCEL',
+                   'SENSOR_OVER_RANGE', 'TOO_MANY_READINGS'],
     'test.stop': ['NOT_RUNNING'],
+    'humidity.set_streams': ['PLANT_REQUIRED', 'RH_OUTSIDE_CONTROLLED_RANGE'], 'cell.set_identification': [],
+    'test.start_auto': ['PLANT_REQUIRED', 'POWER_OFF', 'METHOD_REQUIRED', 'GAS_SUPPLY_PRESSURE_OUT_OF_RANGE', 'CELL_NOT_CLAMPED', 'BUSY', 'USER_CANCEL',
+                        'SENSOR_OVER_RANGE', 'TOO_MANY_READINGS'],
+    'test.abort': ['NOT_RUNNING'], 'test.advance': ['NOT_RUNNING'], 'sequence.goto': ['PLANT_REQUIRED', 'POWER_OFF', 'METHOD_REQUIRED'],
+    'sequence.set_step': ['BUSY', 'STEP_INDEX_OUT_OF_RANGE', 'RH_OUTSIDE_CONTROLLED_RANGE'], 'sequence.delete_step': ['BUSY', 'STEP_INDEX_OUT_OF_RANGE'],
+    'sequence.enable': ['BUSY'], 'method.save': ['METHOD_REQUIRED', 'METHOD_STORE_FULL'], 'method.recall': ['METHOD_NOT_FOUND', 'PLANT_REQUIRED', 'BUSY'],
+    'method.delete': ['METHOD_NOT_FOUND'], 'sensor.adjustment_create': ['RECORD_EXISTS', 'RECORD_STORE_FULL', 'NO_COMPLETED_TEST', 'GAIN_OUT_OF_RANGE'],
+    'sensor.adjustment_assign': ['RECORD_NOT_FOUND', 'BUSY'], 'sensor.adjustment_delete': ['RECORD_NOT_FOUND', 'RECORD_ASSIGNED'], 'sensor.configure_error': [],
 }
 _PARTIAL = {'USER_CANCEL', 'POWER_OFF', 'SENSOR_OVER_RANGE', 'TOO_MANY_READINGS'}
 _MAN, _BRO, _PAGE, _CERT, _M228, _ASTM = ('manufacturer_primary', 'manufacturer_brochure_2025', 'manufacturer_product_page', 'manufacturer_certified_film_instructions',
                                           'related_model_manual_228', 'astm_d3985')
+_OPM = 'operator_manual_222'                     # the 2/22's own operator manual (Rev R), saved after 1.0.0: basis of 1.1.0 and the front panel
 CAP_SOURCES = {       # documents each capability's behaviour (or its unsupported status) rests on; ids are registered in the contract sources
     'plant.configure': ['simulation_assumption', _M228], 'gas.configure': [_PAGE, _M228, 'simulation_assumption'], 'instrument.configure': [_M228, _CERT],
-    'test.configure': [_CERT, _M228, _MAN], 'power.set': [_PAGE, 'simulation_assumption'], 'thermal.set_temperature': [_MAN, _BRO, _M228, 'simulation_assumption'],
+    'test.configure': [_CERT, _M228, _MAN, _OPM], 'power.set': [_PAGE, 'simulation_assumption'], 'thermal.set_temperature': [_MAN, _BRO, _M228, 'simulation_assumption'],
     'humidity.set': ['user_workbook', _MAN, _BRO, 'simulation_assumption'], 'drawer.move': [_PAGE, _M228, 'geometry', 'simulation_assumption'],
     'sample.mount': ['template_library', 'template_source_polyverse', _PAGE, 'simulation_assumption'], 'sample.unmount': ['template_library', 'simulation_assumption'],
     'cell.load_unload': [_PAGE, _M228], 'test.start': [_MAN, _CERT, _M228, _ASTM, 'template_library', 'simulation_assumption'], 'test.stop': [_M228],
     'test.result': [_MAN, _M228, _ASTM], 'analysis.otr': [_ASTM, _M228], 'ledger.read': ['simulation_assumption', 'runtime_code'],
     'provenance.read': ['template_library', 'template_source_polyverse'], 'sim.step': ['runtime_code', 'simulation_assumption'],
     'hardware.connect': [_PAGE], 'robot.mount_film': ['simulation_assumption'], 'package.test': [_PAGE, _MAN], 'cartridge.reduced_area': [_PAGE, _MAN],
-    'cartridge.edge_effect': [_PAGE, _MAN], 'cartridge.blister': [_PAGE, _MAN], 'test_mode.convergence_by_hours': [_PAGE, _BRO], 'test.qc_mode': [_PAGE, _BRO],
-    'test.auto_method': [_PAGE, _BRO], 'test.sequencing': [_PAGE, _BRO], 'report.export': [_PAGE, _BRO], 'accuracy.certification': [_CERT, _ASTM],
-    'sensor.adjust': [_CERT, _PAGE, _M228]}
+    'cartridge.edge_effect': [_PAGE, _MAN], 'cartridge.blister': [_PAGE, _MAN], 'test.qc_mode': [_PAGE, _BRO], 'report.export': [_PAGE, _BRO, _OPM],
+    'accuracy.certification': [_CERT, _ASTM],
+    'humidity.set_streams': [_OPM, _BRO, 'simulation_assumption'], 'cell.set_identification': [_OPM, _CERT], 'test.start_auto': [_OPM, _BRO, 'simulation_assumption'],
+    'test.abort': [_OPM], 'test.advance': [_OPM, _CERT], 'sequence.goto': [_OPM, 'simulation_assumption'], 'sequence.set_step': [_OPM], 'sequence.delete_step': [_OPM],
+    'sequence.enable': [_OPM, 'simulation_assumption'], 'method.save': [_OPM, _BRO], 'method.recall': [_OPM], 'method.delete': [_OPM],
+    'sensor.adjustment_create': [_OPM, _CERT, 'simulation_assumption'], 'sensor.adjustment_assign': [_OPM, 'simulation_assumption'], 'sensor.adjustment_delete': [_OPM],
+    'sensor.configure_error': ['simulation_assumption']}
 _RESULT_SLOTS = ['cell_a.phase', 'cell_b.phase', 'cell_a.exam_count', 'cell_b.exam_count', 'cell_a.last_otr_mol_m2_s', 'cell_b.last_otr_mol_m2_s',
                  'cell_a.final_otr_mol_m2_s', 'cell_b.final_otr_mol_m2_s']
 OBSERVES = {
@@ -1607,6 +2150,17 @@ OBSERVES = {
     'test.configure': ['cell_a.method_configured', 'cell_b.method_configured'],
     'test.start': _RESULT_SLOTS + ['sensor.route', 'sequence.slot_remaining_s'], 'test.stop': _RESULT_SLOTS, 'test.result': _RESULT_SLOTS,
     'sim.step': ['clock.time_s'],
+    'humidity.set_streams': ['humidity.target_fraction', 'humidity.carrier_target_fraction', 'humidity.indicated_fraction', 'humidity.carrier_indicated_fraction'],
+    'cell.set_identification': ['cell_a.identification', 'cell_b.identification'],
+    'test.start_auto': _RESULT_SLOTS + ['sensor.route', 'sequence.slot_remaining_s', 'cell_a.test_info', 'cell_b.test_info'],
+    'test.abort': _RESULT_SLOTS, 'test.advance': _RESULT_SLOTS + ['cell_a.test_info', 'cell_b.test_info'],
+    'sequence.goto': ['sensor.route', 'sequence.held', 'sequence.slot_remaining_s'],
+    'sequence.set_step': ['cell_a.sequence', 'cell_b.sequence'], 'sequence.delete_step': ['cell_a.sequence', 'cell_b.sequence'],
+    'sequence.enable': ['cell_a.sequence', 'cell_b.sequence'], 'method.save': ['methods.saved'], 'method.delete': ['methods.saved'],
+    'method.recall': ['methods.saved', 'instrument.configured', 'cell_a.method_configured', 'cell_b.method_configured', 'thermal.target_k', 'humidity.target_fraction',
+                      'humidity.carrier_target_fraction'],
+    'sensor.adjustment_create': ['sensor.adjustment_records'], 'sensor.adjustment_assign': ['sensor.adjustment', 'sensor.adjustment_records'],
+    'sensor.adjustment_delete': ['sensor.adjustment_records'], 'sensor.configure_error': ['sensor.error'],
 }
 PARAM_ZH = {
     'ambient_k': '实验室环境温度', 'ambient_rh': '实验室环境相对湿度（决定装膜时膜内溶解氧与环境渗入的O₂分压）', 'barometric_pa': '实验室大气压（绝对）',
@@ -1625,7 +2179,10 @@ PARAM_ZH = {
     'permeability_activation_energy_j_mol': '渗透系数的Arrhenius活化能', 'diffusivity_activation_energy_j_mol': '扩散系数的Arrhenius活化能',
     'humidity_coefficient': '亲水聚合物的湿度塑化系数β（P、D乘exp(β·a_w)）', 'accept_transport_assumptions': '宿主显式接受膜传输先验',
     'cycles': '标准模式检测周期数', 'exam_minutes': '每个检测时段长度', 'conditioning_hours': '调理时间（传感器旁路、测试气已通）',
-    'convergence_percent': '收敛判据：相邻检测相对变化上限', 'convergence_count': '收敛判据：连续满足的检测次数', 'max_cycles': '收敛模式最大检测周期数',
+    'convergence_percent': '收敛判据：相邻检测相对变化上限', 'convergence_count': '收敛判据：连续满足的检测次数（按小时收敛模式为小时数）', 'max_cycles': '收敛模式最大检测周期数',
+    'test_rh_fraction': '测试气相对湿度目标', 'carrier_rh_fraction': '载气相对湿度目标', 'test_id': 'Test ID', 'sample_id': 'Sample ID', 'material_id': 'Material ID',
+    'target': 'GoTo目标（bypass旁路、rezero立即ReZero）', 'index': '顺序测试表项号（1起）', 'enabled': '开启或关闭', 'name': '方法或校准记录名称',
+    'reference_value': '参考膜标称OTR（按该测试的报告基准）', 'gain_error': '传感器相对增益误差', 'offset_a': '传感器电流偏置',
     'declared_area_m2': '报告用的声明面积', 'declared_thickness_m': '报告渗透率用的声明厚度', 'temperature_tolerance_k': '测试期间允许的池温偏差',
     'permeant_concentration_percent': '测试气渗透物浓度（归一到100% O₂）', 'rezero_enabled': '是否启用ReZero基线', 'rezero_frequency': '每几个池时段做一次ReZero',
     'rezero_exam_minutes': 'ReZero时段长度', 'manual_barometer_pa': '手动输入的气压',
@@ -1634,6 +2191,9 @@ NULLABLE_ZH = {'permeability_override_mol_m_per_m2_s_pa': 'null=用模板298K渗
                'humidity_coefficient': '疏水模板必须为null或0，亲水模板装膜时必须给出', 'declared_thickness_m': 'null=不报告渗透率',
                'manual_barometer_pa': 'null=用内置气压计（自动模式）'}
 _CELL_SLOTS = lambda k: [f'cell_{c}.{k}' for c in 'ab']   # noqa: E731
+_SETPOINTS = ['thermal.target_k', 'humidity.target_fraction', 'humidity.carrier_target_fraction']
+_NEXT_TEST = _CELL_SLOTS('phase') + _CELL_SLOTS('exam_count') + _CELL_SLOTS('last_otr_mol_m2_s') + _CELL_SLOTS('final_otr_mol_m2_s') + _CELL_SLOTS('test_info') \
+    + _CELL_SLOTS('sequence') + _SETPOINTS + ['sensor.route', 'sequence.slot_remaining_s']    # a finished sequence row starts the next one at once
 EFFECTS = {
     'plant.configure': ['plant.configured', 'thermal.target_k', 'truth.block_temperature_k'],
     'gas.configure': ['gas.configured', 'gas.supply_ok'],
@@ -1641,24 +2201,38 @@ EFFECTS = {
     'test.configure': _CELL_SLOTS('method_configured'),
     'power.set': ['power.enabled', 'power.angle_rad', 'thermal.indicated_k', 'humidity.indicated_fraction', 'barometer.indicated_pa', 'sensor.raw_counts', 'sensor.route',
                   'sequence.slot_remaining_s', 'truth.tec_power_w'] + _CELL_SLOTS('phase') + _CELL_SLOTS('indicator_on') + _CELL_SLOTS('final_otr_mol_m2_s') + _CELL_SLOTS('clamped')
-                 + _CELL_SLOTS('clamp_moving') + [f'truth.cell_{c}.{k}' for c in 'ab' for k in ('carrier_side_o2_mol', 'test_side_o2_pa')] + ['truth.sensor_current_a'],
+                 + _CELL_SLOTS('clamp_moving') + [f'truth.cell_{c}.{k}' for c in 'ab' for k in ('carrier_side_o2_mol', 'test_side_o2_pa')] + ['truth.sensor_current_a']
+                 + ['humidity.carrier_indicated_fraction', 'sequence.held'] + _CELL_SLOTS('sequence'),
     'thermal.set_temperature': ['thermal.target_k'],
-    'humidity.set': ['humidity.target_fraction'],
+    'humidity.set': ['humidity.target_fraction', 'humidity.carrier_target_fraction'],
+    'humidity.set_streams': ['humidity.target_fraction', 'humidity.carrier_target_fraction'],
+    'cell.set_identification': _CELL_SLOTS('identification'),
+    'test.start_auto': _CELL_SLOTS('phase') + _CELL_SLOTS('exam_count') + _CELL_SLOTS('last_otr_mol_m2_s') + _CELL_SLOTS('test_info') + _CELL_SLOTS('sequence')
+                       + ['sensor.route', 'sequence.slot_remaining_s', 'sequence.held'],
+    'test.abort': _CELL_SLOTS('phase') + _CELL_SLOTS('final_otr_mol_m2_s') + _CELL_SLOTS('sequence') + ['sensor.route'],
+    'test.advance': list(_NEXT_TEST),
+    'sequence.goto': ['sequence.held', 'sensor.route', 'sequence.slot_remaining_s'],
+    'sequence.set_step': _CELL_SLOTS('sequence'), 'sequence.delete_step': _CELL_SLOTS('sequence'), 'sequence.enable': _CELL_SLOTS('sequence'),
+    'method.save': ['methods.saved'], 'method.delete': ['methods.saved'],
+    'method.recall': ['instrument.configured'] + _SETPOINTS + _CELL_SLOTS('method_configured') + _CELL_SLOTS('sequence'),
+    'sensor.adjustment_create': ['sensor.adjustment_records'], 'sensor.adjustment_assign': ['sensor.adjustment', 'sensor.adjustment_records'],
+    'sensor.adjustment_delete': ['sensor.adjustment_records'], 'sensor.configure_error': ['sensor.error', 'sensor.raw_counts'],
     'drawer.move': _CELL_SLOTS('drawer_closed'),
     'sample.mount': _CELL_SLOTS('film_mounted') + [f'truth.cell_{c}.film_o2_mol' for c in 'ab'],
     'sample.unmount': _CELL_SLOTS('film_mounted') + [f'truth.cell_{c}.film_o2_mol' for c in 'ab'],
     'cell.load_unload': _CELL_SLOTS('clamped') + _CELL_SLOTS('indicator_on') + _CELL_SLOTS('clamp_moving'),
-    'test.start': _CELL_SLOTS('phase') + _CELL_SLOTS('exam_count') + _CELL_SLOTS('last_otr_mol_m2_s') + ['sensor.route', 'sequence.slot_remaining_s'],
-    'test.stop': _CELL_SLOTS('phase') + _CELL_SLOTS('final_otr_mol_m2_s') + ['sensor.route'],
+    'test.start': _CELL_SLOTS('phase') + _CELL_SLOTS('exam_count') + _CELL_SLOTS('last_otr_mol_m2_s') + ['sensor.route', 'sequence.slot_remaining_s']
+                  + _CELL_SLOTS('test_info') + _CELL_SLOTS('sequence') + _SETPOINTS + ['sequence.held'],
+    'test.stop': _CELL_SLOTS('phase') + _CELL_SLOTS('final_otr_mol_m2_s') + ['sensor.route'] + [x for x in _NEXT_TEST if x not in _CELL_SLOTS('phase') + _CELL_SLOTS('final_otr_mol_m2_s') + ['sensor.route']],
     'sim.step': list(SLOTS),
 }
 for _k, _v in EFFECTS.items():
     CAPS[_k]['effects'] = _v
 ERRORS = sorted(set(re.findall(r"ActionRejected\('([A-Z_0-9]+)'", Path(__file__).read_text())) |
                 {'USER_CANCEL', 'OPERATOR_STOP', 'POWER_OFF', 'SENSOR_OVER_RANGE', 'TEST_COMPLETE', 'TOO_MANY_READINGS'})
-ASYNC = {'test.start'}
+ASYNC = {'test.start', 'test.start_auto'}
 LIMITATIONS = [
-    '选定OX-TRAN 2/22 L两池型、标准50cm²可拆卸水平测试盒；未选缩小面积(5.64cm²)/边缘效应/泡罩测试盒、整包测试适配器、PermWare与PERM-NET Lite；不建模Auto-Test、QC模式、顺序测试与报告导出。',
+    '选定OX-TRAN 2/22 L两池型、标准50cm²可拆卸水平测试盒；未选缩小面积(5.64cm²)/边缘效应/泡罩测试盒、整包测试适配器、PermWare与PERM-NET Lite；不建模QC模式与报告打印/导出（需要打印机或USB存储器，本配置未接）。',
     '厂家规格（L型50cm²）：量程0.005–200cc/(m²·day)、整包0.000025–1.0cc/(pkg·day)、温度10–40°C±0.2°C、膜厚≤120mil；分辨率按调研表取0.002cc/(m²·day)（2025规格书/产品页为0.0001），RH按调研表取5–90%±4%（2025规格书为0%/30–90%±3%，产品页为0–90%±3%），冲突记录在source_evidence.json；0%RH作为干气测试另行允许（认证膜说明）。',
     '测试池块为集中热节点，热电模块可加热/制冷；热容、散热、功率上限与PI参数为宿主工程参数，缺省值按同机身2/28手册“约60分钟到达40°C设定的99%”调校；控温以自身（带±0.2K内静态偏差的）传感器为准，因此真实池温=设定值−偏差、显示值=设定值。',
     '湿度发生器为一阶响应加静态偏差（±4%内），加湿原理与水源未公开；湿测试气按道尔顿分压稀释O₂驱动压（p_O₂=y·(P−p_w)），仪器报告不对此稀释作修正（工程判断）。',
@@ -1666,10 +2240,20 @@ LIMITATIONS = [
     '载气腔、测试气腔为全混体积（宿主给定体积与流量）；边缘泄漏∝测试侧O₂分压，环境渗入按TruSeal冲洗效率折减；单池零点在测试侧改通载气后测量，可扣除环境渗入但不能扣除与测试气分压成正比的边缘泄漏；空测试盒按开放窗口大导通处理（通常触发传感器超量程）。',
     'Coulox传感器按法拉第定律（1cc/day≈0.000199A）、一阶响应、背景电流、效率、10pA计数量化与宿主噪声建模；噪声为一阶相关（相关时间=传感器时间常数）的加性与比例噪声，面板原始计数、检测与ReZero读数取自同一测量信号；测得电流超过量程上限1.25倍即旁路保护（检测滞后不超过一个≤10s子步）：池通道超量程使该池测试失败，ReZero通道超量程使所有进行中的测试失败（2/28手册），该时段不再接回；电流回落到阈值一半后解除，下一时段恢复轮换；传感器寿命/电解液消耗未建模。',
     '调研表把“载气和测试气流”列为操作设置：本资产载气固定为每池10sccm（认证膜说明规定的设定值），测试气每池流量与两路总流量是宿主（evaluator）的工程参数，agent不能改流量；流量计、针阀和流量报警未建模。',
-    '检测序列按固定时段A、B、Z轮换（ReZero频率=每N个池时段一次ReZero），空闲池的时段以旁路计时；该排法由认证膜说明中“周期数/测试小时”的比例推断，厂家帮助系统不可得。报告OTR=(I检测−I_ReZero)/(4F)/面积×760mmHg/P大气×100/渗透物浓度，并按调研表分辨率量化；2/22没有公开的用户增益调整（认证膜超差需送修），sensor.adjust为unsupported。',
+    '检测序列按固定时段A、B、Z轮换（ReZero频率=每N个池时段一次ReZero），空闲池的时段以旁路计时；该排法由认证膜说明中“周期数/测试小时”的比例推断，厂家帮助系统不可得。报告OTR=(I检测−I_ReZero)/(4F)/面积×760mmHg/P大气×100/渗透物浓度，并按调研表分辨率量化；Permeant Sensor Adjustment（手册附录G的OTR Adjustment屏）：由该池最近完成的参考膜测试建立校准记录（增益=参考值/测得值，按该测试的报告基准，允许0.8–1.25为假设），'
+    '指定（assign）后乘到之后报告的全部OTR读数（含单池零点），停用为1；有测试进行时不能指定或停用。',
+    '两路湿度：测试气与载气各有设定、一阶响应与同一静态偏差（手册p.5-8两路设定、附录D各有加湿器）；测试气RH稀释O₂驱动压，膜的水活度取两路真实RH的平均（假设，两路相同时与单一湿度一致）；humidity.set同时写两路。',
+    'Auto-Test（手册p.3-4、D-4只给原则，具体数值为假设）：检测30分钟；“当前”（最近3次）均值低于0.1cc/(m²·day)（很好阻隔）时改为60分钟；“当前”与“历史”（最近6次）均值相差≤1%，'
+    '或当前值低于噪声底（2倍分辨率）即判平衡；平衡时若为很好阻隔则在测试阶段之后做单池零点；最多200次检测；ReZero频率与时长是仪器级参数，Auto-Test不改；参数变化记入该测试的日志（cell_x.test_info）。',
+    '顺序测试（手册p.3-4、D-4）：每项先写入温度与两路湿度设定，池保持调理（传感器旁路）直到显示温度在方法容差内、两路湿度在±4%内（等待判据为假设），再按方法测试；'
+    '一项完成（含连续模式由Advance或停止结束）自动开始下一项，Abort、失败或断电终止其余各项；Auto Print/Auto Save/Auto Export需要打印机或USB存储器，未建模。',
+    '方法存储：最多50个命名的Advanced Test Method（数量为假设），内容为池测试参数、仪器参数、温湿度设定与顺序表，同名覆盖；导出需要USB存储器（未接）。'
+    'GoTo：ByPass暂停检测轮换并把传感器停在旁路（GoTo ReZero、开始测试或断电解除）；ReZero立即开始一个ReZero时段之后恢复轮换；帮助系统中其他GoTo目标未建模。'
+    'Use Last单池零点用该池在本实例最近测得的单池零点；按小时收敛：方法的收敛次数参数作小时数，按该时长窗口内各次检测的步进与漂移判定（帮助系统判据不可得，假设）。',
+    '传感器测量误差：评测者sensor.configure_error设定的相对增益误差与电流偏置作用于测得电流（缺省0，理想传感器）；真实测量误差留给后续“校准/仿真与现实差距”任务。',
     '连续模式由操作者test.stop结束（有结束零点则先测零点）；标准/收敛模式中途test.stop为终止；异步操作的cancel总是中止。测试中温度或湿度设定改变或显示值偏离容差时结果分别标为temperature/humidity_out_of_tolerance。收敛模式按最近N次相对变化≤阈值判定（阈值与N由方法给出，厂家精确算法未公开）；重复性按“0.002cc/(m²·day)或1%取大”判定（掩膜时绝对项与读数量化一样按50cm²/覆盖面积放大）；名义渗透量/渗透率=OTR/101325Pa（及×声明厚度），未扣除湿气稀释。',
     '抽屉拉出/推回、装膜/取膜为宿主代理（不是机器人接触验证）；夹紧为气动一键动作；断电时压板停在当前位置，未完成的行程视为未密封（载气腔与空气相通），压板未完全抬起时抽屉不能拉出（工程假设）；盖板只是被动场景关节。',
-    'agent只能看到带噪声的量化计数、显示温湿度、气压、检测读数与结果；真实通量、膜内含氧、腔体分压、真实湿度与温度、所选模板身份只对evaluator可见；test.result对所有角色隐去模板身份；亲水模板的湿度系数在装膜时由宿主给出，agent的湿度设定不会因模板类别被拒。某个agent启动的测试，其他agent不能停止、读取完整记录（test.result）、改配置、改该池夹紧，也不能在其运行时改温度、湿度、仪器参数或断电；各池阶段、检测次数、最近与最终OTR属于前面板公开显示，所有操作者可见。',
+    'agent只能看到带噪声的量化计数、显示温湿度、气压、检测读数与结果；真实通量、膜内含氧、腔体分压、真实湿度与温度、所选模板身份只对evaluator可见；test.result对所有角色隐去模板身份；亲水模板的湿度系数在装膜时由宿主给出，agent的湿度设定不会因模板类别被拒。某个agent启动的测试，其他agent不能停止、读取完整记录（test.result）、用它建立传感器调整记录（sensor.adjustment_create，记录含实测值）、改配置、改该池夹紧，也不能在其运行时改温度、湿度、仪器参数或断电；各池阶段、检测次数、最近与最终OTR属于前面板公开显示，所有操作者可见。',
     '时间推进为事件对齐的子步（≤10s；膜内再按扩散时间细分）：膜与载气腔在同一隐式方程组中求解（对任意渗透率与腔体体积无条件稳定、非负）；O₂物质账按求解器的真实界面通量、吹扫出流与传感器电荷（含在途量）记账，热量账按指数解析积分记账，均用补偿求和，因此残差是对积分器的真实守恒检查而不是恒等式；不同step切分只造成传感器噪声抽样时刻外的微小数值差。',
     '只有传感器整段接在该气流上的检测时段才记录读数或ReZero：调理在时段中途结束、测试在时段中途开始或超量程恢复后的剩余时段不计。无载气压力时载气腔不吹扫、传感器无进气；无测试气压力时测试腔不换气。更换气源或断电后先重新测ReZero；启用ReZero时没有基线就先排ReZero时段，不会做无基线的检测。',
     '没有真实硬件、WinPerm 2界面、认证膜实测、NIST溯源或ASTM D3985精密度验证；模板为文献汇编的干气P、D，不是OX-TRAN原生测试文件。',
@@ -1709,7 +2293,8 @@ def export_ametek_oxtran_contract_metadata():
                  errors=[dict(code=e, meaning_zh=ERROR_ZH[e], side_effects='partial' if async_ and e in _PARTIAL else 'none')
                          for e in _errors_of(k)],
                  verification=[], limitations=list(LIMITATIONS), source_ids=list(CAP_SOURCES[k]))
-        if k in ('test.start', 'cell.load_unload', 'drawer.move', 'thermal.set_temperature', 'humidity.set', 'power.set', 'sample.mount'):
+        if k in ('test.start', 'cell.load_unload', 'drawer.move', 'thermal.set_temperature', 'humidity.set', 'power.set', 'sample.mount', 'test.start_auto',
+                 'humidity.set_streams', 'sequence.goto', 'test.advance', 'sequence.enable'):
             c['state_effects'] += [dict(state_id=s, timing='on_step', description_zh='由统一宿主时钟推进温湿度、机械动作、扩散、腔体吹扫、传感器与检测序列')
                                    for s in SLOTS if s not in v['effects'] and SLOTS[s]['origin'] in ('sensor', 'derived', 'scene', 'process_truth')]
         caps[k] = c
@@ -1723,7 +2308,8 @@ def export_ametek_oxtran_contract_metadata():
                    'p_up -> y_O2 (P_baro - RH p_sat(T)) during conditioning/testing (0 when flushed with carrier), first order with tau = V_t/F_t',
                    'dn_h/dt = J_film A + k_edge p_up + k_amb (1 - eta_flush) p_O2,air + x_res n_c - (F_c/V_h) n_h (film and chamber solved in one backward-Euler tridiagonal system; F_c = 0 without carrier supply)',
                    'I_sensor -> 4 F eta n_in + I_bg, first order tau_s ; counts = I / 10 pA ; 1 cc/day = 0.000199 A',
-                   'OTR = (I_exam - I_rezero)/(4F) / A x 760 mmHg / P_baro x 100 / permeant%, quantised to 0.002 cc/(m2 day) at 50 cm2',
+                   'OTR = (I_exam - I_rezero)/(4F) / A x 760 mmHg / P_baro x 100 / permeant% x g_adj (assigned OTR Adjustment record, 1 if none), quantised to 0.002 cc/(m2 day) at 50 cm2',
+                   'film water activity a_w = (RH_test,true + RH_carrier,true) / 2 ; test-side O2 dilution by RH_test only ; I_measured = I (1 + gain_error) + offset_a + noise',
                    'final OTR = mean(last N exams) - individual zero ; repeatability allowance = max(0.002 cc/(m2 day), 1 %)'],
         parameters={}, source_ids=['simulation_assumption', 'template_library'], limitations=list(LIMITATIONS))
     import importlib.util
@@ -1751,3 +2337,47 @@ def export_ametek_oxtran_contract_metadata():
         if v['reference']:
             slots[k]['reference_conditions'] = v['reference']
     return dict(asset_type_id=ASSET_TYPE_ID, catalog_id=CATALOG_ID, capabilities=caps, state_slots=slots, mechanisms={'oxygen_permeation': mechanism})
+
+
+PANEL_LIMITATIONS = [
+    '前面板层（panel.*）：按panel_ui.json（操作手册Rev R与认证膜说明的页码证据）实现彩色触摸屏（标题栏、图标栏、工作区）、A/B池Load/Unload键、A/B池状态灯与后置电源开关；'
+    '每个屏幕操作都调用本运行层的同名能力（没有第二份仪器逻辑）；手势不推进仿真时钟。',
+    '触摸屏细节（字段默认值、帮助系统、7个图标中未写名称的2个、Tools下除OTR Adjustment外的6个屏、错误代码与文字）只在仪器帮助系统中，手册未写：'
+    '界面按手册写到的屏幕与字段构建，近似之处见panel_ui.json的assumptions（spec标approximate）。',
+    '面板不含3D联动：屏幕纹理（render()）与键关节触发手势属于后续Matterix步骤；本版本只在过程层验证（panel_ui_validation）。',
+]
+
+
+def export_panel_contract_metadata():
+    """Contract entries of the panel capabilities (panel.press / switch / touch / capture / frame): a gesture changes what the commands it calls change."""
+    if not PANEL_SPEC:
+        return {}
+    called = _panel_ui.spec_capabilities(PANEL_SPEC)
+    effects = list(dict.fromkeys(x for c in called for x in EFFECTS.get(c, [])))
+    gestures = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+    out = {}
+    for k, d in PANEL_CAPS.items():
+        query = k in ('panel.capture', 'panel.frame')
+        c = {key: copy.deepcopy(d[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
+        errors = ['PLANT_REQUIRED', 'INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE'] + (['ACCESS_DENIED'] if d['visibility'] != 'agent' or not query else [])
+        c.update(availability='implemented',
+                 implementation={layer: 'implemented' if layer in ('process', 'host') else 'absent' for layer in ['process', 'scene', 'robot', 'hardware', 'host']},
+                 binding=dict(backend='host', artifact_id='runtime', entrypoint='asset_runtime.ametek_oxtran.AmetekOxtranSession.invoke',
+                              invocation=f'session.invoke(instance_id="oxtran_01",capability_id={k!r},arguments={d["example_arguments"]!r},request_id="unique")'),
+                 preconditions=[dict(description_zh='须已声明工程参数；断电时屏幕暗、触摸与装卸键无反应（只有电源开关起作用）；被调用能力的前提同样适用（被拒时屏幕显示仪器的Error Message对话框，'
+                                                    '手势不被接受）；经会话的手势以该会话的调用者身份执行：另一个agent的测试只能查看，不能中止、推进或修改（ACCESS_DENIED，'
+                                                    '屏幕显示Error Message对话框，状态不变），由面板启动的测试归该调用者' if not query else '须已声明工程参数（关机时为暗屏）',
+                                     state_ids=['plant.configured', 'power.enabled'], enforced_by='runtime', check='AmetekOxtranRuntime.invoke')],
+                 state_effects=[] if query else [dict(state_id=x, timing='immediate', description_zh='手势调用的能力所写的状态（屏幕导航本身不改状态槽）') for x in effects],
+                 observes=['power.enabled', 'cell_a.phase', 'cell_b.phase', 'cell_a.clamped', 'cell_b.clamped', 'sensor.route'] if not query else [],
+                 model_effects=dict(mode='none', description_zh='面板层只改界面状态与被调用能力的状态，屏幕画面由panel.capture渲染', binding_ids=[]),
+                 execution=dict(mode='synchronous', time_domain='simulation',
+                                completion_criterion='手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看'
+                                if not query else '立即返回当前画面', completion_state_ids=[], timeout_s=None, cancellation='unsupported', retry='same_request_id',
+                                resources=['host_clock'], partial_failure_zh='被拒的手势不改变运行层状态（只显示仪器的提示）'),
+                 errors=[dict(code=e, meaning_zh=ERROR_ZH.get(e, {'PLANT_REQUIRED': '尚未声明工程参数', 'INVALID_ARGUMENT': '未知输入件/显示件、手势与输入件不符或坐标在屏外'}.get(e, e)),
+                              side_effects='none') for e in errors],
+                 verification=[], limitations=list(PANEL_LIMITATIONS), source_ids=[_OPM, 'manufacturer_certified_film_instructions', 'simulation_assumption'])
+        out[k] = c
+    return out
+

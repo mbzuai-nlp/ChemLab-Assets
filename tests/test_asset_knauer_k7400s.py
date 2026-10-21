@@ -27,8 +27,22 @@ class Tests(unittest.TestCase):
   l=call(r,'ledger.read');self.assertAlmostEqual(l['water_loaded_kg'],l['water_returned_kg']+l['water_remaining_kg'],places=15);self.assertLess(abs(l['energy_residual_j']),1e-8);self.assertLess(l['solute_residual_mol'],1e-15);r.step(60);unload(r);self.assertEqual(r.water,0);self.assertLess(abs(r._ledger()['energy_residual_j']),1e-8)
  def test_04_freeze_interlock_and_cancel(self):
   r=ready();load(r,m.reference(0));call(r,'acquisition.start',purpose='calibration');r.step(70);old=(r.water,r.H,copy.deepcopy(r.solutes));call(r,'acquisition.stop');self.assertEqual(old,(r.water,r.H,r.solutes))
-  with self.assertRaises(m.ActionRejected):r.invoke('head.position',position='raised')
+  call(r,'head.position',position='raised')   # 1.1.2 sweep: lifting the head with the frozen tube on it is a hand action, not refused
+  with self.assertRaises(m.ActionRejected):r.invoke('sample.unload')   # taking the frozen tube off the thermistor stays refused (manual: device defect)
   r.step(50);self.assertTrue(r.thawed);self.assertEqual(r.phase,'cancelled');unload(r)
+ def test_head_lifted_during_a_run(self):
+  # sweep 10-19: nothing stops a hand lifting the head during a run; out of the cooling cavity the sample is not cooled
+  r=ready();load(r,m.reference(0));call(r,'acquisition.start',purpose='calibration');r.step(10);t=r.temp
+  call(r,'head.position',position='raised');r.step(30);self.assertGreater(r.temp,t);self.assertEqual(r.phase,'running')
+  r.step(270);self.assertEqual((r.phase,r.failure),('failed','COOLER_TIMEOUT'))   # manual 9.1: >5 min from START
+  def run(lift):
+   q=calibrate(ready());load(q,m.SAMPLE_EXAMPLE);call(q,'acquisition.start',purpose='sample')
+   while q.stage!='measuring':q.step(1)
+   if lift:call(q,'head.position',position='raised')
+   q.step(130);return q
+  a,b=run(False),run(True)
+  self.assertEqual(a.phase,'succeeded');self.assertGreater(b.freezing,a.freezing+1.)   # the lifted sample melts: the peak is far above the freezing point
+  self.assertEqual((b.phase,b.failure,b.osm),('failed','OUT_OF_RANGE',None))   # manual 9.1: measured value outside the acceptable range
  def test_05_power_pause(self):
   r=ready();load(r,m.reference(.4));call(r,'acquisition.start',purpose='calibration');r.step(67);call(r,'power.set',enabled=False);h=r.H;r.step(100);self.assertEqual(h,r.H);self.assertEqual(r.phase,'cancelled');call(r,'power.set',enabled=True);r.step(60);self.assertTrue(r.thawed)
  def test_06_warmup_and_uncalibrated(self):
@@ -73,7 +87,7 @@ class Tests(unittest.TestCase):
   with self.assertRaises(m.ActionRejected):b.poll(op)
   before=a.read(instance_id=r.instance_id,state_ids=['freezing.temperature_k']);r.step(1);after=a.read(instance_id=r.instance_id,state_ids=['freezing.temperature_k']);self.assertEqual(before['observations'],after['observations'])
  def test_16_schema_and_unsupported(self):
-  spec=importlib.util.spec_from_file_location('asset_tool',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);r=ready();meta=r.describe();self.assertEqual(len(meta['state_slots']),24)
+  spec=importlib.util.spec_from_file_location('asset_tool',ROOT/'skills/chemistry-lab-assets/scripts/asset_tool.py');tool=importlib.util.module_from_spec(spec);spec.loader.exec_module(tool);r=ready();meta=r.describe();self.assertEqual(len(meta['state_slots']),36)  # 24 process slots + 12 front-panel slots (1.1.0)
   for sid,value in r.read('evaluator').items():self.assertFalse(tool.validate_value(value,meta['state_slots'][sid]['value_schema']))
   for k in m.UNSUPPORTED:
    with self.assertRaisesRegex(m.ActionRejected,'UNSUPPORTED'):r.invoke(k)
@@ -83,4 +97,40 @@ class Tests(unittest.TestCase):
    before=copy.deepcopy(r.__dict__)
    with self.assertRaises(m.ActionRejected):r.invoke('sample.load',**s)
    self.assertEqual(before,r.__dict__)
+
+class FrontPanelCommands(unittest.TestCase):
+ """Device functions behind the front panel (1.1.0): settings, clock, output log, cooler, CALIBRATE fields (----, %%%%), CALIBRATE-T."""
+ def run_cal(self,r,v,field):
+  load(r,m.reference(v,r.method['sample_volume_m3']));call(r,'acquisition.start',purpose='calibration');r.step(130);self.assertTrue(r.read()['calibration.pending']);x=call(r,'calibration.field_accept',field=field);unload(r);return x
+ def test_settings_clock_and_output_log(self):
+  r=ready();self.assertEqual(r.read()['device.settings'],dict(data_output='PRINTER',result_unit='mOsmol',temp_unit='degC'))
+  call(r,'device.configure',data_output='PC',result_unit='degC',temp_unit='degF');self.assertEqual(r.read()['device.settings']['temp_unit'],'degF')
+  self.assertEqual(call(r,'device.set_clock',year=2015,month=3,day=23,hour=8,minute=24,second=35)['datetime'],'23.03.15 08:24:35');r.step(10);self.assertEqual(r.read()['device.datetime'],'23.03.15 08:24:45')
+  with self.assertRaisesRegex(m.ActionRejected,'INVALID_DATE'):r.invoke('device.set_clock',year=2015,month=2,day=30,hour=0,minute=0,second=0)
+  calibrate(r,(0,.4));load(r,m.SAMPLE_EXAMPLE);call(r,'acquisition.start',purpose='sample');r.step(130);log=r.read()['device.output_log']
+  self.assertEqual([e['lines'][0] for e in log],['Calibrated 0000 mOsmol','Calibrated 0400 mOsmol','Measured 0%03d mOsmol'%round(r.osm*1000)]);self.assertEqual(log[-1]['port'],'PC')
+  r.invoke('power.set',enabled=False)
+  with self.assertRaisesRegex(m.ActionRejected,'POWER_OFF'):r.invoke('device.configure',data_output='PRINTER',result_unit='mOsmol',temp_unit='degC')
+ def test_error_print_and_cooler(self):
+  r=ready(dict(m.PLANT_EXAMPLE,fault='no_freeze'));self.assertAlmostEqual(r.read()['cooler.temperature_k'],m.STANDBY_K);load(r,m.reference(0));r.invoke('acquisition.start',purpose='calibration');r.step(30)
+  self.assertLess(r.read()['cooler.temperature_k'],m.STANDBY_K-10);r.step(300);self.assertEqual(r.failure,'NO_FREEZE');self.assertEqual(r.read()['device.output_log'][-1]['lines'][0],'NO FREEZE')
+ def test_calibration_fields_replace_and_off(self):
+  r=ready();self.run_cal(r,0.,1);call(r,'calibration.select_field',field=2,value=.4);self.run_cal(r,.4,2);self.assertEqual(r.read()['calibration.fields'],[0.,.4,None]);self.assertTrue(r.calibrated())
+  call(r,'calibration.select_field',field=2,value=.85);self.assertEqual(len(r.calibration),2)       # the old point stays until a new run on that field is accepted
+  self.run_cal(r,.85,2);self.assertEqual([p['known'] for p in r.calibration],[0.,.85])
+  call(r,'calibration.select_field',field=3,value=.4);self.run_cal(r,.4,3);self.assertEqual([p['known'] for p in r.calibration],[0.,.4,.85])
+  call(r,'calibration.select_field',field=3,value='off');self.assertEqual([p['known'] for p in r.calibration],[0.,.85]);self.assertEqual(r.read()['calibration.fields'],[0.,.85,None])
+  load(r,m.reference(.4));call(r,'acquisition.start',purpose='calibration');r.step(130);call(r,'calibration.discard');self.assertFalse(r.read()['calibration.pending'])
+  with self.assertRaisesRegex(m.ActionRejected,'CALIBRATION_RUN_REQUIRED'):r.invoke('calibration.field_accept',field=2)
+  self.assertEqual([p['known'] for p in r.calibration],[0.,.85])
+ def test_relative_mode(self):
+  r=ready();self.run_cal(r,0.,1);call(r,'calibration.select_field',field=2,value='relative');self.assertTrue(r.read()['calibration.relative_mode']);self.assertFalse(r.calibrated())
+  self.run_cal(r,.4,2);self.assertTrue(r.calibrated());load(r,m.reference(.2));call(r,'acquisition.start',purpose='sample');r.step(130)
+  x=r.read();self.assertIsNone(x['osmolality.mol_kg']);self.assertAlmostEqual(x['osmolality.relative_percent'],50.,delta=1.5)
+ def test_pre_calibration_corrects_the_head_offset(self):
+  r=ready(dict(m.PLANT_EXAMPLE,sensor_bias_k=.2));calibrate(r,(0,.4));load(r,m.reference(0));call(r,'acquisition.start',purpose='pre_calibration');r.step(130)
+  self.assertEqual(r.read()['calibration.pre_result'],'successful');self.assertAlmostEqual(call(r,'calibration.pre_accept')['head_offset_k'],-.2,places=2)
+  self.assertFalse(r.calibrated());self.assertIsNone(r.read()['calibration.pre_result']);unload(r);load(r,m.reference(0));call(r,'acquisition.start',purpose='calibration');r.step(130);self.assertAlmostEqual(r.freezing,273.15,places=2)
+  unload(r);load(r,m.reference(.85));call(r,'acquisition.start',purpose='pre_calibration');r.step(130);self.assertEqual(r.read()['calibration.pre_result'],'not_successful')
+  with self.assertRaisesRegex(m.ActionRejected,'NO_PENDING'):r.invoke('calibration.pre_accept')
 if __name__=='__main__':unittest.main()

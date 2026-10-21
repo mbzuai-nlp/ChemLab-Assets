@@ -237,7 +237,7 @@ class RuntimeContract(unittest.TestCase):
         s1.invoke(instance_id='oxtran_01', capability_id='test.start', arguments={'cell': 'A'}, request_id='x')
         h.step(3600.0)
         for k, a in [('test.stop', {'cell': 'A'}), ('test.result', {'cell': 'A'}), ('cell.load_unload', {'cell': 'A'}), ('thermal.set_temperature', {'target_k': 300.0}),
-                     ('humidity.set', {'rh_fraction': 0.0}), ('power.set', {'enabled': False}), ('instrument.configure', dict(INSTRUMENT_EXAMPLE))]:
+                     ('humidity.set', {'rh_fraction': 0.0}), ('instrument.configure', dict(INSTRUMENT_EXAMPLE))]:   # power.set: physical (10-19)
             self.assertEqual(s2.invoke(instance_id='oxtran_01', capability_id=k, arguments=a, request_id='y' + k)['error']['code'], 'ACCESS_DENIED', k)
         self.assertEqual(s1.invoke(instance_id='oxtran_01', capability_id='test.stop', arguments={'cell': 'A'}, request_id='z')['status'], 'succeeded')
         # a panel/host-started test is visible to every operator
@@ -544,12 +544,12 @@ class Physics(unittest.TestCase):
                         0.01 * a.read('evaluator')['truth.cell_a.flux_mol_s'])
         self.assertEqual(len(a.cells['A']['test']['readings']), len(b.cells['A']['test']['readings']))
 
-    def test39_no_user_gain_on_the_2_22_and_analysis(self):
+    def test39_sensor_adjustment_needs_a_reference_test_and_analysis(self):
         h = loaded()
-        with self.assertRaises(ActionRejected) as e:                     # 2/22: out-of-spec certified film -> service, no user adjustment
-            h.invoke('sensor.adjust')
-        self.assertEqual(str(e.exception), 'UNSUPPORTED')
-        self.assertNotIn('sensor.adjust_gain', SLOTS)
+        with self.assertRaises(ActionRejected) as e:                     # manual appendix G: a record comes from a completed reference-film test
+            h.invoke('sensor.adjustment_create', name='ref', cell='A', reference_value=0.05)
+        self.assertEqual(str(e.exception), 'NO_COMPLETED_TEST')
+        self.assertEqual(h.read('agent')['sensor.adjustment'], dict(name=None, gain=1.0))   # no record assigned: reported OTR is not scaled
         out = call(h, 'analysis.otr', readings_mol_m2_s=[1e-8, 1.01e-8, 1e-8], individual_zero_mol_m2_s=1e-10, window=3, driving_partial_pressure_pa=1e5,
                    thickness_m=1e-4, convergence_percent=2.0)
         self.assertAlmostEqual(out['steady_state_otr_mol_m2_s'], 1.0033333333333333e-8 - 1e-10)
@@ -902,7 +902,7 @@ class Physics(unittest.TestCase):
         caps = meta['capabilities']
         self.assertNotIn('ACCESS_DENIED', [e['code'] for e in caps['test.start']['errors']])   # agent-visible and not foreign-guarded
         self.assertIn('ACCESS_DENIED', [e['code'] for e in caps['test.stop']['errors']])
-        self.assertIn('INVALID_ARGUMENT', [e['code'] for e in caps['sensor.adjust']['errors']])
+        self.assertIn('INVALID_ARGUMENT', [e['code'] for e in caps['report.export']['errors']])
         # the preconditions that reject test.start / cell.load_unload are visible to an agent
         h = loaded(cells=('A',), clamp=False)
         a = h.read('agent')
@@ -911,6 +911,255 @@ class Physics(unittest.TestCase):
         self.assertTrue(h.read('agent')['cell_a.clamp_moving'])
         h.step(5.0)
         self.assertFalse(h.read('agent')['cell_a.clamp_moving'])
+
+class OperatorFunctions(unittest.TestCase):
+    """1.1.0: the touch-screen functions of the manual as direct commands (the front panel calls the same ones)."""
+
+    def test60_test_and_carrier_rh_are_separate_set_points(self):
+        h = loaded()
+        call(h, 'humidity.set_streams', test_rh_fraction=0.6, carrier_rh_fraction=0.0)
+        a = h.read('agent')
+        self.assertEqual((a['humidity.target_fraction'], a['humidity.carrier_target_fraction']), (0.6, 0.0))
+        before = h.read('debug')
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('humidity.set_streams', test_rh_fraction=0.5, carrier_rh_fraction=0.02)
+        self.assertEqual(str(e.exception), 'RH_OUTSIDE_CONTROLLED_RANGE')
+        self.assertEqual(h.read('debug'), before)
+        call(h, 'test.configure', **dict(TEST_CFG_EXAMPLE, test_mode='continuous', conditioning_hours=0.0, individual_zero='none'))
+        call(h, 'sim.step', dt_s=4 * 3600.0)
+        a = h.read('agent')
+        self.assertAlmostEqual(a['humidity.indicated_fraction'], 0.6, delta=0.01)
+        self.assertEqual(a['humidity.carrier_indicated_fraction'], 0.0)
+        call(h, 'test.start', cell='A')
+        call(h, 'sim.step', dt_s=1800.0)
+        e = h.read('evaluator')
+        T = e['truth.block_temperature_k']
+        wet = 0.999 * (101325.0 - e['truth.rh_fraction'] * saturation_pressure_pa(T))   # only the test stream dilutes the O2 driving pressure
+        self.assertAlmostEqual(e['truth.cell_a.test_side_o2_pa'] / wet, 1.0, delta=0.002)
+        self.assertEqual(e['truth.carrier_rh_fraction'], 0.0)
+        call(h, 'humidity.set', rh_fraction=0.3)                                    # humidity.set writes both streams
+        a = h.read('agent')
+        self.assertEqual((a['humidity.target_fraction'], a['humidity.carrier_target_fraction']), (0.3, 0.3))
+        call(h, 'sim.step', dt_s=1800.0)
+        self.assertGreater(h.read('agent')['humidity.carrier_indicated_fraction'], 0.0)
+
+    def test61_identification_goes_into_the_next_test(self):
+        h = loaded()
+        call(h, 'cell.set_identification', cell='A', test_id='T-17', sample_id='PET 100um', material_id='PET')
+        with self.assertRaises(ActionRejected):
+            h.invoke('cell.set_identification', cell='A', test_id='x' * (MAX_TEXT + 1), sample_id='', material_id='')
+        self.assertEqual(h.read('agent')['cell_a.test_info']['method'], None)
+        call(h, 'test.start', cell='A')
+        info = h.read('agent')['cell_a.test_info']
+        self.assertEqual((info['method'], info['test_id'], info['sample_id'], info['material_id']), ('advanced', 'T-17', 'PET 100um', 'PET'))
+        call(h, 'cell.set_identification', cell='A', test_id='T-18', sample_id='', material_id='')
+        self.assertEqual(h.read('agent')['cell_a.test_info']['test_id'], 'T-17')         # the running record keeps its identification
+        self.assertEqual(h.read('agent')['cell_a.identification']['test_id'], 'T-18')
+
+    def test62_advance_walks_the_states_and_abort_cancels(self):
+        h = loaded()                                                             # conditioning 0.5 h, end zero
+        for k in ('test.abort', 'test.advance'):
+            with self.assertRaises(ActionRejected) as e:
+                h.invoke(k, cell='A')
+            self.assertEqual(str(e.exception), 'NOT_RUNNING')
+        call(h, 'test.start', cell='A')
+        self.assertEqual(h.cells['A']['phase'], 'conditioning')
+        r = call(h, 'test.advance', cell='A')
+        self.assertEqual((r['phase'], r['cell_phase']), ('running', 'testing'))
+        call(h, 'sim.step', dt_s=6 * 3600.0)
+        n = h.cells['A']['exam_count']
+        self.assertGreater(n, 2)
+        self.assertEqual(call(h, 'test.advance', cell='A')['cell_phase'], 'zero_end')
+        call(h, 'sim.step', dt_s=2 * 3600.0)
+        r = call(h, 'test.advance', cell='A')
+        self.assertEqual((r['phase'], r['cell_phase']), ('succeeded', 'succeeded'))
+        res = call(h, 'test.result', cell='A')
+        self.assertEqual((res['terminal_reason'], res['exam_count']), ('OPERATOR_STOP', n))
+        self.assertIsNotNone(res['individual_zero_mol_m2_s'])
+        call(h, 'test.start', cell='A')
+        call(h, 'sim.step', dt_s=3 * 3600.0)
+        r = call(h, 'test.abort', cell='A')
+        self.assertEqual(r['phase'], 'cancelled')
+        self.assertEqual(call(h, 'test.result', cell='A')['validity'], 'cancelled')
+
+    def test63_goto_bypass_holds_and_rezero_restarts(self):
+        h = loaded(cfg=dict(test_mode='continuous', conditioning_hours=0.0, individual_zero='none'))
+        call(h, 'test.start', cell='A')
+        call(h, 'sim.step', dt_s=2 * 3600.0)
+        n = len(h.cells['A']['test']['readings'])
+        r = call(h, 'sequence.goto', target='bypass')
+        self.assertEqual(r['route'], 'bypass')
+        self.assertTrue(h.read('agent')['sequence.held'])
+        call(h, 'sim.step', dt_s=3 * 3600.0)
+        self.assertEqual(len(h.cells['A']['test']['readings']), n)                  # no exams while held in ByPass
+        self.assertEqual(h.read('agent')['sensor.route'], 'bypass')
+        zeros = len(h.zero_list)
+        r = call(h, 'sequence.goto', target='rezero')
+        self.assertEqual(r['route'], 'Z')
+        self.assertFalse(h.read('agent')['sequence.held'])
+        call(h, 'sim.step', dt_s=INSTRUMENT_EXAMPLE['rezero_exam_minutes'] * 60.0 + 1.0)
+        self.assertEqual(len(h.zero_list), zeros + 1)
+        call(h, 'sim.step', dt_s=2 * 3600.0)
+        self.assertGreater(len(h.cells['A']['test']['readings']), n)                # the rotation resumed
+        call(h, 'test.abort', cell='A')
+        call(h, 'sim.step', dt_s=60.0)
+        zeros = len(h.zero_list)
+        call(h, 'sequence.goto', target='rezero')                                   # a ReZero exam with no test running
+        self.assertEqual(h.read('agent')['sensor.route'], 'Z')
+        call(h, 'sim.step', dt_s=INSTRUMENT_EXAMPLE['rezero_exam_minutes'] * 60.0 + 1.0)
+        self.assertEqual(len(h.zero_list), zeros + 1)
+        self.assertEqual(h.read('agent')['sensor.route'], 'bypass')
+        call(h, 'power.set', enabled=False)
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('sequence.goto', target='bypass')
+        self.assertEqual(str(e.exception), 'POWER_OFF')
+
+    def test64_sequential_test_runs_the_rows_in_order(self):
+        h = loaded(cfg=dict(test_mode='standard', cycles=2, conditioning_hours=0.0, individual_zero='none'))
+        call(h, 'sequence.set_step', cell='A', index=1, target_k=296.15, test_rh_fraction=0.0, carrier_rh_fraction=0.0)
+        call(h, 'sequence.set_step', cell='A', index=2, target_k=303.15, test_rh_fraction=0.0, carrier_rh_fraction=0.0)
+        call(h, 'sequence.set_step', cell='A', index=3, target_k=308.15, test_rh_fraction=0.0, carrier_rh_fraction=0.0)
+        for k, a in (('sequence.set_step', dict(index=5, target_k=300.0, test_rh_fraction=0.0, carrier_rh_fraction=0.0)), ('sequence.delete_step', dict(index=4))):
+            with self.assertRaises(ActionRejected) as e:
+                h.invoke(k, cell='A', **a)
+            self.assertEqual(str(e.exception), 'STEP_INDEX_OUT_OF_RANGE')
+        call(h, 'sequence.delete_step', cell='A', index=3)
+        call(h, 'sequence.enable', cell='A', enabled=True)
+        self.assertEqual(h.read('agent')['cell_a.sequence'], dict(enabled=True, current_step=None, steps=[
+            dict(target_k=296.15, test_rh_fraction=0.0, carrier_rh_fraction=0.0), dict(target_k=303.15, test_rh_fraction=0.0, carrier_rh_fraction=0.0)]))
+        op1 = call(h, 'test.start', cell='A')['operation_id']
+        self.assertEqual(h.read('agent')['cell_a.sequence']['current_step'], 1)
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('sequence.enable', cell='A', enabled=False)
+        self.assertEqual(str(e.exception), 'BUSY')
+        while h.cells['A']['test']['op'] == op1:
+            call(h, 'sim.step', dt_s=1800.0)
+        a = h.read('agent')
+        self.assertEqual((a['cell_a.sequence']['current_step'], a['cell_a.test_info']['sequence_step'], a['thermal.target_k']), (2, 2, 303.15))
+        self.assertTrue(h.cells['A']['test']['waiting'])                          # conditioning until the new temperature is reached
+        self.assertEqual(a['cell_a.phase'], 'conditioning')
+        while h.cells['A']['test']['waiting']:
+            call(h, 'sim.step', dt_s=600.0)
+        self.assertLess(abs(h.read('agent')['thermal.indicated_k'] - 303.15), 0.2 + 1e-9)
+        while h._test_active('A'):
+            call(h, 'sim.step', dt_s=1800.0)
+        first, second = h.records[op1], call(h, 'test.result', cell='A')
+        self.assertEqual((first['validity'], second['validity']), ('valid', 'valid'))
+        self.assertEqual((first['conditions']['target_k'], second['conditions']['target_k']), (296.15, 303.15))
+        self.assertGreater(second['final_otr_mol_m2_s'], first['final_otr_mol_m2_s'])       # Arrhenius: warmer, more permeable
+        self.assertIsNone(h.read('agent')['cell_a.sequence']['current_step'])
+
+    def test65_methods_save_recall_delete(self):
+        h = configured()
+        call(h, 'thermal.set_temperature', target_k=303.15)
+        call(h, 'humidity.set_streams', test_rh_fraction=0.5, carrier_rh_fraction=0.3)
+        call(h, 'method.save', name='PET 30C', cell='A')
+        call(h, 'test.configure', **dict(TEST_CFG_EXAMPLE, cell='A', exam_minutes=45.0))
+        call(h, 'thermal.set_temperature', target_k=296.15)
+        call(h, 'humidity.set', rh_fraction=0.0)
+        self.assertEqual(h.read('agent')['methods.saved'], ['PET 30C'])
+        call(h, 'method.recall', name='PET 30C', cell='B')
+        a = h.read('agent')
+        self.assertEqual((a['thermal.target_k'], a['humidity.target_fraction'], a['humidity.carrier_target_fraction']), (303.15, 0.5, 0.3))
+        self.assertEqual(h.cells['B']['cfg']['exam_minutes'], TEST_CFG_EXAMPLE['exam_minutes'])
+        self.assertTrue(a['cell_b.method_configured'])
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('method.recall', name='nope', cell='A')
+        self.assertEqual(str(e.exception), 'METHOD_NOT_FOUND')
+        call(h, 'method.delete', name='PET 30C')
+        self.assertEqual(h.read('agent')['methods.saved'], [])
+        with self.assertRaises(ActionRejected) as e:
+            AmetekOxtranRuntime().invoke('method.save', name='x', cell='A')
+        self.assertEqual(str(e.exception), 'METHOD_REQUIRED')
+
+    def test66_auto_test_rule_set(self):
+        h = loaded()
+        call(h, 'test.start_auto', cell='A')
+        while h._test_active('A'):
+            call(h, 'sim.step', dt_s=1800.0)
+        res = call(h, 'test.result', cell='A')
+        info = h.read('agent')['cell_a.test_info']
+        self.assertEqual((res['validity'], info['method']), ('valid', 'auto'))
+        self.assertTrue(res['converged'])
+        self.assertLess(abs(res['final_otr_mol_m2_s'] / steady_otr(PET, 100e-6) - 1), 0.02)
+        self.assertEqual([x['parameter'] for x in info['auto_log']], ['Equilibrium'])     # a fair barrier: 30 min exams, no individual zero
+        self.assertIsNone(res['individual_zero_mol_m2_s'])
+        # a Very Good Barrier (< 0.1 cc/(m2 day)): longer exams and an individual zero after the test phase
+        h = loaded(mount=dict(permeability_override_mol_m_per_m2_s_pa=2.4e-20, diffusivity_override_m2_s=1e-11))
+        call(h, 'test.start_auto', cell='A')
+        while h._test_active('A'):
+            call(h, 'sim.step', dt_s=1800.0)
+        res = call(h, 'test.result', cell='A')
+        log = [x['parameter'] for x in h.read('agent')['cell_a.test_info']['auto_log']]
+        self.assertEqual(log, ['Exam Minutes', 'Equilibrium', 'Individual Zero'])
+        self.assertEqual(res['conditions']['exam_minutes'], AUTO_EXAM_MINUTES[1])
+        self.assertIsNotNone(res['individual_zero_mol_m2_s'])
+        self.assertLess(res['final_otr_cc_m2_day'], VERY_GOOD_BARRIER_CC_M2_DAY)
+
+    def test67_otr_adjustment_record_scales_reported_otr(self):
+        h = loaded(cfg=dict(test_mode='convergence', conditioning_hours=0.0, individual_zero='none'), settle=4 * 3600.0)
+        res = run_test(h)
+        measured = res['final_otr_cc_m2_day']
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('sensor.adjustment_create', name='bad', cell='A', reference_value=measured * 1.5)
+        self.assertEqual(str(e.exception), 'GAIN_OUT_OF_RANGE')
+        r = call(h, 'sensor.adjustment_create', name='Cert', cell='A', reference_value=measured * 1.04)
+        self.assertAlmostEqual(r['gain'], 1.04, places=9)
+        self.assertEqual(h.read('agent')['sensor.adjustment'], dict(name=None, gain=1.0))   # saved, not yet assigned
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('sensor.adjustment_create', name='Cert', cell='A', reference_value=measured)
+        self.assertEqual(str(e.exception), 'RECORD_EXISTS')
+        call(h, 'sensor.adjustment_assign', name='Cert')
+        self.assertEqual(h.read('agent')['sensor.adjustment_records'][0]['assigned'], True)
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('sensor.adjustment_delete', name='Cert')
+        self.assertEqual(str(e.exception), 'RECORD_ASSIGNED')
+        call(h, 'test.start', cell='A')
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('sensor.adjustment_assign', name=None)
+        self.assertEqual(str(e.exception), 'BUSY')
+        while h._test_active('A'):
+            call(h, 'sim.step', dt_s=1800.0)
+        adjusted = call(h, 'test.result', cell='A')['final_otr_cc_m2_day']
+        self.assertAlmostEqual(adjusted / measured, 1.04, delta=0.004)
+        r = call(h, 'sensor.adjustment_create', name='Cert 2', cell='A', reference_value=adjusted / 1.04)   # measured without the gain it ran with
+        self.assertAlmostEqual(r['gain'], 1.0, places=9)
+        call(h, 'sensor.adjustment_assign', name=None)
+        call(h, 'sensor.adjustment_delete', name='Cert')
+        self.assertEqual([x['name'] for x in h.read('agent')['sensor.adjustment_records']], ['Cert 2'])
+
+    def test68_sensor_error_is_an_evaluator_setting_with_ideal_default(self):
+        h = loaded()
+        self.assertEqual(h.read('evaluator')['sensor.error'], dict(gain_error=0.0, offset_a=0.0))
+        h.register_principal('ag', 'agent')
+        r = h.session('ag').invoke(instance_id='oxtran_01', capability_id='sensor.configure_error', arguments=dict(gain_error=0.05, offset_a=0.0), request_id='e')
+        self.assertEqual(r['error']['code'], 'ACCESS_DENIED')
+        call(h, 'test.configure', **dict(TEST_CFG_EXAMPLE, test_mode='continuous', conditioning_hours=0.0, individual_zero='none'))
+        call(h, 'test.start', cell='A')
+        call(h, 'sim.step', dt_s=4 * 3600.0)
+        I = h._measured_current()
+        call(h, 'sensor.configure_error', gain_error=0.05, offset_a=1e-10)
+        self.assertAlmostEqual(h._measured_current(), I + 0.05 * h.sensor_I + 1e-10, delta=1e-15)
+        call(h, 'sensor.configure_error', gain_error=0.0, offset_a=0.0)
+        self.assertAlmostEqual(h._measured_current(), I, delta=1e-18)
+
+    def test69_use_last_zero_and_convergence_by_hours(self):
+        h = loaded(cfg=dict(test_mode='convergence_hours', convergence_count=3, conditioning_hours=0.0, individual_zero='use_last'), settle=4 * 3600.0)
+        with self.assertRaises(ActionRejected) as e:
+            h.invoke('test.start', cell='A')
+        self.assertEqual(str(e.exception), 'NO_INDIVIDUAL_ZERO')
+        call(h, 'test.configure', **dict(TEST_CFG_EXAMPLE, test_mode='standard', cycles=2, conditioning_hours=0.0, individual_zero='end'))
+        first = run_test(h)
+        zero = first['individual_zero_mol_m2_s']
+        self.assertIsNotNone(zero)
+        call(h, 'test.configure', **dict(TEST_CFG_EXAMPLE, test_mode='convergence_hours', convergence_count=3, conditioning_hours=0.0, individual_zero='use_last'))
+        res = run_test(h)
+        self.assertEqual(res['individual_zero_mol_m2_s'], zero)                   # no zero phase: the last measured zero is used
+        self.assertTrue(res['converged'])
+        times = [r['time_s'] for r in res['readings'] if r['kind'] == 'exam']
+        self.assertGreaterEqual(times[-1] - times[0], 3 * 3600.0)
+        self.assertNotIn('individual_zero', [r['kind'] for r in res['readings']])
+
 
 if __name__ == '__main__':
     unittest.main()

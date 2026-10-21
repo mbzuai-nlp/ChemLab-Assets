@@ -1,8 +1,14 @@
 """HIT5P / ISO179 .5J: real-time nonlinear pendulum and observed empty correction.
 Manual raising / host catching are external engineering actions, not OEM motors.
+
+Touch operating unit (panel.touch / panel.press / panel.switch / panel.capture / panel.frame; approximate panel_ui.json beside the contract, run by
+the shared engine _panel_ui.py): results and series statistics on the display, the guided test setup (specimen dimensions -> method.configure),
+the friction correction (calibration.start / clear), the failure type after each impact (series.set_failure), a new series (series.clear), the
+result units (display.set_units), the mechanical release lever and the power switch.  The brochure describes this workflow; the screens themselves
+are not public, so the panel is marked approximate.
 """
 from __future__ import annotations
-import copy,importlib.util,json,math
+import copy,importlib.util,json,math,weakref
 from pathlib import Path
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -34,7 +40,7 @@ def validate(s,v):
     if k in ('number','integer'):
         if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or k=='integer' and type(v) is not int or not s.get('minimum',-math.inf)<=v<=s.get('maximum',math.inf):raise ActionRejected('INVALID_ARGUMENT')
     elif k=='object':
-        if not isinstance(v,dict) or set(v)!=set(s['properties']):raise ActionRejected('INVALID_ARGUMENT')
+        if not isinstance(v,dict) or not set(s.get('required',s['properties']))<=set(v)<=set(s['properties']):raise ActionRejected('INVALID_ARGUMENT')
         for key,value in v.items():validate(s['properties'][key],value)
     elif k=='array':
         if not isinstance(v,list) or not s.get('minItems',0)<=len(v)<=s.get('maxItems',math.inf):raise ActionRejected('INVALID_ARGUMENT')
@@ -100,6 +106,23 @@ slot('acquisition.elapsed_s',number('s'),'s','derived','controller','记录实�
 slot('acquisition.points',{'type':'integer','x-unit':'1'},'1','derived','controller','采样及明确impact/apex事件行数')
 for k,u in [('truth.angular_velocity_rad_s','rad/s'),('truth.sample_absorbed_j','J'),('truth.sample_temperature_k','K'),('truth.bearing_temperature_k','K'),('truth.sample_mass_kg','kg')]:slot(k,number(u),u,'process_truth','pendulum','受限非线性摆锤/热库存真值','evaluator')
 
+# ---- touch operating unit (approximate: brochure fp573 p.4-5, p.14 describe the workflow touch display, results and statistics on the
+# instrument and the failure type chosen after each test; the operating instructions are not public)
+ASSET_VERSION='1.1.2'
+FAILURE=enum(['C','H','P','N'])                                                   # ISO 179-1 types of failure: complete, hinge, partial, non-break
+UNITS=enum(['SI','Anglo-American'])                                               # brochure p.14: J / ft lbf, kJ/m2 / ft lbf/in2
+COUNT={'type':'integer','x-unit':'1'}
+SERIES_ROW=obj(dict(n=COUNT,operation_id=TEXT,energy_j=nullable(number('J')),energy_fraction=nullable(number('1')),strength_j_m2=nullable(number('J/m^2')),validity=VALIDITY,failure=nullable(FAILURE)))
+SERIES_STATS=obj(dict(n=COUNT,energy_mean_j=nullable(number('J')),energy_sd_j=nullable(number('J')),strength_mean_j_m2=nullable(number('J/m^2')),strength_sd_j_m2=nullable(number('J/m^2'))))
+FRONT_ERRORS=['NO_RESULT']
+cap('series.set_failure',obj(dict(failure=FAILURE)),obj(dict(n=COUNT,failure=FAILURE)),dict(failure='C'),'display_glass','冲击后在仪器上为当前系列最近一次冲击选择破坏类型（ISO179-1：C完全/H铰链/P部分/N不破；宣传册p.5）')
+cap('series.clear',obj({}),obj(dict(cleared=BOOL)),{},'display_glass','开始新系列：之前的冲击不再计入显示的系列统计（结果记录保留）')
+cap('display.set_units',obj(dict(units=UNITS)),obj(dict(units=UNITS)),dict(units='SI'),'display_glass','结果显示单位：SI（J、kJ/m²）或英制（ft·lbf、ft·lbf/in²）（宣传册p.14）')
+FRONT_CAPS=['series.set_failure','series.clear','display.set_units']
+slot('series.results',array(SERIES_ROW,0,1000),'1','derived','display_glass','当前系列各次冲击：校正吸收能J、占0.5J摆锤能量的分数、有效时的冲击强度J/m²、有效性与所选破坏类型')
+slot('series.stats',SERIES_STATS,'1','derived','display_glass','当前系列统计：有效冲击的能量与强度均值及样本标准差（n≥2）')
+slot('display.units',UNITS,'1','setpoint','display_glass','结果显示单位制')
+
 def analyze_impact(release_angle_rad,rebound_angle_rad,friction_torque_nm,remaining_area_prior_m2,outcome):
     alpha=abs(release_angle_rad);beta=abs(rebound_angle_rad);raw=GRAVITY_COEFFICIENT_NM*(math.cos(beta)-math.cos(alpha));corrected=raw-friction_torque_nm*(alpha+beta)
     validity='negative_corrected_energy' if corrected<0 else 'below_working_range' if corrected<.05 else 'above_working_range' if corrected>.4 else 'no_break' if outcome=='no_break' else 'valid'
@@ -111,6 +134,7 @@ class ZwickHit5pRuntime:
         self.theta=0.;self.omega=0.;self.mechanical='held';self.raise_target=0.;self._raise_start_ns=0;self._raise_end_ns=0;self._raise_angle0=0.;self._raise_started=False;self._raise_rate=0.;self.shield=1.1;self.shield_target=1.1;self.shield_start=1.1;self.shield_start_ns=0;self.shield_end_ns=0;self.catch_requested=False;self._segment=None;self._pending_impact=False;self._first_apex=False
         self.broken=False;self.spent=False;self.absorbed=0.;self.damage=0.;self.bearing_U=0.;self.sample_U=0.;self.calibration=None;self.phase='idle';self.operation_id=None;self.mode='none';self.elapsed=0.;self.rows=[];self._counter=0;self.terminal_reason=None;self._operation_source=None;self._release_observed=None;self._rebound_observed=None;self._observed_speed=None;self._outcome='pending';self._validity='not_completed';self._analysis=None;self.last_energy=None;self.records={};self._principals={};self._requests={};self._owners={};self._cancel_operations={}
         self.book={k:0. for k in ['loaded_mass_kg','removed_mass_kg','loaded_volume_m3','removed_volume_m3','host_work_j','friction_heat_j','bearing_heat_export_j','sample_absorbed_j','sample_heat_j','sample_heat_export_j','sensible_loaded_j','sensible_removed_j','internal_removed_j']}
+        self.series=[];self.units='SI';self.power_epoch=0;self.panel_capture_dir=None;self._panel_session=None   # the session whose panel gesture is running
     @property
     def time_s(self):return self.time_ns/1e9
     def register_principal(self,name,visibility):
@@ -130,8 +154,50 @@ class ZwickHit5pRuntime:
         t=self._temperature();ref=self.reference.get('reference_temperature_K');domain=self.reference.get('valid_temperature_range_K');tol=self.sample['temperature_tolerance_k']
         return (ref is None or abs(t-ref)<=tol+1e-9) and (not domain or abs(domain[1]-domain[0])<1e-9 or domain[0]<=t<=domain[1]) and abs(t-self.sample['initial_temperature_k'])<=tol+1e-9
     def read(self,visibility='agent'):
-        d={'clock.time_s':self.time_s,'plant.configured':self.plant is not None,'fixture.configured':self.fixture is not None,'method.configured':self.method is not None,'sample.present':self.sample is not None,'sample.broken':self.broken,'sample.spent':self.spent,'power.enabled':self.power,'pendulum.held':self.mechanical=='held','latch.engaged':self._latch(),'catch.requested':self.catch_requested,'calibration.valid':self.calibration is not None,'pendulum.angle_rad':self.theta,'pendulum.target_angle_rad':self.raise_target,'encoder.angle_rad':encoder(self.theta) if self.power else None,'shield.angle_rad':self.shield,'shield.target_angle_rad':self.shield_target,'latch.position_m':0. if self._latch() else .004,'power.angle_rad':.28 if self.power else 0.,'fragments.offset_m':.006 if self.broken and self.sample else 0.,'calibration.friction_torque_nm':self.calibration,'measurement.energy_j':self.last_energy if self.power else None,'measurement.validity':self._validity,'acquisition.phase':self.phase,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'truth.angular_velocity_rad_s':self.omega,'truth.sample_absorbed_j':self.absorbed,'truth.sample_temperature_k':self._temperature(),'truth.bearing_temperature_k':self.plant['ambient_k']+self.bearing_U/self.plant['bearing_heat_capacity_j_k'] if self.plant else 296.15,'truth.sample_mass_kg':self._mass()}
+        d={'clock.time_s':self.time_s,'plant.configured':self.plant is not None,'fixture.configured':self.fixture is not None,'method.configured':self.method is not None,'sample.present':self.sample is not None,'sample.broken':self.broken,'sample.spent':self.spent,'power.enabled':self.power,'pendulum.held':self.mechanical=='held','latch.engaged':self._latch(),'catch.requested':self.catch_requested,'calibration.valid':self.calibration is not None,'pendulum.angle_rad':self.theta,'pendulum.target_angle_rad':self.raise_target,'encoder.angle_rad':encoder(self.theta) if self.power else None,'shield.angle_rad':self.shield,'shield.target_angle_rad':self.shield_target,'latch.position_m':0. if self._latch() else .004,'power.angle_rad':.28 if self.power else 0.,'fragments.offset_m':.006 if self.broken and self.sample else 0.,'calibration.friction_torque_nm':self.calibration,'measurement.energy_j':self.last_energy if self.power else None,'measurement.validity':self._validity,'acquisition.phase':self.phase,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'series.results':self._series_rows(),'series.stats':self._series_stats(),'display.units':self.units,'truth.angular_velocity_rad_s':self.omega,'truth.sample_absorbed_j':self.absorbed,'truth.sample_temperature_k':self._temperature(),'truth.bearing_temperature_k':self.plant['ambient_k']+self.bearing_U/self.plant['bearing_heat_capacity_j_k'] if self.plant else 296.15,'truth.sample_mass_kg':self._mass()}
         return {k:copy.deepcopy(v) for k,v in d.items() if visibility!='agent' or SLOTS[k]['visibility']=='agent'}
+    # ---- touch operating unit: series of the impacts since the last new series
+    def _series_rows(self):
+        return [dict(n=i+1,operation_id=r['operation_id'],energy_j=r['energy_j'],energy_fraction=r['energy_j']/NOMINAL_ENERGY_J if r['energy_j'] is not None else None,
+                     strength_j_m2=r['strength_j_m2'],validity=r['validity'],failure=r['failure']) for i,r in enumerate(self.series)]
+    def _series_stats(self):
+        def mean_sd(xs):
+            if not xs:return None,None
+            m=sum(xs)/len(xs);return m,(math.sqrt(sum((x-m)**2 for x in xs)/(len(xs)-1)) if len(xs)>1 else None)
+        ok=[r for r in self.series if r['validity']=='valid'];e=mean_sd([r['energy_j'] for r in ok]);st=mean_sd([r['strength_j_m2'] for r in ok if r['strength_j_m2'] is not None])
+        return dict(n=len(ok),energy_mean_j=e[0],energy_sd_j=e[1],strength_mean_j_m2=st[0],strength_sd_j_m2=st[1])
+    @property
+    def panel(self):
+        p=_PANELS.get(self)
+        if p is None and PANEL_SPEC:p=_PANELS[self]=_panel_ui.PanelUI(PANEL_SPEC,self)
+        return p
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        out=self.read('agent');f=self.fixture
+        out.update({'host.powered':self.power,'host.power_epoch':self.power_epoch,'host.method':copy.deepcopy(self.method or METHOD_EXAMPLE),
+                    'host.pendulum':dict(standard=f['standard'],energy_j=f['pendulum_energy_j'],release_angle_deg=math.degrees(f['release_angle_rad']),strike_radius_mm=f['strike_radius_m']*1e3,
+                                         support_span_mm=f['support_span_m']*1e3) if f else None,
+                    'host.series_n':len(self.series),'host.failure_pending':bool(self.series) and self.series[-1]['failure'] is None and self.phase!='running'});return out
+    def panel_invoke(self,capability_id,arguments):
+        try:
+            if self._panel_session is not None:self._panel_session._guard(capability_id,arguments)   # a gesture made through a session keeps that caller's access rules
+            return self.invoke(capability_id,**arguments)
+        except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+    def panel_time(self):return self.time_s
+    def _panel_cmd(self,capability,a):
+        if self.panel is None:raise ActionRejected('UNSUPPORTED')
+        try:
+            if capability=='panel.press':out=dict(accepted=bool(self.panel.press(a['input_id'],float(a.get('duration_s',.1)))))
+            elif capability=='panel.touch':out=dict(accepted=bool(self.panel.touch(a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),a.get('to'))))
+            elif capability=='panel.switch':out=dict(accepted=bool(self.panel.switch(a['input_id'],a['position'],held=tuple(a.get('held',())))))
+            elif capability=='panel.frame':return dict(frame=self.panel.frame())
+            else:
+                import hashlib,tempfile
+                data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);path=d/f"{a['display_id']}_{sha[:16]}.png"
+                if not path.exists():path.write_bytes(data)
+                return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+        self.revision+=1;return out
     def ledger(self):
         b=copy.deepcopy(self.book);m=self._mass();v=self.sample['volume_m3'] if self.sample else 0.;b.update(sample_mass_kg=m,mass_residual_kg=b['loaded_mass_kg']-b['removed_mass_kg']-m,sample_volume_m3=v,volume_residual_m3=b['loaded_volume_m3']-b['removed_volume_m3']-v,pendulum_kinetic_j=.5*INERTIA_KG_M2*self.omega**2,pendulum_potential_j=GRAVITY_COEFFICIENT_NM*(1-math.cos(self.theta)),bearing_thermal_j=self.bearing_U,sample_damage_stored_j=self.damage,sample_thermal_j=self.sample_U)
         b['energy_residual_j']=b['host_work_j']+b['sensible_loaded_j']-b['sensible_removed_j']-b['internal_removed_j']-b['bearing_heat_export_j']-b['sample_heat_export_j']-self._energy()-self.bearing_U-self.sample_U-self.damage;return b
@@ -192,6 +258,7 @@ class ZwickHit5pRuntime:
                     self._analysis=analyze_impact(self._release_observed,self._rebound_observed,self.calibration,self.method['remaining_area_prior_m2'],self._outcome);self._validity=self._analysis['validity'];self.last_energy=self._analysis['corrected_energy_j']
                     if not self._temperature_valid():self._validity='temperature_invalid';self._analysis['impact_strength_j_m2']=None
                     elif self._observed_speed is None or not 2.9*.9<=self._observed_speed<=2.9*1.1:self._validity='invalid_speed';self._analysis['impact_strength_j_m2']=None
+                    self.series.append(dict(operation_id=self.operation_id,energy_j=self._analysis['corrected_energy_j'],strength_j_m2=self._analysis['impact_strength_j_m2'],validity=self._validity,failure=None))
                     self._finish('succeeded' if self._validity in ('valid','no_break') else 'failed',self._validity)
         if self.catch_requested:self.mechanical='held';self.catch_requested=False
         self._segment=None
@@ -204,6 +271,10 @@ class ZwickHit5pRuntime:
         if k=='provenance.read':return dict(current_sample=self.source,operation_source=self._operation_source)
         if k=='analysis.impact':return analyze_impact(**a)
         if k=='sim.step':self.step(a['dt_s']);return dict(time_s=self.time_s)
+        if k in PANEL_CAPS:
+            if _panel_ui.check_arguments(CAPS[k]['input_schema'],arguments):raise ActionRejected('INVALID_ARGUMENT')
+            return self._panel_cmd(k,a)
+        if k=='display.set_units':self.units=a['units'];self.revision+=1;return dict(units=self.units)
         if self.phase=='running' and k not in ('acquisition.stop','power.set','pendulum.catch'):raise ActionRejected('BUSY')
         if k=='plant.configure':
             if self.plant or self.power or self.sample:raise ActionRejected('PLANT_ALREADY_CONFIGURED')
@@ -240,6 +311,7 @@ class ZwickHit5pRuntime:
         elif k=='power.set':
             if not self.plant:raise ActionRejected('PLANT_REQUIRED')
             if not a['enabled'] and self.phase=='running':self._finish('cancelled','POWER_OFF')
+            if a['enabled'] and not self.power:self.power_epoch+=1
             self.power=a['enabled'];out=dict(enabled=self.power)
         elif k=='shield.set_open':
             if not self.plant:raise ActionRejected('PLANT_REQUIRED')
@@ -270,6 +342,10 @@ class ZwickHit5pRuntime:
         elif k=='acquisition.stop':
             if self.phase!='running':raise ActionRejected('NOT_RUNNING')
             self._finish('cancelled','USER_CANCEL');out=dict(phase=self.phase,elapsed_s=self.elapsed)
+        elif k=='series.set_failure':
+            if not self.series:raise ActionRejected('NO_RESULT')
+            self.series[-1]['failure']=a['failure'];out=dict(n=len(self.series),failure=a['failure'])
+        elif k=='series.clear':self.series=[];out=dict(cleared=True)
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
         self.revision+=1;return copy.deepcopy(out)
     def step(self,dt_s):
@@ -314,7 +390,7 @@ class ZwickHit5pSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta = export_zwick_hit5p_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id); h=self._host; values=h.read(self._role); ids=list(values) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids): raise ActionRejected('INVALID_ARGUMENT')
@@ -341,14 +417,23 @@ class ZwickHit5pSession:
                 old,response=h._requests[key]
                 if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if capability_id in ('acquisition.stop','acquisition.result') and self._role=='agent' and h.operation_id and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-            if capability_id=='power.set' and not arguments['enabled'] and h.phase=='running' and self._role=='agent' and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-            result=self._filter_result(h.invoke(capability_id,**arguments)); operation=result.get('operation_id') if capability_id in ('acquisition.start','calibration.start') else None
+            self._guard(capability_id,arguments); before=h.operation_id; h._panel_session=self if capability_id in PANEL_CAPS else None
+            try: result=self._filter_result(h.invoke(capability_id,**arguments))
+            finally: h._panel_session=None
+            operation=result.get('operation_id') if capability_id in ('acquisition.start','calibration.start') else None
             if operation: h._owners[operation]=self._principal
+            elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before: h._owners[h.operation_id]=self._principal   # a swing released from the panel belongs to the caller
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
             h._requests[key]=(digest,copy.deepcopy(response)); return response
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+    def _guard(self, capability_id, arguments):
+        """Another agent's swing may not be stopped or read, nor its impact given a failure type (direct call or panel gesture alike).  The rear
+        rocker power switch (power.set) is a hard switch (lead rule 2026-10-19): never refused, the electronics react as to a power loss."""
+        h=self._host
+        if self._role!='agent': return
+        if capability_id in ('acquisition.stop','acquisition.result') and h.operation_id and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
+        if capability_id=='series.set_failure' and h.series and h._owners.get(h.series[-1]['operation_id']) not in (None,self._principal): raise ActionRejected('ACCESS_DENIED')   # the failure type completes that impact's result
     def write(self, *, instance_id, state_id, value, request_id):
         self._target(instance_id); entry=SLOTS.get(state_id)
         if not entry or not entry['write']: raise ActionRejected('ACCESS_DENIED')
@@ -388,7 +473,23 @@ EFFECTS={
  'acquisition.stop':['acquisition.phase'],
  'sim.step':list(SLOTS)}
 for k,v in EFFECTS.items():CAPS[k]['effects']=v
-ERRORS=sorted(set(__import__('re').findall(r"ActionRejected\('([A-Z_0-9]+)'",Path(__file__).read_text()))|{'USER_CANCEL','POWER_OFF','OBSERVATION_TIMEOUT','INVALID_EMPTY_SWING'})
+CAPS['series.set_failure']['effects']=['series.results'];CAPS['series.clear']['effects']=['series.results','series.stats'];CAPS['display.set_units']['effects']=['display.units']
+def _panel_engine():
+    try:
+        from asset_runtime import _panel_ui as engine
+        return engine
+    except ImportError:
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=_panel_ui.load_spec(ASSET/'panel_ui.json',capabilities=set(CAPS)) if (ASSET/'panel_ui.json').exists() else None
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+_PANEL_FX=list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in CAPS[c]['effects']))
+for _k,_v in PANEL_CAPS.items():CAPS[_k]=dict(input_schema=_v['input_schema'],output_schema=_v['output_schema'],example_arguments=_v['example_arguments'],component_ids=_v['component_ids'],function_zh=_v['function_zh'],visibility=_v['visibility'],kind=_v['kind'],effects=[] if _k in ('panel.capture','panel.frame') else _PANEL_FX)
+_PANELS=weakref.WeakKeyDictionary()                                                # one PanelUI per runtime, kept out of __dict__
+ERRORS=sorted(set(__import__('re').findall(r"ActionRejected\('([A-Z_0-9]+)'",Path(__file__).read_text()))-set(FRONT_ERRORS)|{'USER_CANCEL','POWER_OFF','OBSERVATION_TIMEOUT','INVALID_EMPTY_SWING'})
 LIMITATIONS=[
  '固定HIT5P / ISO179 Charpy .5J摆锤010930 / 62mm夹具010961，0.5J不是整机最大5J；释放135.72°、摆长250mm、名义2.9m/s±10%、encoder .018°。厂家工作范围10..80%，即.05.. .4J；范围外可报告估计J但不给有效标准化强度。',
  '本HIT5P配置为机械释放，不配自动回摆和盘式制动。pendulum.raise为外部手动有限速代理，pendulum.catch请求宿主在下一转折点接住并保持；它们不是OEM电机/刹车，也未验证机器人抓取/人手安全。',
@@ -409,7 +510,7 @@ def export_zwick_hit5p_contract_metadata():
     for k,v in SLOTS.items():slots[k]=dict(meaning_zh=v['meaning'],component_ids=[v['component']],value_schema=copy.deepcopy(v['schema']),unit=v['unit'],reference_conditions='SI; selected HIT5P ISO179 Charpy0.5J / .25m /135.72deg /62mm span; external manual raise/catch.',origin=v['origin'],visibility=v['visibility'],access='read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'ZwickHit5pSession.read(state_ids=[{k!r}])'),write_via=None,sampling=dict(mode='instant',time_domain='simulation',window_description='Pure read; encoder quantized0.018deg; rows on method time grid with separate impact/apex events.'),source_ids=['simulation_assumption'])
     for k,v in CAPS.items():
         un=k in UNSUPPORTED;async_=k in ('acquisition.start','calibration.start');caps[k]={key:copy.deepcopy(v[key]) for key in ['input_schema','output_schema','component_ids','function_zh','kind','visibility','example_arguments']}
-        caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ('scene','robot','hardware') else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.zwick_hit5p.ZwickHit5pSession.invoke',invocation=f'session.invoke(instance_id="hit_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),preconditions=[] if un or v['kind'] in ('query','analysis') else [dict(description_zh='入口原子核对ISO179 .5J选型、抬摆锁止、罩位置、空摆校准和实际样品前提。',state_ids=['power.enabled','sample.present','pendulum.held','latch.engaged','shield.angle_rad','acquisition.phase'],enforced_by='runtime',check='ZwickHit5pRuntime.invoke')],state_effects=[dict(state_id=s,timing='on_step' if k=='sim.step' else 'immediate',description_zh='设定或操作标志；真实机械/温度/角度读数仅step推进') for s in v['effects']],observes=[],model_effects=dict(mode='none',description_zh='运行层输出供scene独立绑定验证的状态，不直接写几何',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='释放、实际冲击和首回升角观测完成；记录结束不代表机械停摆' if async_ else '原子配置/外部动作请求，实际状态由step推进',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','pendulum','ISO179_fixture','encoder'],partial_failure_zh='停止记录保留全部已点/机械能/破坏/热与库存；自由摆继续至外部catch或自然静止。'),errors=[dict(code=e,meaning_zh=e,side_effects='partial' if async_ and e in ('USER_CANCEL','POWER_OFF','OBSERVATION_TIMEOUT','INVALID_EMPTY_SWING') else 'none') for e in ERRORS],verification=[],limitations=LIMITATIONS,source_ids=['manufacturer_primary','simulation_assumption','template_library'])
+        caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ('scene','robot','hardware') else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.zwick_hit5p.ZwickHit5pSession.invoke',invocation=f'session.invoke(instance_id="hit_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),preconditions=[] if un or v['kind'] in ('query','analysis') else [dict(description_zh='入口原子核对ISO179 .5J选型、抬摆锁止、罩位置、空摆校准和实际样品前提。',state_ids=['power.enabled','sample.present','pendulum.held','latch.engaged','shield.angle_rad','acquisition.phase'],enforced_by='runtime',check='ZwickHit5pRuntime.invoke')],state_effects=[dict(state_id=s,timing='on_step' if k=='sim.step' else 'immediate',description_zh='设定或操作标志；真实机械/温度/角度读数仅step推进') for s in v['effects']],observes=[],model_effects=dict(mode='none',description_zh='运行层输出供scene独立绑定验证的状态，不直接写几何',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='释放、实际冲击和首回升角观测完成；记录结束不代表机械停摆' if async_ else '原子配置/外部动作请求，实际状态由step推进',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','pendulum','ISO179_fixture','encoder'],partial_failure_zh='停止记录保留全部已点/机械能/破坏/热与库存；自由摆继续至外部catch或自然静止。'),errors=[dict(code=e,meaning_zh=e,side_effects='partial' if async_ and e in ('USER_CANCEL','POWER_OFF','OBSERVATION_TIMEOUT','INVALID_EMPTY_SWING') else 'none') for e in ERRORS+(FRONT_ERRORS if k in FRONT_CAPS else [])],verification=[],limitations=LIMITATIONS,source_ids=['manufacturer_primary','simulation_assumption','template_library'])
         if k in ('acquisition.start','calibration.start','pendulum.raise','pendulum.catch','shield.set_open'):
             caps[k]['state_effects'] += [dict(state_id=s,timing='on_step',description_zh='由统一宿主时钟推进非线性摆动、摩擦/冲击/被动热及量化encoder') for s in SLOTS if s not in v['effects'] and SLOTS[s]['origin'] in ('sensor','derived','scene','process_truth')]
     mechanism=dict(component_ids=['pendulum','striker','latch','fixture_base','sample_left','sample_right','controller'],state_ids=list(slots),meaning_zh='ISO179 .5J非线性摆动、实际空摆角度摩擦校正、能量阈值破坏/反弹和可守恒热库存',implementation='lumped',equations=['Kgrav=.5/(1-cos(alpha)); I=2*.5/(2.9/.25)^2; alpha=135.72deg.','Emechanical=0.5*I*omega²+Kgrav*(1-cos(theta)); I*domega/dt=-Kgrav*sin(theta)-tau*sign(omega).','Pfriction=tau*abs(omega); passive bearing/sample heat nodes retain and export energy.','At theta=0: break iff kinetic>=explicit threshold aCharpy*Aremaining; omega_after=-sqrt(2*(kinetic-threshold)/I).','No-break: omega_after=+restitution*abs(omega_before), absorbed=(1-restitution²)*kinetic; no complete-break strength inferred.','Qsample=heat_fraction*absorbed; remaining absorbed stored as damage/surface energy.','Calibration from observed empty alpha,beta: tau_est=Kgrav*(cos(beta)-cos(alpha))/(alpha+beta).','Observed absorbed energy=Kgrav*(cos(beta)-cos(alpha))-tau_est*(alpha+beta); aCharpy=Eobs/Aremaining_prior only for complete valid break and supplied independent area.','External host raising: dWhost=dEmechanical+dQfriction, including ideal velocity boundary kinetic change; at-turn catch imposes hold at omega0 without energy deletion.','Host sole clock; free-flight dense ODE segments anchored at physical events and integer-nanosecond sampling grid with fractional-nanosecond carry.'],parameters={},source_ids=['simulation_assumption','template_library'],limitations=LIMITATIONS)

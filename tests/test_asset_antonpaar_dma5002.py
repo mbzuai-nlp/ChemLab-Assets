@@ -20,11 +20,28 @@ class AntonpaarDma5002Tests(unittest.TestCase):
         return self.agent.invoke(instance_id=self.h.instance_id,capability_id=cap,arguments=args or {},request_id=str(self.h._operation_count)+'start')
     def test_real_templates(self):
         self.assertGreaterEqual(len(self.h.templates),50)
-        for t in self.h.templates.values():
+        for sid,t in self.h.templates.items():
             self.assertEqual(t['evidence'],'measured_literature'); self.assertEqual(t['unit'],'kg/m^3')
-            self.assertTrue(t['source'].startswith('https://pubchem.ncbi.nlm.nih.gov/')); self.assertIsNotNone(t['temperature_k'])
-            self.assertIsNone(t['thermal_expansion_per_k']); self.assertIsNone(t['pressure_pa'])
+            self.assertIsNotNone(t['temperature_k']); self.assertIsNone(t['thermal_expansion_per_k'])
+            if sid=='water': continue                                        # reference formulation (CIPM / IAPWS-95), test_water_reference_template
+            self.assertTrue(t['source'].startswith('https://pubchem.ncbi.nlm.nih.gov/')); self.assertIsNone(t['pressure_pa'])
         self.assertEqual(self.h.templates['ethanol']['value'],789.3)
+    def test_water_reference_template(self):
+        """Water (fix 2026-10-19): CIPM formula 0-40 °C / IAPWS-95 above at 101.325 kPa, liquid, melting point 273.15 K; the runtime follows
+        its 1 K table, so 20 °C water reads the CIPM value and the measurement is reference data, not the synthetic expansion."""
+        w=self.h.templates['water']
+        self.assertTrue(w['runtime_eligible']); self.assertEqual((w['phase'],w['melting_point_k']),('liquid',273.15))
+        self.assertEqual((w['value'],w['temperature_k'],w['pressure_pa']),(997.047,298.15,101325.0))
+        self.assertEqual(w['source'],'https://doi.org/10.1088/0026-1394/38/4/3'); self.assertIn('IAPWS-95',w['source_name'])
+        self.assertEqual([r['raw_value'] for r in w['superseded_records']][0],'0.9950 g/cu cm at 25 °C')
+        for tc in (0.,4.,15.5,20.,25.,37.,40.):
+            self.assertAlmostEqual(rt.template_density(w,tc+273.15),rt.water_density(tc,'CIPM / IAPWS'),delta=.002)
+        self.assertAlmostEqual(rt.template_density(w,333.15),983.1958,places=4)               # IAPWS-95 at 60 °C
+        self.h.invoke('power.set',enabled=True); self.h.step(300)
+        self.h.invoke('sample.configure',substance_id='water',volume_m3=1e-6,bubble_fraction=0,contamination_fraction=0)
+        self.assertAlmostEqual(self.h.cell_kg,998.2067e-6,places=12)
+        self.start(); self.h.step(30); r=self.h.invoke('density.measure')
+        self.assertEqual((r['phase'],r['evidence'],r['density_kg_m3']),('succeeded','derived',998.205))
     def test_setpoints_and_reads_do_not_advance(self):
         t=self.h.temperature_k; self.h.invoke('thermal.set_temperature',temperature_k=303.15)
         self.assertEqual(t,self.h.temperature_k); self.assertEqual(self.h.time_s,0)

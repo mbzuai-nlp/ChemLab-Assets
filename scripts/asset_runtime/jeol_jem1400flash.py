@@ -28,21 +28,39 @@ Physics owned by the host clock (``step`` is the only entry that advances time; 
   * specimen exchange: grid in the holder on the bench, holder to the airlock stop, pre-evacuation, turn-in to the column (only when the
     airlock is evacuated, filament off), withdrawal, venting, removal; standard quick-change holder (+-20 deg with the HR pole piece) and
     the optional high-tilt holder (+-70 deg); goniometer X / Y / Z and tilt with stage neutral; fluorescent screen (F1) and camera;
-  * limitless-panorama montage (stage-driven tiles); charge (beam dose) and gas ledgers.
+  * limitless-panorama montage (stage-driven tiles); charge (beam dose) and gas ledgers;
+  * front panel (1.1.0; panel_ui.json beside the contract, run by the shared engine _panel_ui.py): the two subpanels in the 'beginner'
+    configuration (OLED function keys with sleep mode, knobs with fast / fine, trackball), the column switches and dials, and the TEM Center
+    windows on the PC monitors (task bar with HT / Beam buttons, holder prompt, camera with Single, stage, alignment panel, data filing,
+    vacuum monitor).  Device functions behind them: beam blanker, deflectors (beam shift, gun shift / tilt, condenser shift, condenser stigmator,
+    voltage centre) with settable alignment errors (default 0 = aligned), image / HT wobbler readouts, magnification steps, trackball and
+    "go here" stage moves, holder selection, project / data filing and camera settings.
+  * 1.1.1 fixes (sync audit 2026-10-19): an acquisition started by a panel gesture belongs to the gesturing caller (ownership, poll / cancel,
+    guards, last image, records list); the condenser stigmator acts: an astigmatic condenser gives an elliptical illumination (line foci at
+    BRIGHTNESS 0.5 -+ 0.01 x astigmatism) seen in the camera images, the live signal and the screen current-density reading.
+  * 1.1.2 (sweep 2026-10-19): the ownership guard checks the command a gesture invokes, not the gesture (page changes, tabs and viewing stay
+    free; a refused command shows the TEM Center message); hands-on actions (holder handling, airlock PUMP/AIR lever, aperture lever and
+    dials, filament exchange, the MAIN POWER switch) are never refused for ownership, the device's own conditions still apply (switching
+    off fails a running acquisition with POWER_OFF); the aperture lever and dials are not refused during an exposure either, the frame
+    sees the moved aperture.
 """
 from __future__ import annotations
 
 import copy
 import functools
+import hashlib
 import json
 import math
+import os
 import random
+import tempfile
 from pathlib import Path
 
 import numpy as np
 
 THUMB = 32
 PROTOCOL_VERSION = '1.0.0'
+ASSET_VERSION = '1.3.0'   # 1.3.0: OLED key windows as Radboud p.2 Fig. 2 (4:3, two lines, no printed legends); 1.2.0: front-panel 3D parts (new keys, OLED legends, speed LEDs, knob push carriers, trackball joints, vacuum monitor)
 SLUG = 'jeol_jem1400flash'
 ASSET_TYPE_ID = 'instrument.' + SLUG
 CATALOG_ID = 'CHEM-152'
@@ -137,6 +155,17 @@ GRID_Z_SD_M = 5e-6                                 # height of the mounted grid 
 B_DEFAULT_A2 = 0.5
 AUTOFOCUS_SD_M = 30e-9
 DEFOCUS_RANGE_M = (-20e-6, 20e-6)
+DEFLECTORS = ['beam_shift', 'gun_shift', 'gun_tilt', 'cl_shift', 'cond_stig', 'voltage_center']   # deflector / stigmator settings, -1..1 of full scale
+BEAM_SHIFT_RANGE_M = 20e-6                        # beam shift at the specimen for a full-scale deflector in MAG (x20 in LOW MAG) (engineering)
+CL_SHIFT_RANGE_M = 20e-6                          # condenser-alignment (Bright Tilt) shift at the specimen for a full-scale deflector (engineering)
+GUN_ALIGN_WIDTH = 0.25                            # gun shift / tilt misalignment (full-scale units) lowering the specimen current to 1/e (engineering)
+COND_STIG_BRIGHTNESS = 0.01                       # condenser astigmatism: the two line foci of a full-scale stigmator error lie +-0.01 of the BRIGHTNESS range
+                                                  # off the crossover (engineering)
+WOBBLER_TILT_RAD = 5.0e-3                         # image wobbler beam tilt +- (engineering): image shift (peak to peak) = 2 x tilt x true defocus
+HT_WOBBLE_M = 2.0e-6                              # HT wobbler: image wobble at the specimen per full-scale voltage-centre misalignment (engineering)
+TRACKBALL_FOV_FRACTION = 0.005                    # one trackball count moves the stage by 1/200 of the camera field of view (engineering)
+FILE_FORMATS = ['tiff_raw', 'tiff_raw_jpeg_high']
+MAX_FILES = 200
 MONTAGE_SETTLE_S = 1.0
 GRID_MESH = {200: dict(pitch=125e-6, bar=35e-6), 300: dict(pitch=83e-6, bar=25e-6), 400: dict(pitch=62e-6, bar=20e-6)}
 GRID_RADIUS_M = 1.45e-3                            # open area of a 3.05 mm grid (the rim is solid)
@@ -201,7 +230,7 @@ def validate(s, v):
         if not isinstance(v, dict):
             raise ActionRejected('INVALID_ARGUMENT')
         if 'properties' in s:
-            if set(v) != set(s['properties']):
+            if not set(s.get('required', s['properties'])) <= set(v) <= set(s['properties']):   # optional arguments: only the panel.* commands
                 raise ActionRejected('INVALID_ARGUMENT')
             for key, value in v.items():
                 validate(s['properties'][key], value)
@@ -559,6 +588,37 @@ cap('ledger.read', obj({}), LEDGER, {}, 'power_supply_console', '受限：电子
     'evaluator', 'query')
 cap('provenance.read', obj({}), obj(dict(library=TEXT, substances=array(TEXT))), {}, 'monitor', '受限：本实例用到的模板库物质', 'evaluator', 'query')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=1.0), 'power_supply_console', '推进统一宿主时钟', 'evaluator', 'simulation')
+# ---- front panel device functions (1.1.0): the subpanel keys and knobs and the TEM Center windows that had no command
+cap('beam.blank', obj(dict(on=BOOL)), obj(dict(on=BOOL)), dict(on=True), ['key_beam_blank', 'gun_chamber'],
+    '左面板Beam Blank键：束消隐（键白底红字=消隐）：电子不到样品（发射与束流读数不变），用于暂时保护样品（Radboud用户指南p.10、排障单）')
+cap('deflector.set', obj(dict(target=enum(DEFLECTORS), x=number('1', -1.0, 1.0), y=number('1', -1.0, 1.0))),
+    obj(dict(target=TEXT, x=number('1'), y=number('1'))), dict(target='beam_shift', x=0.1, y=0.0),
+    ['knob_shift_x', 'knob_shift_y', 'knob_multifunction_x', 'knob_multifunction_y'],
+    '偏转器/消像散器设定（满量程−1…1）：束偏移（X/Y偏转旋钮）、Gun Align平移/倾转、Bright Tilt（聚光镜对中平移）、Cond Stig、电压中心；面板旋钮按TEM Center的分配调节它们')
+cap('alignment.load', obj({}), obj(dict(loaded=BOOL)), {}, ['monitor'], 'TEM Center对中面板Load：载入保存的对中文件（全部偏转器回到文件值）（Emory用法p.3）')
+cap('alignment.configure_error', obj(dict(target=enum([k for k in DEFLECTORS if k != 'beam_shift']), x=number('1', -1.0, 1.0), y=number('1', -1.0, 1.0))),
+    obj(dict(target=TEXT, x=number('1'), y=number('1'))), dict(target='cl_shift', x=0.0, y=0.0), ['upper_column'],
+    '评测者：设定对中误差（对好时的偏转器值；默认0=按保存的对中文件已对好），用于以后的仿真与实机差距任务', 'evaluator', 'configuration')
+cap('optics.wobbler', obj(dict(mode=enum(['off', 'image', 'ht']))), obj(dict(mode=TEXT, image_shift_m=nullable(number('m')))), dict(mode='image'),
+    ['key_img_wob', 'objective_lens'], '右面板IMG WOB键（像摇摆器，找优中心高度）或对中面板HT Wobb（电压中心）：开关摇摆器；TEM Center读出像的摆动幅度')
+cap('optics.step_magnification', obj(dict(steps=integer(-50, 50))),
+    obj(dict(mode=TEXT, magnification=nullable(number('1')), camera_length_m=nullable(number('m')))), dict(steps=1), ['knob_magnification', 'projector_lens'],
+    'MAGNIFICATION旋钮转格：当前模式下按档增减倍率（衍射模式为相机长度），到端点停止')
+cap('stage.trackball', obj(dict(dx=integer(-1000, 1000), dy=integer(-1000, 1000))), obj(dict(x_m=number('m'), y_m=number('m'))), dict(dx=20, dy=0),
+    ['trackball_unit', 'goniometer'], '轨迹球：样品台按计数相对移动X/Y（每计数为相机视场的1/200，随倍率缩放），到行程端点停止')
+cap('stage.go_here', obj(dict(u=number('1', 0.0, 1.0), v=number('1', 0.0, 1.0))), obj(dict(x_m=number('m'), y_m=number('m'))), dict(u=0.75, v=0.5),
+    ['monitor', 'goniometer'], 'TEM Center在最近采集的图像上右键“go here”：样品台把点击处移到视场中心（u向右、v向下，图像宽高的0–1）（Radboud用户指南p.8）')
+cap('tem_center.select_holder', obj(dict(holder_id=enum(HOLDERS))), obj(dict(holder_id=TEXT)), dict(holder_id='quick_change'), ['monitor'],
+    'TEM Center样品杆选择提示（软件启动与每次插杆预抽时出现）：选择所用样品杆并OK（Radboud用户指南p.3、UniDue SOP p.16）')
+cap('tem_center.new_project', obj(dict(name=dict(type='string', minLength=1, maxLength=40), root=dict(type='string', minLength=1, maxLength=80))),
+    obj(dict(name=TEXT, root=TEXT)), dict(name='2026-10-18_grids', root='F/GI/user'), ['monitor'],
+    'TEM Center File > New Project：项目名与根文件夹，之后的图像存入根文件夹/项目名（Radboud用户指南p.4）')
+cap('tem_center.data_filing', obj(dict(free_text=dict(type='string', maxLength=40), use_free_text=BOOL, use_sequence=BOOL, use_mag=BOOL,
+                                       file_format=enum(FILE_FORMATS))),
+    obj(dict(example=TEXT)), dict(free_text='grid1', use_free_text=True, use_sequence=True, use_mag=True, file_format='tiff_raw'), ['monitor'],
+    'TEM Center My Settings > Data Filing：文件名组成（自由文本、序号、倍率）与格式（Tiff (Raw)或另加Jpeg (High)）（Radboud用户指南p.4）')
+cap('tem_center.camera', obj(dict(exposure_s=number('s', 0.001, 60.0), binning=integer(1, 4))), obj(dict(exposure_s=number('s'), binning=INT)),
+    dict(exposure_s=1.0, binning=1), ['monitor', 'scmos_camera'], 'TEM Center相机设定：Single采集与实时信号指示用的曝光时间与像素合并')
 UNSUPPORTED = {
     'stem.acquire': 'STEM扫描像观察装置为选配（同平台需另购），本配置未装。',
     'eds.acquire': 'EDS能谱仪为选配（选配清单参照同平台JEM-1400Plus资料），本配置未装。',
@@ -567,7 +627,8 @@ UNSUPPORTED = {
     'picture_overlay.load': 'Picture Overlay需要外部光学显微镜图像与载网标定，本资产没有光镜图像来源。',
     'holder.double_tilt': '双倾杆EM-31630（Tilt-Y ±9°，同平台JEM-1400Plus资料）为选配，本配置未装。',
     'holder.quartet': '四样品杆EM-01070SQH为选配（厂家与同平台JEM-1400Plus资料），本配置未装。',
-    'optics.alignment': '电子枪、聚光镜、电压中心与物镜光阑对中以及消像散在本资产按始终对好处理（旋钮SHIFT/MULTI FUNCTION未接线）。',
+    'optics.alignment': '没有单独的“自动对中”命令：电子枪、聚光镜与电压中心对中及聚光镜消像散用deflector.set与alignment.load（1.1.0，面板旋钮按TEM Center分配）；'
+                        '物镜光阑对中与物镜消像散按始终对好处理。',
     'hardware.connect': '没有真实JEM-1400Flash、TEM Center或相机的通讯接口。',
     'robot.handle_holder': '机器人夹持样品杆插拔的接触/力控没有实现与验证（插拔为过程层技能，由宿主或场景代理）。',
     'accuracy.certification': '没有厂家分辨率、倍率与相机长度的验收或标定证书。',
@@ -666,12 +727,23 @@ for _k, _u, _c, _m in [('truth.column_pressure_pa', 'Pa', 'specimen_chamber', '�
                        ('truth.filament_on_time_s', 's', 'gun_chamber', '当前灯丝的等效工作时间（按发射加速磨损）'),
                        ('truth.filament_life_s', 's', 'gun_chamber', '当前灯丝的（随机，Weibull）寿命'), ('truth.emission_a', 'A', 'gun_chamber', '真实发射电流'),
                        ('truth.specimen_current_a', 'A', 'objective_lens', '到达样品面的束流'), ('truth.current_density_a_m2', 'A/m^2', 'objective_lens', '样品处电流密度（垂直于束）'),
-                       ('truth.illuminated_diameter_m', 'm', 'condenser_lens', '样品处照明区直径'), ('truth.defocus_m', 'm', 'objective_lens', '视场中心的真实离焦（正值欠焦）'),
+                       ('truth.illuminated_diameter_m', 'm', 'condenser_lens', '样品处照明区直径（聚光镜像散时为照明椭圆的等面积直径）'), ('truth.defocus_m', 'm', 'objective_lens', '视场中心的真实离焦（正值欠焦）'),
                        ('truth.specimen_height_m', 'm', 'holder_tip', '视场中心样品点相对优中心面的高度（载网安装偏差+Z，倾转时÷cos）'),
                        ('truth.camera_length_m', 'm', 'projector_lens', '真实相机长度'),
                        ('truth.view_center_dose_c_m2', 'C/m^2', 'holder_tip', '视场中心样品点累积的电子注量（沿束方向穿过该点的电荷/面积，损伤按它计算）')]:
     slot(_k, number(_u), _u, 'process_truth', _c, _m, 'evaluator', ABS if _u == 'Pa' else None)
 slot('truth.specimens', {'type': 'object'}, '1', 'process_truth', 'holder_tip', '全部载网样品的真实组成、形态、位置、安装偏差与剂量事件数', 'evaluator')
+slot('beam.blanked', BOOL, '1', 'derived', 'key_beam_blank', '束消隐是否开启（Beam Blank键；断电时复位）')
+slot('optics.deflectors', obj({k: array(number('1', -1.0, 1.0), 2, 2) for k in DEFLECTORS}), '1', 'setpoint', 'upper_column',
+     '偏转器/消像散器设定[x, y]（满量程−1…1）：束偏移、Gun Align平移与倾转、Bright Tilt（聚光镜对中平移）、Cond Stig、电压中心')
+slot('optics.wobbler', enum(['off', 'image', 'ht']), '1', 'derived', 'key_img_wob', '摇摆器：off、image（IMG WOB像摇摆器）、ht（HT Wobb电压中心）；断电时关闭')
+slot('tem_center.state', obj(dict(holder_prompt=BOOL, selected_holder=enum(HOLDERS), project=nullable(TEXT), root=nullable(TEXT), free_text=TEXT,
+                                  use_free_text=BOOL, use_sequence=BOOL, use_mag=BOOL, file_format=enum(FILE_FORMATS), sequence=INT,
+                                  files=array(obj(dict(image_id=TEXT, folder=TEXT, names=array(TEXT, 1, 2))), 0, 20), exposure_s=number('s'), binning=INT)),
+     '1', 'derived', 'monitor', 'TEM Center：样品杆选择提示与所选样品杆、项目与根文件夹、数据归档设置、序号与最近存的文件、Single的曝光与合并')
+slot('truth.alignment_error', obj({k: array(number('1', -1.0, 1.0), 2, 2) for k in DEFLECTORS if k != 'beam_shift'}), '1', 'process_truth', 'upper_column',
+     '对中误差：各偏转器对好时的设定（默认0）', 'evaluator')
+slot('truth.illumination_offset_m', array(number('m'), 2, 2), 'm', 'process_truth', 'condenser_lens', '照明区中心相对视场中心的偏移（束法向平面，x、y）', 'evaluator')
 
 
 class _Sum:
@@ -1293,6 +1365,17 @@ SAMPLES = 64                                      # image sampling grid (64 x 64
 LEDGER_SAMPLES = 12
 
 
+def _disc_overlap(r1, r2, d):
+    """Area common to two discs of radii r1, r2 whose centres are d apart."""
+    if d >= r1 + r2:
+        return 0.0
+    if d <= abs(r1 - r2):
+        return math.pi * min(r1, r2) ** 2
+    a1 = math.acos((d * d + r1 * r1 - r2 * r2) / (2.0 * d * r1))
+    a2 = math.acos((d * d + r2 * r2 - r1 * r1) / (2.0 * d * r2))
+    return r1 * r1 * (a1 - math.sin(2.0 * a1) / 2.0) + r2 * r2 * (a2 - math.sin(2.0 * a2) / 2.0)
+
+
 def quantize_kv(v):
     return min(KV_RANGE_V[1], max(KV_RANGE_V[0], round(v / KV_STEP_V) * KV_STEP_V))
 
@@ -1311,6 +1394,32 @@ def _lin2(A, b, x0, dt):
         y[n_] = math.exp(z) * y0[n_] + p1 * c[n_]
         iy[n_] = p1 * y0[n_] + p2 * c[n_]
     return P @ y, P @ iy
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.jeol_jem1400flash (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+if os.environ.get('JEM1400FLASH_PANEL_BUILD'):                               # spec builder: runtime constants without the spec being written
+    PANEL_SPEC, _PANEL_DEFS = None, {}
+else:
+    PANEL_SPEC = _panel_ui.load_spec(ASSET / 'panel_ui.json', capabilities=set(CAPS))
+    _PANEL_DEFS = _panel_ui.capability_definitions(PANEL_SPEC)               # panel.press / turn / switch / touch / capture / frame
+PANEL_CAPS = {k: dict(input_schema=d['input_schema'], output_schema=d['output_schema'], example_arguments=d['example_arguments'],
+                      component_ids=list(d['component_ids']), function_zh=d['function_zh'], visibility=d['visibility'], kind=d['kind'], effects=[])
+              for k, d in _PANEL_DEFS.items()}                              # kept out of CAPS: CAPS stays the instrument's command set
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)
 
 
 class JeolJem1400flashRuntime:
@@ -1387,6 +1496,17 @@ class JeolJem1400flashRuntime:
         self._knots = []                                # [time, corner, stage targets, stage x/y/z/tilt] at every motion piece of the cycle
         self._fluence_cache = None                      # fluence at the view-fraction sample points (incremental while the geometry is unchanged)
         self._principals, self._requests, self._owners = {}, {}, {}
+        self._caller = None                             # the session principal of the call in progress (panel gestures, 1.1.2)
+        # front panel (1.1.0): beam blanker, deflectors and their aligned settings (evaluator errors, 0 = aligned at the stored file), wobblers,
+        # TEM Center (holder prompt, project and data filing, camera settings of Single); the panel UI state lives in self.panel
+        self.blanked = False
+        self.defl = {k: [0.0, 0.0] for k in DEFLECTORS}
+        self.align_err = {k: [0.0, 0.0] for k in DEFLECTORS if k != 'beam_shift'}
+        self.wobbler = 'off'
+        self.tc = dict(holder_prompt=False, selected_holder='quick_change', project=None, root=None, free_text='', use_free_text=True,
+                       use_sequence=True, use_mag=True, file_format='tiff_raw', sequence=0, files=[], exposure_s=1.0, binning=1)
+        self.panel_capture_dir = None
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self) if PANEL_SPEC else None
 
     # ---------------------------------------------------------------- basics
     @property
@@ -1486,12 +1606,58 @@ class JeolJem1400flashRuntime:
         return EMISSION_BIAS0_A * math.exp(-self.bias / BIAS_SCALE) * self.heat
 
     def _specimen_current(self):
-        return self._emission() * GUN_TRANSMISSION * SPOT_FACTORS[self.spot - 1] * (1.0 if self.cond_in else CL_OUT_FACTOR)
+        return (self._emission() * GUN_TRANSMISSION * SPOT_FACTORS[self.spot - 1] * (1.0 if self.cond_in else CL_OUT_FACTOR) * self._gun_factor()
+                * (0.0 if self.blanked else 1.0))
+
+    def _gun_factor(self):
+        """Specimen current fraction left by a misaligned gun (shift and tilt off their aligned settings; 1 when aligned)."""
+        d2 = sum((self.defl[k][i] - self.align_err[k][i]) ** 2 for k in ('gun_shift', 'gun_tilt') for i in (0, 1))
+        return math.exp(-d2 / GUN_ALIGN_WIDTH ** 2)
+
+    def _illum_offset(self):
+        """Centre of the illuminated disc relative to the view centre in the beam-normal plane (m): beam shift plus the condenser-alignment
+        shift off its aligned setting; LOW MAG deflects x20 (the wider illumination)."""
+        f = LOW_MAG_ILLUM_FACTOR if self.mode == 'LOW_MAG' else 1.0
+        return tuple(f * (BEAM_SHIFT_RANGE_M * self.defl['beam_shift'][i] + CL_SHIFT_RANGE_M * (self.defl['cl_shift'][i] - self.align_err['cl_shift'][i]))
+                     for i in (0, 1))
+
+    def _wobble_m(self):
+        """Peak-to-peak image displacement at the specimen while a wobbler runs: image wobbler 2 x tilt x true defocus; HT wobbler from the
+        voltage centre off its aligned setting; 0 when off."""
+        if self.wobbler == 'image':
+            return 2.0 * WOBBLER_TILT_RAD * abs(self._defocus_true())
+        if self.wobbler == 'ht':
+            return HT_WOBBLE_M * math.hypot(*(self.defl['voltage_center'][i] - self.align_err['voltage_center'][i] for i in (0, 1)))
+        return 0.0
+
+    def _stig(self):
+        """Condenser astigmatism left by the stigmator (setting off its aligned value): size in full-scale units and the angle of its axis (rad)."""
+        ax, ay = (self.defl['cond_stig'][i] - self.align_err['cond_stig'][i] for i in (0, 1))
+        return math.hypot(ax, ay), 0.5 * math.atan2(ay, ax)
+
+    def _illum_axes(self):
+        """Illuminated ellipse at the specimen: diameter along the astigmatism axis, across it (m) and the axis angle (rad, from the image x axis).
+        An astigmatic condenser focuses its two principal sections at BRIGHTNESS 0.5 -+ COND_STIG_BRIGHTNESS x astigmatism, so the spot is nearly
+        round when spread, a line near the crossover that turns by 90 deg through it, and round everywhere when the stigmator is aligned."""
+        s, phi = self._stig()
+        d0 = ILLUM_D_MIN_M * math.sqrt(SPOT_FACTORS[self.spot - 1])
+        f = LOW_MAG_ILLUM_FACTOR if self.mode == 'LOW_MAG' else 1.0
+        d1, d2 = ((d0 + (ILLUM_D_MAX_M - d0) * abs(2.0 * (self.brightness + sg * COND_STIG_BRIGHTNESS * s) - 1.0)) * f for sg in (-1.0, 1.0))
+        return d1, d2, phi
 
     def _illum_d(self):
-        d0 = ILLUM_D_MIN_M * math.sqrt(SPOT_FACTORS[self.spot - 1])
-        d = d0 + (ILLUM_D_MAX_M - d0) * abs(2.0 * self.brightness - 1.0)
-        return d * (LOW_MAG_ILLUM_FACTOR if self.mode == 'LOW_MAG' else 1.0)
+        """Diameter of the illuminated disc (the equal-area diameter of the ellipse while the condenser is astigmatic)."""
+        d1, d2, _ = self._illum_axes()
+        return d1 if d1 == d2 else math.sqrt(d1 * d2)
+
+    def _in_ellipse(self, X, Y):
+        """Points (m, beam-normal plane, relative to the beam centre) inside the illuminated ellipse; None while the beam is round (the callers
+        then keep their disc test)."""
+        d1, d2, phi = self._illum_axes()
+        if d1 == d2:
+            return None
+        c, s = math.cos(phi), math.sin(phi)
+        return ((X * c + Y * s) / (d1 / 2.0)) ** 2 + ((Y * c - X * s) / (d2 / 2.0)) ** 2 <= 1.0
 
     def _convergence(self):
         """Illumination convergence semi-angle (rad): largest at the crossover, falling as the beam is spread."""
@@ -1587,6 +1753,9 @@ class JeolJem1400flashRuntime:
             'truth.emission_a': self._emission(), 'truth.specimen_current_a': self._specimen_current(), 'truth.current_density_a_m2': self._current_density(),
             'truth.illuminated_diameter_m': self._illum_d(), 'truth.defocus_m': self._defocus_true(), 'truth.specimen_height_m': h_axis,
             'truth.camera_length_m': self._camera_length_true(), 'truth.view_center_dose_c_m2': dose_c,
+            'beam.blanked': self.blanked, 'optics.deflectors': {k: list(v) for k, v in self.defl.items()},
+            'optics.wobbler': self.wobbler, 'tem_center.state': self._tc_state(),
+            'truth.alignment_error': {k: list(v) for k, v in self.align_err.items()}, 'truth.illumination_offset_m': list(self._illum_offset()),
             'truth.specimens': {k: dict(location=s['location'], grid_mesh=s['grid_mesh'], grid_material=s['grid_material'], support_film=s['support_film'],
                                         support_thickness_m=s['support_thickness_m'], hole_fraction=s['hole_fraction'], phases=copy.deepcopy(s['phases']),
                                         mount=copy.deepcopy(s['_mount']), dose_events=len(s['_dose'])) for k, s in self.specimens.items()},
@@ -1595,16 +1764,16 @@ class JeolJem1400flashRuntime:
 
     # ---------------------------------------------------------------- commands
     def invoke(self, capability_id, **a):
-        if capability_id not in CAPS:
+        if capability_id not in ALL_CAPS:
             raise ActionRejected('UNKNOWN_CAPABILITY')
         if capability_id in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED')
-        validate(CAPS[capability_id]['input_schema'], a)
-        props = CAPS[capability_id]['input_schema'].get('properties', {})
+        validate(ALL_CAPS[capability_id]['input_schema'], a)
+        props = ALL_CAPS[capability_id]['input_schema'].get('properties', {})
         a = {k: (int(v) if props.get(k, {}).get('type') == 'integer' else v) for k, v in a.items()}
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
         out = fn(**a)
-        if CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation'):     # sim.step counts its own revision when time advances
+        if ALL_CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation'):     # sim.step counts its own revision when time advances
             self.revision += 1
             self._frac_cache = None
         return out
@@ -1758,6 +1927,8 @@ class JeolJem1400flashRuntime:
 
     def _cmd_airlock_set_pump(self, pump):
         self._need_plant()
+        if pump and not self.lever_pump and self.power and self.state == 'ready' and self.holder_pos in ('entering', 'airlock'):
+            self.tc['holder_prompt'] = True                                 # the holder selection window appears while the airlock pumps (Emory p.2)
         self.lever_pump = pump
         return dict(pump=pump)
 
@@ -1839,6 +2010,8 @@ class JeolJem1400flashRuntime:
         self.fil_on = False
         self.vac_state = 'idle'
         self.readings = None
+        self.blanked, self.wobbler = False, 'off'
+        self.tc['holder_prompt'] = False
         self._event('power', 'POWER_OFF', 'MAIN POWER断开：高压、灯丝与泵停止，真空阀关闭')
 
     def _cmd_error_acknowledge(self):
@@ -2007,20 +2180,17 @@ class JeolJem1400flashRuntime:
 
     # ---- apertures and screen
     def _cmd_aperture_set_condenser(self, inserted):
-        self._need_plant()
-        self._need_idle()
+        self._need_plant()                                                   # a hand lever / dial: not refused during an exposure
         self.cond_in = inserted
         return dict(inserted=inserted)
 
     def _cmd_aperture_set_objective(self, position):
-        self._need_plant()
-        self._need_idle()
+        self._need_plant()                                                   # a hand lever / dial: not refused during an exposure
         self.ol_pos = int(position)
         return dict(position=self.ol_pos, diameter_m=OL_APERTURES_M[self.ol_pos - 1] if self.ol_pos else None)
 
     def _cmd_aperture_set_selected_area(self, position):
-        self._need_plant()
-        self._need_idle()
+        self._need_plant()                                                   # a hand lever / dial: not refused during an exposure
         self.sa_pos = int(position)
         return dict(position=self.sa_pos, selected_diameter_m=SA_APERTURES_M[self.sa_pos - 1] / SA_MAGNIFICATION if self.sa_pos else None)
 
@@ -2230,13 +2400,15 @@ class JeolJem1400flashRuntime:
         spec = self._spec()
         cu, cv, t, _ = self._geometry()
         r_ill = self._illum_d() / 2.0
+        bx, by = self._illum_offset()                                         # beam off the view centre (deflectors): the stops stay on the view centre
         M = self._mag()
         fov = CAMERA_PIXELS * CAMERA_PIXEL_M / M
         alpha = self._alpha()
         oa, sa = self._field_stop(), self._sa_stop()
         r_oa = min(r_ill, oa[2]) if oa else r_ill                            # disc passing the objective-aperture field stop
         r_all = min(r_oa, sa[2]) if sa else r_oa                              # disc passing every stop
-        half = min(fov / 2.0, r_all) if (oa or sa) else fov / 2.0             # view square that can receive electrons
+        r_stop = min([st[2] for st in (oa, sa) if st] or [math.inf])
+        half = min(fov / 2.0, r_all if not (bx or by) else r_stop) if (oa or sa) else fov / 2.0   # view square that can receive electrons
         n = LEDGER_SAMPLES
         g = ((np.arange(n) + 0.5) / n) * 2.0 - 1.0
         X, Y = np.meshgrid(g, g)
@@ -2248,10 +2420,10 @@ class JeolJem1400flashRuntime:
                 discs[r] = ((X.ravel()[inside]) * r, (Y.ravel()[inside]) * r)
         Xv, Yv = X.ravel() * half, Y.ravel() * half
         geo = (id(spec), spec and spec['_seed'], round(cu, 10), round(cv, 10), round(t, 9), round(r_ill, 12), round(self.kv_act, 3), round(alpha, 9), self.mode,
-               M, oa, sa)
+               M, oa, sa, round(bx, 12), round(by, 12))
         Fs, dkey = {}, None
         if spec is not None and spec['_damageable']:
-            pts = dict({r: (cu + xy[0], cv + xy[1] / cos_t) for r, xy in discs.items()}, view=(cu + Xv, cv + Yv / cos_t))
+            pts = dict({r: (cu + bx + xy[0], cv + (by + xy[1]) / cos_t) for r, xy in discs.items()}, view=(cu + Xv, cv + Yv / cos_t))
             inc = self._fluence_cache
             if inc is not None and inc['geo'] == geo and inc['spec'] is spec and inc['epoch'] == spec['_dose_epoch']:
                 Fs = inc['F']                                          # same sample points: add only the fluence deposited since
@@ -2265,11 +2437,15 @@ class JeolJem1400flashRuntime:
             spec['_dose_new'] = []
             self._fluence_cache = dict(geo=geo, spec=spec, epoch=spec['_dose_epoch'], F=Fs)
             dkey = tuple(damage_key(spec, f[1], VIEW_DAMAGE_Q) for f in Fs.values())
-        key = geo + (dkey,)
+        d1, d2, phi = self._illum_axes()
+        key = geo + (dkey, round(d1, 12), round(d2, 12), round(phi, 9))
         if self._frac_cache and self._frac_cache[0] == key:
             return self._frac_cache[1]
         rv = np.hypot(Xv, Yv)
-        mask_v = (rv <= r_ill) & ((rv <= r_all) if (oa or sa) else True)
+        rl = np.hypot(Xv - bx, Yv - by)                                     # distance from the illuminated disc's centre
+        ell = self._in_ellipse(Xv - bx, Yv - by)                            # astigmatic condenser: the field sees the ellipse (the charge
+        lit_v = (rl <= r_ill) if ell is None else ell                       # ledger below keeps the equal-area disc)
+        mask_v = lit_v & ((rv <= (r_all if not (bx or by) else r_stop)) if (oa or sa) else True)
         area_v = (2.0 * half / fov) ** 2
         if spec is None:
             T = {r: 1.0 for r in discs}
@@ -2278,7 +2454,7 @@ class JeolJem1400flashRuntime:
             v = max(self.kv_act, KV_RANGE_V[0])
             T, opens = {}, {}
             for r, (xd, yd) in discs.items():
-                d = sample_specimen(spec, cu + xd, cv + yd / cos_t, 2.0 * r / n, v, alpha, t, fluence=Fs.get(r), damage_q=VIEW_DAMAGE_Q)
+                d = sample_specimen(spec, cu + bx + xd, cv + (by + yd) / cos_t, 2.0 * r / n, v, alpha, t, fluence=Fs.get(r), damage_q=VIEW_DAMAGE_Q)
                 T[r], opens[r] = float(np.mean(d['T'])), float(np.mean(d['open']))
             e = sample_specimen(spec, cu + Xv, cv + Yv / cos_t, 2.0 * half / n, v, alpha, t, fluence=Fs.get('view'), damage_q=VIEW_DAMAGE_Q)
             res = dict(open=opens[r_ill], T_view=float(area_v * np.mean(e['T'] * mask_v)),
@@ -2299,7 +2475,10 @@ class JeolJem1400flashRuntime:
         X, Y = np.meshgrid(g, g)
         X, Y = X.ravel(), Y.ravel()
         r_ill = self._illum_d() / 2.0
-        lit = (X * X + Y * Y <= r_ill * r_ill).astype(float)
+        bx, by = self._illum_offset()
+        Xs, Ys = X - bx, Y - by
+        ell = self._in_ellipse(Xs, Ys)                                         # astigmatic condenser: elliptical illumination
+        lit = (Xs * Xs + Ys * Ys <= r_ill * r_ill if ell is None else ell).astype(float)
         J = self._current_density()
         fs = [(cu, cv, st[2]) for st in (self._field_stop(), self._sa_stop()) if st is not None]
         if spec is None:
@@ -2453,6 +2632,7 @@ class JeolJem1400flashRuntime:
                    saturated_fraction=float(np.mean(f['counts'] >= ADU_MAX)),
                    dose_estimate_e_per_m2=float(np.percentile(blk, 99.0)) / ADU_PER_ELECTRON / f['p_out'] ** 2,
                    template_source=self._source(spec))
+        self._file_image(rec)
 
     def _montage_complete(self, rec, op):
         spec = self._spec()
@@ -2489,6 +2669,12 @@ class JeolJem1400flashRuntime:
         r_ill = self._illum_d() / 2.0
         r_area = min(r_ill, SA_APERTURES_M[self.sa_pos - 1] / SA_MAGNIFICATION / 2.0) if self.sa_pos else r_ill
         I_area = self._specimen_current() * (r_area / r_ill) ** 2
+        bx, by = self._illum_offset()
+        if bx or by:                                                     # beam shifted off the view centre: the selected area is partly lit
+            if self.sa_pos:
+                I_area = self._current_density() * _disc_overlap(r_ill, SA_APERTURES_M[self.sa_pos - 1] / SA_MAGNIFICATION / 2.0, math.hypot(bx, by))
+            else:
+                cu, cv = cu + bx, cv + by / math.cos(t)
         alpha = self._alpha()
         px = CAMERA_PIXEL_M * op['binning']
         det = CAMERA_PIXELS * CAMERA_PIXEL_M / 2.0
@@ -2704,6 +2890,201 @@ class JeolJem1400flashRuntime:
                 self.stage_target['x'], self.stage_target['y'] = op['home']
             self._event('acquisition', 'ACQ_COMPLETED', f'采集{op["record_id"]}完成', op['record_id'])
 
+    # ---- front panel device functions (1.1.0): beam blanker, deflectors and alignment, wobblers, magnification steps, trackball, TEM Center
+    def _cmd_beam_blank(self, on):
+        self._need_ready(allow_error=True)
+        self.blanked = bool(on)
+        return dict(on=self.blanked)
+
+    def _cmd_deflector_set(self, target, x, y):
+        self._need_ready()
+        self._need_idle()
+        self.defl[target] = [float(x), float(y)]
+        return dict(target=target, x=self.defl[target][0], y=self.defl[target][1])
+
+    def _cmd_alignment_load(self):
+        self._need_ready()
+        self._need_idle()
+        self.defl = {k: [0.0, 0.0] for k in DEFLECTORS}                    # the stored alignment file: every deflector at its file value
+        return dict(loaded=True)
+
+    def _cmd_alignment_configure_error(self, target, x, y):
+        self._need_plant()
+        self.align_err[target] = [float(x), float(y)]
+        return dict(target=target, x=float(x), y=float(y))
+
+    def _cmd_optics_wobbler(self, mode):
+        self._need_ready()
+        self.wobbler = mode
+        return dict(mode=self.wobbler, image_shift_m=self._wobble_m() if mode != 'off' else None)
+
+    def _cmd_optics_step_magnification(self, steps):
+        self._need_ready()
+        self._need_idle()
+        if self.mode == 'DIFF':
+            self.cl_idx = min(max(self.cl_idx + steps, 0), len(CAMERA_LENGTHS_M) - 1)
+        else:
+            lst = LOW_MAG_STEPS if self.mode == 'LOW_MAG' else MAG_STEPS
+            self.mag_idx[self.mode] = min(max(self.mag_idx[self.mode] + steps, 0), len(lst) - 1)
+        self._knob_to_step()
+        return dict(mode=self.mode, magnification=self._mag() if self.mode != 'DIFF' else None,
+                    camera_length_m=CAMERA_LENGTHS_M[self.cl_idx] if self.mode == 'DIFF' else None)
+
+    def _cmd_stage_trackball(self, dx, dy):
+        self._need_stage()
+        step = TRACKBALL_FOV_FRACTION * CAMERA_PIXELS * CAMERA_PIXEL_M / self._mag()
+        lo, hi = STAGE_XY_RANGE_M
+        x = min(max(self.stage_target['x'] + dx * step, lo), hi)
+        y = min(max(self.stage_target['y'] + dy * step, lo), hi)
+        return self._cmd_stage_move_xy(x, y)
+
+    def _cmd_stage_go_here(self, u, v):
+        """'go here' on the latest acquired image (user guide p.8): the stage centres the clicked point (u right, v down, 0..1 of the image)."""
+        self._need_stage()
+        done = [r for r in self.images.values() if r['status'] == 'completed' and '_stage' in r]
+        if not done:
+            raise ActionRejected('NO_IMAGE')
+        rec = max(done, key=lambda r: r['finished_s'])
+        x0, y0 = rec['_stage']
+        lo, hi = STAGE_XY_RANGE_M
+        x = min(max(x0 + (u - 0.5) * rec['field_of_view_m'], lo), hi)
+        y = min(max(y0 + (0.5 - v) * rec['field_of_view_m'], lo), hi)
+        return self._cmd_stage_move_xy(x, y)
+
+    def _cmd_tem_center_select_holder(self, holder_id):
+        self._need_ready(allow_error=True)
+        self.tc.update(selected_holder=holder_id, holder_prompt=False)
+        return dict(holder_id=holder_id)
+
+    def _cmd_tem_center_new_project(self, name, root):
+        self._need_ready(allow_error=True)
+        self.tc.update(project=name, root=root, sequence=0)
+        return dict(name=name, root=root)
+
+    def _cmd_tem_center_data_filing(self, free_text, use_free_text, use_sequence, use_mag, file_format):
+        self._need_ready(allow_error=True)
+        self.tc.update(free_text=free_text, use_free_text=use_free_text, use_sequence=use_sequence, use_mag=use_mag, file_format=file_format)
+        return dict(example=self._file_name(self.tc['sequence'] + 1, self._mag()))
+
+    def _cmd_tem_center_camera(self, exposure_s, binning):
+        self._need_ready(allow_error=True)
+        self.tc.update(exposure_s=float(exposure_s), binning=int(binning))
+        return dict(exposure_s=self.tc['exposure_s'], binning=self.tc['binning'])
+
+    def _file_name(self, seq, mag):
+        tc = self.tc
+        parts = ([tc['free_text']] if tc['use_free_text'] and tc['free_text'] else []) + ([f'{seq:04d}'] if tc['use_sequence'] else []) + \
+            ([f'{int(round(mag))}x'] if tc['use_mag'] else [])
+        return '_'.join(parts or ['image']) + '.tif'
+
+    def _file_image(self, rec):
+        """TEM Center saves each acquired image in the project folder by the data-filing pattern (user guide p.4)."""
+        tc = self.tc
+        tc['sequence'] += 1
+        names = [self._file_name(tc['sequence'], rec['magnification'])]
+        if tc['file_format'] == 'tiff_raw_jpeg_high':
+            names.append(names[0][:-4] + '.jpg')
+        folder = '/'.join(x for x in (tc['root'], tc['project']) if x) or 'default'
+        tc['files'] = (tc['files'] + [dict(image_id=rec['image_id'], folder=folder, names=names)])[-MAX_FILES:]
+        rec['_stage'] = (self.stage['x'], self.stage['y'])
+
+    def _tc_state(self):
+        tc = self.tc
+        return dict(holder_prompt=tc['holder_prompt'], selected_holder=tc['selected_holder'], project=tc['project'], root=tc['root'],
+                    free_text=tc['free_text'], use_free_text=tc['use_free_text'], use_sequence=tc['use_sequence'], use_mag=tc['use_mag'],
+                    file_format=tc['file_format'], sequence=tc['sequence'], files=copy.deepcopy(tc['files'][-20:]), exposure_s=tc['exposure_s'],
+                    binning=tc['binning'])
+
+    def _live_counts(self):
+        """Signal indicator of the live camera view (user guide p.10): mean counts per pixel at the Single exposure and binning; null without a
+        live image (screen down, beam not ready, diffraction)."""
+        if not (self.power and self._beam_ready() and self._screen_raised() and self.mode != 'DIFF'):
+            return None
+        p = CAMERA_PIXEL_M * self.tc['binning'] / self._mag()
+        rate = self._current_density() / E_CHARGE * p * p * self._view_fractions()['T_view'] * ADU_PER_ELECTRON
+        return float(min(ADU_MAX, rate * self.tc['exposure_s']))
+
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the panel firmware and TEM Center show: the agent slots (no process truth)."""
+        out = self.read('agent')
+        last = max((r for r in self.images.values() if r['status'] == 'completed'), key=lambda r: r['finished_s'], default=None)
+        out.update({'host.powered': self.power, 'host.live_mean_counts': self._live_counts(),                     # screen readouts of TEM Center
+                    'host.wobble_shift_m': self._wobble_m() if self.wobbler != 'off' and self.power else None,
+                    'host.example_file_name': self._file_name(self.tc['sequence'] + 1, self._mag()),
+                    'host.last_image': None if last is None else dict(image_id=last['image_id'], magnification=last['magnification'],
+                                                                      field_of_view_m=last['field_of_view_m'])})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (commands check before they change anything).  An agent's gesture may not
+        invoke a guarded command during another agent's acquisition (ACCESS_DENIED, shown as the TEM Center message); navigation is not guarded."""
+        try:
+            if self._foreign_acquisition(capability_id):
+                raise ActionRejected('ACCESS_DENIED')
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.time_s
+
+    def _foreign_acquisition(self, capability_id):
+        """The same rule as the session guard for direct calls: an agent caller may not change another agent's running acquisition."""
+        c = self._caller
+        if c is None or self._principals.get(c) != 'agent' or capability_id not in _CONTROL_GUARDED or self.acq is None:
+            return False
+        if capability_id in ('power.set', 'power.key_toggle') and not self.power:
+            return False
+        owner = self._owners.get(self.acq['record_id'])
+        return owner is not None and owner != c and self._principals.get(owner) == 'agent'
+
+    def _panel_entry(self, capability_id, arguments):
+        """The panel.* commands (the session sends them here, not through the command invoke): validate, run, count the revision of a gesture."""
+        validate(PANEL_CAPS[capability_id]['input_schema'], arguments)
+        out = getattr(self, '_cmd_' + capability_id.replace('.', '_'))(**arguments)
+        if PANEL_CAPS[capability_id]['kind'] == 'device_command':
+            self.revision += 1
+            self._frac_cache = None
+        return out
+
+    def _panel(self, gesture, *args):
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1):
+        return self._panel(self.panel.press, input_id, float(duration_s))
+
+    def _cmd_panel_turn(self, input_id, detents):
+        return self._panel(self.panel.turn, input_id, int(detents))
+
+    def _cmd_panel_switch(self, input_id, position):
+        return self._panel(self.panel.switch, input_id, position)
+
+    def _cmd_panel_touch(self, display_id, x, y, duration_s=0.1, to_x=None, to_y=None):
+        if (to_x is None) != (to_y is None):
+            raise ActionRejected('INVALID_ARGUMENT')
+        return self._panel(self.panel.touch, display_id, int(x), int(y), float(duration_s), None if to_x is None else (int(to_x), int(to_y)))
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        try:
+            data, w, h = self.panel.png_bytes(display_id)
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        sha = hashlib.sha256(data).hexdigest()
+        folder = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.time_s, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
+
     # ---------------------------------------------------------------- clock
     def step(self, dt_s):
         validate(number('s', 0.0, 86400.0), dt_s)
@@ -2912,9 +3293,10 @@ class JeolJem1400flashRuntime:
         tk = np.array([k[0] for k in kn])
         ax = [np.interp(times, tk, [k[3][i] for k in kn]) for i in range(4)]   # the axes are exact at any time (linear between corners)
         h0 = spec['_mount']['h']
-        X = ax[0]
-        Y = ax[1] + (h0 + ax[2]) * np.tan(ax[3])                            # view centre on the specimen (as _geometry)
         C = np.cos(ax[3])
+        bx, by = self._illum_offset()
+        X = ax[0] + bx
+        Y = ax[1] + (h0 + ax[2]) * np.tan(ax[3]) + by / C                   # view centre on the specimen (as _geometry) plus the beam offset
         scale = dt / (t1 - t0)                                       # the knots cover the cycle; guard against a partial first cycle
         k100 = beta2_of(DOSE_REF_V) / beta2_of(max(self.kv_act, 1.0))
         tol = 0.05 * r
@@ -3004,6 +3386,7 @@ class JeolJem1400flashRuntime:
             return
         if self.state == 'booting' and t - self.state_t0 >= SOFTWARE_BOOT_S - 1e-9:
             self.state = 'ready'
+            self.tc['holder_prompt'] = True                                 # TEM Center asks which holder is used (user guide p.3)
             self._event('power', 'SOFTWARE_READY', 'TEM Center已启动')
         ready_now = self.tmp_speed >= 1.0 - 1e-9 and self.p_col < COL_READY_PA and self.p_gun < GUN_READY_PA
         if self.vac_state == 'ready':
@@ -3041,7 +3424,12 @@ class JeolJem1400flashRuntime:
 # ---------------------------------------------------------------- host session: identity filter, request binding, ownership
 ASYNC = {'image.acquire', 'diffraction.acquire', 'montage.acquire'}
 _DATA_GUARDED = {'image.result', 'diffraction.result', 'montage.result'}
-_CONTROL_GUARDED = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] in ('device_command', 'robot_skill') and k not in UNSUPPORTED}
+# hands on the hardware (sweep 2026-10-19): physical actions are never refused for ownership; the device reacts by its own conditions
+_PHYSICAL = {'holder.load_grid', 'holder.unload_grid', 'holder.insert_to_airlock', 'holder.insert', 'holder.withdraw', 'holder.remove', 'airlock.set_pump',
+             'aperture.set_condenser', 'aperture.set_objective', 'aperture.set_selected_area', 'gun.replace_filament',
+             'power.set', 'power.key_toggle'}   # the MAIN POWER switch cuts the power: a power loss for the run, never refused (lead 10-19)
+_CONTROL_GUARDED = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] in ('device_command', 'robot_skill') and k not in UNSUPPORTED
+                    and k not in _PHYSICAL}
 _RECORD_ARG = {'image.result': 'image_id', 'diffraction.result': 'pattern_id', 'montage.result': 'montage_id'}
 
 
@@ -3077,7 +3465,7 @@ class JeolJem1400flashSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -3117,7 +3505,7 @@ class JeolJem1400flashSession:
         if self._role != 'agent':
             return
         h = self._host
-        if capability_id in _CONTROL_GUARDED and self._foreign_acq():
+        if capability_id in _CONTROL_GUARDED and self._foreign_acq():       # panel gestures: the host checks the command they invoke (panel_invoke)
             if capability_id in ('power.set', 'power.key_toggle') and not h.power:
                 return
             raise ActionRejected('ACCESS_DENIED')
@@ -3143,15 +3531,20 @@ class JeolJem1400flashSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             self._guard(capability_id, arguments)
-            result = h.invoke(capability_id, **arguments)
+            before = set(h.operations)
+            caller, h._caller = h._caller, self._principal                  # a panel gesture acts as this session (guard in panel_invoke)
+            try:
+                result = h._panel_entry(capability_id, arguments) if capability_id in PANEL_CAPS else h.invoke(capability_id, **arguments)
+            finally:
+                h._caller = caller
             if capability_id == 'records.list' and self._role == 'agent':
                 result = {k: [r for r in v if not self._foreign(r)] for k, v in result.items()}
             if capability_id == 'events.read' and self._role == 'agent':
@@ -3161,6 +3554,10 @@ class JeolJem1400flashSession:
             if operation:
                 h._owners[operation] = self._principal
                 h._owners[h.operations[operation]['record_id']] = self._principal
+            elif capability_id in PANEL_CAPS:
+                for op_id in [k for k in h.operations if k not in before]:      # an acquisition started by a panel gesture belongs to the caller (1.1.1)
+                    h._owners[op_id] = self._principal
+                    h._owners[h.operations[op_id]['record_id']] = self._principal
             response = dict(protocol_version=PROTOCOL_VERSION, instance_id=instance_id, request_id=request_id, operation_id=operation,
                             status='accepted' if operation else 'succeeded', state_revision=h.revision, clock={'domain': 'simulation', 'time_s': h.time_s},
                             result=copy.deepcopy(result), observations={}, error=None)
@@ -3275,6 +3672,23 @@ EFFECTS = {
     'diffraction.acquire': ['acquisition.id', 'acquisition.kind', 'acquisition.progress'],
     'montage.acquire': ['acquisition.id', 'acquisition.kind', 'acquisition.progress'],
 }
+# front panel (1.1.0): the device functions and what the existing commands now also change on the new slots
+_FLIP = ['beam.blanked', 'optics.wobbler', 'tem_center.state']
+EFFECTS.update({
+    'beam.blank': ['beam.blanked', 'truth.current_density_a_m2', 'truth.specimen_current_a'],
+    'deflector.set': ['optics.deflectors', 'truth.illumination_offset_m', 'truth.current_density_a_m2', 'truth.specimen_current_a', 'truth.illuminated_diameter_m'],
+    'alignment.load': ['optics.deflectors', 'truth.illumination_offset_m', 'truth.current_density_a_m2', 'truth.specimen_current_a', 'truth.illuminated_diameter_m'],
+    'alignment.configure_error': ['truth.alignment_error', 'truth.illumination_offset_m', 'truth.current_density_a_m2', 'truth.specimen_current_a', 'truth.illuminated_diameter_m'],
+    'optics.wobbler': ['optics.wobbler'],
+    'optics.step_magnification': ['display.mag_or_camera_length_text', 'optics.camera_length_m', 'optics.magnification', 'optics.magnification_step_fraction',
+                                  'truth.camera_length_m'],
+    'stage.trackball': ['stage.moving'], 'stage.go_here': ['stage.moving'],
+    'tem_center.select_holder': ['tem_center.state'], 'tem_center.new_project': ['tem_center.state'], 'tem_center.data_filing': ['tem_center.state'],
+    'tem_center.camera': ['tem_center.state'],
+})
+for _k in ('power.set', 'power.key_toggle'):
+    EFFECTS[_k] = sorted(set(EFFECTS[_k]) | set(_FLIP))
+EFFECTS['airlock.set_pump'] = sorted(set(EFFECTS['airlock.set_pump']) | {'tem_center.state'})
 EFFECTS['sim.step'] = ['clock.time_s']
 EFFECTS['holder.remove'] = sorted(set(EFFECTS['holder.remove']) | {'truth.airlock_pressure_pa'})   # a vented airlock (> 0.9 atm) opens to exactly 1 atm
 # on_step effects: slots whose change during the following host steps differs with and without the call (same scenarios; the session adds result.* and acquisition.started_by_other_agent)
@@ -3347,6 +3761,21 @@ ON_STEP = {
 
 for _k, _v in EFFECTS.items():
     CAPS[_k]['effects'] = list(_v)
+ON_STEP.update({
+    'beam.blank': ['illumination.screen_current_density_a_m2', 'truth.specimens', 'truth.view_center_dose_c_m2'],
+    'deflector.set': ['illumination.screen_current_density_a_m2', 'truth.specimens', 'truth.view_center_dose_c_m2', 'truth.current_density_a_m2',
+                       'truth.specimen_current_a'],
+    'alignment.load': ['illumination.screen_current_density_a_m2', 'truth.specimens', 'truth.view_center_dose_c_m2', 'truth.current_density_a_m2',
+                        'truth.specimen_current_a'],
+    'alignment.configure_error': ['illumination.screen_current_density_a_m2', 'truth.specimens', 'truth.view_center_dose_c_m2', 'truth.current_density_a_m2',
+                                   'truth.specimen_current_a'],
+    'optics.step_magnification': ['illumination.screen_current_density_a_m2'],
+    'stage.trackball': ON_STEP['stage.move_xy'], 'stage.go_here': ON_STEP['stage.move_xy'],
+    'tem_center.new_project': ['tem_center.state'], 'tem_center.data_filing': ['tem_center.state'],
+})
+for _k in ('plant.configure', 'power.set', 'power.key_toggle', 'ht.set_on', 'filament.set_on', 'image.acquire'):
+    ON_STEP[_k] = ON_STEP.get(_k, []) + ['tem_center.state']             # the holder prompt at software start, the files of completed images
+ON_STEP['beam.blank'] += ['truth.current_density_a_m2', 'truth.specimen_current_a']
 ON_STEP = {k: list(dict.fromkeys(v)) for k, v in ON_STEP.items()}
 ON_STEP['sim.step'] = ['clock.time_s'] + sorted(set(sum(ON_STEP.values(), [])) | {s for k, v in EFFECTS.items() if k != 'sim.step' for s in v}
                                                  - {'clock.time_s', 'plant.configured', 'specimen.bench_ids', 'holder.grids', 'airlock.pump', 'airlock.lever_rad',
@@ -3355,6 +3784,7 @@ ON_STEP['sim.step'] = ['clock.time_s'] + sorted(set(sum(ON_STEP.values(), [])) |
                                                     'aperture.condenser_inserted', 'aperture.objective_position', 'aperture.selected_area_position',
                                                     'aperture.cl_lever_rad', 'aperture.ol_dial_rad', 'aperture.sa_dial_rad', 'screen.up', 'truth.illuminated_diameter_m',
                                                     'truth.camera_length_m', 'truth.filament_life_s', 'display.mag_or_camera_length_text'})
+ON_STEP['sim.step'] = [x for x in ON_STEP['sim.step'] if x != 'optics.deflectors']   # a set point: never changed by the clock
 _BEAM_STEP_ZH = ('束流开着时照射改变样品受照剂量（剂量事件）与辐照损伤、荧光屏电流密度读数随之变化')
 ON_STEP_ZH = {
     'plant.configure': '重新声明的条件在下一仪器周期起作用：供电超出AC 200V±10%（同平台JEM-1400Plus安装要求）时主机断路（高压、灯丝、泵停止，采集失败，样品台停在当时位置）；冷却水不足时高压与灯丝关闭；'
@@ -3398,6 +3828,19 @@ ON_STEP_ZH = {
     'sim.step': '统一宿主时钟推进全部过程：真空与气锁、泵、高压升降、灯丝加热与磨损、束流剂量与损伤、样品台/样品杆/荧光屏运动、采集完成与故障',
 }
 ON_STEP_ZH['power.key_toggle'] = ON_STEP_ZH['power.set']
+ON_STEP_ZH.update({
+    'beam.blank': '消隐时样品不再受照（剂量停止，样品电流与电流密度为0，灯丝加热时也保持0），荧光屏电流密度读数为0；解除后恢复',
+    'deflector.set': '照明区偏离视场中心、电子枪偏离对中或聚光镜像散使照明区变椭圆时，样品电流、剂量落点与荧光屏电流密度读数随之变化',
+    'alignment.load': '偏转器回到文件值后照明区与样品电流随之变化（剂量落点、荧光屏读数）',
+    'alignment.configure_error': '新的对中误差改变照明区位置、形状（聚光镜像散）与样品电流，剂量与荧光屏读数随之变化',
+    'optics.step_magnification': '倍率档改变荧光屏电流密度读数（∝1/M²）',
+    'stage.trackball': ON_STEP_ZH['stage.move_xy'], 'stage.go_here': ON_STEP_ZH['stage.move_xy'],
+    'tem_center.new_project': '之后完成的图像存入新项目文件夹（序号从1重新开始）', 'tem_center.data_filing': '之后完成的图像按新的文件名组成与格式归档',
+})
+ON_STEP_ZH['image.acquire'] += '；完成的图像由TEM Center按数据归档设置存档（tem_center.state的文件与序号）'
+for _k in ('plant.configure', 'power.set', 'power.key_toggle'):
+    ON_STEP_ZH[_k] += '；TEM Center启动完成时弹出样品杆选择提示（tem_center.state）'
+
 # how each slot is sampled when read
 _SAMPLING_READINGS = {'vacuum.column_pressure_indicated_pa': 'column gauge, 10 % relative noise', 'vacuum.gun_pressure_indicated_pa': 'gun gauge, 10 % relative noise',
                       'airlock.pressure_indicated_pa': 'airlock gauge, 10 % relative noise (null when the airlock is not formed)',
@@ -3416,6 +3859,7 @@ _SAMPLING_CYCLE = {'system.state', 'system.error_code', 'power.enabled', 'vacuum
                    'panel.power_lamp', 'acquisition.id', 'acquisition.kind', 'acquisition.started_by_other_agent', 'result.last_image_id', 'result.last_pattern_id',
                    'result.last_montage_id', 'truth.gun_pressure_pa', 'truth.tmp_speed_fraction', 'truth.filament_on_time_s', 'truth.emission_a',
                    'truth.specimen_current_a', 'truth.current_density_a_m2', 'truth.specimens'}
+_SAMPLING_CYCLE |= {'beam.blanked', 'optics.wobbler', 'tem_center.state'}      # also reset at a power failure / set on the cycle (holder prompt, files)
 _SAMPLING_COMMAND = set(SLOTS) - _SAMPLING_CONTINUOUS - set(_SAMPLING_READINGS) - _SAMPLING_CYCLE - set(_SAMPLING_MIXED)
 
 
@@ -3472,9 +3916,9 @@ PRECONDITIONS = {
     'optics.standard_focus': ('通电、软件已启动、无待确认错误与采集', list(_R)),
     'optics.auto_focus': ('通电、软件已启动、无待确认错误与采集；灯丝饱和且高压到设定值；荧光屏抬起到位；MAG模式；视场里至少2%有样品结构（支持膜或样品相）；'
                           '所需离焦显示在±20µm内', _R + ['filament.state', 'screen.up', 'screen.moving', 'optics.mode', 'holder.position']),
-    'aperture.set_condenser': ('已声明实验室条件；无采集', ['plant.configured', 'acquisition.id']),
-    'aperture.set_objective': ('已声明实验室条件；无采集', ['plant.configured', 'acquisition.id']),
-    'aperture.set_selected_area': ('已声明实验室条件；无采集', ['plant.configured', 'acquisition.id']),
+    'aperture.set_condenser': ('已声明实验室条件（手动拨杆，曝光中拨动不被拒）', ['plant.configured']),
+    'aperture.set_objective': ('已声明实验室条件（手动拨盘，曝光中拨动不被拒）', ['plant.configured']),
+    'aperture.set_selected_area': ('已声明实验室条件（手动拨盘，曝光中拨动不被拒）', ['plant.configured']),
     'screen.set': ('通电、软件已启动、无待确认错误与采集', list(_R)),
     'screen.toggle': ('通电、软件已启动、无待确认错误与采集', list(_R)),
     'stage.move_xy': ('通电、软件已启动、无待确认错误与采集；样品杆在镜筒内且不在插拔中', _R + ['holder.position']),
@@ -3491,6 +3935,14 @@ PRECONDITIONS = {
     'montage.result': ('记录存在且不属于另一个agent', []),
     'camera.auto_exposure': ('通电、软件已启动、无待确认错误；灯丝饱和且高压到设定值；荧光屏抬起到位；成像模式；视场有信号', _R[:3] + ['filament.state', 'screen.up', 'optics.mode']),
     'records.list': ('无', []), 'events.read': ('无', []), 'ledger.read': ('无', []), 'provenance.read': ('无', []), 'sim.step': ('无', []),
+    'beam.blank': ('通电、软件已启动（有待确认错误时也可消隐）', _R[:2]),
+    'deflector.set': ('通电、软件已启动、无待确认错误与采集', list(_R)), 'alignment.load': ('通电、软件已启动、无待确认错误与采集', list(_R)),
+    'alignment.configure_error': ('已声明实验室条件', ['plant.configured']), 'optics.wobbler': ('通电、软件已启动、无待确认错误', _R[:3]),
+    'optics.step_magnification': ('通电、软件已启动、无待确认错误与采集', _R + ['optics.mode']),
+    'stage.trackball': ('通电、软件已启动、无待确认错误与采集；样品杆在镜筒内且不在插拔中', _R + ['holder.position']),
+    'stage.go_here': ('同轨迹球；另需至少一张已完成的图像（TEM Center归档时记下了采集时的样品台位置）', _R + ['holder.position', 'result.last_image_id']),
+    'tem_center.select_holder': ('通电、软件已启动', _R[:2]), 'tem_center.new_project': ('通电、软件已启动', _R[:2]),
+    'tem_center.data_filing': ('通电、软件已启动', _R[:2]), 'tem_center.camera': ('通电、软件已启动', _R[:2]),
 }
 ERROR_ZH = {
     'INVALID_ARGUMENT': '参数不符合输入结构、类型或范围', 'ACCESS_DENIED': '该角色无权调用，或当前采集/记录属于另一个agent', 'REQUEST_CONFLICT': '同一request_id已用于不同的请求',
@@ -3514,6 +3966,7 @@ ERROR_ZH = {
     'MONTAGE_OUT_OF_RANGE': '拼图帧超出样品台±1mm行程', 'UNKNOWN_RECORD': '图像、衍射或拼图记录不存在', 'USER_CANCEL': '采集被取消',
     'BEAM_OFF': '采集中束流关闭（关灯丝或高压、灯丝烧断、高压跳闸、冷却水不足）', 'HT_TRIP': '电子枪真空变差，高压跳闸', 'FILAMENT_BURNOUT': '钨灯丝烧断',
     'MAINS_FAULT': '供电电压异常，主机断路',
+    'NO_IMAGE': '还没有可用于“go here”的已完成图像',
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 _RE = ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'ERROR_PENDING', 'ACQUISITION_RUNNING']
@@ -3538,8 +3991,8 @@ CAP_ERRORS = {
     'optics.set_camera_length': list(_RE), 'optics.set_magnification_step_fraction': list(_RE), 'optics.set_brightness': list(_RE),
     'optics.set_spot_size': list(_RE), 'optics.set_defocus': list(_RE), 'optics.standard_focus': list(_RE),
     'optics.auto_focus': _RE + ['BEAM_NOT_READY', 'SCREEN_DOWN', 'NOT_IN_MAG_MODE', 'AUTOFOCUS_FAILED'],
-    'aperture.set_condenser': ['PLANT_REQUIRED', 'ACQUISITION_RUNNING'], 'aperture.set_objective': ['PLANT_REQUIRED', 'ACQUISITION_RUNNING'],
-    'aperture.set_selected_area': ['PLANT_REQUIRED', 'ACQUISITION_RUNNING'], 'screen.set': list(_RE), 'screen.toggle': list(_RE),
+    'aperture.set_condenser': ['PLANT_REQUIRED'], 'aperture.set_objective': ['PLANT_REQUIRED'],
+    'aperture.set_selected_area': ['PLANT_REQUIRED'], 'screen.set': list(_RE), 'screen.toggle': list(_RE),
     'stage.move_xy': _RE + ['HOLDER_MOVING', 'HOLDER_NOT_IN_COLUMN'], 'stage.set_z': _RE + ['HOLDER_MOVING', 'HOLDER_NOT_IN_COLUMN'],
     'stage.set_tilt': _RE + ['HOLDER_MOVING', 'HOLDER_NOT_IN_COLUMN', 'TILT_OUT_OF_RANGE'], 'stage.neutral': _RE + ['HOLDER_MOVING'],
     'image.acquire': _ACQ_ERR + ['DIFF_MODE', 'USER_CANCEL', 'BEAM_OFF'],
@@ -3548,10 +4001,20 @@ CAP_ERRORS = {
     'image.result': ['UNKNOWN_RECORD'], 'diffraction.result': ['UNKNOWN_RECORD'], 'montage.result': ['UNKNOWN_RECORD'],
     'camera.auto_exposure': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'ERROR_PENDING', 'BEAM_NOT_READY', 'SCREEN_DOWN', 'DIFF_MODE', 'NO_SIGNAL'],
 }
+CAP_ERRORS.update({
+    'beam.blank': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'ERROR_PENDING'], 'deflector.set': list(_RE), 'alignment.load': list(_RE), 'alignment.configure_error': ['PLANT_REQUIRED'],
+    'optics.wobbler': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'ERROR_PENDING'], 'optics.step_magnification': list(_RE),
+    'stage.trackball': _RE + ['HOLDER_MOVING', 'HOLDER_NOT_IN_COLUMN'], 'stage.go_here': _RE + ['HOLDER_MOVING', 'HOLDER_NOT_IN_COLUMN', 'NO_IMAGE'],
+    'tem_center.select_holder': _RE[:4], 'tem_center.new_project': _RE[:4], 'tem_center.data_filing': _RE[:4], 'tem_center.camera': _RE[:4]})
 _PARTIAL = {'USER_CANCEL', 'BEAM_OFF', 'POWER_OFF'}
 CAP_ERROR_ZH = {('image.acquire', 'POWER_OFF'): '未通电；或采集中断电（记录以failed结束）', ('diffraction.acquire', 'POWER_OFF'): '未通电；或采集中断电（记录以failed结束）',
                 ('montage.acquire', 'POWER_OFF'): '未通电；或采集中断电（记录以failed结束，样品台停在断电位置）'}
 MODEL_NONE_ZH = {
+    'beam.blank': '消隐没有可见几何（左面板OLED键属面板层）', 'deflector.set': '偏转器设定没有可见几何（旋钮角度不随偏转器镜像）',
+    'alignment.load': '对中文件载入没有可见模型变化', 'alignment.configure_error': '评测者设定，没有可见模型变化', 'optics.wobbler': '摇摆器没有可见几何',
+    'stage.trackball': 'X/Y为微米级运动，场景没有对应关节', 'stage.go_here': 'X/Y为微米级运动，场景没有对应关节',
+    'tem_center.select_holder': 'TEM Center画面设置（面板层panel.capture显示）', 'tem_center.new_project': 'TEM Center画面设置',
+    'tem_center.data_filing': 'TEM Center画面设置', 'tem_center.camera': 'TEM Center画面设置',
     'plant.configure': '只声明宿主实验室条件（室温、湿度、供电、冷却水、噪声种子），没有可见模型变化',
     'specimen.provide': '只在过程层实验台上增加载网样品；场景没有载网几何（样品位由接口点grid_seat表示）',
     'holder.load_grid': '载网只进入过程层样品杆；场景的样品杆尖端不显示载网', 'holder.unload_grid': '载网只离开过程层样品杆；场景没有载网几何',
@@ -3596,9 +4059,21 @@ RESOURCES = {'image.acquire': ['electron_beam', 'camera', 'stage', 'host_clock']
              'aperture.set_objective': ['objective_aperture'], 'aperture.set_selected_area': ['selected_area_aperture'], 'screen.set': ['viewing_screen'],
              'screen.toggle': ['viewing_screen'], 'stage.move_xy': ['stage'], 'stage.set_z': ['stage'], 'stage.set_tilt': ['stage'], 'stage.neutral': ['stage'],
              'plant.configure': ['room', 'mains', 'cooling_water'], 'specimen.provide': ['bench'], 'sim.step': ['host_clock'], 'camera.auto_exposure': ['camera'],
-             'image.result': ['records'], 'diffraction.result': ['records'], 'montage.result': ['records'], 'error.acknowledge': ['tem_center']}
+             'image.result': ['records'], 'diffraction.result': ['records'], 'montage.result': ['records'], 'error.acknowledge': ['tem_center'],
+             'beam.blank': ['electron_beam'], 'deflector.set': ['electron_beam'], 'alignment.load': ['electron_beam'], 'optics.wobbler': ['electron_beam'],
+             'optics.step_magnification': ['lenses'], 'stage.trackball': ['stage'], 'stage.go_here': ['stage', 'records'], 'tem_center.select_holder': ['tem_center'],
+             'tem_center.new_project': ['tem_center'], 'tem_center.data_filing': ['tem_center'], 'tem_center.camera': ['tem_center', 'camera']}
 _ROBOT = ('插拔与装卸为宿主/机器人技能的过程层抽象，没有接触、力控或机器人验证；样品杆插拔关节由过程状态镜像（推入、转入、拉回、拔出按约30mm/s），场景没有载网几何。')
 CAP_LIMITS = {
+    'deflector.set': ['偏转器为最小模型：束偏移与聚光镜对中平移按满量程20µm（LOW MAG×20）平移样品处照明区；电子枪平移/倾转偏离对中时样品电流按exp(−d²/0.25²)下降；'
+                      '聚光镜消像散器偏离对中设定（Cond Stig与评测者误差之差，大小|a|、轴角½atan2(a_y,a_x)）使照明区成椭圆：两主截面在BRIGHTNESS 0.5∓0.01×|a|处聚焦（工程值），'
+                      '展开时近圆、过交叉点附近成线并转90°，对好时处处为圆；椭圆决定样品电流密度（等面积）、相机图像与荧光屏读数的受照区，剂量足迹、电荷账与选区衍射按等面积圆计；'
+                      '电压中心只影响HT摇摆幅度；量程与宽度为工程值。对中误差默认0（理想），实测误差留待仿真与实机差距任务。'],
+    'alignment.configure_error': ['评测者参数：各偏转器对好时的设定；默认0即按保存的对中文件已对好。'],
+    'optics.wobbler': ['像摇摆器束倾转±5mrad（工程）：像摆幅=2×倾转×视场中心真实离焦；HT摇摆：电压中心每满量程偏离2µm（工程）；摇摆不改变采集图像（只给TEM Center读数）。'],
+    'stage.trackball': ['每计数移动相机视场的1/200（工程），没有加速度曲线。'],
+    'stage.go_here': ['按归档时记下的样品台位置与图像视场换算，像不旋转（EM2020说明：无像旋转）；图像上方为+Y（假设）。'],
+    'tem_center.data_filing': ['文件只记名称与文件夹（过程层不写真实TIFF/JPEG）；不连接网络盘。'],
     'plant.configure': ['宿主声明的实验室条件；室温只影响气体状态并给出越限警告，冷却水只按≥5L/min（8.33×10⁻⁵m³/s，同平台JEM-1400Plus安装要求）判断高压能否开启（不模拟透镜温升与漂移），供电只按±10%判断开机与断路；'
                         '室温波动（≤1°C/h）、杂散磁场与振动对图像的影响不建模。'],
     'specimen.provide': ['载网为3mm铜/镍/金网：目数只决定网格节距与栅条宽度（200目125/35µm、300目83/25µm、400目62/20µm，工程值），栅条完全不透；支持膜孔洞按直径1.2µm±15%的'
@@ -3648,6 +4123,10 @@ CAP_LIMITS = {
     'sim.step': ['唯一的宿主时间推进；逻辑、读数、真空、灯丝、剂量与采集完成在1s仪器周期上执行，样品台、样品杆、荧光屏与高压升降连续推进。'],
 }
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.jem1400flash_tem.limitations。'
+_HAND_EXPOSURE = ('光阑拨杆/拨盘是手动的：曝光中拨动不被拒（真机上没有东西阻止手拨，1.1.2清扫）；曝光继续，图像/衍射图按曝光结束时的光阑状态计算'
+                  '（简化假设：真实相机在拨动瞬间之后的帧才变化，这里整幅按结束时的状态）；剂量与电荷账按每个周期的实际束流累计。')
+for _k in ('aperture.set_condenser', 'aperture.set_objective', 'aperture.set_selected_area'):
+    CAP_LIMITS[_k] = CAP_LIMITS.get(_k, [_DEFAULT_LIMIT]) + [_HAND_EXPOSURE]
 
 
 def _foreign_acq_text(k):
@@ -3664,6 +4143,11 @@ def _errors_of(k):
 
 
 OBSERVES = {
+    'beam.blank': ['beam.blanked'], 'deflector.set': ['optics.deflectors'], 'alignment.load': ['optics.deflectors'], 'alignment.configure_error': [],
+    'optics.wobbler': ['optics.wobbler'], 'optics.step_magnification': ['optics.magnification', 'optics.camera_length_m', 'display.mag_or_camera_length_text'],
+    'stage.trackball': ['stage.x_indicated_m', 'stage.y_indicated_m', 'stage.moving'], 'stage.go_here': ['stage.x_indicated_m', 'stage.y_indicated_m', 'stage.moving'],
+    'tem_center.select_holder': ['tem_center.state'], 'tem_center.new_project': ['tem_center.state'], 'tem_center.data_filing': ['tem_center.state'],
+    'tem_center.camera': ['tem_center.state'],
     'plant.configure': ['plant.configured'], 'specimen.provide': ['specimen.bench_ids'], 'holder.load_grid': ['holder.grids', 'specimen.bench_ids'],
     'holder.unload_grid': ['holder.grids', 'specimen.bench_ids'], 'holder.insert_to_airlock': ['holder.position', 'holder.in_goniometer', 'airlock.state'],
     'airlock.set_pump': ['airlock.pump', 'airlock.state', 'airlock.pressure_indicated_pa', 'panel.airlock_lamp'],
@@ -3692,7 +4176,12 @@ _EMORY, _VIB, _ILAB, _EMBL, _ETH = 'facility_emory', 'facility_vib', 'facility_i
 _LIBS, _AUDIT, _PHYS, _SIM = 'tem_library', 'template_validation', 'physics_literature', 'simulation_assumption'
 _DMG = ['egerton2004', 'egerton2013']
 _STRUCT = ['cod_structures', 'xraydb', 'nist_srd126_tab1', 'nist_srd126_tab2', 'pubchem_density', 'formvar_refs']
+_RADBOUD, _UNIDUE, _TROUBLE = 'facility_radboud_guide', 'facility_unidue_sop', 'facility_radboud_troubleshooter'
 CAP_SOURCES = {
+    'beam.blank': [_RADBOUD, _TROUBLE, _SIM], 'deflector.set': [_RADBOUD, _EMORY, _SIM], 'alignment.load': [_EMORY, _SIM], 'alignment.configure_error': [_SIM],
+    'optics.wobbler': [_RADBOUD, _UNIDUE, _EMORY, _SIM], 'optics.step_magnification': [_RADBOUD, _UNIDUE, _SIM], 'stage.trackball': [_RADBOUD, _UNIDUE, _SIM],
+    'stage.go_here': [_RADBOUD, _SIM], 'tem_center.select_holder': [_RADBOUD, _UNIDUE], 'tem_center.new_project': [_RADBOUD],
+    'tem_center.data_filing': [_RADBOUD], 'tem_center.camera': [_RADBOUD, _SIM],
     'plant.configure': [_PLUS, _SIM], 'specimen.provide': [_WB, _LIBS] + _STRUCT + _DMG + [_AUDIT, _SIM], 'holder.load_grid': [_PLUS, _FLASH, _SIM],
     'holder.unload_grid': [_PLUS, _SIM], 'holder.insert_to_airlock': [_EMORY, _VIB, _ILAB, _SIM], 'airlock.set_pump': [_EMORY, _VIB, _SIM],
     'holder.insert': [_EMORY, _VIB, _SIM], 'holder.withdraw': [_EMORY, _VIB, _SIM], 'holder.remove': [_EMORY, _VIB, _SIM], 'power.set': [_PLUS, _SIM],
@@ -3781,6 +4270,28 @@ def export_jeol_jem1400flash_contract_metadata():
         if k in ON_STEP:
             c['state_effects'] += [dict(state_id=s, timing='on_step', description_zh=ON_STEP_ZH[k]) for s in ON_STEP[k]
                                    if not (k == 'sim.step' and s in v['effects'])]      # a slot set at once may also evolve on the step
+        caps[k] = c
+    called = _panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []
+    imm = sorted({e for k in called for e in CAPS[k]['effects']})
+    later = sorted({e for k in called for e in ON_STEP.get(k, [])})
+    for k, v in PANEL_CAPS.items():
+        gesture = v['kind'] == 'device_command'
+        c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
+        c.update(availability='implemented', implementation={layer: 'implemented' if layer in ('process', 'host') else 'absent' for layer in ['process', 'scene', 'robot', 'hardware', 'host']},
+                 binding=dict(backend='host', artifact_id='runtime', entrypoint='asset_runtime.jeol_jem1400flash.JeolJem1400flashSession.invoke',
+                              invocation=f'session.invoke(instance_id="jem1400flash_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),
+                 preconditions=[dict(description_zh='按panel_ui.json的面板规则：断电时只有MAIN POWER键有效；OLED键休眠时第一次按只唤醒；被调用的命令各自检查前提，被拒时显示设备的提示且状态不变',
+                                     state_ids=['power.enabled', 'system.state', 'acquisition.started_by_other_agent'], enforced_by='runtime',
+                                     check='JeolJem1400flashSession._guard / JeolJem1400flashRuntime._panel_entry（面板引擎_panel_ui.py）')] if gesture else [],
+                 state_effects=([dict(state_id=x, timing='immediate', description_zh='手势调用的命令立即改变的状态') for x in imm] +
+                                [dict(state_id=x, timing='on_step', description_zh='手势调用的命令在之后的step中推进的状态') for x in later]) if gesture else [],
+                 observes=[], model_effects=dict(mode='none', description_zh='屏幕画面由panel.capture提供；3D屏幕纹理与按键关节触发手势属后续Matterix步骤', binding_ids=[]),
+                 execution=dict(mode='synchronous', time_domain='simulation', completion_criterion='手势瞬时完成（不推进仿真时钟）；被调用命令的过程由step推进',
+                                completion_state_ids=[], timeout_s=None, cancellation='unsupported', retry='same_request_id', resources=['panel'],
+                                partial_failure_zh='一个手势按屏幕规则可调用多个命令：已被接受的前序命令保留，被拒的命令不改变状态' if gesture else '只读'),
+                 errors=[dict(code=e, meaning_zh=ERROR_ZH[e], side_effects='none') for e in _COMMON_ERRORS + ['ACCESS_DENIED']],
+                 verification=[], limitations=['面板层：panel_ui.json（Radboud/UniDue/Emory用户资料页码证据）解释手势并调用本运行层的命令；无JEOL原厂说明书，手册未写之处见panel_ui.json的assumptions'],
+                 source_ids=[_RADBOUD, _UNIDUE, _EMORY, _TROUBLE])
         caps[k] = c
     params = {}
     for name, (val, unit, meaning, src) in {

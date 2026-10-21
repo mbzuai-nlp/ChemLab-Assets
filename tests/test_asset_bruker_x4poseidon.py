@@ -225,7 +225,7 @@ class ContractAndSchemas(unittest.TestCase):
         for k, c in m['capabilities'].items():
             for part in ('input_schema', 'output_schema'):
                 self.assertEqual(asset_tool.lint_schema(c[part]), [], (k, part))
-            ex = rt.CAPS[k].get('example_arguments')
+            ex = rt.ALL_CAPS[k].get('example_arguments')
             if ex is not None:
                 self.assertEqual(asset_tool.validate_value(ex, c['input_schema']), [], k)
         for k, s in m['state_slots'].items():
@@ -249,14 +249,15 @@ class ContractAndSchemas(unittest.TestCase):
             for x in c['execution']['completion_state_ids']:
                 self.assertIn(x, slots, (k, x))
             self.assertEqual([e['code'] for e in c['errors']], sorted(set(e['code'] for e in c['errors']), key=[e['code'] for e in c['errors']].index), k)
-        for k in rt.CAPS:
+        for k in rt.ALL_CAPS:                                            # instrument commands and the panel commands (1.1.0)
             self.assertIn(k, rt.CAP_SOURCES, k)
-        self.assertEqual(set(rt.PRECONDITIONS) - set(rt.CAPS), set())
+        self.assertEqual(set(m['capabilities']), set(rt.ALL_CAPS))
+        self.assertEqual(set(rt.PRECONDITIONS) - set(rt.ALL_CAPS), set())
         for k, v in rt.EFFECTS.items():
-            self.assertIn(k, rt.CAPS)
+            self.assertIn(k, rt.ALL_CAPS)
             self.assertEqual(set(v) - slots, set(), k)
         for k, v in rt.ON_STEP.items():
-            self.assertIn(k, rt.CAPS)
+            self.assertIn(k, rt.ALL_CAPS)
             self.assertEqual(set(v) - slots, set(), k)
         for mech in m['mechanisms'].values():
             self.assertEqual(set(mech['state_ids']) - slots, set())

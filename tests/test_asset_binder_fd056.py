@@ -6,7 +6,8 @@ changes only declared slots; heating-up 15 min, 290 W at 150 C and 4 min recover
 fluctuation and spatial variation; air flap air change; drying of wet samples (constant and falling rate, boiling, chamber vapour, room
 humidity) to constant mass; class 2 safety controller (latched, reset with OK) and class 1 overtemperature device (330 C, reset after >= 10 s
 without mains below 230 C); Delayed Off timer with the fan selection; ramp; USB recording (interval, standby, outage, stick removal); racks and
-loads; Pt100 rupture (1999); fan failure; standby skipping exact; energy, liquid-mass and vapour ledgers close."""
+loads; Pt100 rupture (1999); fan failure; standby skipping exact; energy, liquid-mass and vapour ledgers close; user-menu settings behind the
+front panel (controller clock lost without mains and written to the USB rows, language, L1 / L2 passwords)."""
 import json
 import math
 import re
@@ -644,6 +645,43 @@ class RoundTwoFixes(unittest.TestCase):
         L = g.ledger()
         self.assertGreater(L['m_condensed_kg'], 0.0)
         _balance(self, L)
+
+
+class UserMenuSettings(unittest.TestCase):                                                          # 1.1.0: settings behind the front panel
+    def test_clock_runs_with_the_simulation_and_is_lost_without_mains(self):
+        g = Rig()
+        self.assertEqual(g.read('controller.datetime'), '2000-01-01T00:00')                              # plugged in: no clock option
+        g.call(g.A, 'clock.set', expect='STANDBY', year=2026, month=10, day=18, hour=9, minute=30)
+        g.on()
+        g.call(g.A, 'clock.set', expect='INVALID_DATE', year=2026, month=2, day=30, hour=9, minute=30)
+        self.assertEqual(g.call(g.A, 'clock.set', year=2026, month=10, day=18, hour=9, minute=30)['datetime'], '2026-10-18T09:30')
+        g.step(3600.0 + 59.0)
+        self.assertEqual(g.read('controller.datetime'), '2026-10-18T10:30')
+        g.call(g.A, 'usb.set_stick', inserted=True)
+        g.call(g.A, 'usb.record', on=True, interval_min=1)
+        g.step(130.0)
+        rows = g.call(g.A, 'usb.read')
+        self.assertEqual(rows['header'][1], 'datetime')
+        self.assertEqual([r['datetime'] for r in rows['rows']], ['2026-10-18T10:30', '2026-10-18T10:31', '2026-10-18T10:32'])
+        g.call(g.E, 'fault.inject', fault='mains_outage', active=True)
+        self.assertIsNone(g.read('controller.datetime'))
+        g.step(30.0)
+        g.call(g.E, 'fault.inject', fault='mains_outage', active=False)                                 # no real-time clock: date and time lost
+        self.assertEqual(g.read('controller.datetime'), '2000-01-01T00:00')
+
+    def test_language_and_passwords(self):
+        g = Rig()
+        g.on()
+        self.assertEqual((g.read('controller.language'), g.read('access.protection')), ('en', {'L1': False, 'L2': False}))
+        self.assertEqual(g.call(g.A, 'language.set', language='fr'), {'language': 'fr'})
+        self.assertEqual(g.call(g.A, 'access.set_password', level='L2', code=1234)['protection'], {'L1': False, 'L2': True})
+        self.assertEqual(g.h.passwords, {'L1': 0, 'L2': 1234})
+        self.assertNotIn('1234', json.dumps(g.read(who=g.A)))                                          # the code itself is not an agent slot
+        g.call(g.A, 'access.set_password', level='L2', code=0)
+        self.assertEqual(g.read('access.protection'), {'L1': False, 'L2': False})
+        g.call(g.A, 'power.set', on=False)
+        g.call(g.A, 'language.set', expect='STANDBY', language='de')
+        self.assertEqual(g.read('controller.language'), 'fr')
 
 
 class ZCoverage(unittest.TestCase):

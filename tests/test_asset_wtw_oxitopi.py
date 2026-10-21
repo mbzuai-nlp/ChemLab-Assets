@@ -207,13 +207,30 @@ class Contract(unittest.TestCase):
         B = g.h.session('agent2')
         g.gga()
         g.load('P1', 'h1', 'std', 164.0)
-        for cap, args in (('bottle.empty', dict(position='P1')), ('head.stop', dict(head='h1')), ('head.read', dict(head='h1')),
-                          ('head.unscrew', dict(head='h1')), ('bottle.add_stir_bar', dict(position='P1'))):
+        # stopping, restarting or changing the measurement of another agent's head is refused; viewing and physical handling are not refused by
+        # an ownership rule (final sync 2026-10-19), the device reacts itself (here: the head still sits on the bottle)
+        for cap, args in (('head.stop', dict(head='h1')), ('head.start', dict(head='h1')), ('head.configure', dict(head='h1', duration_days=3)),
+                          ('head.set_system', dict(head='h1', illumination=False))):
+            before = g.h.read('evaluator')
             r = B.invoke(instance_id=INST, capability_id=cap, arguments=args, request_id='b-' + cap)
             self.assertEqual(r['error']['code'], 'ACCESS_DENIED', cap)
+            self.assertEqual(g.h.read('evaluator'), before, cap)
+        r = B.invoke(instance_id=INST, capability_id='head.press_key', arguments=dict(head='h1', key='M', long=True), request_id='b-key1')
+        self.assertEqual(r['result']['screen'], 'confirm_off')                 # the security prompt is only a screen: free
+        before = g.h.read('evaluator')
+        r = B.invoke(instance_id=INST, capability_id='head.press_key', arguments=dict(head='h1', key='M'), request_id='b-key2')
+        self.assertEqual(r['error']['code'], 'ACCESS_DENIED')                 # <M> = stop: refused
+        self.assertEqual(g.h.read('evaluator'), before)
+        r = B.invoke(instance_id=INST, capability_id='head.read', arguments=dict(head='h1'), request_id='b-view')
+        self.assertEqual(r['status'], 'succeeded')
+        for cap, args in (('bottle.empty', dict(position='P1')), ('bottle.add_stir_bar', dict(position='P1'))):
+            r = B.invoke(instance_id=INST, capability_id=cap, arguments=args, request_id='b-' + cap)
+            self.assertEqual(r['error']['code'], 'HEAD_ON_BOTTLE', cap)
+        # hand / robot handling of samples is not owner-guarded (final sync 2026-10-19): B sees and may pour A's sample; only the device's own
+        # preconditions refuse it (here P2 still carries a stored head)
+        self.assertIn('std', B.read(instance_id=INST, state_ids=['samples.available'])['observations']['samples.available']['value'])
         r = B.invoke(instance_id=INST, capability_id='bottle.fill', arguments=dict(position='P2', sample_id='std', volume_m3=1.64e-4), request_id='b-fill')
-        self.assertEqual(r['error']['code'], 'ACCESS_DENIED')
-        self.assertNotIn('std', B.read(instance_id=INST, state_ids=['samples.available'])['observations']['samples.available']['value'])
+        self.assertNotEqual(r['error']['code'], 'ACCESS_DENIED')
         # agent2 works with its own objects; agent 1 releases the head after stopping and unscrewing
         B.invoke(instance_id=INST, capability_id='head.configure', arguments=dict(head='h4', duration_days=3), request_id='b-own')
         g.call(g.A, 'head.stop', head='h1')
@@ -841,6 +858,39 @@ class Samples(unittest.TestCase):
         out = g.call(g.A, 'bottle.empty', position='P1')
         self.assertAlmostEqual(out['removed_m3'], 1.64e-4)
         self.assertAlmostEqual(g.call(g.E, 'ledger.read')['ledger']['waste_m3'], 1.64e-4)
+
+
+class HeadMenuSettings(unittest.TestCase):
+    """Settings of the head menu (manual ba77059e04, 4.6.2) that the panel calls: language, clock, bottle volume."""
+
+    def test_language_restarts_and_clock_per_head(self):
+        g = Rig()
+        self.assertEqual(g.call(g.A, 'head.set_language', head='h1', language='de'), dict(head='h1', language='de'))
+        s = g.read('heads.settings')
+        self.assertEqual((s['h1']['language'], s['h2']['language'], s['h1']['display_on']), ('de', 'en', True))
+        self.assertEqual((s['h1']['date'], s['h1']['time']), ('19.10.2026', '08:00'))
+        self.assertEqual(g.call(g.A, 'head.set_clock', head='h1', date='24.12.2026', time='17:45')['clock'], '24.12.2026 17:45')
+        g.call(g.A, 'head.set_clock', expect='BAD_DATE', head='h1', date='31.02.2026')
+        g.step(3600.0)
+        self.assertEqual(g.read('heads.settings')['h1']['time'], '18:45')
+        self.assertEqual(g.read('heads.settings')['h2']['time'], '09:00')
+        g.call(g.A, 'head.replace_battery', head='h2')
+        self.assertIsNone(g.read('heads.settings')['h2']['date'])               # 'Error: new date!'
+        g.call(g.A, 'head.set_clock', expect='NO_VALID_DATE', head='h2', time='10:00')
+        g.call(g.A, 'head.set_clock', head='h2', date='19.10.2026')
+        self.assertEqual(g.read('heads.settings')['h2']['date'], '19.10.2026')
+
+    def test_bottle_volume_changes_the_bod_conversion(self):
+        g = Rig()
+        self.assertAlmostEqual(rt.bod_factor(432.0, 510.0), rt.bod_factor(432.0))
+        self.assertGreater(rt.bod_factor(432.0, 600.0), rt.bod_factor(432.0))
+        g.call(g.A, 'head.set_bottle_volume', expect='INVALID_ARGUMENT', head='h1', bottle_volume_m3=400e-6)
+        g.call(g.A, 'head.set_bottle_volume', head='h1', bottle_volume_m3=600e-6)
+        self.assertAlmostEqual(g.read('heads.settings')['h1']['bottle_volume_m3'], 600e-6)
+        hd = g.h.heads['h1']
+        self.assertAlmostEqual(g.h._value_in_unit(hd, 1000.0), round(rt.bod_factor(432.0, 600.0) * 10.0, 1))
+        g.call(g.A, 'head.start', head='h1')
+        g.call(g.A, 'head.set_bottle_volume', expect='MEASUREMENT_RUNNING', head='h1', bottle_volume_m3=510e-6)
 
 
 class ZCoverage(unittest.TestCase):

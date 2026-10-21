@@ -23,6 +23,10 @@ cultures on a 60 s grid, so any split of the same interval gives identical resul
     phenol-red colour, evaporation and osmolality, glucose and lactate, exponential growth after a lag with temperature / pH / glucose /
     osmolality / oxygen / lactate / contact factors, death; on the bench a vessel relaxes to room conditions.
 Generic schema / capability / session framework follows the CHEM-164 / CHEM-165 runtimes.
+
+Front panel (panel.touch / panel.switch / panel.capture / panel.frame): the VisioNize touch screen of the manual (panel_ui.json beside the contract)
+run by the generic engine _panel_ui.py on the capabilities below, including the device functions behind its menus (settings, clock, users and rights,
+information bar, relays, screen lock, recurring tasks, operation records, export).
 """
 from __future__ import annotations
 
@@ -36,6 +40,7 @@ from pathlib import Path
 PROTOCOL_VERSION = "1.0.0"
 ASSET_TYPE_ID = "instrument.eppendorf_cellxpertc170i"
 CATALOG_ID = "CHEM-166"
+ASSET_VERSION = '1.2.0'
 ROOT = Path(__file__).resolve().parents[2]
 ASSET_DIR = ROOT / 'assets/expansion_batch04/t4_measure/eppendorf_cellxpertc170i'
 LIBS = {'media': 'media_library.json', 'cells': 'cell_line_library.json', 'vessels': 'vessel_library.json', 'equilibrium': 'equilibrium_model.json',
@@ -86,9 +91,65 @@ PAUSE = dict(door=dict(temperature=900.0, co2=900.0, o2=900.0, rh=3.5 * 3600, wa
 CONTROL_TIMEOUT_S = 3600.0              # CO2 / O2 control error when the set point is not reached (engineering)
 SETPOINT_NOT_REACHED_S = 4 * 3600.0     # 6731FW.108
 SUBNORMAL_S = 3600.0
+TASK_NAMES = {'high_temperature_disinfection': 'High-temperature disinfection', 'performance_check': 'Performance check', 'chamber_cleaning': 'Chamber cleaning',
+              'water_refill': 'Water refill'}
 TASKS = {'high_temperature_disinfection': dict(procedure=True, interval_s=None), 'performance_check': dict(procedure=True, interval_s=None),
          'chamber_cleaning': dict(procedure=False, interval_s=None), 'water_refill': dict(procedure=False, interval_s=14 * 86400.0)}
 MAX_EVENTS, MAX_RECORDS, MAX_VESSELS, MAX_CHART = 1000, 200, 60, 20160
+# ---- device functions behind the touch screen (operating manual sections 6-10): settings, clock, users and rights, messages, relays, screen lock,
+# recurring tasks, operation records.  Values the manual does not give are assumptions (listed in the contract limitations and panel_ui.json).
+EPOCH_S = 1767225600.0                  # device clock at host time 0: 2026-01-01 00:00:00 UTC (assumption; clock.set moves it)
+TIMEZONES = {'Europe/Berlin': 1.0, 'Europe/Paris': 1.0, 'Europe/London': 0.0, 'America/New_York': -5.0, 'America/Chicago': -6.0, 'America/Los_Angeles': -8.0,
+             'Asia/Shanghai': 8.0, 'Asia/Singapore': 8.0, 'Asia/Tokyo': 9.0, 'Asia/Kolkata': 5.5, 'Australia/Sydney': 10.0, 'Africa/Johannesburg': 2.0, 'UTC': 0.0}
+RELAY_EVENTS = ['temperature_alarm', 'temperature_high_alarm', 'temperature_low_alarm', 'co2_alarm', 'co2_high_alarm', 'co2_low_alarm', 'o2_alarm',
+                'o2_high_alarm', 'o2_low_alarm', 'humidity_alarm', 'water_level_alarm', 'warnings', 'error', 'any', 'off']
+HOME_FUNCTIONS = ['temperature', 'co2', 'o2', 'rh']
+ROLES = ['restricted', 'user', 'administrator']
+_ADMIN, _USER_UP = ('administrator',), ('user', 'administrator')
+RIGHTS = {'change_parameters': _USER_UP, 'change_alarm_limits': _ADMIN, 'change_settings': _ADMIN, 'change_relay_settings': _ADMIN,
+          'change_alarm_volume': _USER_UP, 'change_home_screen': _USER_UP, 'change_own_secret': tuple(ROLES), 'change_user_name': _ADMIN,
+          'change_user_rights': _ADMIN, 'ack_alarm': _USER_UP, 'ack_error': _ADMIN, 'ack_warning': tuple(ROLES), 'start_htd': _USER_UP,
+          'start_performance_check': _ADMIN, 'start_relay_test': _ADMIN, 'export': tuple(ROLES), 'configure_network': _ADMIN, 'manage_users': _ADMIN}
+TASK_INTERVALS = {'daily': 86400.0, 'weekly': 7 * 86400.0, 'monthly': 30 * 86400.0, 'yearly': 365 * 86400.0}
+MAX_CUSTOM_TASKS, MAX_USERS, MAX_OP_RECORDS = 4, 999, 1000
+RELAY_TEST_S = 15.0                     # manual p.81: the relay is active for 15 s
+CX_SETTINGS = [   # key, type, default, options / range, manual page; written with settings.configure, shown in device.settings
+    dict(key='about.name', type='text', default='CellXpert C170i', max_len=24, page='p.74'),
+    dict(key='about.registration', type='text', default='', max_len=24, page='p.74'),
+    dict(key='about.location', type='text', default='', max_len=24, page='p.74'),
+    dict(key='datetime.automatic', type='bool', default=False, page='p.75'),
+    dict(key='datetime.timezone', type='enum', default='Europe/Berlin', options=list(TIMEZONES), page='p.75-76'),
+    dict(key='network.remote_access', type='bool', default=True, page='p.77'),       # 1.2.0: on, so the agent API (the external-software interface) works
+    dict(key='network.opc_rest', type='bool', default=False, page='p.77'),
+    dict(key='network.dhcp', type='bool', default=True, page='p.77'),
+    dict(key='network.ip', type='ip', default='192.168.0.20', page='p.77'),
+    dict(key='network.subnet', type='ip', default='255.255.255.0', page='p.77'),
+    dict(key='network.gateway', type='ip', default='192.168.0.1', page='p.77'),
+    dict(key='network.dns', type='ip', default='192.168.0.1', page='p.77'),
+    dict(key='acoustic.mode', type='enum', default='alarms_and_interface', options=['alarms_and_interface', 'alarms'], page='p.79'),
+    dict(key='acoustic.volume', type='int', default=50, min=0, max=100, page='p.79'),
+    dict(key='display.brightness', type='int', default=80, min=10, max=100, page='p.79'),
+    dict(key='home.functions', type='list', default=list(HOME_FUNCTIONS), options=list(HOME_FUNCTIONS), page='p.79-80'),
+    dict(key='relay.ch1', type='enum', default='temperature_alarm', options=RELAY_EVENTS, page='p.80'),
+    dict(key='relay.ch2', type='enum', default='co2_alarm', options=RELAY_EVENTS, page='p.80'),
+    dict(key='relay.ch3', type='enum', default='o2_alarm', options=RELAY_EVENTS, page='p.80'),
+    dict(key='relay.ch4', type='enum', default='water_level_alarm', options=RELAY_EVENTS, page='p.80'),
+    dict(key='records.company', type='text', default='', max_len=40, page='p.81'),
+    dict(key='screenlock.auto', type='bool', default=False, page='p.101'),
+    dict(key='screenlock.timer_s', type='enum_num', default=300.0, options=[60.0, 120.0, 300.0, 600.0, 1800.0], page='p.101'),
+    dict(key='users.auto_logout_s', type='enum_num', default=600.0, options=[0.0, 60.0, 300.0, 600.0, 1800.0, 3600.0], page='p.107'),
+    dict(key='users.login_mode', type='enum', default='pin', options=['pin', 'password'], page='p.105-107'),
+    dict(key='users.grant', type='enum', default='none', options=['none', 'restricted', 'user'], page='p.107'),
+]
+SETTINGS_DEFAULT = {d['key']: copy.deepcopy(d['default']) for d in CX_SETTINGS}
+_TEMP_CODES, _CO2_HIGH, _CO2_LOW = ('E_6731FW111', 'E_6731W112', 'E_6731FW108'), ('CO2_HIGH', 'CO2_PRESSURE_HIGH'), ('CO2_LOW', 'CO2_PRESSURE_LOW')
+RELAY_MATCH = {   # alarm / error codes that switch a relay for each selectable event (p.80); the factory choice per relay is the earlier fixed mapping
+    'temperature_alarm': lambda k: k.startswith('TEMP') or k in _TEMP_CODES, 'temperature_high_alarm': lambda k: k in ('TEMP_HIGH', 'E_6731FW111'),
+    'temperature_low_alarm': lambda k: k in ('TEMP_LOW', 'E_6731W112'), 'co2_alarm': lambda k: k.startswith('CO2') or k == 'E_6731FW214',
+    'co2_high_alarm': lambda k: k in _CO2_HIGH, 'co2_low_alarm': lambda k: k in _CO2_LOW,
+    'o2_alarm': lambda k: k.startswith('O2') or k.startswith('N2') or k == 'E_6731FW314', 'o2_high_alarm': lambda k: k == 'O2_HIGH',
+    'o2_low_alarm': lambda k: k == 'O2_LOW', 'humidity_alarm': lambda k: k == 'RH_LOW', 'water_level_alarm': lambda k: k == 'WATER_LOW',
+    'warnings': lambda k: k.endswith('_WARNING'), 'error': lambda k: k.startswith('E_'), 'any': lambda k: True, 'off': lambda k: False}
 # growth-model constants (engineering values of common cell-culture practice)
 GROWTH = dict(lag_s=12 * 3600.0, q10=2.5, arrest_below_k=7.0, decline_above_k=1.5, arrest_above_k=4.0, heat_death_above_k=5.0, heat_death_per_s_k=3e-5,
               ph_band=(7.0, 7.7), ph_sigma=0.30, contact_exponent=4.0, acid_death_ph=6.6, acid_death_per_s=6e-6, glc_km=0.5, q_glc_mol_s=5.6e-17, y_lac=1.6, lac_ki=40.0,
@@ -422,9 +483,22 @@ def cap(k, s, o, e, c, meaning, visibility='agent', kind='device_command'):
 SID = dict(type='string', minLength=1, maxLength=40, pattern='^[A-Za-z0-9_.-]+$')
 LIBID = dict(type='string', minLength=1, maxLength=80)
 FAULTS = ['power_loss', 'heater_failure', 'heater_stuck_on', 'co2_valve_stuck_closed', 'gasket_leak', 'ndir_drift', 'vessel_contamination']
+# 1.2.0 (sweep 10-19): the device errors of manual chapter 11 (p.136-145) that were listed as not simulated; fault: (code, sensor it disables, cleared only by
+# a restart of the incubator).  Sensor keys: T temperature, c CO2, o O2, rh humidity, wl water level; 'c_ctl' / 'o_ctl' stop that gas control.
+DEVICE_FAULTS = {'temp_sensor_out_of_range': ('E_6731FW107', 'T', False), 'co2_control_software_error': ('E_6731FW213', 'c_ctl', True),
+                 'o2_control_software_error': ('E_6731FW313', 'o_ctl', True), 'water_level_sensor_error': ('E_6731FW454', 'wl', True),
+                 'co2_sensor_init_failed': ('E_6731FW203', 'c', True), 'o2_sensor_init_failed': ('E_6731FW303', 'o', True),
+                 'rh_sensor_init_failed': ('E_6731FW403', 'rh', True), 'water_level_sensor_init_failed': ('E_6731FW453', 'wl', True),
+                 'co2_over_range': ('E_6731FW204H', 'c', True), 'co2_under_range': ('E_6731FW204L', 'c', True), 'o2_over_range': ('E_6731FW304H', 'o', True),
+                 'o2_under_range': ('E_6731FW304L', 'o', True), 'water_level_over_range': ('E_6731FW404H', 'wl', True),
+                 'water_level_under_range': ('E_6731FW404L', 'wl', True), 'fatal_error': ('FATAL', None, True)}
+FAULTS += list(DEVICE_FAULTS)
 ALARM_KINDS = ['temperature', 'co2', 'o2', 'rh', 'door', 'water_level']
 GASES = ['co2', 'o2']
 EXPORT_KINDS = ['events', 'chart', 'htd_protocols', 'performance_checks']
+CHART_FN = {'temperature': 'temperature_k', 'co2': 'co2_fraction', 'o2': 'o2_fraction', 'rh': 'rh'}      # chart functions (8.5.2) and their stored columns
+EVENT_CATS = ['alarm', 'error', 'warning', 'setting', 'door', 'power', 'maintenance']                    # event-list filter categories (8.4.2)
+_EVENT_CAT = dict(power='power', door='door', setting='setting', alarm='alarm', error='error', htd='maintenance', maintenance='maintenance')
 PLANT_EXAMPLE = dict(room_k=295.15, room_rh=0.40, ambient_pressure_pa=101325.0, mains_voltage_v=230.0, co2_supply_pa=1.0e5, n2_supply_pa=1.0e5, noise_seed=1)
 PLANT = obj(dict(room_k=number('K', 283.15, 313.15), room_rh=number('1', 0.0, 1.0), ambient_pressure_pa=number('Pa', 70000.0, 110000.0),
                  mains_voltage_v=number('V', 0.0, 264.0), co2_supply_pa=number('Pa', 0.0, 3.0e5), n2_supply_pa=number('Pa', 0.0, 3.0e5), noise_seed=integer(0, 2 ** 31 - 1)))
@@ -495,7 +569,10 @@ cap('performance_check.record', obj(dict(kind=enum(['temperature', 'co2', 'o2'])
     obj(dict(record_id=TEXT, displayed_temperature_k=nullable(number('K')), deviation_k=nullable(number('K')), displayed_fraction=nullable(number('1')),
              deviation_fraction=nullable(number('1')))), dict(kind='temperature', reference_temperature_k=310.1, instrument='probe_1'),
     ['touch_screen', 'inner_door'], '性能检查：在默认值（37 °C / 5 % CO2 / 10 % O2）稳定后输入外部仪器读数（温度reference_temperature_k，CO2/O2用reference_fraction），记录显示值与偏差')
-cap('data.export', obj(dict(kind=enum(EXPORT_KINDS))), obj(dict(file=TEXT, bytes=INT, rows=INT)), dict(kind='chart'), ['usb_port', 'touch_screen'], '把事件、曲线、高温消毒记录或性能检查导出到U盘（CSV）')
+cap('data.export', obj(dict(kind=enum(EXPORT_KINDS), span_s=number('s', 3600.0, 7 * 86400.0), parameters=array(enum(list(CHART_FN)), 1, 4),
+                            filters=obj({c: BOOL for c in EVENT_CATS}, optional=tuple(EVENT_CATS))), optional=('span_s', 'parameters', 'filters')),
+    obj(dict(file=TEXT, bytes=INT, rows=INT)), dict(kind='chart'), ['usb_port', 'touch_screen'],
+    '把事件、曲线、高温消毒记录或性能检查导出到U盘（CSV）；曲线可选span_s（所选时间跨度）与parameters（所选函数），事件可选filters（所选类别）：只导出所选部分（手册8.5.5、8.4.4）')
 cap('door.outer', obj(dict(open=BOOL)), obj(dict(target_rad=number('rad'))), dict(open=True), ['outer_door', 'door_handle'], '拉把手打开/关上外门（约1.5 s；关外门前内门须关好）', 'agent', 'robot_skill')
 cap('door.latch', obj(dict(open=BOOL)), obj(dict(target_rad=number('rad'))), dict(open=True), ['inner_door_latch'], '内门门闩向上转90°打开/转回水平锁住（需外门打开）', 'agent', 'robot_skill')
 cap('door.inner', obj(dict(open=BOOL)), obj(dict(target_rad=number('rad'))), dict(open=True), ['inner_door'], '打开/关上内玻璃门（开门需外门全开、门闩已开）', 'agent', 'robot_skill')
@@ -527,18 +604,191 @@ cap('vessel.inspect', obj(dict(vessel_id=SID)), INSPECT, dict(vessel_id='flask_1
     '评测者读容器真值：温度、pH、溶解CO2/O2、葡萄糖、乳酸、渗透压、活/死细胞、汇合度、生长阶段、细菌', 'evaluator', 'query')
 cap('ledger.read', obj({}), obj(dict(ledger=LEDGER)), {}, ['base_plinth'], '读守恒账目（电能与热流、CO2/N2用量与交换、水的蒸发/冷凝/排出、葡萄糖/乳酸/分裂数）', 'evaluator', 'query')
 cap('fault.inject', obj(dict(fault=enum(FAULTS), active=BOOL, vessel_id=nullable(SID)), optional=('vessel_id',)), obj(dict(faults=array(TEXT, 0, 16))),
-    dict(fault='gasket_leak', active=True), ['base_plinth', 'chamber'], '评测者故障注入：断电、加热器失效/常通、CO2阀卡闭、门封泄漏、NDIR漂移、某容器染菌', 'evaluator', 'simulation')
+    dict(fault='gasket_leak', active=True), ['base_plinth', 'chamber'], '评测者故障注入：断电、加热器失效/常通、CO2阀卡闭、门封泄漏、NDIR漂移、某容器染菌；'
+    '1.2.0起手册第11章的设备错误（6731FW.107温度传感器超范围、213/313气体控制软件错误、.454水位传感器错误、.203/.303/.403/.453传感器初始化失败、'
+    '.204/.304/.404测量值超上/下限、致命错误红屏）：在下一个1 s网格报出错误、相应传感器读数无效、气体控制停止，需重启的错误要关机重开才消失（原因仍在则重开后再报）', 'evaluator', 'simulation')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 30 * 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=60.0), ['base_plinth'], '推进宿主时钟', 'evaluator', 'simulation')
+NAME = dict(type='string', minLength=1, maxLength=24)
+SECRET = dict(type='string', minLength=4, maxLength=16)
+DATE = dict(type='string', pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+TASK_ID = dict(type='string', minLength=1, maxLength=40)
+USER_ID = integer(1, MAX_USERS)
+INTERVAL = enum(list(TASK_INTERVALS))
+EXPORT_FILE_KINDS = EXPORT_KINDS + ['service_data', 'operation_records', 'user_data']
+OPREC = obj(dict(record_id=TEXT, name=TEXT, start_date=TEXT, finish_date=TEXT, created_s=number('s'), user=nullable(TEXT), result=TEXT,
+                 events=array(obj(dict(time_s=number('s'), kind=TEXT, code=TEXT, message_zh=TEXT)), 0, 200), initial=FREEOBJ, company=TEXT))
+_TS = ['touch_screen']
+cap('settings.configure', obj(dict(settings=FREEOBJ)), obj(dict(settings=FREEOBJ)), dict(settings={'display.brightness': 60}), _TS,
+    '设备设置（键值）：设备名称/登记号/位置、自动日期时间与时区、网络（远程访问、OPC/REST、DHCP与手动IP）、声音模式与音量、屏幕亮度、主页显示的功能与顺序、'
+    'BMS继电器1–4的事件、运行记录公司名、自动屏幕锁定与时间、自动注销时间、登录方式、全体用户权限')
+cap('clock.set', obj(dict(date=DATE, time=dict(type='string', pattern='^[0-9]{2}:[0-9]{2}$'))), obj(dict(clock=TEXT)), dict(date='2026-10-19', time='08:30'), _TS,
+    '手动设定设备日期与时间（自动日期时间关闭时）')
+cap('network.create_certificate', obj({}), obj(dict(fingerprint=TEXT)), {}, _TS, '生成自签名证书（网络设置）')
+cap('relay.test', obj({}), obj(dict(until_s=number('s'))), {}, ['touch_screen', 'rear_connectors'], '测试BMS继电器：4个继电器动作15 s')
+cap('screen.lock', obj(dict(locked=BOOL)), obj(dict(locked=BOOL)), dict(locked=True), _TS, '锁定触摸屏（清洁屏幕）或解锁（按住Unlock Screen）')
+cap('users.enable', obj(dict(login_mode=enum(['pin', 'password']), admin_name=NAME, secret=SECRET)), obj(dict(user_id=INT)),
+    dict(login_mode='pin', admin_name='admin', secret='4711'), _TS, '启用用户管理：登录方式与第一个管理员（用户名、PIN/密码）；管理员随即登录')
+cap('users.disable', obj(dict(secret=SECRET)), obj(dict(management=BOOL)), dict(secret='4711'), _TS, '停用用户管理（已登录的管理员输入自己的PIN/密码；删除全部账户）')
+cap('user.login', obj(dict(user_id=USER_ID, secret=SECRET)), obj(dict(user_id=INT, role=TEXT)), dict(user_id=1, secret='4711'), _TS,
+    '用户登录（用户ID与PIN/密码）')
+cap('user.logout', obj({}), obj(dict(logged_in=BOOL)), {}, _TS, '注销当前用户')
+cap('user.create', obj(dict(name=NAME)), obj(dict(user_id=INT, secret=TEXT)), dict(name='operator'), _TS,
+    '管理员新建用户账户（受限用户组；设备生成初始PIN/密码）')
+cap('user.update', obj(dict(user_id=USER_ID, full_name=dict(type='string', maxLength=40), email=dict(type='string', maxLength=60), role=enum(ROLES),
+                            new_user_id=USER_ID), optional=('full_name', 'email', 'role', 'new_user_id')),
+    obj(dict(user=FREEOBJ)), dict(user_id=2, role='user'), _TS, '编辑用户账户：全名、电子邮件（本人或管理员）；用户ID与角色（管理员）')
+cap('user.delete', obj(dict(user_id=USER_ID)), obj(dict(user_id=INT)), dict(user_id=2), _TS, '管理员删除用户账户')
+cap('user.reset_secret', obj(dict(user_id=USER_ID)), obj(dict(user_id=INT, secret=TEXT)), dict(user_id=2), _TS, '管理员重置用户的PIN/密码（设备生成新的）')
+cap('user.change_secret', obj(dict(current=SECRET, new=SECRET)), obj(dict(changed=BOOL)), dict(current='4711', new='1234'), _TS, '已登录用户修改自己的PIN/密码')
+cap('message.acknowledge', obj(dict(all=BOOL)), obj(dict(acknowledged=array(TEXT, 0, 200))), dict(all=False), _TS,
+    '确认信息栏的当前消息（all：确认全部未确认的通知）')
+cap('recurring_task.edit', obj(dict(task=TASK_ID, warn=BOOL, interval=nullable(INTERVAL), reminder_days=integer(0, 30))),
+    obj(dict(task=TEXT, interval_s=nullable(number('s')))), dict(task='water_refill', warn=True, interval='weekly', reminder_days=0), _TS,
+    '编辑周期任务：逾期提醒开/关、间隔（每年/每月/每周/每天）、提前提醒天数')
+cap('recurring_task.delete', obj(dict(task=TASK_ID)), obj(dict(task=TEXT)), dict(task='custom_1'), _TS, '删除自定义周期任务')
+cap('recurring_task.confirm', obj(dict(task=TASK_ID)), obj(dict(task=TEXT, completed_s=number('s'))), dict(task='custom_1'), _TS,
+    '确认执行了一个手动周期任务（腔体清洁、加水或自定义任务）')
+cap('operation_record.create', obj(dict(name=NAME, start_date=DATE, finish_date=DATE)), obj(dict(record_id=TEXT)),
+    dict(name='Exp 1', start_date='2026-01-01', finish_date='2026-01-02'), _TS, '新建运行记录（实验名称、开始与结束日期；记录初始参数与期间的事件）')
+cap('operation_records.list', obj({}), obj(dict(records=array(OPREC, 0, MAX_OP_RECORDS))), {}, _TS, '列出运行记录（结果按期间的警告、报警与错误）', 'agent', 'query')
+cap('export.files', obj(dict(kinds=array(enum(EXPORT_FILE_KINDS), 1, len(EXPORT_FILE_KINDS)))),
+    obj(dict(files=array(obj(dict(kind=TEXT, file=TEXT, bytes=INT, rows=INT)), 1, len(EXPORT_FILE_KINDS)))), dict(kinds=['chart', 'events']), ['usb_port', 'touch_screen'],
+    '导出到U盘（Menu > Export）：曲线、事件、高温消毒与性能检查记录、服务数据、运行记录（PDF）、用户数据（TXT）')
+cap('recurring_task.define', obj(dict(name=NAME, warn=BOOL, interval=nullable(INTERVAL), reminder_days=integer(0, 30))), obj(dict(task=TEXT)),
+    dict(name='CO2 cylinder check', warn=True, interval='monthly', reminder_days=0), _TS, '新建自定义周期任务（名称、逾期提醒、间隔、提前提醒天数；最多4个）')
 UNSUPPORTED = {
-    'user.login': '用户管理（管理员/用户登录与权限）未建模',
     'visionize.connect': 'VisioNize Lab Suite云连接、短信/邮件通知未建模',
     'door_segment.open': '分段内门（4/8段）为选件，本配置未装',
     'service.calibrate': '传感器校准调整只能由厂家服务进行（手册§13.4.6）',
-    'recurring_task.define': '新建自定义周期任务未建模（只能改预设任务的间隔）',
     'hardware.connect': '没有真实CellXpert的硬件接口',
 }
 for _k, _why in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, ['base_plinth'], _why, 'agent', 'device_command')
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.eppendorf_cellxpertc170i (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+DEVICE_CAPS = set(CAPS)
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=DEVICE_CAPS)
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.touch / switch / capture / frame: part of the command set
+CAPS.update(PANEL_CAPS)
+_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+DEVICE_FAULT_ZH = {   # 1.2.0: runtime messages of the device errors of manual chapter 11 (cause and remedy as in the manual)
+    'E_6731FW107': '6731FW.107 温度传感器超出范围：检查适应时间与环境条件（冷室<10 °C须适应至少12 h；传感器损坏联系Eppendorf）；无有效温度读数时不加热',
+    'E_6731FW213': '6731FW213 CO2控制软件错误：检查气源连接与泄漏、接入孔是否关好，重启培养箱', 'E_6731FW313': '6731FW313 O2控制软件错误：检查气源连接与泄漏、接入孔是否关好，重启培养箱',
+    'E_6731FW454': '6731FW.454 水位传感器错误（测量值超出范围）：重启培养箱', 'E_6731FW203': '传感器错误：CO2传感器开机初始化失败（6731FW.203），重启培养箱',
+    'E_6731FW303': '传感器错误：O2传感器开机初始化失败（6731FW.303），重启培养箱', 'E_6731FW403': '传感器错误：RH传感器开机初始化失败（6731FW.403），重启培养箱',
+    'E_6731FW453': '传感器错误：水位传感器开机初始化失败（6731FW.453），重启培养箱',
+    'E_6731FW204H': 'CO2测量值超上限（6731FW.204），重启培养箱', 'E_6731FW204L': 'CO2测量值超下限（6731FW.204），重启培养箱',
+    'E_6731FW304H': 'O2测量值超上限（6731FW.304），重启培养箱', 'E_6731FW304L': 'O2测量值超下限（6731FW.304），重启培养箱',
+    'E_6731FW404H': '水位测量值超上限（6731FW.404），重启培养箱', 'E_6731FW404L': '水位测量值超下限（6731FW.404），重启培养箱'}
+EVENT_EN = {   # English texts of the screen (event log and information bar); the runtime keeps its Chinese messages for the API
+    'POWER_ON': 'Device switched on', 'POWER_OFF': 'Device switched off', 'OUTER_OPEN': 'Outer door opened', 'OUTER_CLOSED': 'Outer door closed',
+    'TEMPERATURE_SET': 'Temperature set-point changed', 'CO2_SET': 'CO2 Concentration set-point changed', 'O2_SET': 'O2 Concentration set-point changed',
+    'CO2_CONTROL': 'CO2 control switched', 'O2_CONTROL': 'O2 control switched', 'CO2_RESET': 'CO2 control restarted', 'O2_RESET': 'O2 control restarted',
+    'ALARM_CONFIG': 'Alarm parameter changed', 'DOOR_OPEN': 'Door longer open than the signal time', 'DOOR_LONG': '6731FW.50 Long door opening. Close the door.',
+    'TEMP_LOW': 'Temperature below alarm level', 'TEMP_HIGH': 'Temperature above alarm level', 'CO2_LOW': 'CO2 Concentration below alarm level',
+    'CO2_HIGH': 'CO2 Concentration above alarm level', 'O2_LOW': 'O2 Concentration below alarm level', 'O2_HIGH': 'O2 Concentration above alarm level',
+    'RH_LOW': 'Relative humidity below alarm level', 'WATER_LOW': 'Water level below 0.5 L. Refill the water tray.',
+    'CO2_PRESSURE_WARNING': 'CO2 pressure below warning level of 0.04 MPa', 'CO2_PRESSURE_LOW': 'CO2 pressure below alarm level of 0.02 MPa',
+    'CO2_PRESSURE_HIGH': 'CO2 pressure above alarm level of 0.18 MPa', 'N2_PRESSURE_WARNING': 'N2 pressure below warning level of 0.04 MPa',
+    'N2_PRESSURE_LOW': 'N2 pressure below alarm level of 0.02 MPa', 'N2_PRESSURE_HIGH': 'N2 pressure above alarm level of 0.18 MPa',
+    'E_6731FW108': '6731FW.108 Setpoint not reached, cooldown too slow', 'E_6731FW110': '6731FW.110 Temperature not reached in time',
+    'E_6731FW111': '6731FW.111 Over-temperature detected by temperature limiter', 'E_6731W112': '6731W.112 Subnormal temperature detected by temperature limiter',
+    'E_6731FW214': '6731FW214 CO2 control timeout', 'E_6731FW314': '6731FW314 O2 control timeout',
+    'E_6731FW202': '6731FW.202 CO2 sensor off due to high temperature', 'E_6731FW302': '6731FW.302 O2 sensor off due to high temperature',
+    'E_6731FW402': '6731FW.402 RH sensor off due to high temperature', 'E_6731FW452': '6731FW.452 Water level sensor off due to high temperature',
+    'E_6731FW751': '6731FW.751 HTD interrupted due to power loss', 'E_6731FW753': '6731FW.753 Door opened during HTD',
+    'E_6731FW107': '6731FW.107 Temperature sensor is out of range. Check acclimatization and ambient conditions.',
+    'E_6731FW213': '6731FW213 CO2 control software error', 'E_6731FW313': '6731FW313 O2 control software error',
+    'E_6731FW454': '6731FW.454 Water level sensor error', 'E_6731FW203': 'Sensor error: CO2 (6731FW.203)', 'E_6731FW303': 'Sensor error: O2 (6731FW.303)',
+    'E_6731FW403': 'Sensor error: RH (6731FW.403)', 'E_6731FW453': 'Sensor error: Water level (6731FW.453)',
+    'E_6731FW204H': 'CO2 value over range (6731FW.204)', 'E_6731FW204L': 'CO2 value under range (6731FW.204)',
+    'E_6731FW304H': 'O2 value over range (6731FW.304)', 'E_6731FW304L': 'O2 value under range (6731FW.304)',
+    'E_6731FW404H': 'Water level value over range (6731FW.404)', 'E_6731FW404L': 'Water level value under range (6731FW.404)',
+    'HTD_START': 'High-temperature disinfection started', 'HTD_HOLD': 'Disinfection temperature 180 C reached', 'HTD_COOL': 'Cooling down after disinfection',
+    'HTD_DONE': 'High-temperature disinfection successful', 'HTD_FAILED': 'High-temperature disinfection failed', 'HTD_CANCELLED': 'High-temperature disinfection cancelled',
+    'CONTAMINATION_STATUS': 'Contamination status changed', 'EXPORTED': 'Data exported to USB', 'PERFORMANCE_CHECK': 'Performance check recorded',
+    'RELAY_TEST': 'Relay test (15 s)', 'TASK_DEFINED': 'Recurring task added', 'TASK_DONE': 'Recurring task executed', 'WATER_EMPTIED': 'Water tray emptied',
+    'WATER_FILLED': 'Water tray filled', 'CERTIFICATE': 'Self signed certificate created', 'CLOCK_SET': 'Date and time changed', 'DEVICE_SETTINGS': 'Settings changed',
+    'LOGIN': 'User logged in', 'LOGOUT': 'User logged out', 'USER_CREATED': 'User account created', 'USER_DELETED': 'User account deleted',
+    'USER_MANAGEMENT_ON': 'User Management enabled', 'USER_MANAGEMENT_OFF': 'User Management disabled', 'USER_SECRET_RESET': 'Password/PIN reset',
+    'ACKNOWLEDGED': 'Message acknowledged'}
+
+
+def _text_en(code):
+    if code.startswith('TASK_DUE:'):
+        return 'Task due: ' + TASK_NAMES.get(code[9:], code[9:])
+    if code.endswith('_CLEARED'):
+        return EVENT_EN.get(code[:-8], code[:-8]) + ' - cleared'
+    return EVENT_EN.get(code, code.replace('_', ' ').capitalize())
+
+
+def _hook_home_list(panel, ctx, s):
+    """Home Screen Configuration: the function list after a switch (toggle) or an arrow key (up / down) on function s['f']."""
+    cur = list(panel.host.dev['home.functions'])
+    f = s['f']
+    if s['op'] == 'toggle':
+        if f in cur:
+            return [x for x in cur if x != f]
+        return [x for x in HOME_FUNCTIONS if x in cur or x == f] if not cur else cur + [f]
+    if f not in cur:
+        return cur
+    i = cur.index(f)
+    j = i - 1 if s['op'] == 'up' else i + 1
+    if 0 <= j < len(cur):
+        cur[i], cur[j] = cur[j], cur[i]
+    return cur
+
+
+def _hook_home_pos(panel, ctx, s):
+    cur = panel.host.dev['home.functions']
+    return f'{cur.index(s["f"]) + 1}.' if s['f'] in cur else '-'
+
+
+def _hook_text(panel, ctx, s):
+    return ''.join('' if v is None else str(v) for v in (panel._src(p, ctx) for p in s['parts']))
+
+
+def _hook_chart_pick(panel, ctx, a):
+    """Charts: the time under the finger (x across the plot rect, the shown span ending now) and the stored values nearest to it."""
+    h = panel.host
+    x0, _, ww, _ = a['rect']
+    span = float(panel.ui['vars'].get('chart_span') or 24.0)
+    t = h.t - 3600.0 * span * (1.0 - min(max((ctx['ev']['x'] - x0) / max(1.0, ww - 1.0), 0.0), 1.0))
+    row = min(h.chart, key=lambda r: abs(r['time_s'] - t)) if h.chart else None
+    fmt = lambda v, sc, off, u: '-' if v is None else f'{v * sc + off:.1f} {u}'      # noqa: E731
+    panel.ui['vars']['chart_pick'] = None if row is None else dict(
+        time=h._clock_text(h._clock_s() - h.t + row['time_s'])[:16], temperature=fmt(row['temperature_k'], 1.0, -273.15, '°C'),
+        co2=fmt(row['co2_fraction'], 100.0, 0.0, '%'), o2=fmt(row['o2_fraction'], 100.0, 0.0, '%'), rh=fmt(row['rh'], 100.0, 0.0, '%'))
+    return row is not None
+
+
+def _hook_rec_visible(panel, ctx, s):
+    """Operation Records filters (8.8.3): Result, From date (the record starts on or after it), Until date (it finishes on or before it),
+    Operation name (part of the name, any case) and User; empty filters let every record through."""
+    v, r = panel.ui['vars'], ctx.get('row') or {}
+    name = (v.get('rec_name') or '').strip().lower()
+    return ((v.get('rec_filter') is None or r.get('result') == v['rec_filter']) and (not v.get('rec_from') or r.get('start_date', '') >= v['rec_from'])
+            and (not v.get('rec_until') or r.get('finish_date', '') <= v['rec_until']) and (not name or name in r.get('name', '').lower())
+            and (not v.get('rec_user') or r.get('user') == v['rec_user']))
+
+
+PANEL_HOOKS = {'cx_home_list': _hook_home_list, 'cx_home_pos': _hook_home_pos, 'cx_text': _hook_text, 'cx_chart_pick': _hook_chart_pick,
+               'cx_rec_visible': _hook_rec_visible}
 
 # ---------------------------------------------------------------- state slots
 SLOTS = {}
@@ -571,6 +821,7 @@ slot('status.o2_initializing', BOOL, '1', 'derived', 'touch_screen', 'O2传感�
 slot('status.co2_control_failed', BOOL, '1', 'derived', 'touch_screen', 'CO2控制出错（设定值显示红色，需gas.reset）')
 slot('status.o2_control_failed', BOOL, '1', 'derived', 'touch_screen', 'O2控制出错')
 slot('status.heating_shutdown', BOOL, '1', 'derived', 'touch_screen', '温度限制器动作（超温+10 K或欠温−5 K），加热停止，需重启')
+slot('status.fatal_error', BOOL, '1', 'derived', 'touch_screen', '致命错误（软件错误）：红屏Fatal Error – Restart the device，控制输出全关，关机重开才消失（1.2.0）')
 slot('display.temperature_c', _PN('°C'), '°C', 'derived', 'display_temperature_digits', '屏幕显示的腔温（面板显示值，°C，0.1位；场景仿真数字镜像）', reference='面板显示值例外：摄氏度')
 slot('display.co2_percent', _PN('%'), '%', 'derived', 'display_co2_digits', '屏幕显示的CO2（面板显示值，%，0.1位；场景仿真数字镜像）', reference='面板显示值例外：百分数')
 slot('door.outer_angle_rad', number('rad'), 'rad', 'derived', 'outer_door', '外门开角（0关闭，1.745全开；场景门铰链镜像）', reference='绕−Z（左侧铰链），正值向操作者方向打开')
@@ -597,6 +848,11 @@ slot('access_ports.unplugged', array(TEXT, 0, 2), '1', 'derived', 'access_ports'
 slot('operation.kind', nullable(TEXT), '1', 'derived', 'touch_screen', '进行中的操作（htd）')
 slot('operation.progress', number('1'), '1', 'derived', 'touch_screen', '操作进度0–1（按估计总时长）')
 slot('operation.started_by_other_agent', BOOL, '1', 'derived', 'touch_screen', '进行中的操作属于另一个agent')
+slot('device.settings', FREEOBJ, '1', 'setpoint', 'touch_screen', '设备设置（settings.configure的键值：名称、日期时间、网络、声音、亮度、主页功能、继电器事件、屏幕锁定、用户管理）')
+slot('device.clock', TEXT, '1', 'derived', 'touch_screen', '设备本地日期时间（YYYY-MM-DD HH:MM:SS，按时区与手动设定）')
+slot('screen.locked', BOOL, '1', 'derived', 'touch_screen', '触摸屏已锁定（Screen Lock或自动屏幕锁定）')
+slot('users.state', FREEOBJ, '1', 'derived', 'touch_screen', '用户管理：是否启用、登录方式、当前用户与角色、权限表、账户列表（不含PIN/密码）')
+slot('messages.unacknowledged', array(FREEOBJ, 0, 200), '1', 'derived', 'touch_screen', '信息栏未确认的消息（报警、错误、警告、到期任务；最新在前）')
 slot('truth.air_temperature_k', number('K'), 'K', 'process_truth', 'chamber', '腔内空气温度真值', 'evaluator')
 slot('truth.wall_temperature_k', number('K'), 'K', 'process_truth', 'chamber', '内腔壁（含搁板）温度真值', 'evaluator')
 slot('truth.water_temperature_k', number('K'), 'K', 'process_truth', 'water_tray', '水盘水温真值', 'evaluator')
@@ -633,6 +889,7 @@ class EppendorfCellxpertC170iRuntime:
         self.sens = dict(T=None, c=None, o=None, rh=None)
         self.status = dict(co2_init_until=None, o2_init_until=None, co2_failed=False, o2_failed=False, shutdown=False, sensors_hot=False, co2_gate=False,
                            reached_setpoint=False)
+        self.dev_errors = set()                                               # 1.2.0: device errors seen since the last switch-on (restart-type ones stay until a restart)
         self.pid = dict(I_T=0.0, I_c=0.0, I_o=0.0)
         self.u = dict(h=0.0, c=0.0, n=0.0)
         self.timers = dict(co2_off=0.0, o2_off=0.0, t_high=0.0, subnormal=0.0)
@@ -641,7 +898,7 @@ class EppendorfCellxpertC170iRuntime:
         self.sound = False
         self.htd = dict(phase='idle', last=None, t_phase=0.0, hold_s=0.0, max_k=0.0)
         self.contamination = 'not_contaminated'
-        self.tasks = {k: dict(interval_s=v['interval_s'], last_done_s=None) for k, v in TASKS.items()}
+        self.tasks = {k: dict(interval_s=v['interval_s'], last_done_s=None, warn=True, reminder_s=0.0, custom=False, name=TASK_NAMES[k]) for k, v in TASKS.items()}
         self.vessels = {}
         self.vapour_src = 0.0                        # mol/s from the vessels (culture grid)
         self.faults = set()
@@ -655,6 +912,22 @@ class EppendorfCellxpertC170iRuntime:
         self.led = {k: _Sum() for k in LEDGER_KEYS}
         self._principals, self._requests, self._owners = {}, {}, {}
         self._caller = None
+        self.dev = copy.deepcopy(SETTINGS_DEFAULT)                              # device settings behind the touch screen (settings.configure)
+        self.certificate = None
+        self.clock_offset = 0.0                                                 # manual date / time (clock.set) relative to the host clock
+        self.screen = dict(locked=False, touch_t=0.0)                           # Screen Lock and the last touch (automatic lock / logout)
+        self.users = dict(management=False, accounts={}, logged=None)
+        self.msgs = []                                                          # unacknowledged messages of the information bar
+        self.acked_due = set()                                                  # task warnings acknowledged until the task is done again
+        self.relay_test_until = -1.0
+        self.op_records = []
+        self.recent = dict(temperature=[], co2=[], o2=[])                       # last used set points (fine adjustment history)
+        self.contamination_changed_s = None
+        self.power_epoch = 0
+        self.seq.update(user=0, task=0, oprec=0, secret=0)
+        self.last_credentials = None                                            # shown in the User credentials window
+        self.panel_capture_dir = None                                           # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self, hooks=PANEL_HOOKS)
 
     # ---------------------------------------------------------------- basics
     @property
@@ -778,11 +1051,12 @@ class EppendorfCellxpertC170iRuntime:
             'control.co2_enabled': self.ctrl['co2'], 'control.o2_enabled': self.ctrl['o2'], 'gas.pressure_monitor_enabled': self.ctrl['monitor'],
             'sensor.temperature_k': self.sens['T'] if self.power else None, 'sensor.co2_fraction': self.sens['c'] if self.power else None,
             'sensor.o2_fraction': self.sens['o'] if self.power else None, 'sensor.rh': self.sens['rh'] if self.power else None,
-            'sensor.water_low': self._water_low() if self.power and not self.status['sensors_hot'] else None,
+            'sensor.water_low': self._water_low() if self.power and not self.status['sensors_hot'] and not self._dead('wl') else None,
             'sensor.water_present': bool(self.tray['V'] > 5e-5) if self.power else None,
             'sensor.co2_supply_pa': self.plant['co2_supply_pa'] if self.power else None, 'sensor.n2_supply_pa': self.plant['n2_supply_pa'] if self.power else None,
             'status.co2_initializing': self._initializing('co2'), 'status.o2_initializing': self._initializing('o2'),
             'status.co2_control_failed': self.status['co2_failed'], 'status.o2_control_failed': self.status['o2_failed'], 'status.heating_shutdown': self.status['shutdown'],
+            'status.fatal_error': bool(self.power and 'FATAL' in self.dev_errors),
             'display.temperature_c': dt, 'display.co2_percent': dc,
             'door.outer_angle_rad': self._ang('outer'), 'door.inner_angle_rad': self._ang('inner'), 'door.latch_angle_rad': self._ang('latch'),
             'door.outer_state': self._door_state('outer'), 'door.inner_state': self._door_state('inner'), 'door.latched': self._latched(),
@@ -795,6 +1069,8 @@ class EppendorfCellxpertC170iRuntime:
             'vessels.on_bench': sorted(k for k, v in self.vessels.items() if v['location'] == 'bench'),
             'rh_sensor.cover_on': self.rh_cover, 'access_ports.unplugged': sorted(k for k, v in self.ports.items() if not v),
             'operation.kind': op['kind'] if op else None, 'operation.progress': self._progress(), 'operation.started_by_other_agent': False,
+            'device.settings': dict(copy.deepcopy(self.dev), **{'network.certificate': self.certificate}), 'device.clock': self._clock_text(),
+            'screen.locked': self._screen_locked(), 'users.state': self._users_state(), 'messages.unacknowledged': self._messages(),
             'truth.air_temperature_k': c['Ta'] if c else self._room(), 'truth.wall_temperature_k': c['Tw'] if c else self._room(),
             'truth.water_temperature_k': self.tray['T'] if self.tray['T'] is not None else (c['Tw'] if c else self._room()),
             'truth.co2_fraction': xs[0] if c else X_CO2_DRY_AIR, 'truth.o2_fraction': xs[1] if c else X_O2_DRY_AIR, 'truth.rh': self._rh_true() if c else 0.0,
@@ -847,24 +1123,137 @@ class EppendorfCellxpertC170iRuntime:
         u = self.status[f'{g}_init_until']
         return bool(self.power and (self.status['sensors_hot'] or (u is not None and self.t < u)))
 
+    def _dead(self, key):
+        """1.2.0: a device error of manual chapter 11 disables this sensor (or gas control) now."""
+        return any(DEVICE_FAULTS[f][1] == key for f in DEVICE_FAULTS if DEVICE_FAULTS[f][0] in self.dev_errors)
+
+    def _device_faults_tick(self):
+        """1.2.0: report the injected device errors (manual chapter 11, p.136-145).  Restart-type errors stay until the incubator is switched off and on
+        (they are reported again at the next tick when the cause remains); 6731FW.107 follows its cause (acclimatisation / ambient conditions)."""
+        for f, (code, _key, restart) in DEVICE_FAULTS.items():
+            if f in self.faults:
+                self.dev_errors.add(code)
+            elif not restart:
+                self.dev_errors.discard(code)
+            if code == 'FATAL':
+                continue
+            if code in self.dev_errors:
+                self._raise(code, DEVICE_FAULT_ZH[code])
+            else:
+                self._clear(code)
+
     def _water_low(self):
         return bool(self.tray['V'] < TRAY_LOW or (self.tray['V'] > 0 and self.tray['T'] is not None and self.ch is not None and self.tray['T'] > self.ch['Ta'] + 1.0))
 
     def _relays(self):
         if not self.power:                                                     # coil de-energised: switched off or mains failure -> all relays in alarm
             return [True, True, True, True]
+        if self.t < self.relay_test_until:                                     # Test Relay: active for 15 s
+            return [True, True, True, True]
         a = set(self.alarms)
-        return [any(k.startswith('TEMP') or k in ('E_6731FW111', 'E_6731W112', 'E_6731FW108') for k in a),
-                any(k.startswith('CO2') or k == 'E_6731FW214' for k in a),
-                any(k.startswith('O2') or k.startswith('N2') or k == 'E_6731FW314' for k in a),
-                'WATER_LOW' in a]
+        return [any(RELAY_MATCH[self.dev[f'relay.ch{i}']](k) for k in a) for i in (1, 2, 3, 4)]   # events chosen per relay (factory: T, CO2, O2, water)
+
+    def _task_due_s(self, v):
+        return (v['last_done_s'] if v['last_done_s'] is not None else 0.0) + v['interval_s'] - v['reminder_s']
 
     def _tasks_due(self):
         out = []
         for k, v in self.tasks.items():
-            if v['interval_s'] is not None and self.t - (v['last_done_s'] if v['last_done_s'] is not None else 0.0) >= v['interval_s']:
+            if v['interval_s'] is not None and v['warn'] and self.t >= self._task_due_s(v):     # 'warn when overdue' off: an interval without a warning
                 out.append(k)
         return out
+
+    # ---- device functions behind the touch screen
+    def _clock_s(self):
+        return EPOCH_S + self.t + (0.0 if self.dev['datetime.automatic'] else self.clock_offset) + 3600.0 * TIMEZONES[self.dev['datetime.timezone']]
+
+    def _clock_text(self, s=None):
+        import datetime
+        d = datetime.datetime.fromtimestamp(math.floor(self._clock_s() if s is None else s), tz=datetime.timezone.utc)
+        return d.strftime('%Y-%m-%d %H:%M:%S')
+
+    def _local_date(self, time_s):
+        return self._clock_text(self._clock_s() - self.t + time_s)[:10]
+
+    def _screen_locked(self):
+        sc = self.screen
+        return bool(self.power and (sc['locked'] or (self.dev['screenlock.auto'] and self.t - sc['touch_t'] >= self.dev['screenlock.timer_s'] - 1e-9)))
+
+    def _logged_id(self):
+        lid, lim = self.users['logged'], self.dev['users.auto_logout_s']
+        if lid is None or (lim > 0 and self.t - self.screen['touch_t'] >= lim - 1e-9):   # automatic logout after lim s without a touch
+            return None
+        return lid
+
+    def _role(self):
+        """Rights of whoever stands at the screen: without user management everyone has administrator rights (p.103); logged out: the 'grant all
+        users' role or none (view only)."""
+        if not self.users['management']:
+            return 'administrator'
+        lid = self._logged_id()
+        if lid is not None:
+            return self.users['accounts'][lid]['role']
+        g = self.dev['users.grant']
+        return None if g == 'none' else g
+
+    def _rights(self):
+        r = self._role()
+        return {k: r in v for k, v in RIGHTS.items()}
+
+    def _users_state(self):
+        u, lid = self.users, self._logged_id()
+        acc = u['accounts'].get(lid) if lid is not None else None
+        return dict(management=u['management'], login_mode=self.dev['users.login_mode'], logged_in=lid, user_name=acc['name'] if acc else None,
+                    role=self._role(), grant=self.dev['users.grant'], rights=self._rights(),
+                    accounts=[{k: a[k] for k in ('user_id', 'name', 'full_name', 'email', 'role')} for _, a in sorted(u['accounts'].items())])
+
+    def _messages(self):
+        out = [dict(code=m['code'], severity=m['severity'], time_s=m['time_s'], text=m['text']) for m in self.msgs]
+        for k in self._tasks_due():
+            v = self.tasks[k]
+            if f'{k}@{v["last_done_s"]}' not in self.acked_due:
+                out.append(dict(code='TASK_DUE:' + k, severity='warning', time_s=max(0.0, self._task_due_s(v)), text=f'周期任务到期：{v["name"]}'))
+        return sorted(out, key=lambda m: (-m['time_s'], m['code']))
+
+    def _touch(self):
+        """A touch on the screen (panel layer): an automatic lock or logout that is due takes effect first, then the inactivity timers restart."""
+        if self._screen_locked():
+            self.screen['locked'] = True
+        if self.users['logged'] is not None and self._logged_id() is None:
+            self.users['logged'] = None
+        self.screen['touch_t'] = self.t
+
+    def _remember(self, g, v):
+        self.recent[g] = ([v] + [x for x in self.recent[g] if abs(x - v) > 1e-9])[:6]
+
+    def _o2_on(self):
+        return 'o2' in self.dev['home.functions']
+
+    def _secret_ok(self, secret, mode=None):
+        mode = mode or self.dev['users.login_mode']
+        return (secret.isdigit() and 4 <= len(secret) <= 8) if mode == 'pin' else 6 <= len(secret) <= 16
+
+    def _new_secret(self):
+        self.seq['secret'] += 1
+        z = _mix((self._seed() * 7919 + self.seq['secret'] * 104729) & _MASK)
+        if self.dev['users.login_mode'] == 'pin':
+            return f'{z % 10000:04d}'
+        abc = 'abcdefghjkmnpqrstuvwxyz23456789'
+        return ''.join(abc[(z >> (5 * i)) % len(abc)] for i in range(8))
+
+    def _need_admin(self):
+        self._need_power()
+        if not self.users['management']:
+            raise ActionRejected('NO_USER_MANAGEMENT')
+        lid = self._logged_id()
+        if lid is None or self.users['accounts'][lid]['role'] != 'administrator':
+            raise ActionRejected('NOT_ADMIN')
+        return lid
+
+    def _account(self, user_id):
+        if user_id not in self.users['accounts']:
+            raise ActionRejected('UNKNOWN_USER')
+        return self.users['accounts'][user_id]
 
     # ---------------------------------------------------------------- invoke
     def invoke(self, capability_id, **a):
@@ -916,6 +1305,11 @@ class EppendorfCellxpertC170iRuntime:
         self.pid = dict(I_T=0.0, I_c=0.0, I_o=0.0)
         for k, v in PAUSE['switch_on'].items():
             self.pause[k] = max(self.pause[k], self.t + v)
+        self.power_epoch += 1
+        self.users['logged'] = None                                             # a restart logs the user out; the screen starts unlocked
+        self.screen = dict(locked=False, touch_t=self.t)
+        if not self._o2_on():
+            st['o2_init_until'] = None
         self._event('power', 'POWER_ON', 'CellXpert通电：显示屏点亮，CO2传感器初始化30 min、O2传感器10 min')
 
     def _power_off(self, cause):
@@ -923,6 +1317,7 @@ class EppendorfCellxpertC170iRuntime:
             self._htd_fail('E_6731FW751', '高温消毒因断电中断（6731FW.751）：重新启动高温消毒')
         self.power = False
         self.u = dict(h=0.0, c=0.0, n=0.0)
+        self.dev_errors = set()                                               # a restart clears the device errors (they come back if the cause remains)
         for k in [k for k in self.alarms]:
             self.alarms.pop(k)
         self.sound = False
@@ -959,6 +1354,7 @@ class EppendorfCellxpertC170iRuntime:
         if not self._step_ok(setpoint_k - 273.15, 0.1):
             raise ActionRejected('INVALID_INCREMENT')
         self.setp['T'] = round(setpoint_k, 2)
+        self._remember('temperature', round(setpoint_k - 273.15, 1))
         self.pause['temperature'] = max(self.pause['temperature'], self.t + PAUSE['setpoint']['temperature'])
         self.status['reached_setpoint'] = False
         self.timers.update(t_high=0.0, subnormal=0.0)
@@ -974,6 +1370,7 @@ class EppendorfCellxpertC170iRuntime:
         if not self._step_ok(v, step):
             raise ActionRejected('INVALID_INCREMENT')
         self.setp[g] = round(v, 4)
+        self._remember(g, round(100.0 * v, 1))
         self.pause[g] = max(self.pause[g], self.t + PAUSE['setpoint'][g])
         self.timers[f'{g}_off'] = 0.0
         self._event('setting', f'{g.upper()}_SET', f'{g.upper()}设定值 {100 * v:.1f} %')
@@ -1054,6 +1451,7 @@ class EppendorfCellxpertC170iRuntime:
     def _cmd_contamination_set_status(self, contaminated):
         self._need_power()
         self.contamination = 'contaminated' if contaminated else 'not_contaminated'
+        self.contamination_changed_s = self.t
         self._event('maintenance', 'CONTAMINATION_STATUS', '信息栏：已污染' if contaminated else '信息栏：未污染（请进行高温消毒）')
         return dict(status=self.contamination)
 
@@ -1107,14 +1505,289 @@ class EppendorfCellxpertC170iRuntime:
         out.update({k: v for k, v in vals.items() if not k.startswith('reference')})
         return out
 
-    def _cmd_data_export(self, kind):
+    def _cmd_data_export(self, kind, span_s=None, parameters=None, filters=None):
+        """Export to the USB stick.  Charts: the selected time span and parameters (8.5.5); events: the currently filtered event log (8.4.4);
+        without these arguments everything stored (as before)."""
         self._need_power()
-        rows = dict(events=len(self.events), chart=len(self.chart), htd_protocols=sum(1 for r in self.records.values() if r['kind'] == 'htd'),
+        if (kind != 'chart' and (span_s is not None or parameters is not None)) or (kind != 'events' and filters is not None):
+            raise ActionRejected('INVALID_ARGUMENT')
+        chart = [r for r in self.chart if span_s is None or r['time_s'] >= self.t - span_s]
+        cats = [c for c in EVENT_CATS if (filters or {}).get(c)]
+        events = self.events if not cats else [e for e in self.events if self._event_cat(e) in cats]
+        rows = dict(events=len(events), chart=len(chart), htd_protocols=sum(1 for r in self.records.values() if r['kind'] == 'htd'),
                     performance_checks=sum(1 for r in self.records.values() if r['kind'] == 'performance_check'))[kind]
-        per = dict(events=90, chart=64, htd_protocols=400, performance_checks=160)[kind]
+        per = dict(events=90, chart=64 if parameters is None else 16 + 12 * len(set(parameters)), htd_protocols=400, performance_checks=160)[kind]   # time + 12 B per function
         name = f'CellXpert_{kind}_{int(self.t)}.csv'
         self._event('maintenance', 'EXPORTED', f'{name}导出到U盘')
         return dict(file=name, bytes=int(200 + per * rows), rows=int(rows))
+
+    # ---------------------------------------------------------------- device functions behind the touch screen (manual sections 6-10)
+    def _cmd_settings_configure(self, settings):
+        self._need_power()
+        defs = {d['key']: d for d in CX_SETTINGS}
+        new = copy.deepcopy(self.dev)
+        for k, v in settings.items():
+            d = defs.get(k)
+            if d is None:
+                raise ActionRejected('UNKNOWN_SETTING')
+            t = d['type']
+            num = isinstance(v, (int, float)) and not isinstance(v, bool)
+            ok = {'bool': lambda: isinstance(v, bool), 'text': lambda: isinstance(v, str) and len(v) <= d['max_len'], 'enum': lambda: v in d['options'],
+                  'enum_num': lambda: num and float(v) in d['options'], 'int': lambda: num and float(v).is_integer() and d['min'] <= v <= d['max'],
+                  'ip': lambda: isinstance(v, str) and len(v.split('.')) == 4 and all(p.isdigit() and int(p) <= 255 for p in v.split('.')),
+                  'list': lambda: isinstance(v, list) and len(set(v)) == len(v) and set(v) <= set(d['options'])}[t]()
+            if not ok:
+                raise ActionRejected('INVALID_SETTING')
+            new[k] = float(v) if t == 'enum_num' else int(v) if t == 'int' else copy.deepcopy(v)
+        o2_was = self._o2_on()
+        if new['datetime.automatic'] and not self.dev['datetime.automatic']:
+            self.clock_offset = 0.0                                             # automatic: the time server's (host) clock
+        self.dev = new
+        if o2_was and not self._o2_on():                                        # O2 switched off on the home screen: the sensor is off (p.50, p.80)
+            self.sens['o'] = None
+            self.status['o2_init_until'] = None
+        elif self._o2_on() and not o2_was and self.power:                       # switched on again: the sensor re-initialises (10 min)
+            self.sens['o'] = None
+            self.status['o2_init_until'] = self.t + INIT_S['o2']
+        self._event('setting', 'DEVICE_SETTINGS', '设备设置：' + ', '.join(sorted(settings)))
+        return dict(settings=copy.deepcopy(self.dev))
+
+    def _cmd_clock_set(self, date, time):
+        self._need_power()
+        if self.dev['datetime.automatic']:
+            raise ActionRejected('AUTOMATIC_TIME')
+        import datetime
+        try:
+            d = datetime.datetime.strptime(f'{date} {time}', '%Y-%m-%d %H:%M').replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            raise ActionRejected('INVALID_DATE') from None
+        self.clock_offset = d.timestamp() - (EPOCH_S + self.t + 3600.0 * TIMEZONES[self.dev['datetime.timezone']])
+        self._event('setting', 'CLOCK_SET', f'日期时间设为{date} {time}')
+        return dict(clock=self._clock_text())
+
+    def _cmd_network_create_certificate(self):
+        self._need_power()
+        self.seq['secret'] += 1
+        self.certificate = hashlib.sha256(f'{self._seed()}:{self.seq["secret"]}:{self.t}'.encode()).hexdigest()[:40]
+        self._event('setting', 'CERTIFICATE', '已生成自签名证书')
+        return dict(fingerprint=self.certificate)
+
+    def _cmd_relay_test(self):
+        self._need_power()
+        self.relay_test_until = self.t + RELAY_TEST_S
+        self._event('maintenance', 'RELAY_TEST', 'BMS继电器测试15 s')
+        return dict(until_s=self.relay_test_until)
+
+    def _cmd_screen_lock(self, locked):
+        self._need_power()
+        self.screen = dict(locked=bool(locked), touch_t=self.t)
+        return dict(locked=self._screen_locked())
+
+    def _cmd_users_enable(self, login_mode, admin_name, secret):
+        self._need_power()
+        if self.users['management']:
+            raise ActionRejected('USER_MANAGEMENT_ON')
+        if not self._secret_ok(secret, login_mode):
+            raise ActionRejected('INVALID_SECRET')
+        self.dev['users.login_mode'] = login_mode
+        self.users = dict(management=True, accounts={1: dict(user_id=1, name=admin_name, full_name='', email='', role='administrator', secret=secret)}, logged=1)
+        self.screen['touch_t'] = self.t
+        self._event('setting', 'USER_MANAGEMENT_ON', f'用户管理已启用（第一个管理员：{admin_name}）')
+        return dict(user_id=1)
+
+    def _cmd_users_disable(self, secret):
+        lid = self._need_admin()
+        if secret != self.users['accounts'][lid]['secret']:
+            raise ActionRejected('WRONG_SECRET')
+        self.users = dict(management=False, accounts={}, logged=None)
+        self._event('setting', 'USER_MANAGEMENT_OFF', '用户管理已停用，全部账户已删除')
+        return dict(management=False)
+
+    def _cmd_user_login(self, user_id, secret):
+        self._need_power()
+        if not self.users['management']:
+            raise ActionRejected('NO_USER_MANAGEMENT')
+        if self._account(user_id)['secret'] != secret:
+            raise ActionRejected('WRONG_SECRET')
+        self.users['logged'] = user_id
+        self.screen['touch_t'] = self.t
+        self._event('setting', 'LOGIN', f'用户{user_id}登录')
+        return dict(user_id=user_id, role=self.users['accounts'][user_id]['role'])
+
+    def _cmd_user_logout(self):
+        self._need_power()
+        was = self._logged_id() is not None
+        self.users['logged'] = None
+        if was:
+            self._event('setting', 'LOGOUT', '用户注销')
+        return dict(logged_in=False)
+
+    def _cmd_user_create(self, name):
+        self._need_admin()
+        acc = self.users['accounts']
+        if len(acc) >= MAX_USERS:
+            raise ActionRejected('USERS_FULL')
+        if any(a['name'] == name for a in acc.values()):
+            raise ActionRejected('USER_EXISTS')
+        uid = next(i for i in range(1, MAX_USERS + 1) if i not in acc)
+        secret = self._new_secret()
+        acc[uid] = dict(user_id=uid, name=name, full_name='', email='', role='restricted', secret=secret)
+        self.last_credentials = dict(user_id=uid, name=name, secret=secret)
+        self._event('setting', 'USER_CREATED', f'新建用户{uid}（{name}）')
+        return dict(user_id=uid, secret=secret)
+
+    def _cmd_user_update(self, user_id, full_name=None, email=None, role=None, new_user_id=None):
+        self._need_power()
+        if not self.users['management']:
+            raise ActionRejected('NO_USER_MANAGEMENT')
+        a = self._account(user_id)
+        lid = self._logged_id()
+        admin = lid is not None and self.users['accounts'][lid]['role'] == 'administrator'
+        if not admin and (lid != user_id or role is not None or new_user_id is not None):   # users edit only their own full name and e-mail (p.110)
+            raise ActionRejected('NOT_ADMIN')
+        if new_user_id is not None and new_user_id != user_id and new_user_id in self.users['accounts']:
+            raise ActionRejected('USER_EXISTS')
+        if full_name is not None:
+            a['full_name'] = full_name
+        if email is not None:
+            a['email'] = email
+        if role is not None:
+            a['role'] = role
+        if new_user_id is not None and new_user_id != user_id:
+            self.users['accounts'][new_user_id] = dict(self.users['accounts'].pop(user_id), user_id=new_user_id)
+            if self.users['logged'] == user_id:
+                self.users['logged'] = new_user_id
+            a = self.users['accounts'][new_user_id]
+        return dict(user={k: a[k] for k in ('user_id', 'name', 'full_name', 'email', 'role')})
+
+    def _cmd_user_delete(self, user_id):
+        lid = self._need_admin()
+        self._account(user_id)
+        if user_id == lid:
+            raise ActionRejected('SELF_DELETE')
+        del self.users['accounts'][user_id]
+        self._event('setting', 'USER_DELETED', f'删除用户{user_id}')
+        return dict(user_id=user_id)
+
+    def _cmd_user_reset_secret(self, user_id):
+        self._need_admin()
+        a = self._account(user_id)
+        a['secret'] = self._new_secret()
+        self.last_credentials = dict(user_id=user_id, name=a['name'], secret=a['secret'])
+        self._event('setting', 'USER_SECRET_RESET', f'重置用户{user_id}的PIN/密码')
+        return dict(user_id=user_id, secret=a['secret'])
+
+    def _cmd_user_change_secret(self, current, new):
+        self._need_power()
+        lid = self._logged_id() if self.users['management'] else None
+        if lid is None:
+            raise ActionRejected('NOT_LOGGED_IN')
+        a = self.users['accounts'][lid]
+        if a['secret'] != current:
+            raise ActionRejected('WRONG_SECRET')
+        if not self._secret_ok(new):
+            raise ActionRejected('INVALID_SECRET')
+        a['secret'] = new
+        return dict(changed=True)
+
+    def _cmd_message_acknowledge(self, all):
+        self._need_power()
+        items = self._messages()
+        if not items:
+            raise ActionRejected('NO_MESSAGE')
+        chosen = items if all else items[:1]                                    # the current message is the newest one
+        for m in chosen:
+            if m['code'].startswith('TASK_DUE:'):
+                k = m['code'][9:]
+                self.acked_due.add(f'{k}@{self.tasks[k]["last_done_s"]}')
+            else:
+                self.msgs = [x for x in self.msgs if x['code'] != m['code']]
+        self._event('alarm', 'ACKNOWLEDGED', '已确认：' + ', '.join(m['code'] for m in chosen))
+        return dict(acknowledged=[m['code'] for m in chosen])
+
+    def _task(self, task):
+        if task not in self.tasks:
+            raise ActionRejected('UNKNOWN_TASK')
+        return self.tasks[task]
+
+    def _cmd_recurring_task_define(self, name, warn, interval, reminder_days):
+        self._need_power()
+        if sum(1 for v in self.tasks.values() if v['custom']) >= MAX_CUSTOM_TASKS:
+            raise ActionRejected('TASKS_FULL')
+        self.seq['task'] += 1
+        k = f'custom_{self.seq["task"]}'
+        self.tasks[k] = dict(interval_s=None if interval is None else TASK_INTERVALS[interval], last_done_s=self.t, warn=bool(warn), reminder_s=86400.0 * reminder_days,
+                             custom=True, name=name)
+        self._event('maintenance', 'TASK_DEFINED', f'新建周期任务：{name}')
+        return dict(task=k)
+
+    def _cmd_recurring_task_edit(self, task, warn, interval, reminder_days):
+        self._need_power()
+        v = self._task(task)
+        v.update(interval_s=None if interval is None else TASK_INTERVALS[interval], warn=bool(warn), reminder_s=86400.0 * reminder_days)
+        return dict(task=task, interval_s=v['interval_s'])
+
+    def _cmd_recurring_task_delete(self, task):
+        self._need_power()
+        if not self._task(task)['custom']:
+            raise ActionRejected('NOT_CUSTOM_TASK')                             # only tasks defined by the user are deletable (p.96)
+        del self.tasks[task]
+        return dict(task=task)
+
+    def _cmd_recurring_task_confirm(self, task):
+        self._need_power()
+        v = self._task(task)
+        if TASKS.get(task, {}).get('procedure'):
+            raise ActionRejected('TASK_REQUIRES_PROCEDURE')                     # HTD and the performance check are done by their procedures
+        v['last_done_s'] = self.t
+        self._event('maintenance', 'TASK_DONE', f'周期任务完成：{self.tasks[task]["name"]}')
+        return dict(task=task, completed_s=self.t)
+
+    def _cmd_operation_record_create(self, name, start_date, finish_date):
+        self._need_power()
+        import datetime
+        try:
+            d0, d1 = (datetime.date.fromisoformat(x) for x in (start_date, finish_date))
+        except ValueError:
+            raise ActionRejected('INVALID_DATE') from None
+        if d1 < d0:
+            raise ActionRejected('INVALID_DATE')
+        self.seq['oprec'] += 1
+        lid = self._logged_id()
+        cfg = self.alarm_cfg
+        initial = dict(temperature_c=round(self.setp['T'] - 273.15, 1), co2_percent=round(100 * self.setp['co2'], 1), o2_percent=round(100 * self.setp['o2'], 1),
+                       temperature_alarm_k=[cfg['temperature']['low_k'], cfg['temperature']['high_k']], co2_alarm=[cfg['co2']['low'], cfg['co2']['high']],
+                       o2_alarm=[cfg['o2']['low'], cfg['o2']['high']], rh_alarm_low=cfg['rh']['low'])
+        self.op_records = (self.op_records + [dict(record_id=f'OR{self.seq["oprec"]:04d}', name=name, start_date=start_date, finish_date=finish_date, created_s=self.t,
+                                                   user=self.users['accounts'][lid]['name'] if lid is not None else None, initial=initial,
+                                                   company=self.dev['records.company'])])[-MAX_OP_RECORDS:]    # the oldest entries are overwritten (p.99)
+        return dict(record_id=self.op_records[-1]['record_id'])
+
+    def _cmd_operation_records_list(self):
+        out = []
+        for r in self.op_records:
+            ev = [dict(time_s=e['time_s'], kind=e['kind'], code=e['code'], message_zh=e['message_zh']) for e in self.events
+                  if e['kind'] in ('alarm', 'error') and not e['code'].endswith('_CLEARED') and e['code'] != 'ACKNOWLEDGED'
+                  and r['start_date'] <= self._local_date(e['time_s']) <= r['finish_date']][:200]
+            res = ('contains_error' if any(e['kind'] == 'error' for e in ev) else 'contains_alarm' if any(not e['code'].endswith('_WARNING') for e in ev)
+                   else 'contains_warnings' if ev else 'successfully_created')
+            out.append(dict(copy.deepcopy(r), result=res, events=ev))
+        return dict(records=out)
+
+    def _cmd_export_files(self, kinds):
+        self._need_power()
+        files = []
+        for k in dict.fromkeys(kinds):
+            if k in EXPORT_KINDS:
+                r = self._cmd_data_export(k)
+                files.append(dict(kind=k, **r))
+                continue
+            rows = dict(service_data=len(self.events) + len(self.chart), operation_records=len(self.op_records), user_data=len(self.users['accounts']))[k]
+            ext, per = dict(service_data=('zip', 48), operation_records=('pdf', 2500), user_data=('txt', 60))[k]
+            name = f'CellXpert_{k}_{int(self.t)}.{ext}'
+            self._event('maintenance', 'EXPORTED', f'{name}导出到U盘')
+            files.append(dict(kind=k, file=name, bytes=int(400 + per * rows), rows=int(rows)))
+        return dict(files=files)
 
     # ---------------------------------------------------------------- doors, tray, ports, sensor cover (robot / host skills)
     def _cmd_door_outer(self, open):
@@ -1414,6 +2087,131 @@ class EppendorfCellxpertC170iRuntime:
         self._event('fault', 'FAULT', f'{fault} {"on" if active else "off"}' + (f' {vessel_id}' if vessel_id else ''))
         return dict(faults=sorted(self.faults) + sorted(f'vessel_contamination:{v}' for v in self.vessel_faults))
 
+    # ---------------------------------------------------------------- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the touch-screen firmware sees: the agent slots plus display data (English texts, chart rows, lists)."""
+        out = self.read('agent')
+        msgs = [dict(m, text=_text_en(m['code']) if m['code'] != 'DOOR_OPEN' else f'Door longer open than {self.alarm_cfg["door"]["signal_s"]:.0f} s',
+                     time=self._clock_text(self._clock_s() - self.t + m['time_s'])[:16]) for m in self._messages()]
+        out.update({'host.fatal': 'FATAL' in self.dev_errors, 'host.powered': self.power, 'host.power_epoch': self.power_epoch, 'host.now_h': self.t / 3600.0, 'host.chart': self._panel_chart(),
+                    'host.events': self._panel_events(), 'host.messages': msgs, 'host.message_text': msgs[0]['text'] if msgs else '',
+                    'host.contamination_notice': bool(self.contamination == 'not_contaminated' and self.contamination_changed_s is not None
+                                                      and self.t - self.contamination_changed_s < 86400.0),
+                    'host.recent': copy.deepcopy(self.recent), 'host.alarm_cfg': copy.deepcopy(self.alarm_cfg), 'host.tasks': self._panel_tasks(),
+                    'host.op_records': self._panel_records(), 'host.new_credentials': copy.deepcopy(self.last_credentials), 'host.last_pc': self._panel_last_pc()})
+        return out
+
+    def _panel_chart(self):
+        rows = [r for r in self.chart if r['time_s'] >= self.t - 7 * 86400.0]
+        k = max(1, len(rows) // 1500)
+        rows = rows[::k]
+        out = {}
+        for f, key, sc, off in (('temperature', 'temperature_k', 1.0, -273.15), ('co2', 'co2_fraction', 100.0, 0.0), ('o2', 'o2_fraction', 100.0, 0.0), ('rh', 'rh', 100.0, 0.0)):
+            out[f] = [[r['time_s'] / 3600.0, r[key] * sc + off] for r in rows if r[key] is not None]
+        return out
+
+    @staticmethod
+    def _event_cat(e):
+        """Filter category of an event in the event list (None: not listed there)."""
+        if e['kind'] not in _EVENT_CAT:
+            return None
+        return 'warning' if e['code'].endswith('_WARNING') else _EVENT_CAT[e['kind']]
+
+    def _panel_events(self):
+        evs = [e for e in reversed(self.events) if e['kind'] in _EVENT_CAT][:300]
+        out = []
+        for i, e in enumerate(evs):
+            age = self.t - e['time_s']
+            c = self._event_cat(e)
+            out.append(dict(idx=i, code=e['code'], cat=c, kind_text=c.capitalize(), text=_text_en(e['code']),
+                            time=self._clock_text(self._clock_s() - self.t + e['time_s'])[:16],
+                            age=f'{age / 60:.0f} min' if age < 3600 else f'{age / 3600:.0f} h' if age < 86400 else f'{age / 86400:.0f} d'))
+        return out
+
+    def _panel_tasks(self):
+        names = {v: k for k, v in TASK_INTERVALS.items()}
+        out = []
+        for k, v in self.tasks.items():
+            iv = names.get(v['interval_s'])
+            due = k in self._tasks_due()
+            out.append(dict(id=k, name=v['name'], interval=iv, interval_text=iv.capitalize() if iv else ('-' if v['interval_s'] is None else f'{v["interval_s"] / 86400:.0f} d'),
+                            reminder_days=int(round(v['reminder_s'] / 86400.0)), warn=v['warn'], custom=v['custom'], procedure=bool(TASKS.get(k, {}).get('procedure')),
+                            service=False, due=due, due_text='due' if due else '',
+                            last_text='-' if v['last_done_s'] is None else self._clock_text(self._clock_s() - self.t + v['last_done_s'])[:10]))
+        out.append(dict(id='epservices', name='Routine maintenance by epServices', interval=None, interval_text='-', reminder_days=0, warn=False, custom=False,
+                        procedure=False, service=True, due=False, due_text='', last_text='-'))
+        return out
+
+    def _panel_records(self):
+        out = []
+        for r in reversed(self._cmd_operation_records_list()['records']):
+            i = r['initial']
+            out.append(dict(record_id=r['record_id'], name=r['name'], start_date=r['start_date'], finish_date=r['finish_date'], result=r['result'], n_events=len(r['events']),
+                            user=r['user'] or '',
+                            initial_text=f'{i["temperature_c"]:.1f} C, {i["co2_percent"]:.1f} % CO2, {i["o2_percent"]:.1f} % O2'))
+        return out
+
+    def _panel_last_pc(self):
+        recs = [r for r in self.records.values() if r['kind'] == 'performance_check']
+        if not recs:
+            return None
+        d = recs[-1]['details']
+        if d.get('quantity') == 'temperature':
+            return dict(displayed_text=f'{d["displayed_temperature_k"] - 273.15:.2f} °C', reference_text=f'{d["reference_temperature_k"] - 273.15:.2f} °C',
+                        deviation_text=f'{d["deviation_k"]:+.2f} K')
+        return dict(displayed_text=f'{100 * d["displayed_fraction"]:.2f} %', reference_text=f'{100 * d["reference_fraction"]:.2f} %',
+                    deviation_text=f'{100 * d["deviation_fraction"]:+.2f} %')
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything).  1.2.0: the caller rule
+        of the direct path applies to the command a touch invokes (another agent's HTD: ACCESS_DENIED, the screen shows a dialog); navigation is free."""
+        c = self._caller
+        if c is not None and self._principals.get(c) == 'agent' and capability_id in _CONTROL_GUARDED and self.op is not None:
+            owner = self._owners.get(self.op['op'])
+            if owner is not None and owner != c and self._principals.get(owner) == 'agent':
+                raise _panel_ui.PanelRejected('ACCESS_DENIED')
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_touch(self, display_id, x, y, duration_s=0.1, to_x=None, to_y=None):
+        self._need_plant()
+        if self.power:
+            self._touch()                                                       # automatic lock / logout due first, then the inactivity timers restart
+        to = None if to_x is None or to_y is None else (int(to_x), int(to_y))
+        return self._panel(self.panel.touch, display_id, int(x), int(y), float(duration_s), to)
+
+    def _cmd_panel_switch(self, input_id, position):
+        return self._panel(self.panel.switch, input_id, position)
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of the screen: a PNG file named by its content (large data is returned as a file reference)."""
+        import tempfile
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
+
     def _cmd_sim_step(self, dt_s):
         self.step(dt_s)
         return dict(time_s=self.t)
@@ -1455,8 +2253,11 @@ class EppendorfCellxpertC170iRuntime:
     def _raise(self, code, message):
         if code not in self.alarms:
             self.alarms[code] = dict(since_s=self.t, message=message)
-            self.sound = True
+            if not (code == 'DOOR_OPEN' and self.dev['acoustic.mode'] == 'alarms'):   # the door alarm is an interface signal (p.79: 'Alarms' only)
+                self.sound = True
             self._event('error' if code.startswith('E_') else 'alarm', code, message)
+            sev = 'error' if code.startswith('E_') else 'warning' if code.endswith('_WARNING') else 'alarm'
+            self.msgs = ([m for m in self.msgs if m['code'] != code] + [dict(code=code, severity=sev, time_s=self.t, text=message)])[-200:]
 
     def _clear(self, code):
         if code in self.alarms:
@@ -1490,7 +2291,7 @@ class EppendorfCellxpertC170iRuntime:
         rc = cfg['rh']
         self._cond('RH_LOW', rc['enabled'] and not held and t >= self.pause['rh'] and self.sens['rh'] is not None and self.sens['rh'] < rc['low'],
                    f'相对湿度低于报警限（{100 * (self.sens["rh"] or 0):.1f} %）')
-        self._cond('WATER_LOW', cfg['water_level']['enabled'] and not htd and t >= self.pause['water'] and not st['sensors_hot'] and self._water_low(), '水盘水量低于0.5 L：加水')
+        self._cond('WATER_LOW', cfg['water_level']['enabled'] and not htd and t >= self.pause['water'] and not st['sensors_hot'] and not self._dead('wl') and self._water_low(), '水盘水量低于0.5 L：加水')
         for g, p_key, pre in (('co2', 'co2_supply_pa', 'CO2'), ('o2', 'n2_supply_pa', 'N2')):
             p = self.plant[p_key]
             used = self.ctrl[g]
@@ -1580,8 +2381,12 @@ class EppendorfCellxpertC170iRuntime:
             gT = _gauss(seed, self.tick, 1)
             self.sens['T'] = s['T'] + m['noise_t_k'] * gT
             self.sens['c'] = None if self._initializing('co2') else max(0.0, s['c'] + m['noise_co2'] * _gauss(seed, self.tick, 2))
-            self.sens['o'] = None if self._initializing('o2') else max(0.0, s['o'] + m['noise_o2'] * _gauss(seed, self.tick, 3))
+            self.sens['o'] = None if self._initializing('o2') or not self._o2_on() else max(0.0, s['o'] + m['noise_o2'] * _gauss(seed, self.tick, 3))
             self.sens['rh'] = None if self.status['sensors_hot'] else min(1.0, max(0.0, s['rh'] + m['noise_rh'] * _gauss(seed, self.tick, 4)))
+            self._device_faults_tick()
+            for key in ('T', 'c', 'o', 'rh'):
+                if self._dead(key):
+                    self.sens[key] = None                                     # the failed / out-of-range sensor gives no valid reading
         # ---- control
         self._control()
         # ---- fluxes
@@ -1688,7 +2493,7 @@ class EppendorfCellxpertC170iRuntime:
 
     def _control(self):
         m, c, st, u = self.m, self.ch, self.status, self.u
-        if not self.power:
+        if not self.power or 'FATAL' in self.dev_errors:                     # 1.2.0: a fatal software error stops all control outputs (assumption)
             u.update(h=0.0, c=0.0, n=0.0)
             return
         h = H_TICK
@@ -1697,7 +2502,7 @@ class EppendorfCellxpertC170iRuntime:
         ph = self.htd['phase']
         closed_for = self.t - self.door['closed_at'] if not self.door['open_flag'] else -1.0
         hold = self.door['open_flag'] or closed_for < m['door_hold_s']         # door opening: air loop frozen (no wall over-heating, no overshoot)
-        if st['shutdown'] or 'heater_failure' in self.faults:
+        if st['shutdown'] or 'heater_failure' in self.faults or self._dead('T'):   # 1.2.0: no valid temperature reading: no heating (assumption)
             uh = 0.0
         elif 'heater_stuck_on' in self.faults:
             uh = 1.0
@@ -1723,7 +2528,8 @@ class EppendorfCellxpertC170iRuntime:
             st['co2_gate'] = False
         for g, key, sup in (('co2', 'c', 'co2_supply_pa'), ('o2', 'o', 'n2_supply_pa')):
             p = self.plant[sup]
-            ok = base_ok and self.ctrl[g] and not self._initializing(g) and not st[f'{g}_failed'] and p <= 0.18e6 and not (self.ctrl['monitor'] and p < 0.02e6)
+            ok = base_ok and self.ctrl[g] and not self._initializing(g) and not st[f'{g}_failed'] and p <= 0.18e6 and not (self.ctrl['monitor'] and p < 0.02e6) \
+                and not self._dead(key + '_ctl')
             if g == 'co2':
                 ok = ok and not st['co2_gate']
             s = self.sens[key]
@@ -1953,8 +2759,16 @@ class EppendorfCellxpertC170iRuntime:
 
 # ---------------------------------------------------------------- session (agent / evaluator isolation, idempotency)
 ASYNC = {'htd.start'}
-_OWNED_VESSEL = {'vessel.place', 'vessel.remove', 'vessel.observe', 'vessel.discard'}
-_CONTROL_GUARDED = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] == 'device_command' and k not in UNSUPPORTED}
+VESSEL_SKILLS = ('vessel.place', 'vessel.remove', 'vessel.observe', 'vessel.discard')   # hand / robot handling of the culture vessels
+_OWNED_VESSEL = set()      # 1.2.0 (lead rule 10-19): handling vessels is a physical action - not owner-guarded; only the device's own preconditions refuse it
+_AGENT_COMMANDS = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] == 'device_command' and k not in UNSUPPORTED
+                   and not k.startswith(('panel.', 'power.'))}
+REMOTE_CAPS = set(_AGENT_COMMANDS)                                 # 1.2.0: commands of the external-software interface (Enable remote access, p.77)
+# 1.2.0 (lead rule 10-19): commands of another agent that would stop or change a running high-temperature disinfection.  There are none: the device
+# itself locks the set points, gas control and a second start during HTD (HTD_RUNNING), the HTD ends only by its owner's cancel (session.cancel,
+# owner-only), the door or the mains switch (both physical, never refused), and the incubator has no soft power-off.  Every other command follows
+# the device's own rules, on the touch screen and the direct path alike (the session and panel_invoke guards below stay for the rule's structure).
+_CONTROL_GUARDED = set()
 
 
 class EppendorfCellxpertC170iSession:
@@ -1989,7 +2803,7 @@ class EppendorfCellxpertC170iSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -2021,11 +2835,9 @@ class EppendorfCellxpertC170iSession:
         if self._role != 'agent':
             return
         h = self._host
+        if capability_id in REMOTE_CAPS and not h.dev['network.remote_access']:
+            raise ActionRejected('REMOTE_DISABLED')                            # 1.2.0: 'Enable remote access' off: an agent's commands are refused, reads stay
         if capability_id in _CONTROL_GUARDED and self._foreign_op():
-            if capability_id in ('power.set', 'power.press_switch') and not h.power:
-                return
-            raise ActionRejected('ACCESS_DENIED')
-        if capability_id in _OWNED_VESSEL and self._foreign(arguments.get('vessel_id')):
             raise ActionRejected('ACCESS_DENIED')
 
     def invoke(self, *, instance_id, capability_id, arguments, request_id):
@@ -2128,9 +2940,10 @@ class EppendorfCellxpertC170iSession:
 # ---------------------------------------------------------------- contract metadata
 ERROR_ZH = {
     'INVALID_ARGUMENT': '参数不符合输入模式或取值范围', 'REQUEST_CONFLICT': '同一request_id对应不同的调用', 'UNKNOWN_INSTANCE': '实例不存在',
-    'UNKNOWN_CAPABILITY': '能力不存在', 'UNSUPPORTED': '本配置不支持该能力', 'ACCESS_DENIED': '无权访问（真值槽、另一个agent的容器或操作）',
+    'UNKNOWN_CAPABILITY': '能力不存在', 'UNSUPPORTED': '本配置不支持该能力', 'ACCESS_DENIED': '无权访问（评测者能力或真值槽；另一agent的高温消毒操作只能由其发起者poll/cancel）',
     'PLANT_REQUIRED': '尚未声明实验室条件', 'ACCESS_PORT_OPEN': '接入孔未插堵头（高温消毒前须插好，否则180 °C热气外泄、孔道不被消毒）',
     'MISSING_REFERENCE': '性能检查缺少该量的外部读数（温度用reference_temperature_k，CO2/O2用reference_fraction）', 'SEED_FIXED': '噪声种子只能在首次声明时设定', 'MAINS_OUT_OF_RANGE': '市电不在100–127 V或220–240 V ±10 %（或断电）',
+    'REMOTE_DISABLED': '设置中Enable remote access已关闭：外部软件（agent）的命令被拒，读取不受影响；在触摸屏上重新开启（1.2.0）',
     'POWER_OFF': '培养箱未通电', 'HTD_RUNNING': '高温消毒进行中（或其后冷却中）', 'INVALID_INCREMENT': '设定值不是0.1 K / 0.1 %的整数倍',
     'SENSOR_INITIALIZING': '传感器初始化中（开机或高温消毒后CO2 30 min、O2 10 min），不能改设定值', 'NO_CONTROL_ERROR': '该气体控制没有出错',
     'INVALID_DOOR_SIGNAL': '门报警时间只能是15、30、45、60或90 s', 'INVALID_ALARM_LIMIT': '报警限超出允许范围（温度0.1–5 K，CO2/O2 0.1–5 %，RH下限50–95 %）',
@@ -2144,10 +2957,16 @@ ERROR_ZH = {
     'VOLUME_OUT_OF_RANGE': '培养基体积不在推荐量的0.25–3倍之内', 'SEEDING_ABOVE_CONFLUENCE': '贴壁细胞接种数超过汇合数', 'UNKNOWN_ITEM': '容器不存在',
     'VESSEL_NOT_ON_BENCH': '容器不在实验台上', 'VESSEL_NOT_IN_CHAMBER': '容器不在培养箱内', 'SHELF_FULL': '该层搁板放不下（面积）', 'SHELF_OVERLOAD': '该层搁板超过10 kg',
     'NOT_VISIBLE': '外门关着，看不到腔内容器', 'UNKNOWN_OPERATION': '操作不存在', 'NOT_RUNNING': '操作已结束',
+    'UNKNOWN_SETTING': '没有该设备设置键', 'INVALID_SETTING': '设置值不符合该键的类型或选项', 'AUTOMATIC_TIME': '自动日期时间开着：先关掉再手动设定',
+    'INVALID_DATE': '日期或时间无效（结束日期不能早于开始日期）', 'USER_MANAGEMENT_ON': '用户管理已启用', 'NO_USER_MANAGEMENT': '用户管理未启用',
+    'NOT_ADMIN': '需要已登录的管理员（或本人）', 'WRONG_SECRET': 'PIN/密码错误', 'INVALID_SECRET': 'PIN须为4–8位数字，密码6–16个字符',
+    'UNKNOWN_USER': '没有该用户ID', 'USER_EXISTS': '用户名或用户ID已存在', 'USERS_FULL': '最多999个用户账户', 'SELF_DELETE': '已登录的管理员不能删除自己的账户',
+    'NOT_LOGGED_IN': '没有已登录的用户', 'NO_MESSAGE': '信息栏没有未确认的消息', 'UNKNOWN_TASK': '没有该周期任务', 'NOT_CUSTOM_TASK': '只能删除自定义的周期任务',
+    'TASKS_FULL': '最多4个自定义周期任务',
 }
 _OPS = ['operation.kind', 'operation.progress']
 _INIT = ['status.co2_initializing', 'status.o2_initializing']
-_ALARM = ['alarms.active', 'alarm.sound', 'bms.relays']
+_ALARM = ['alarms.active', 'alarm.sound', 'bms.relays', 'messages.unacknowledged']
 _THERMAL = ['sensor.temperature_k', 'display.temperature_c', 'truth.air_temperature_k', 'truth.wall_temperature_k', 'truth.water_temperature_k', 'truth.heater_power_w',
             'status.heating_shutdown']
 _GAS = ['sensor.co2_fraction', 'display.co2_percent', 'truth.co2_fraction', 'sensor.o2_fraction', 'truth.o2_fraction', 'status.co2_control_failed', 'status.o2_control_failed']
@@ -2157,7 +2976,7 @@ _DOOR = ['door.outer_angle_rad', 'door.inner_angle_rad', 'door.latch_angle_rad',
 _HTD = ['htd.phase', 'htd.remaining_s', 'htd.last_result', 'tasks.due'] + _OPS
 _PHYS = _THERMAL + _GAS + _HUMID + _WATER + _INIT + _ALARM
 _PWR = ['power.enabled', 'sensor.temperature_k', 'sensor.co2_fraction', 'sensor.o2_fraction', 'sensor.rh', 'sensor.water_low', 'sensor.water_present', 'sensor.co2_supply_pa', 'sensor.n2_supply_pa',
-        'display.temperature_c', 'display.co2_percent', 'status.heating_shutdown', 'truth.heater_power_w'] + _INIT + _ALARM + _HTD
+        'display.temperature_c', 'display.co2_percent', 'status.heating_shutdown', 'status.fatal_error', 'truth.heater_power_w', 'users.state', 'screen.locked'] + _INIT + _ALARM + _HTD
 EFFECTS = {
     'plant.configure': ['plant.configured', 'truth.air_temperature_k', 'truth.wall_temperature_k', 'truth.water_temperature_k', 'truth.co2_fraction', 'truth.o2_fraction', 'truth.rh'] + _PWR,
     'power.set': _PWR, 'power.press_switch': _PWR,
@@ -2171,6 +2990,12 @@ EFFECTS = {
     'access_port.plug': ['access_ports.unplugged'], 'vessel.provide': ['vessels.on_bench'], 'vessel.place': ['vessels.in_chamber', 'vessels.on_bench'],
     'vessel.remove': ['vessels.in_chamber', 'vessels.on_bench'], 'vessel.discard': ['vessels.on_bench'],
     'fault.inject': ['truth.faults'] + _PWR, 'sim.step': ['clock.time_s'],
+    'settings.configure': ['device.settings', 'device.clock', 'bms.relays', 'screen.locked', 'users.state', 'sensor.o2_fraction', 'status.o2_initializing'],
+    'clock.set': ['device.clock'], 'network.create_certificate': ['device.settings'], 'relay.test': ['bms.relays'], 'screen.lock': ['screen.locked', 'users.state'],
+    'users.enable': ['users.state', 'device.settings'], 'message.acknowledge': ['messages.unacknowledged'],
+    **{k: ['users.state'] for k in ('users.disable', 'user.login', 'user.logout', 'user.create', 'user.update', 'user.delete', 'user.reset_secret', 'user.change_secret')},
+    **{k: ['tasks.due', 'messages.unacknowledged'] for k in ('recurring_task.define', 'recurring_task.edit', 'recurring_task.delete', 'recurring_task.confirm')},
+    'operation_record.create': [], 'export.files': [],
 }
 _PHYS_OPS = _PHYS + ['htd.remaining_s'] + _OPS                               # a physical change also moves the HTD time estimate
 ON_STEP = {'plant.configure': _PHYS + _HTD, 'power.set': _PHYS + _HTD, 'power.press_switch': _PHYS + _HTD, 'temperature.set': _PHYS_OPS, 'co2.set': _PHYS_OPS, 'o2.set': _PHYS_OPS,
@@ -2178,7 +3003,24 @@ ON_STEP = {'plant.configure': _PHYS + _HTD, 'power.set': _PHYS + _HTD, 'power.pr
            'htd.start': _PHYS + _HTD, 'door.outer': _DOOR + _PHYS + _HTD, 'door.latch': _DOOR + _PHYS + _HTD, 'door.inner': _DOOR + _PHYS + _HTD,
            'water_tray.fill': _PHYS_OPS, 'water_tray.empty': _PHYS_OPS, 'rh_sensor.cover': _HUMID + _ALARM, 'access_port.plug': _PHYS_OPS, 'vessel.place': _PHYS_OPS,
            'vessel.remove': _PHYS_OPS, 'fault.inject': _PHYS + _HTD, 'sim.step': _PHYS + _HTD + _DOOR}
+ON_STEP.update({'settings.configure': _PHYS_OPS + ['device.clock', 'screen.locked', 'users.state'], 'clock.set': ['device.clock'], 'relay.test': ['bms.relays'],
+                'screen.lock': ['screen.locked', 'users.state'], 'message.acknowledge': ['messages.unacknowledged'],
+                **{k: ['users.state'] for k in ('users.enable', 'user.login', 'user.logout', 'users.disable')},
+                **{k: ['tasks.due', 'messages.unacknowledged'] for k in ('recurring_task.define', 'recurring_task.edit', 'recurring_task.delete', 'recurring_task.confirm')}})
+ON_STEP['sim.step'] = ON_STEP['sim.step'] + ['device.clock', 'screen.locked', 'users.state']
+for _fx in (EFFECTS, ON_STEP):                                               # the information bar follows every alarm and task warning
+    for _k, _v in _fx.items():
+        if ('alarms.active' in _v or 'tasks.due' in _v) and 'messages.unacknowledged' not in _v:
+            _v.append('messages.unacknowledged')
+for _k, _v in EFFECTS.items():                                               # a changed message list keeps evolving with the next alarms
+    if 'messages.unacknowledged' in _v and _k != 'sim.step' and 'messages.unacknowledged' not in ON_STEP.setdefault(_k, []):
+        ON_STEP[_k] = ON_STEP[_k] + ['messages.unacknowledged']
 ON_STEP_ZH = {
+    'settings.configure': '自动屏幕锁定与自动注销按时间生效；O2传感器开关后N2控制停止或重新初始化', 'clock.set': '设备时钟继续走', 'relay.test': '15 s后继电器回到按事件的状态',
+    'screen.lock': '自动屏幕锁定与自动注销按时间生效', 'message.acknowledge': '新的报警、错误或到期任务再次出现在信息栏',
+    'users.enable': '无触摸达到自动注销时间后注销', 'user.login': '无触摸达到自动注销时间后注销', 'user.logout': '同上', 'users.disable': '同上',
+    'recurring_task.define': '任务按间隔到期（提前提醒天数）', 'recurring_task.edit': '任务按新间隔到期', 'recurring_task.delete': '到期提醒随任务删除',
+    'recurring_task.confirm': '从完成时刻重新计算到期',
     'plant.configure': '室温、湿度、气压与气源压力改变腔体热损失、交换空气成分与注气流量', 'power.set': '开机：加热控制与传感器初始化（CO2 30 min、O2 10 min），断电：无加热无注气，腔体冷却',
     'power.press_switch': '同power.set', 'temperature.set': '加热器按新设定值调节，温度、湿度与报警随之变化', 'co2.set': 'CO2按新设定值注气（降低设定值时只能开门放气）',
     'o2.set': 'O2按新设定值注N2（升高只能开门）', 'co2.control': '启停CO2注气', 'o2.control': '启停N2注气', 'gas.pressure_monitor': '低压时是否停控与报警',
@@ -2221,6 +3063,22 @@ PRECONDITIONS = {
     'vessel.remove': ('外门与内门都已打开；容器在培养箱内', ['door.outer_state', 'door.inner_state', 'vessels.in_chamber']),
     'vessel.observe': ('容器存在；腔内容器需外门打开（透过玻璃门看）', ['door.outer_state']), 'vessel.discard': ('容器在实验台上', ['vessels.on_bench']),
 }
+PRECONDITIONS.update({
+    'settings.configure': ('通电；键在设置表中、值符合其类型与选项（触摸屏上按用户权限限制，见users.state.rights）', ['power.enabled', 'device.settings']),
+    'clock.set': ('通电；自动日期时间关闭', ['power.enabled', 'device.settings']), 'network.create_certificate': ('通电', ['power.enabled']),
+    'relay.test': ('通电', ['power.enabled']), 'screen.lock': ('通电', ['power.enabled']),
+    'users.enable': ('通电；用户管理未启用；PIN为4–8位数字或密码6–16个字符', ['power.enabled', 'users.state']),
+    'users.disable': ('通电；已登录的管理员输入自己的PIN/密码', ['power.enabled', 'users.state']),
+    'user.login': ('通电；用户管理已启用；用户ID存在且PIN/密码正确', ['power.enabled', 'users.state']), 'user.logout': ('通电', ['power.enabled', 'users.state']),
+    'user.create': ('通电；已登录的管理员；用户名唯一；不超过999个账户', ['power.enabled', 'users.state']),
+    'user.update': ('通电；本人只能改全名与电子邮件，用户ID与角色须管理员；新用户ID未被占用', ['power.enabled', 'users.state']),
+    'user.delete': ('通电；已登录的管理员；不能删除自己', ['power.enabled', 'users.state']), 'user.reset_secret': ('通电；已登录的管理员', ['power.enabled', 'users.state']),
+    'user.change_secret': ('通电；已登录；当前PIN/密码正确；新PIN/密码格式正确', ['power.enabled', 'users.state']),
+    'message.acknowledge': ('通电；信息栏有未确认的消息（触摸屏上按权限：受限用户只能确认警告，用户可确认报警，错误须管理员）', ['power.enabled', 'messages.unacknowledged']),
+    'recurring_task.define': ('通电；自定义任务不超过4个', ['power.enabled', 'tasks.due']), 'recurring_task.edit': ('通电；任务存在', ['power.enabled', 'tasks.due']),
+    'recurring_task.delete': ('通电；只能删除自定义任务', ['power.enabled', 'tasks.due']),
+    'recurring_task.confirm': ('通电；手动任务（腔体清洁、加水或自定义；高温消毒与性能检查由各自程序完成）', ['power.enabled', 'tasks.due']),
+    'operation_record.create': ('通电；日期有效且结束不早于开始（超过1000条时覆盖最早的）', ['power.enabled']), 'export.files': ('通电（模拟U盘已插入）', ['power.enabled'])})
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 _PW = ['PLANT_REQUIRED', 'POWER_OFF']
 CAP_ERRORS = {
@@ -2242,6 +3100,15 @@ CAP_ERRORS = {
     'vessel.remove': ['PLANT_REQUIRED', 'DOORS_NOT_OPEN', 'UNKNOWN_ITEM', 'VESSEL_NOT_IN_CHAMBER'], 'vessel.observe': ['UNKNOWN_ITEM', 'NOT_VISIBLE'],
     'vessel.discard': ['UNKNOWN_ITEM', 'VESSEL_NOT_ON_BENCH'], 'vessel.inspect': ['UNKNOWN_ITEM'], 'fault.inject': ['PLANT_REQUIRED', 'UNKNOWN_ITEM'],
     'events.read': [], 'chart.read': [], 'records.list': [], 'tasks.list': [], 'alarms.list': [], 'provenance.read': [], 'ledger.read': [], 'sim.step': [],
+    'settings.configure': _PW + ['UNKNOWN_SETTING', 'INVALID_SETTING'], 'clock.set': _PW + ['AUTOMATIC_TIME', 'INVALID_DATE'], 'network.create_certificate': _PW,
+    'relay.test': _PW, 'screen.lock': _PW, 'users.enable': _PW + ['USER_MANAGEMENT_ON', 'INVALID_SECRET'],
+    'users.disable': _PW + ['NO_USER_MANAGEMENT', 'NOT_ADMIN', 'WRONG_SECRET'], 'user.login': _PW + ['NO_USER_MANAGEMENT', 'UNKNOWN_USER', 'WRONG_SECRET'],
+    'user.logout': _PW, 'user.create': _PW + ['NO_USER_MANAGEMENT', 'NOT_ADMIN', 'USERS_FULL', 'USER_EXISTS'],
+    'user.update': _PW + ['NO_USER_MANAGEMENT', 'UNKNOWN_USER', 'NOT_ADMIN', 'USER_EXISTS'], 'user.delete': _PW + ['NO_USER_MANAGEMENT', 'NOT_ADMIN', 'UNKNOWN_USER', 'SELF_DELETE'],
+    'user.reset_secret': _PW + ['NO_USER_MANAGEMENT', 'NOT_ADMIN', 'UNKNOWN_USER'], 'user.change_secret': _PW + ['NOT_LOGGED_IN', 'WRONG_SECRET', 'INVALID_SECRET'],
+    'message.acknowledge': _PW + ['NO_MESSAGE'], 'recurring_task.define': _PW + ['TASKS_FULL'], 'recurring_task.edit': _PW + ['UNKNOWN_TASK'],
+    'recurring_task.delete': _PW + ['UNKNOWN_TASK', 'NOT_CUSTOM_TASK'], 'recurring_task.confirm': _PW + ['UNKNOWN_TASK', 'TASK_REQUIRES_PROCEDURE'],
+    'operation_record.create': _PW + ['INVALID_DATE'], 'operation_records.list': [], 'export.files': _PW,
 }
 MODEL_NONE_ZH = {
     'plant.configure': '只声明宿主实验室条件', 'temperature.set': '设定值只在过程层（屏上温度数字经宿主镜像）', 'co2.set': '设定值只在过程层（屏上CO2数字经宿主镜像）',
@@ -2291,10 +3158,50 @@ CAP_SOURCES.update({'temperature.set': [_WB, _BR, _OM], 'co2.set': [_WB, _BR, _O
                     'vessel.provide': [_TF, _HM, _CE, _SIM], 'vessel.place': [_OM, _TF], 'vessel.remove': [_OM], 'vessel.observe': [_SIM, _HM], 'vessel.inspect': [_SIM, _CE, _HM, _SA],
                     'provenance.read': [_HM, _CE, _TF, _SA]})
 CAP_SOURCES.update({k: [_OM] for k in UNSUPPORTED})
-PARAM_ZH = {'room_k': '实验室室温', 'room_rh': '室内相对湿度', 'ambient_pressure_pa': '大气压（绝压）', 'mains_voltage_v': '供电电压', 'co2_supply_pa': 'CO2进气压力（表压）',
+_DEVICE_FUNCTIONS = ('settings.configure', 'clock.set', 'network.create_certificate', 'relay.test', 'screen.lock', 'users.enable', 'users.disable', 'user.login',
+                     'user.logout', 'user.create', 'user.update', 'user.delete', 'user.reset_secret', 'user.change_secret', 'message.acknowledge',
+                     'recurring_task.define', 'recurring_task.edit', 'recurring_task.delete', 'recurring_task.confirm', 'operation_record.create',
+                     'operation_records.list', 'export.files')
+CAP_SOURCES.update({k: [_OM, _SIM] for k in _DEVICE_FUNCTIONS})
+MODEL_NONE_ZH.update({k: '只在过程层（触摸屏画面由panel.capture渲染）' for k in _DEVICE_FUNCTIONS})
+RESOURCES.update({'export.files': ['usb'], 'relay.test': ['rear_connectors']})
+_PANEL_FX = list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in EFFECTS.get(c, []))) + ['screen.locked', 'users.state']
+_PANEL_STEP = list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in EFFECTS.get(c, []) + ON_STEP.get(c, [])))
+for _k in _GESTURES:
+    EFFECTS[_k] = list(dict.fromkeys(_PANEL_FX))                             # a gesture changes what the commands it calls change
+    ON_STEP[_k] = list(dict.fromkeys(_PANEL_STEP + ['screen.locked', 'users.state']))
+    ON_STEP_ZH[_k] = '手势调用的能力随step演化；自动屏幕锁定与自动注销从这次触摸重新计时'
+    PRECONDITIONS[_k] = ('面板按当前画面与手册规则处理手势：关机时只有电源开关起作用；屏幕锁定时只有按住Unlock Screen起作用；用户权限不足的控件灰显不反应；'
+                         '被调用能力的前提同样适用（被拒时显示仪器自己的提示，手势不被接受）', ['power.enabled', 'screen.locked', 'users.state'])
+    CAP_ERRORS[_k] = ['PLANT_REQUIRED']
+PRECONDITIONS['panel.capture'] = ('已声明实验室条件（关机时为暗屏）', ['power.enabled'])
+PRECONDITIONS['panel.frame'] = ('无', ['plant.configured'])
+CAP_ERRORS.update({'panel.capture': ['PLANT_REQUIRED'], 'panel.frame': []})
+CAP_SOURCES.update({k: [_OM, _SIM] for k in PANEL_CAPS})
+MODEL_NONE_ZH.update({k: '没有3D模型绑定：屏幕纹理与开关关节联动属于后续Matterix步骤' for k in PANEL_CAPS})
+EXEC_TEXT.update({k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看',
+                      '一个手势可依次调用多个能力，前面已提交的不回滚（与真实触摸屏相同）；被拒的能力不改变状态') for k in _GESTURES})
+PARAM_ZH = {'display_id': '显示件（触摸屏）', 'x': '触点x（像素）', 'y': '触点y（像素）', 'duration_s': '按住时间', 'to_x': '拖动终点x', 'to_y': '拖动终点y',
+            'input_id': '输入件（电源开关）', 'position': '开关位置', 'settings': '设置键值（见设置表）', 'date': '日期YYYY-MM-DD', 'time': '时间HH:MM', 'locked': '锁定或解锁', 'login_mode': '登录方式（PIN或密码）',
+            'admin_name': '第一个管理员的用户名', 'secret': 'PIN或密码', 'user_id': '用户ID', 'name': '名称', 'full_name': '全名', 'email': '电子邮件', 'role': '角色',
+            'new_user_id': '新的用户ID', 'current': '当前PIN/密码', 'new': '新PIN/密码', 'all': '确认全部', 'task': '周期任务ID', 'warn': '逾期提醒',
+            'interval': '间隔', 'reminder_days': '提前提醒天数', 'start_date': '开始日期', 'finish_date': '结束日期', 'kinds': '导出的数据',
+            'room_k': '实验室室温', 'room_rh': '室内相对湿度', 'ambient_pressure_pa': '大气压（绝压）', 'mains_voltage_v': '供电电压', 'co2_supply_pa': 'CO2进气压力（表压）',
             'n2_supply_pa': 'N2进气压力（表压）', 'noise_seed': '噪声随机数种子（只在首次声明时生效）'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.incubator_process.limitations。'
 CAP_LIMITS = {
+    'settings.configure': ['设备设置为键值模型：网络设置只保存并显示（仿真中没有网络、时间服务器与VisioNize连接）；声音只记录模式与音量（没有音频，“Alarms”模式下门报警不响）；'
+                           '主页关掉O2时O2传感器关闭（N2控制停止），再打开时重新初始化10 min；自动注销与自动屏幕锁定以前面板最后一次触摸为起点。'],
+    'clock.set': ['设备时钟=宿主时钟（2026-01-01 00:00 UTC起，假设）+手动偏移+时区（固定UTC偏移，不含夏令时）；自动日期时间取宿主时钟作为时间服务器。'],
+    'users.enable': ['PIN为4–8位数字、密码6–16个字符（手册未给格式，假设）；权限表按手册p.104，在触摸屏层执行，直接API调用代表远程/宿主，不按登录用户限制（用户管理命令本身要求管理员）。'],
+    'user.create': ['初始PIN/密码由设备按噪声种子确定性生成（4位PIN或8个字符）；用户数据导出为export.files的user_data。'],
+    'message.acknowledge': ['信息栏消息为报警、错误与警告（_WARNING）与到期的周期任务；“当前消息”为最新的一条；确认后从信息栏删除，报警本身持续到恢复。'],
+    'recurring_task.define': ['间隔按每天1 d、每周7 d、每月30 d、每年365 d；提前提醒天数为手册“reminder”的解释（假设）；自定义任务最多4个（与tasks.list的上限一致，假设）。'],
+    'operation_record.create': ['运行记录的结果按期间（设备本地日期）的报警、错误与警告事件判定；初始参数为创建时的设定值与报警限；导出PDF为文件摘要（不生成真实PDF）。'],
+    'export.files': ['导出到模拟U盘：只生成文件名、大小与行数（与data.export相同）；服务数据为事件与曲线的打包摘要。'],
+    'relay.test': ['测试期间4个继电器都处于报警位15 s（手册未说是否只测所选继电器，假设全部）。'],
+    **{k: ['面板层按panel_ui.json（手册页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟；手册未写之处的选择见panel_ui.json的assumptions。']
+       for k in PANEL_CAPS},
     'temperature.set': ['控温为空气温度PI外环+壁温内环的工程控制器（厂家未公开算法）；热容、热导按高温消毒约14 h与恢复曲线标定，未用实测温度场；均匀性（±0.3 K）与27点分布未建模（单节点空气）。'],
     'co2.set': ['NDIR读CO2分压并按101.325 kPa换算为%（未做气压补偿，工程假设）；注气阀最大流量、关门泄漏率与开门交换率按产品册恢复曲线标定。'],
     'o2.set': ['ZrO2读O2分压；N2最大流量为工程值；O2上限受CO2与水汽稀释（高CO2时达不到高O2）。'],
@@ -2335,6 +3242,7 @@ def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
     extra = ['ACCESS_DENIED'] if (k in _CONTROL_GUARDED or k in _OWNED_VESSEL or CAPS[k]['visibility'] != 'agent') else []
+    extra += ['REMOTE_DISABLED'] if k in REMOTE_CAPS else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 

@@ -84,9 +84,33 @@ class MiVacTests(unittest.TestCase):
   for cap in ['evaporation.measure','product.read','history.read','reference.lookup']:
    args=CAPS[cap][6];out=r.invoke(cap,**args);self.assertEqual(tool.validate_value(out,CAPS[cap][1]),[],cap)
   for k,v in r._values().items():self.assertEqual(tool.validate_value(v,SLOTS[k][0]),[],k)
-  self.assertEqual(len(meta['capabilities']),13)
+  self.assertEqual(len(meta['capabilities']),18+len(PANEL_CAPS))   # 13 process commands, the 3 control-panel functions, fault.inject / fault.clear (1.2.0) and the panel.* gestures
  def test_24_step_partition_close(self):
   a=prepared();b=prepared();a.invoke('acquisition.start');b.invoke('acquisition.start');a.step(30.)
   for _ in range(300):b.step(.1)
   self.assertAlmostEqual(a._fraction(),b._fraction(),places=10);self.assertAlmostEqual(a.pressure,b.pressure,places=7);self.conserve(a);self.conserve(b)
+class ControlPanelFunctions(unittest.TestCase):
+ """The miVac control-panel functions (manual section 5): SELECT settings, MANUAL / AUTO runs, PRE-HEAT and its latch, AUTO display mode."""
+ def test_25_run_configure_settings_and_no_heating(self):
+  r=prepared();out=r.invoke('run.configure',program='water',duration_s=600.,heating_time_s=300.,auto_display='heat')['settings']
+  self.assertEqual((out['program'],out['total_s'],out['heat_s'],out['auto_display'],r.method['program']),('water',600.,300.,'heat','water'))
+  r.invoke('run.configure',temperature_k=None);self.assertTrue(r.read()['controls.state']['heat_off']);r.invoke('acquisition.start');t=r.temperature;r.step(5.);self.assertEqual(r.temperature,t)
+  r.invoke('acquisition.stop');r.step(30.);r.invoke('temperature.set',temperature_k=323.15);self.assertFalse(r.heat_off)
+  for a in [dict(temperature_k=353.15),dict(duration_s=10.)]:
+   before=r.debug_snapshot()
+   with self.assertRaises(ActionRejected):r.invoke('run.configure',**a)
+   self.assertEqual(before,r.debug_snapshot())
+  r.invoke('acquisition.start')
+  with self.assertRaisesRegex(ActionRejected,'BUSY'):r.invoke('run.configure',program='other')
+ def test_26_manual_runs_until_stop_and_auto_stops(self):
+  r=prepared(method=dict(METHOD_EXAMPLE,duration_s=30.,timeout_s=1000.));r.invoke('run.start',mode='manual');r.step(60.);self.assertEqual((r.phase,r.run_mode),('running','manual'));self.assertAlmostEqual(r.elapsed_s,60.)
+  r.invoke('acquisition.stop');self.assertEqual(r.phase,'cancelled');MiVacTests.conserve(self,r)
+  r=prepared(method=dict(METHOD_EXAMPLE,duration_s=30.,timeout_s=1000.));r.invoke('run.start',mode='auto');r.step(40.);self.assertEqual(r.phase,'succeeded');self.assertAlmostEqual(r.elapsed_s,30.)
+ def test_27_preheat_and_latch(self):
+  r=prepared(method=dict(METHOD_EXAMPLE,duration_s=20.,timeout_s=1000.));self.assertEqual(r.invoke('preheat.set',on=True),dict(on=True,latched=False));r.step(200.);self.assertAlmostEqual(r.temperature,313.15,places=3)
+  r.invoke('run.start',mode='auto');self.assertFalse(r.preheat);r.step(30.);self.assertFalse(r.preheat)
+  r.invoke('preheat.set',on=True,latched=True);self.assertTrue(r.preheat_latched);r=prepared(method=dict(METHOD_EXAMPLE,duration_s=20.,timeout_s=1000.));r.invoke('preheat.set',on=True,latched=True)
+  r.invoke('run.start',mode='auto');r.step(30.);self.assertEqual(r.phase,'succeeded');self.assertTrue(r.preheat)        # the latch keeps the chamber warm between runs
+  r.invoke('preheat.set',on=False);self.assertFalse(r.preheat_latched);r.invoke('preheat.set',on=True,latched=True);r.invoke('power.set',enabled=False);self.assertFalse(r.preheat or r.preheat_latched)
+  with self.assertRaisesRegex(ActionRejected,'PRECONDITION_FAILED'):r.invoke('preheat.set',on=True)
 if __name__=='__main__':unittest.main()

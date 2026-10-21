@@ -1,6 +1,6 @@
 """Fetch ChemLab-Assets models and data from Hugging Face into this repository.
 
-    python tools/download_assets.py                      # all instruments (about 1.5 GB)
+    python tools/download_assets.py                      # all instruments (about 1.9 GB)
     python tools/download_assets.py esco_efa5uduvw mt_xpr204e
                                                          # selected instruments, by slug or CHEM ID
     python tools/download_assets.py --data-only          # contracts and data, no meshes or Blender files

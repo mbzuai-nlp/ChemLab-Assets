@@ -74,4 +74,45 @@ class SprayDryingTests(unittest.TestCase):
   a.step(5)
   for _ in range(50):b.step(.1)
   self.balance(a);self.balance(b);self.assertAlmostEqual(a.vapor,b.vapor,places=10);self.assertAlmostEqual(a.pools['product']['s'],b.pools['product']['s'],places=10)
+class ControllerFunctions(unittest.TestCase):
+ """1.1 touch-screen controller functions (operation manual S-300 11594255 C)."""
+ def base(self):
+  h=BuchiMinisprayRuntime();h.invoke('plant.configure',**EXAMPLE);h.invoke('sample.configure',**dict(SAMPLE_EXAMPLE,volume_m3=2e-6));h.invoke('method.configure',**METHOD_EXAMPLE);h.invoke('power.set',enabled=True);return h
+ def test_15_tiles_start_stop_in_the_manual_order(self):
+  h=self.base()
+  with self.assertRaises(ActionRejected):h.invoke('heating.set',enabled=True)                                   # no drying gas yet
+  h.invoke('drying_gas.set',drying_gas_m3_s=30/3600,enabled=True);h.invoke('dispersion_gas.set',spray_gas_m3_s=500e-3/3600,enabled=True);h.invoke('heating.set',inlet_target_k=433.15,enabled=True)
+  self.assertEqual((h.method['drying_gas_m3_s'],h.method['spray_gas_m3_s'],h.method['inlet_target_k']),(30/3600,500e-3/3600,433.15));h.step(20.)
+  h.invoke('pump.set',feed_m3_s=4e-6/60);h.invoke('acquisition.start');h.step(40.);self.assertEqual(h.phase,'succeeded');SprayDryingTests.balance(self,h)
+  r=h.read()['runs.list'];self.assertEqual(len(r),1);self.assertTrue(r[0]['open']);self.assertAlmostEqual(r[0]['feed_m3'],4e-6/60*h.elapsed_s,delta=1e-15)   # 1.1.1: the controller's number (set flow x pumping time)
+  with self.assertRaises(ActionRejected):h.invoke('drying_gas.set',enabled=False)                                # heater still on
+  h.invoke('dispersion_gas.set',enabled=False);h.invoke('heating.set',enabled=False);h.step(30.);h.invoke('drying_gas.set',enabled=False)
+  self.assertFalse(h.read()['runs.list'][0]['open']);self.assertGreater(h.read()['instrument.counters']['aspirator_s'],80.)
+ def test_16_no_dispersion_gas_drips_and_keep_recording(self):
+  h=self.base();h.invoke('drying_gas.set',enabled=True);h.invoke('heating.set',enabled=True);h.step(20.);h.invoke('acquisition.start');h.step(5.)
+  self.assertGreater(h.mass(h.pools['wet_reject']),0.);self.assertEqual(h.vapor,0.);SprayDryingTests.balance(self,h)          # no spray gas: the feed drips
+  h.invoke('acquisition.stop');h.invoke('heating.set',enabled=False);h.step(30.);h.invoke('drying_gas.set',enabled=False,keep_recording=True)
+  self.assertTrue(h.read()['runs.list'][0]['open']);h.invoke('runs.save');self.assertFalse(h.read()['runs.list'][0]['open'])
+  rid=h.read()['runs.list'][0]['run_id'];h.invoke('runs.delete',run_id=rid);self.assertEqual(h.read()['runs.list'],[])
+  for cap,a in [('runs.save',{}),('runs.delete',dict(run_id=rid))]:
+   with self.assertRaises(ActionRejected):h.invoke(cap,**a)
+ def test_17_pump_calibration_corrects_the_feed(self):
+  h=self.base();h.invoke('pump.configure_error',delivery_factor=.8);h.invoke('pump.calibrate',volume_m3=10e-6,time_s=60.)
+  with self.assertRaises(ActionRejected):h.invoke('pump.set_calibration',difference_m3=2e-6)
+  h.step(61.);c=h.read()['pump.calibration'];self.assertEqual(c['state'],'done');self.assertAlmostEqual(c['delivered_m3'],10e-6,delta=1e-12)   # 1.1.1: the controller shows the target
+  cyl=h.read()['calibration.cylinder_m3'];self.assertAlmostEqual(cyl,8e-6,delta=1e-9)                                                    # the measuring cylinder holds 8 mL
+  self.assertEqual(h.notices[-1]['code'],'calibration_done');h.invoke('pump.set_calibration',difference_m3=10e-6-cyl);self.assertAlmostEqual(h.pump_corr,1.25,places=6)
+  self.assertAlmostEqual(h._feed_factor(),1.,places=9);h.invoke('notifications.acknowledge');self.assertEqual(h.read()['notifications.active'],[]);self.assertEqual(len(h.read()['notifications.logs']),1)
+ def test_18_settings_clock_deblock_and_filter_notice(self):
+  h=self.base();h.invoke('settings.configure',key='units.temperature',value='F');h.invoke('settings.configure',key='display.brightness',value=60)
+  for k,v in [('display.brightness',5),('units.temperature','K'),('focus.1','Nothing'),('sound.key_clicks','yes')]:
+   with self.assertRaises(ActionRejected):h.invoke('settings.configure',key=k,value=v)
+  h.invoke('clock.set',date='2026-10-19',time='09:30');self.assertEqual(h.read()['controller.datetime'],'2026-10-19T09:30');h.step(120.);self.assertEqual(h.read()['controller.datetime'],'2026-10-19T09:32')
+  for d,t in [('2026-02-30','10:00'),('19.10.2026','10:00')]:
+   with self.assertRaises(ActionRejected):h.invoke('clock.set',date=d,time=t)
+  h.invoke('settings.configure',key='datetime.automatic',value=True)
+  with self.assertRaises(ActionRejected):h.invoke('clock.set',date='2026-10-19',time='10:00')
+  h.invoke('deblock.set',per_min=30);h.invoke('drying_gas.set',enabled=True);h.invoke('dispersion_gas.set',enabled=True);h.step(60.);self.assertAlmostEqual(h.read()['deblock.pulses'],30.,places=6)
+  h.pools['filter']['s']=3e-4;h.step(1.);self.assertEqual(h.notices[-1]['code'],'filter_blockage')
+  m=export_buchi_minispray_contract_metadata();self.assertTrue(set(DEVICE_CAPS)<=set(m['capabilities']));self.assertEqual(set(m['state_slots']),set(h.read('evaluator')))
 if __name__=='__main__':unittest.main()

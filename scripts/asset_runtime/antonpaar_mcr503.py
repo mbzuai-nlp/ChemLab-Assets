@@ -6,7 +6,7 @@ moduli. The parallel-plate integrals, Maxwell transient energy, torque observati
 and inverse analyses are separate. No motor/contact/fluid CFD or OEM DSP is claimed.
 """
 from __future__ import annotations
-import copy, importlib.util, json, math
+import copy, hashlib, importlib.util, json, math, os, tempfile
 from pathlib import Path
 import numpy as np
 from scipy.optimize import least_squares
@@ -106,6 +106,11 @@ cap('thermal.set_temperature',obj({'temperature_k':number('K',273.15,373.15)}),o
 cap('thermal.disable',obj({}),obj({'enabled':BOOL}),['sample_plate'],'关闭温控，保持实际热状态并自然散热')
 cap('method.configure',METHOD,obj({'configured':BOOL}),['controller','rotor'],'配置恒剪切或单频振荡、内部采样和尾窗；真实物理不随配置推进','configuration',example=METHOD_EXAMPLE)
 cap('sensor.calibrate',CALIBRATION,obj({'configured':BOOL}),['controller'],'写入独立来源的扭矩增益/零点校正，不偷读隐藏本构真值','configuration',example=CALIBRATION_EXAMPLE)
+cap('sensor.configure_error',obj({'motor_residual_nm':number('N*m',-1e-4,1e-4)}),obj({'motor_residual_nm':number('N*m')}),['rotor','controller'],
+    '评测者：设定转动中驱动的电机残余扭矩（轴承/电机拖曳，旋转模式叠加到扭矩读数），默认0即理想；电机调整按测量系统测出并扣除（真实容差留待sim-to-real任务）','configuration','evaluator',{'motor_residual_nm':0.})
+cap('fault.inject',obj({'code':dict(type='string',enum=['NO_AIR_PRESSURE'])}),obj({'code':TEXT,'phase':PHASE}),['controller','rotor','head_lift'],
+    '评测者注入手册记载的错误“NO AIR PRESSURE!”（mcr p.17、p.21：空气轴承无压缩空气）：状态栏显示该错误，运行中的测量停止（failed），驱动与测量头停止；错误显示期间启动测量、移动测量头、仪器程序与引导测试被拒（NO_AIR_PRESSURE）','simulation','evaluator',{'code':'NO_AIR_PRESSURE'})
+cap('fault.clear',obj({}),obj({'cleared':BOOL}),['controller'],'评测者恢复空气供应（手册：检查气源）；状态恢复O.K.','simulation','evaluator')
 cap('acquisition.start',obj({}),obj({'operation_id':TEXT}),['controller','rotor','sample_plate'],'启动异步旋转或振荡；后续由step产生角位移、应力响应及观测')
 cap('acquisition.stop',obj({}),obj({'phase':PHASE,'elapsed_s':number('s',0)}),['controller','rotor'],'停转并冻结采样；Maxwell残余应力随后松弛并释放弹性能')
 cap('acquisition.result',obj({}),RESULT,['controller'],'公开返回冻结曲线与由实际力矩导出的黏度/G，所有session统一隐藏选中参考身份','query')
@@ -132,17 +137,80 @@ slot('thermal.target_k',number('K',273.15,373.15),'K','温控目标，成功不�
 slot('thermal.indicated_k',nullable(number('K')),'K','集中温控温度量化观测，不是厂家精度证明','sensor',component='sample_plate')
 slot('torque.indicated_nm',nullable(number('N*m')),'N*m','经过显式增益零点校准及0.05nNm量化；低于模式下限或超量程为null','sensor',component='rotor')
 slot('clock.time_s',number('s',0),'s','唯一宿主仿真时钟')
+slot('sensor.errors',obj({'motor_residual_nm':number('N*m')}),'1','评测者设定的电机残余扭矩（默认0）；电机调整按测量系统存储修正','process_truth','evaluator','rotor')
+slot('fault.no_air_pressure',BOOL,'1','评测者注入的NO AIR PRESSURE!（空气轴承无气源）是否存在；屏幕状态栏显示该错误','process_truth','evaluator')
 slot('acquisition.phase',PHASE,'1','异步采集状态')
 slot('acquisition.elapsed_s',number('s',0),'s','本次实际采集时间')
 slot('acquisition.points',{'type':'integer','minimum':0,'maximum':200001,'x-unit':'1'},'1','实际内部网格采样数')
 for key,unit,meaning in [('truth.temperature_k','K','集中样品/温控台过程温度'),('truth.viscosity_pa_s','Pa*s','选中参考黏度，不是测量输出'),('truth.stress_pa','Pa','边缘本构应力'),('truth.torque_nm','N*m','平行板积分真实扭矩'),('truth.mass_kg','kg','样品质量'),('truth.elastic_j','J','Maxwell储存弹性能')]:slot(key,nullable(number(unit)),unit,meaning,'process_truth','evaluator')
 slot('model.fault',nullable(TEXT),'1','本构、温度或量程故障')
 
+# ---------------------------------------------------------------- front panel and its device layer (touch screen; panel_ui.json beside the contract)
+# Approximate: no MCR 503 / xx3 instruction manual is saved.  The status fields, the MCR menu, the head positions and Init / Zero / motor adjustment
+# follow the MCR 702e manual (related xx2 model, 'mcr p.N'); touch operation and guided tests follow the MCR brochure ('bro p.N') and the
+# manufacturer photo of the 503 screen (a guided-test step: 'k/N', step name, instruction, SKIP, ABORT, live curve with tolerance limits).
+ASSET_VERSION='1.3.0';SERIAL='MCR503-0001'
+LIFT_GAP=.08;HEAD_STEP_M=.001;BOOT_S=6.;INIT_S=5.;MOTOR_ADJUST_S=60.;CLOCK0_MIN=8*60
+MCR_SETTINGS={'connection':(enum(['Ethernet','USB','RS 232']),'Ethernet'),'status_information':(enum(['OFF','ON','Air Pressure']),'ON'),
+ 'motion_warning':(BOOL,True),'show_temperature':(BOOL,True),'error_warning':(BOOL,True),
+ 'test.temperature_c':(number('°C',0.,100.),25.),'test.gap_mm':(number('mm',.1,5.),1.),'test.equilibration_s':({'type':'integer','x-unit':'s','minimum':0,'maximum':600},0)}
+TEMPLATES={'viscosity':dict(name='Viscosity at constant shear rate',mode='rotation',method=dict(METHOD_EXAMPLE)),
+ 'oscillation':dict(name='Moduli at constant amplitude and frequency',mode='oscillation',method=dict(METHOD_EXAMPLE,mode='oscillation',strain_amplitude=.01,frequency_hz=1.,duration_s=5.,sample_interval_s=.05,discard_time_s=2.))}
+TEST_STEPS=[('measuring_system','Measuring system'),('zero_gap','Zero gap'),('lift','Lift position'),('measuring','Measuring position'),('device','Device'),('measurement','Measurement'),('results','Results')]
+SKIPPABLE=('zero_gap','device')
+PROCEDURE_NAMES={'initialize':'Initializing','zero_gap':'Setting the zero gap','motor_adjustment':'Motor adjustment'}
+ANYOBJ={'type':'object'};INT={'type':'integer','x-unit':'1','minimum':0}
+SETTINGS_SCHEMA=dict(type='object',properties={k:v[0] for k,v in MCR_SETTINGS.items()},additionalProperties=False,minProperties=1)
+cap('settings.configure',obj({'settings':SETTINGS_SCHEMA}),obj({'settings':ANYOBJ}),['controller','display_glass'],'MCR菜单设置（连接、状态信息、运动警告、显示温度、错误警告）与引导测试参数（温度、测量间隙、平衡时间）；RS 232仅供服务','configuration',example={'settings':{'motion_warning':False}})
+cap('head.move',obj({'position':enum(['lift','measuring','up','down','stop'])}),obj({'target_gap_m':number('m',0,.08)}),['head_lift','controller'],'测量头：升到装样位、到测量间隙、上/下1 mm、停止；与geometry.set_gap相同的检查',example={'position':'lift'})
+cap('instrument.procedure',obj({'procedure':enum(list(PROCEDURE_NAMES))}),obj({'procedure':TEXT,'phase':TEXT}),['controller','head_lift','rotor'],'仪器程序：初始化（测量头回参考位）、零间隙测定（无样品，测量头下行接触后回升）、电机调整（无样品）；宿主step推进',example={'procedure':'initialize'})
+cap('test.start',obj({'template':enum(list(TEMPLATES))}),obj({'step':INT,'name':TEXT}),['controller','display_glass'],'触摸屏引导测试：按当前方法开始（测量系统、零间隙、装样位、测量位、温度平衡、测量、结果七步）',example={'template':'viscosity'})
+cap('test.confirm',obj({}),obj({'step':INT}),['controller','display_glass'],'引导测试当前步骤<OK>：检查后进入下一步（测量头移动、设温、开始采集、结果后升头结束）')
+cap('test.skip',obj({}),obj({'step':INT}),['controller','display_glass'],'引导测试<SKIP>：跳过零间隙或温度平衡步骤')
+cap('test.abort',obj({}),obj({'aborted':BOOL}),['controller','display_glass'],'引导测试<ABORT>：停止采集与零间隙程序并结束测试')
+cap('messages.acknowledge',obj({'id':nullable(INT)}),obj({'remaining':INT}),['display_glass'],'确认（删除）一条或全部消息',example={'id':None})
+for key,s,meaning,component in [('device.settings',ANYOBJ,'MCR菜单设置与引导测试参数','controller'),('device.messages',{'type':'array','items':ANYOBJ},'仪器消息（测试结束/中止、程序完成、错误）','display_glass'),
+ ('device.procedure',nullable(ANYOBJ),'正在进行的仪器程序（初始化/零间隙/电机调整）及进度','controller'),('device.status',ANYOBJ,'仪器状态：连接、已初始化、零间隙已设、电机已调整、开机中','controller'),
+ ('test.state',nullable(ANYOBJ),'引导测试：步骤k/N、名称、提示、可跳过、曲线点与容差、结果','display_glass')]:slot(key,s,'1',meaning,'derived' if key!='device.settings' else 'setpoint',component=component)
+ERROR_TEXT={'PRECONDITION_FAILED':'The instrument is not ready (power, measuring system, sample).','BUSY':'The instrument is busy.',
+ 'GAP_FILL_MISMATCH':'The gap does not match the sample filling.','REFERENCE_TEMPERATURE_RANGE':'The temperature is outside the tolerance.',
+ 'TORQUE_OVERLOAD':'Torque limit exceeded.','ANGULAR_SPEED_RANGE':'Speed limit exceeded.','SAMPLE_GRID':'Implausible test duration or sampling interval.',
+ 'OSCILLATION_SAMPLING':'Too few points per oscillation cycle.','ANALYSIS_WINDOW':'The analysis window is too short.',
+ 'HB_OSCILLATION_UNSUPPORTED':'This sample model cannot be measured in oscillation.','SQUEEZE_FLOW_UNSUPPORTED':'The gap is smaller than the sample filling.',
+ 'NO_SAMPLE':'No sample loaded.','SAMPLE_PRESENT':'Remove the sample first.','HEAD_MOVING':'Wait until the measuring head has stopped.',
+ 'NO_MEASURING_SYSTEM':'No measuring system detected.','TORQUE_BELOW_RANGE':'Torque below the measuring range.','POWER_OFF':'Power off.',
+ 'USER_CANCEL':'Stopped by the user.','NOT_ALLOWED':'Not allowed in this step.',
+ 'SERVICE_ONLY':'RS 232 is reserved for service purposes.','NO_PROCEDURE':'No test is running.','INVALID_ARGUMENT':'Invalid input.',
+ 'ACCESS_DENIED':'Started by another session: only that session can stop or change it.',
+ 'NO_AIR_PRESSURE':'NO AIR PRESSURE! Check the air supply.'}
+DEVICE_CAPS=('settings.configure','head.move','instrument.procedure','test.start','test.confirm','test.skip','test.abort','messages.acknowledge')
+_ENG=None
+def _engine():
+    """The generic front-panel engine (scripts/asset_runtime/_panel_ui.py), imported as a sibling or from its file."""
+    global _ENG
+    if _ENG is None:
+        try:
+            from . import _panel_ui as e
+        except ImportError:
+            import sys
+            if '_chemsim_panel_ui' not in sys.modules:
+                spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));m=importlib.util.module_from_spec(spec);sys.modules['_chemsim_panel_ui']=m;spec.loader.exec_module(m)
+            e=sys.modules['_chemsim_panel_ui']
+        _ENG=e
+    return _ENG
+def check_args(k,a):
+    """Strict schema check of the original commands; the device-layer and panel commands have optional keys (engine checker)."""
+    if k in DEVICE_CAPS or k.startswith('panel.'):
+        if not isinstance(a,dict) or _engine().check_arguments(CAPS[k]['input_schema'],a):raise ActionRejected('INVALID_ARGUMENT')
+    else:validate(CAPS[k]['input_schema'],a)
+
 class AntonpaarMcr503Runtime:
     def __init__(self,instance_id='mcr503_01'):
         self.instance_id=instance_id;self.plant=None;self.geometry=None;self.sample=None;self.reference=None;self.power=False;self.thermal_enabled=False;self.temperature=298.15;self.target=298.15;self.gap=.08;self.target_gap=.08;self.angle=0.;self.speed=0.;self.stress=0.;self.torque=0.;self.elastic=0.
         self.time_ns=0;self._clock_remainder_ns=0.;self.revision=0;self.method=copy.deepcopy(METHOD_EXAMPLE);self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.phase='idle';self.elapsed=0.;self.rows=[];self.mean_viscosity=None;self.osc_fit=None;self.error=None;self.model_fault=None;self.operation_id=None;self._counter=0;self._start_ns=0;self._next_sample=0;self._start_angle=0.;self._initial_stress=0.;self._source=None;self._reference_id=None;self._evidence='no_measurement';self.records={};self._principals={};self._requests={};self._owners={};self._cancel_operations={}
         self.mass_loaded=self.mass_removed=self.volume_loaded=self.volume_removed=self.mechanical_work=self.viscous_heat=self.elastic_removed=self.controller_input=self.ambient_loss=self.loaded_heat=self.removed_heat=0.
+        self.dev=self._new_dev();self.panel_state=None;self.panel_capture_dir=None   # touch-screen device layer (plain data) and the panel UI state
+        self.motor_error={'motor_residual_nm':0.};self._caller=None;self.air_fault=False   # air_fault: evaluator-injected NO AIR PRESSURE! (mcr p.17, p.21)   # evaluator motor residual torque; the principal of the session call in progress (caller rules)
     @property
     def time_s(self):return self.time_ns/1e9
     def register_principal(self,principal_id,visibility='agent'):
@@ -157,7 +225,9 @@ class AntonpaarMcr503Runtime:
     def _capacity(self):return self.plant['plate_capacity_j_k']+(self._mass()*self.sample['heat_capacity_j_kg_k'] if self.sample else 0.)
     def _indicated_torque(self,torque,mode=None):
         if not self.power:return None
-        value=(self.plant['torque_gain']*torque+self.plant['torque_offset_nm']-self.calibration['torque_zero_nm'])*self.calibration['torque_gain_correction'] if self.plant else 0.
+        rot=(mode or self.method['mode'])=='rotation' and self.phase=='running'          # the drive's residual torque while it turns, less the motor adjustment of this measuring system
+        drag=self.plant['torque_gain']*self.motor_error['motor_residual_nm']-self.dev['motor_adjust'].get(self._dev_values_ms(),0.) if self.plant and rot else 0.
+        value=(self.plant['torque_gain']*torque+self.plant['torque_offset_nm']+drag-self.calibration['torque_zero_nm'])*self.calibration['torque_gain_correction'] if self.plant else 0.
         minimum=TORQUE_OSCILLATION_MIN if (mode or self.method['mode'])=='oscillation' else TORQUE_ROTATION_MIN
         if abs(value)<minimum or abs(value)>TORQUE_MAX:return None
         return float(round(value/TORQUE_RESOLUTION)*TORQUE_RESOLUTION)
@@ -165,6 +235,7 @@ class AntonpaarMcr503Runtime:
     def read(self,role='evaluator'):
         if role not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
         values={'plant.configured':self.plant is not None,'geometry.configured':self.geometry is not None,'sample.present':self.sample is not None,'power.enabled':self.power,'thermal.enabled':self.thermal_enabled,'geometry.moving':self._moving(),'geometry.gap_m':self.gap,'geometry.target_gap_m':self.target_gap,'rotor.angle_rad':self.angle,'rotor.orientation_rad':math.atan2(math.sin(self.angle),math.cos(self.angle)),'rotor.speed_rad_s':self.speed,'power.angle_rad':.28 if self.power else 0.,'thermal.target_k':self.target,'thermal.indicated_k':self._indicated_temperature(),'torque.indicated_nm':self._indicated_torque(self.torque),'clock.time_s':self.time_s,'acquisition.phase':self.phase,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'truth.temperature_k':self.temperature if self.plant else None,'truth.viscosity_pa_s':self.sample['eta'] if self.sample else None,'truth.stress_pa':self.stress if self.sample else None,'truth.torque_nm':self.torque if self.sample else None,'truth.mass_kg':self._mass() if self.sample else None,'truth.elastic_j':self.elastic,'model.fault':self.model_fault}
+        values.update(self._dev_values());values['sensor.errors']=dict(self.motor_error);values['fault.no_air_pressure']=self.air_fault
         return {k:v for k,v in values.items() if role!='agent' or SLOTS[k]['visibility']=='agent'}
     def _thermal(self,dt):
         if not self.plant:return
@@ -220,9 +291,29 @@ class AntonpaarMcr503Runtime:
     def _ledger(self):
         volume=self.sample['volume_m3'] if self.sample else 0.;heat=self._capacity()*(self.temperature-self.plant['ambient_k']) if self.plant else 0.
         return dict(mass_loaded_kg=self.mass_loaded,mass_present_kg=self._mass(),mass_removed_kg=self.mass_removed,mass_error_kg=self.mass_loaded-self._mass()-self.mass_removed,volume_loaded_m3=self.volume_loaded,volume_present_m3=volume,volume_removed_m3=self.volume_removed,volume_error_m3=self.volume_loaded-volume-self.volume_removed,mechanical_work_j=self.mechanical_work,viscous_heat_to_thermostat_j=self.viscous_heat,elastic_stored_j=self.elastic,elastic_removed_j=self.elastic_removed,mechanical_error_j=self.mechanical_work-self.viscous_heat-self.elastic-self.elastic_removed,controller_input_j=self.controller_input,ambient_loss_j=self.ambient_loss,sample_loaded_heat_j=self.loaded_heat,sample_removed_heat_j=self.removed_heat,thermal_stored_j=heat,thermal_error_j=self.controller_input+self.loaded_heat-self.ambient_loss-self.removed_heat-heat)
+    def _guard(self,k,a):
+        """Caller rules of the sessions, for a direct call and for the command a panel gesture calls alike (the session sets _caller): an agent may
+        not stop or read the result of another caller's measurement, nor abort, confirm or skip another caller's guided test.  The rear main power
+        switch (power.set) is a hard switch: never refused, the instrument reacts as to a power loss (lead rule 2026-10-19)."""
+        c=self._caller
+        if c is None or self._principals.get(c)!='agent':return
+        op_owner=self._owners.get(self.operation_id) if self.operation_id else None;t=self.dev['test'];t_owner=t.get('owner') if t else None
+        if k in ('acquisition.stop','acquisition.result') and self.operation_id and op_owner!=c:raise ActionRejected('ACCESS_DENIED')
+        if k in ('test.abort','test.confirm','test.skip') and t_owner is not None and t_owner!=c:raise ActionRejected('ACCESS_DENIED')
     def invoke(self,capability,**a):
         if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-        validate(CAPS[capability]['input_schema'],a)
+        check_args(capability,a)
+        self._guard(capability,a)
+        if capability=='fault.inject':
+            self.air_fault=True                                              # the air bearing has no supply: the drive and the head stop
+            if self.phase=='running':self._finish('failed','NO_AIR_PRESSURE')
+            self.dev['procedure']=None;self.target_gap=self.gap;self.revision+=1
+            return {'code':a['code'],'phase':self.phase}
+        if capability=='fault.clear':cleared=self.air_fault;self.air_fault=False;self.revision+=1;return {'cleared':cleared}
+        if self.air_fault and (capability in ('acquisition.start','geometry.set_gap','instrument.procedure','test.start','test.confirm') or
+                               (capability=='head.move' and a.get('position')!='stop')):raise ActionRejected('NO_AIR_PRESSURE')   # mcr p.21: do not continue
+        if capability in DEVICE_CAPS:return self._device_invoke(capability,a)
+        if capability.startswith('panel.'):return self._panel_command(capability,a)
         if capability in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
         if capability=='analysis.flow_curve':return fit_flow(**a)
         if capability=='analysis.oscillation':return fit_oscillation(**a)
@@ -256,8 +347,10 @@ class AntonpaarMcr503Runtime:
             self.target_gap=a['gap_m'];out={'target_gap_m':self.target_gap}
         elif capability=='power.set':
             if not a['enabled'] and self.phase=='running':self._finish('cancelled','POWER_OFF')
-            self.power=a['enabled']
+            was=self.power;self.power=a['enabled']
             if not self.power:self.thermal_enabled=False
+            if self.power and not was:self.dev['power_epoch']+=1;self.dev['boot_until']=self.time_s+BOOT_S     # bro p.4: the MCR starts in six seconds
+            if was and not self.power:self.dev['test']=None;self.dev['procedure']=None
             out={'enabled':self.power}
         elif capability=='thermal.set_temperature':
             if not self.plant or not self.power:raise ActionRejected('PRECONDITION_FAILED')
@@ -270,6 +363,7 @@ class AntonpaarMcr503Runtime:
             if a['mode']=='oscillation' and (a['sample_interval_s']>1/(20*a['frequency_hz'])+1e-12 or a['duration_s']-a['discard_time_s']<2/a['frequency_hz']):raise ActionRejected('OSCILLATION_SAMPLING')
             self.method=copy.deepcopy(a);out={'configured':True}
         elif capability=='sensor.calibrate':self.calibration=copy.deepcopy(a);out={'configured':True}
+        elif capability=='sensor.configure_error':self.motor_error=dict(a);out=dict(a)
         elif capability=='acquisition.start':
             if not self.power or not self.plant or not self.geometry or not self.sample or self._moving():raise ActionRejected('PRECONDITION_FAILED')
             if abs(self.gap-self.sample['volume_m3']/(math.pi*self.geometry['radius_m']**2))>1e-9:raise ActionRejected('GAP_FILL_MISMATCH')
@@ -287,6 +381,14 @@ class AntonpaarMcr503Runtime:
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
         self.revision+=1;return copy.deepcopy(out)
     def step(self,dt_s):
+        """Host clock.  While a guided test or an instrument procedure runs the device layer is ticked at least every 0.5 s."""
+        validate(number('s',0,86400),dt_s)
+        if self.dev['test'] is None and self.dev['procedure'] is None:
+            self._step_physics(dt_s);self._device_tick(dt_s);return
+        n=max(1,math.ceil(dt_s/.5-1e-9))
+        for _ in range(n):
+            self._step_physics(dt_s/n);self._device_tick(dt_s/n)
+    def _step_physics(self,dt_s):
         validate(number('s',0,86400),dt_s);total_ns=math.fsum((self._clock_remainder_ns,dt_s*1e9));ns=round(total_ns);self._clock_remainder_ns=total_ns-ns
         if ns==0:return
         end_ns=self.time_ns+ns;dt=ns/1e9
@@ -318,6 +420,208 @@ class AntonpaarMcr503Runtime:
             if remainder:self._thermal(remainder);self._relax(remainder)
         else:self._thermal(dt);self._relax(dt)
         self.time_ns=end_ns;self.revision+=1
+    # ---- device layer of the touch screen
+    def _new_dev(self):
+        return dict(settings={k:v[1] for k,v in MCR_SETTINGS.items()},messages=[],next_msg=1,initialized=False,zero_gap=False,motor_adjusted=False,procedure=None,test=None,last_test=None,power_epoch=0,boot_until=0.,
+                    motor_adjust={})                                           # stored motor adjustments per measuring system (initial adjustment = none)
+    def _booting(self):return self.power and self.time_s<self.dev['boot_until']-1e-9
+    def _message(self,level,text):
+        d=self.dev;d['messages'].append(dict(id=d['next_msg'],level=level,text=text,time_s=round(self.time_s,3)));d['next_msg']+=1;del d['messages'][:-50]
+    def _dev_values(self):
+        d=self.dev;p=d['procedure']
+        proc=None if p is None else dict(kind=p['kind'],name=PROCEDURE_NAMES[p['kind']],stage=p['stage'],progress=round(min(max((self.time_s-p['t0'])/max(p['until']-p['t0'],1e-9),0.),1.),3) if p['kind']!='zero_gap' else (.5 if p['stage']=='up' else 0.))
+        status=dict(connection=d['settings']['connection'],initialized=d['initialized'],zero_gap_set=d['zero_gap'],motor_adjusted=d['motor_adjusted'],booting=self._booting(),power_epoch=d['power_epoch'],
+                    motor_adjustments=sorted(d['motor_adjust']),
+                    serial_number=SERIAL)
+        return {'device.settings':copy.deepcopy(d['settings']),'device.messages':copy.deepcopy(d['messages']),'device.procedure':proc,'device.status':status,'test.state':self._test_state()}
+    def _test_state(self):
+        t=self.dev['test']
+        if t is None:return None
+        sid,title=TEST_STEPS[t['k']-1];s=self.dev['settings'];moving=self._moving()
+        if t.get('error'):text='Error: '+ERROR_TEXT.get(t['error'],t['error'])
+        elif sid=='measuring_system':text=f'Measuring system {self._dev_values_ms()} detected. Tap OK.' if self.geometry else 'No measuring system detected.'
+        elif sid=='zero_gap':text='Setting the zero gap ...' if self.dev['procedure'] else 'Remove the sample, then tap OK to set the zero gap.'
+        elif sid=='lift':text='Moving to the lift position ...' if moving else 'Load the sample onto the lower plate, then tap OK.'
+        elif sid=='measuring':text=f'Moving to the measuring position ({s["test.gap_mm"]:.3f} mm) ...' if moving else 'Trim the sample, then tap OK.'
+        elif sid=='device':text=f'Value must be within tolerance for {s["test.equilibration_s"]} s'
+        elif sid=='measurement':text='Measuring ...' if self.phase=='running' else ''
+        else:text='Test finished. Tap OK to lift the measuring head.' if t['result'] and t['result']['phase']=='succeeded' else 'Test not finished. Tap OK to lift the measuring head.'
+        tol=self.method['temperature_tolerance_k'];target=s['test.temperature_c']
+        if sid=='measurement' or (sid=='results' and t['result']):
+            rot=self.method['mode']=='rotation'
+            pts=[[r['time_s'],r['apparent_viscosity_pa_s'] if rot else r['torque_nm']*1e6] for r in self.rows if (r['apparent_viscosity_pa_s'] if rot else r['torque_nm']) is not None]
+            pts=pts[::max(1,len(pts)//300)];plot=dict(label='Viscosity [mPa s]' if rot else 'Torque [uNm]',points=[[x,y*1000. if rot else y] for x,y in pts],limits=None)
+        else:plot=dict(label='Temperature [°C]',points=copy.deepcopy(t['temps'][-300:]),limits=[round(target-tol,3),round(target+tol,3)] if sid=='device' else None)
+        xs=[p[0] for p in plot['points']] or [0.]
+        plot['lower']=[[min(xs),plot['limits'][0]],[max(xs),plot['limits'][0]]] if plot['limits'] else []           # tolerance lines of the curve (photo)
+        plot['upper']=[[min(xs),plot['limits'][1]],[max(xs),plot['limits'][1]]] if plot['limits'] else []
+        plot['current']=plot['points'][-1][1] if plot['points'] else None
+        ys=[p[1] for p in plot['points']]+(plot['limits'] or [])
+        lo,hi=(min(ys),max(ys)) if ys else (0.,1.);pad=max((hi-lo)*.1,.5 if plot['label'].startswith('Temp') else abs(hi)*.05 or 1e-3)
+        plot['y_range']=[round(lo-pad,6),round(hi+pad,6)];plot['span']=max(xs[-1]-xs[0],self.method['duration_s'] if sid in ('measurement','results') else 30.)
+        return dict(template=t['template'],name=TEMPLATES[t['template']]['name'],k=t['k'],n=len(TEST_STEPS),step=sid,title=title,instruction=text,skippable=sid in SKIPPABLE and not t.get('error'),
+                    confirmable=sid not in ('device',) and not (sid=='measurement' and not t.get('error')),elapsed_s=round(self.time_s-t['t0'],3),plot=plot,error=t.get('error'),result=copy.deepcopy(t['result']),
+                    target_c=target if sid=='device' else None)
+    def _dev_values_ms(self):return '---' if not self.geometry else f'PP{round(self.geometry["radius_m"]*2000)}'
+    def _need_power(self):
+        if not self.power:raise ActionRejected('POWER_OFF')
+    def _device_invoke(self,k,a):
+        """Commands of the touch-screen device layer; each checks everything before it changes the state."""
+        d=self.dev
+        if k=='messages.acknowledge':
+            i=a['id']
+            if i is not None and (type(i) is not int or not any(m['id']==i for m in d['messages'])):raise ActionRejected('INVALID_ARGUMENT')
+            d['messages']=[m for m in d['messages'] if i is not None and m['id']!=i];out={'remaining':len(d['messages'])}
+        elif k=='settings.configure':
+            ch=a['settings']
+            if not ch:raise ActionRejected('INVALID_ARGUMENT')
+            if ch.get('connection')=='RS 232':raise ActionRejected('SERVICE_ONLY')           # mcr p.24: reserved for service purposes
+            d['settings'].update(copy.deepcopy(ch));out={'settings':copy.deepcopy(d['settings'])}
+        elif k=='head.move':
+            self._need_power()
+            if d['procedure']:raise ActionRejected('BUSY')
+            pos=a['position']
+            gap={'lift':LIFT_GAP,'measuring':d['settings']['test.gap_mm']/1000.,'up':min(self.target_gap+HEAD_STEP_M,LIFT_GAP),'down':max(self.target_gap-HEAD_STEP_M,.0001),'stop':min(max(self.gap,.0001),LIFT_GAP)}[pos]
+            out=self.invoke('geometry.set_gap',gap_m=round(gap,9))
+        elif k=='instrument.procedure':
+            if d['test']:raise ActionRejected('BUSY')
+            self._start_procedure(a['procedure']);out={'procedure':a['procedure'],'phase':'running'}
+        elif k=='test.start':
+            self._need_power()
+            if d['test'] or d['procedure'] or self.phase=='running':raise ActionRejected('BUSY')
+            if self.method['mode']!=TEMPLATES[a['template']]['mode']:raise ActionRejected('INVALID_ARGUMENT')
+            d['test']=dict(template=a['template'],k=1,t0=self.time_s,t_step=self.time_s,hold_s=0.,temps=[],result=None,error=None);out={'step':1,'name':TEMPLATES[a['template']]['name']}
+        elif k in ('test.confirm','test.skip'):
+            t=d['test']
+            if t is None:raise ActionRejected('NO_PROCEDURE')
+            sid=TEST_STEPS[t['k']-1][0]
+            if k=='test.skip':
+                if sid not in SKIPPABLE:raise ActionRejected('NOT_ALLOWED')
+                if sid=='zero_gap' and d['procedure']:d['procedure']=None;self.target_gap=min(max(self.gap,.0001),LIFT_GAP)
+                self._test_enter(t['k']+1)
+            elif sid=='measuring_system':
+                if not self.geometry:raise ActionRejected('NO_MEASURING_SYSTEM')
+                self._test_enter(2)
+            elif sid=='zero_gap':
+                self._start_procedure('zero_gap');t['zeroing']=True
+            elif sid in ('lift','measuring'):
+                if self._moving():raise ActionRejected('HEAD_MOVING')
+                if sid=='lift' and not self.sample:raise ActionRejected('NO_SAMPLE')
+                self._test_enter(t['k']+1)
+            elif sid=='measurement':
+                if not t.get('error'):raise ActionRejected('NOT_ALLOWED')
+                self._test_enter(t['k'])                                           # retry the start after an error (a refusal is shown)
+            elif sid=='results':
+                self.invoke('geometry.set_gap',gap_m=LIFT_GAP);d['last_test']=self._test_state();d['test']=None
+            else:raise ActionRejected('NOT_ALLOWED')
+            out={'step':d['test']['k'] if d['test'] else 0}
+        elif k=='test.abort':
+            t=d['test']
+            if t is None:raise ActionRejected('NO_PROCEDURE')
+            if self.phase=='running':self.invoke('acquisition.stop')
+            if d['procedure'] and d['procedure']['kind']=='zero_gap':d['procedure']=None;self.target_gap=min(max(self.gap,.0001),LIFT_GAP)
+            d['test']=None;self._message('warning','Test aborted.');out={'aborted':True}
+        else:raise ActionRejected('UNKNOWN_CAPABILITY')
+        self.revision+=1;return copy.deepcopy(out)
+    def _start_procedure(self,p):
+        d=self.dev;self._need_power()
+        if d['procedure'] or self.phase=='running':raise ActionRejected('BUSY')
+        if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
+        if p in ('zero_gap','motor_adjustment') and self.sample:raise ActionRejected('SAMPLE_PRESENT')   # zero gap: the plates touch; motor adjustment: free rotor (assumption)
+        if p=='initialize':self.target_gap=LIFT_GAP;until=self.time_s+INIT_S
+        elif p=='zero_gap':self.target_gap=.0001;until=self.time_s
+        else:until=self.time_s+MOTOR_ADJUST_S
+        d['procedure']=dict(kind=p,stage='down' if p=='zero_gap' else 'run',t0=self.time_s,until=until)
+    def _test_enter(self,k,auto=False):
+        """Enter step k of the guided test; its device action runs first (a refusal leaves the test where it was; an automatic start of the
+        measurement that the instrument refuses shows the error on the step)."""
+        t=self.dev['test'];sid=TEST_STEPS[k-1][0];s=self.dev['settings']
+        try:
+            if sid=='lift':self.invoke('geometry.set_gap',gap_m=LIFT_GAP)
+            elif sid=='measuring':self.invoke('geometry.set_gap',gap_m=round(s['test.gap_mm']/1000.,9))
+            elif sid=='device':self.invoke('thermal.set_temperature',temperature_k=round(s['test.temperature_c']+273.15,6))
+            elif sid=='measurement':
+                self.invoke('acquisition.start')
+                if t.get('owner'):self._owners[self.operation_id]=t['owner']
+        except ActionRejected as exc:
+            if not auto:raise
+            t['k']=k;t['t_step']=self.time_s;t['error']=str(exc);self._message('error',f'Test: {ERROR_TEXT.get(str(exc),str(exc))}');return
+        t.pop('error',None)
+        if sid=='results':
+            r=self._result();t['result']=dict(phase=r['phase'],mean_apparent_viscosity_pa_s=r['mean_apparent_viscosity_pa_s'],storage_modulus_pa=(r['oscillation_fit'] or {}).get('storage_modulus_pa'),
+                                              loss_modulus_pa=(r['oscillation_fit'] or {}).get('loss_modulus_pa'),error_code=r['error_code'],points=len(r['rows']))
+            self._message('info' if r['phase']=='succeeded' else 'error',f'Test {TEMPLATES[t["template"]]["name"]}: {r["phase"]}.')
+        t['k']=k;t['t_step']=self.time_s;t['hold_s']=0.
+    def _device_tick(self,dt):
+        """Clock-driven device behaviour: instrument procedures and the automatic steps of the guided test."""
+        d=self.dev;p=d['procedure']
+        if p and not self.power:d['procedure']=p=None
+        if p:
+            if p['kind']=='zero_gap':
+                if p['stage']=='down' and not self._moving():p['stage']='up';self.target_gap=LIFT_GAP;d['zero_gap']=True    # contact at the bottom of the travel (assumption)
+                elif p['stage']=='up' and not self._moving():
+                    d['procedure']=None;self._message('info','Zero gap set.')
+                    if d['test'] and d['test'].get('zeroing') and TEST_STEPS[d['test']['k']-1][0]=='zero_gap':self._test_enter(3,auto=True)
+            elif self.time_s>=p['until']-1e-9 and not self._moving():
+                d['procedure']=None
+                if p['kind']=='initialize':d['initialized']=True;self._message('info','Initialization finished.')
+                else:                                                         # the free rotor's residual torque, stored for this measuring system (RheoCompass manual p.31)
+                    d['motor_adjusted']=True;d['motor_adjust'][self._dev_values_ms()]=self.plant['torque_gain']*self.motor_error['motor_residual_nm'];self._message('info','Motor adjustment finished.')
+        t=d['test']
+        if not t:return
+        sid=TEST_STEPS[t['k']-1][0]
+        T=self._indicated_temperature()
+        if T is not None and sid in ('zero_gap','lift','measuring','device'):t['temps'].append([round(self.time_s-t['t0'],3),round(T-273.15,4)]);del t['temps'][:-600]
+        if sid=='device' and T is not None:
+            if abs(T-(d['settings']['test.temperature_c']+273.15))<=self.method['temperature_tolerance_k']:t['hold_s']+=dt
+            else:t['hold_s']=0.
+            if t['hold_s']>=d['settings']['test.equilibration_s']-1e-9 and abs(self.temperature-self.target)<=self.method['temperature_tolerance_k']:self._test_enter(6,auto=True)
+        elif sid=='measurement' and not t.get('error') and self.phase!='running':self._test_enter(7,auto=True)
+    # ---- front panel: host protocol of the engine and the panel.* commands
+    def panel_read(self):
+        out=self.read('agent');out.update({'host.powered':self.power,'host.power_epoch':self.dev['power_epoch'],'host.booting':self._booting(),'host.readout':self._readout(),
+                                           'host.boot_fraction':min(max(1.-(self.dev['boot_until']-self.time_s)/BOOT_S,0.),1.)})
+        return out
+    def _readout(self):
+        """Status screen (mcr p.21: Status, Normal Force, Temperature, Position, Measuring System; top line: connection)."""
+        d=self.dev;s=d['settings'];p=d['procedure'];T=self._indicated_temperature()
+        status='Booting' if self._booting() else PROCEDURE_NAMES[p['kind']] if p else 'Test running' if d['test'] and self.phase!='running' else 'Measuring' if self.phase=='running' else 'Moving' if self._moving() else 'O.K.'
+        info={'OFF':'','ON':status,'Air Pressure':status+'   Air pressure O.K.'}[s['status_information']] if not self.air_fault else 'NO AIR PRESSURE!'
+        m=int(CLOCK0_MIN+self.time_s//60)%1440
+        return dict(connection=s['connection'],status=info,normal_force='---',temperature='' if not s['show_temperature'] else '---' if T is None else f'{T-273.15:.2f}',
+                    position=f'{self.gap*1000:.3f}',measuring_system=self._dev_values_ms(),clock=f'{m//60:02d}:{m%60:02d}',moving=self._moving(),
+                    motion_sound=self._moving() and s['motion_warning'] and self.power,messages=len(d['messages']),target=f'{self.target-273.15:.2f} °C' if self.thermal_enabled else 'off',
+                    info=[['Instrument','MCR 503'],['Serial number',SERIAL],['Measuring system',self._dev_values_ms()],['Connection',s['connection']],
+                          ['Initialized','yes' if d['initialized'] else 'no'],['Zero gap set','yes' if d['zero_gap'] else 'no'],['Motor adjusted','yes' if d['motor_adjusted'] else 'no']])
+    def _panel(self):
+        e=_engine();p=e.PanelUI(PANEL_SPEC,_PanelHost(self))
+        if self.panel_state is not None:p.ui=self.panel_state
+        return p
+    def _panel_command(self,k,a):
+        e=_engine();p=self._panel()
+        try:
+            if k=='panel.touch':ok=p.touch(a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),(a['to_x'],a['to_y']) if 'to_x' in a and 'to_y' in a else None)
+            elif k=='panel.switch':ok=p.switch(a['input_id'],a['position'],())
+            elif k=='panel.capture':
+                data,w,h=p.png_bytes(a['display_id']);self.panel_state=p.ui;sha=hashlib.sha256(data).hexdigest()
+                folder=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id
+                folder.mkdir(parents=True,exist_ok=True);path=folder/f'{a["display_id"]}_{sha[:16]}.png'
+                if not path.exists():path.write_bytes(data)
+                return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+            else:
+                f=p.frame();self.panel_state=p.ui;return dict(frame=f)
+        except e.PanelError:
+            self.panel_state=p.ui;raise ActionRejected('INVALID_ARGUMENT') from None
+        self.panel_state=p.ui;self.revision+=1;return dict(accepted=bool(ok))
+
+class _PanelHost:
+    """The engine's host protocol (panel_read / panel_invoke / panel_time) on top of a runtime; built per gesture."""
+    def __init__(self,rt):self.rt=rt
+    def panel_read(self):return self.rt.panel_read()
+    def panel_invoke(self,capability_id,arguments):
+        try:return self.rt.invoke(capability_id,**arguments)
+        except ActionRejected as exc:raise _engine().PanelRejected(str(exc)) from None
+    def panel_time(self):return self.rt.time_s
 
 class AntonpaarMcr503Session:
     def __init__(self, host, principal_id): self._host = host; self._principal = principal_id
@@ -330,7 +634,7 @@ class AntonpaarMcr503Session:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta = export_antonpaar_mcr503_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id); h=self._host; values=h.read(self._role); ids=list(values) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids): raise ActionRejected('INVALID_ARGUMENT')
@@ -352,15 +656,18 @@ class AntonpaarMcr503Session:
             if not isinstance(capability_id,str) or capability_id not in CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
             if self._role=='agent' and CAPS[capability_id]['visibility']!='agent': raise ActionRejected('ACCESS_DENIED')
             if not isinstance(request_id,str) or not request_id: raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'],arguments); key=(self._principal,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+            check_args(capability_id,arguments); key=(self._principal,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
             if key in h._requests:
                 old,response=h._requests[key]
                 if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if capability_id in ('acquisition.stop','acquisition.result') and self._role=='agent' and h.operation_id and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-            if capability_id=='power.set' and not arguments['enabled'] and h.phase=='running' and self._role=='agent' and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-            result=self._filter_result(h.invoke(capability_id,**arguments)); operation=result.get('operation_id') if capability_id=='acquisition.start' else None
+            h._caller=self._principal                                    # the host's caller rules (_guard) see this session, also for a panel gesture's command
+            try: result=self._filter_result(h.invoke(capability_id,**arguments))
+            finally: h._caller=None
+            operation=result.get('operation_id') if capability_id=='acquisition.start' else None
             if operation: h._owners[operation]=self._principal
+            if h.operation_id and h.operation_id not in h._owners: h._owners[h.operation_id]=self._principal   # a measurement started by a guided test or a panel gesture
+            if h.dev['test'] is not None and h.dev['test'].get('owner') is None: h.dev['test']['owner']=self._principal   # who started the guided test owns its measurement
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
             h._requests[key]=(digest,copy.deepcopy(response)); return response
         except ActionRejected as exc:
@@ -400,8 +707,21 @@ EFFECTS={
  'sensor.calibrate':['torque.indicated_nm'],
  'acquisition.start':['acquisition.phase','acquisition.elapsed_s','acquisition.points','model.fault'],
  'acquisition.stop':['acquisition.phase','rotor.speed_rad_s','truth.stress_pa','truth.torque_nm','torque.indicated_nm'],
- 'sim.step':list(SLOTS)}
+ 'sim.step':list(SLOTS),
+ 'settings.configure':['device.settings','device.status'],'head.move':['geometry.target_gap_m','geometry.moving'],
+ 'instrument.procedure':['device.procedure','geometry.target_gap_m','geometry.moving'],'test.start':['test.state'],
+ 'test.confirm':['test.state','device.procedure','device.messages','geometry.target_gap_m','geometry.moving','thermal.target_k','thermal.enabled','acquisition.phase','acquisition.elapsed_s','acquisition.points','model.fault'],
+ 'test.skip':['test.state','device.procedure','device.messages','geometry.target_gap_m','geometry.moving','thermal.target_k','thermal.enabled','acquisition.phase','acquisition.elapsed_s','acquisition.points','model.fault'],
+ 'test.abort':['test.state','device.procedure','device.messages','geometry.target_gap_m','geometry.moving','acquisition.phase','rotor.speed_rad_s','truth.stress_pa','truth.torque_nm','torque.indicated_nm'],
+ 'messages.acknowledge':['device.messages']}
+EFFECTS['power.set']=EFFECTS['power.set']+['device.status','device.procedure','test.state']
+EFFECTS['fault.inject']=['fault.no_air_pressure','acquisition.phase','geometry.target_gap_m','device.procedure','device.status'];EFFECTS['fault.clear']=['fault.no_air_pressure']
 for k,v in EFFECTS.items():CAPS[k]['effects']=v
+_PANEL_SPEC_PATH=ASSET/'panel_ui.json'
+PANEL_SPEC=_engine().load_spec(_PANEL_SPEC_PATH,capabilities=set(CAPS)|{'panel.touch','panel.switch','panel.capture','panel.frame'}) \
+    if _PANEL_SPEC_PATH.is_file() and not os.environ.get('MCR_PANEL_BUILD') else None
+PANEL_CAPS=_engine().capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+for _k,_v in PANEL_CAPS.items():CAPS[_k]=dict(_v,effects=[])
 ERRORS=sorted(set(__import__('re').findall(r"ActionRejected\('([A-Z_0-9]+)'",Path(__file__).read_text()))|{'POWER_OFF','USER_CANCEL'})
 
 def export_antonpaar_mcr503_contract_metadata():

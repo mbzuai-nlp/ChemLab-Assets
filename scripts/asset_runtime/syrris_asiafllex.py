@@ -1,4 +1,8 @@
-"""AsiaFLLEX100uL conditional single-solute octanol/water model; no intrinsic liquid pumps."""
+"""AsiaFLLEX100uL conditional single-solute octanol/water model; no intrinsic liquid pumps.
+
+Front panel (panel.turn / panel.press / panel.switch / panel.capture / panel.frame): the 4-digit LED display, the Set / Actual and CMP / Main
+Pressure LEDs, the push / turn control knob and the rear ON/OFF switch of the manual (panel_ui.json beside the contract) run by the shared engine
+_panel_ui.py on top of the commands below (pressure.setpoint sets the main pressure or the CMP as the knob does; panel.select picks the shown one)."""
 from __future__ import annotations
 import copy,functools,importlib.util,json,math,sys
 from pathlib import Path
@@ -6,7 +10,7 @@ import numpy as np
 from scipy.linalg import expm
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
 from asset_runtime.antonpaar_abbematadvanced import validate
-ROOT=Path(__file__).resolve().parents[2];SLUG='syrris_asiafllex';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-033';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/syrris_asiafllex_partition_library/templates.json';V=100e-9
+ROOT=Path(__file__).resolve().parents[2];ASSET_VERSION='1.1.2';FIRMWARE='01.01';SLUG='syrris_asiafllex';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-033';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/syrris_asiafllex_partition_library/templates.json';V=100e-9
 PHASE={'type':'string','enum':['idle','running','succeeded','cancelled','failed']}
 def nullable(s):return {'anyOf':[s,{'type':'null'}]}
 PLANT=obj({'external_pumps_confirmed':BOOL,'pressure_controller_confirmed':BOOL,'pre_equilibrated_immiscible_phases':BOOL,'reference_conditions_accepted':BOOL,'vent_path_confirmed':BOOL,'phase_pair':{'type':'string','enum':['water_1_octanol']},'ambient_pa':number('Pa',8e4,1.2e5),'temperature_k':number('K',293.15,303.15),'gas_supply_gauge_pa':number('Pa',1e5,1e6),'gas_margin_pa':number('Pa',1e3,2e5),'max_phase_flow_m3_s':number('m^3/s',250e-9/60,500e-9/60),'pressure_tau_s':number('s',.1,100),'release_tau_s':number('s',.1,100),'mass_transfer_coeff_m_s':number('m/s',0,.1),'interfacial_area_m2':number('m^2',1e-8,.1),'max_dilute_concentration_kg_m3':number('kg/m^3',1e-4,10),'aqueous_collection_capacity_m3':number('m^3',1e-9,.1),'organic_collection_capacity_m3':number('m^3',1e-9,.1),'coefficient_evidence':TEXT})
@@ -30,6 +34,7 @@ CAPS={
  'sample.configure':(SAMPLE,obj({'configured':BOOL,'attachment_event':TEXT}),['aqueous_inlet','organic_inlet','contactor_t'],'两外部储液瓶装入真值；100µL初始为预润湿无溶质载液','configuration','evaluator',SAMPLE_EXAMPLE,['sample.configured']),
  'power.set':(obj({'enabled':BOOL}),obj({'enabled':BOOL}),['rear_housing'],'控制电源；断电停止宿主泵门控但不自动释放残压','device_command','agent',{'enabled':True},['power.enabled']),
  'panel.select':(obj({'mode':{'type':'string','enum':['cmp','bpr']}}),obj({'mode':{'type':'string','enum':['cmp','bpr']}}),['display_digits','encoder'],'教学切换单屏压差mbar/主背压bar；非全菜单固件','device_command','agent',{'mode':'cmp'},['panel.mode','panel.value']),
+ 'pressure.setpoint':(obj({'setpoint':{'type':'string','enum':['main','cmp']},'value_pa':number('Pa',0,9e5)}),obj({'setpoint':TEXT,'value_pa':number('Pa',0,9e5)}),['encoder','display_digits','bpr_aqueous','bpr_organic'],'旋钮设定：主压0（关闭并放空）或1–9 bar表压（0.1 bar步进，受气源限制）；跨膜压差0–700 mbar（10 mbar步进，上限随主压按手册表）；运行中可改','device_command','agent',{'setpoint':'main','value_pa':2e5},['pressure.bpr_target_pa','pressure.cmp_target_pa']),
  'acquisition.start':(obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['contactor_t','ptfe_membrane','bpr_aqueous','bpr_organic'],'启动宿主协调的外泵连续萃取，先稳定背压','device_command','agent',{},['cycle.phase','cycle.stage']),
  'acquisition.stop':(obj({}),obj({'phase':PHASE}),['aqueous_inlet','organic_inlet'],'停止外泵虚拟门控；保留持液、污染、收集物和残压','device_command','agent',{},['cycle.phase']),
  'pressure.release':(obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['gas_inlet','bpr_aqueous','bpr_organic'],'宿主确认放空路径后教学降压；非安全认证','device_command','agent',{},['cycle.phase','cycle.stage']),
@@ -50,9 +55,24 @@ for place in ['initial','aqueous_feed','organic_feed','aqueous_holdup','organic_
 def propagator(dt,qa,qo,va,vo,k,g,ca,co):
  a=np.zeros((5,5));a[0,0]=-qo/vo-g/(k*vo);a[0,1]=g/va;a[0,4]=qo*co;a[1,0]=g/(k*vo);a[1,1]=-qa/va-g/va;a[1,4]=qa*ca;a[2,0]=qo/vo;a[3,1]=qa/va
  return expm(a*dt)
+def _panel_engine():
+ try:
+  from asset_runtime import _panel_ui as engine
+  return engine
+ except ImportError:
+  if '_chemsim_panel_ui' not in sys.modules:
+   spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+_SPEC_PATH=ROOT/'assets/expansion_batch03/t2_vacuum'/SLUG/'panel_ui.json'
+PANEL_SPEC=_panel_ui.load_spec(_SPEC_PATH,capabilities=set(CAPS)) if _SPEC_PATH.exists() else None
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
+_PANEL_FX=list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in CAPS[c][7]))
+for _k,_v in PANEL_CAPS.items():CAPS[_k]=(_v['input_schema'],_v['output_schema'],_v['component_ids'],_v['function_zh'],_v['kind'],_v['visibility'],_v['example_arguments'],[] if _k in ('panel.capture','panel.frame') else _PANEL_FX)
 class SyrrisAsiaFllexRuntime:
  def __init__(self,instance_id='fllex_01'):
   self.instance_id=instance_id;self.time_s=0.;self.revision=0;self.plant=None;self.membrane=None;self.method=None;self.sample=None;self.powered=False;self.phase='idle';self.stage='standby';self.fault='';self.elapsed_s=0.;self.processed_s=0.;self.operation_id=None;self._operation_count=0;self.tray=0.;self.opening=0.;self.mode='cmp';self.bpr=0.;self.cmp=0.;self.release=False;self.wetted=False;self.q=np.zeros(2);self.purity=[None,None];self.separation='not_running';self.vol=np.zeros((4,2));self.mass=np.zeros(6);self.history=[];self.next_record=0.;self.templates={x['substance_id']:x for x in json.loads((ROOT/TEMPLATE_REL).read_text())['templates']};self._principals={'__public_agent__':'agent'};self._requests={};self._owners={}
+  self.sp=dict(main=None,cmp=None);self.power_epoch=0;self.panel_capture_dir=None;self.panel=_panel_ui.PanelUI(PANEL_SPEC,self) if PANEL_SPEC else None;self._panel_session=None
  def register_principal(self,principal_id,visibility='agent'):
   if visibility not in ('agent','evaluator','debug'):raise ActionRejected('INVALID_ARGUMENT')
   if principal_id in self._principals:raise ActionRejected('REQUEST_CONFLICT')
@@ -61,7 +81,13 @@ class SyrrisAsiaFllexRuntime:
   if principal_id not in self._principals:raise ActionRejected('ACCESS_DENIED')
   return SyrrisAsiaFllexSession(self,principal_id)
  def describe(self):return self.session().describe(instance_id=self.instance_id)
- def _targets(self):return (0.,0.) if self.release or not self.method else (self.method['bpr_gauge_pa'],self.method['cross_membrane_pa'])
+ def _targets(self):
+  if self.release:return (0.,0.)
+  if self.method:return (self.method['bpr_gauge_pa'],self.method['cross_membrane_pa'])
+  return (self.sp['main'] or 0.,self.sp['cmp'] or 0.) if self.sp['main'] else (0.,0.)
+ CMP_TABLE={1:120e2,2:220e2,3:250e2,4:300e2,5:350e2,6:420e2,7:520e2,8:650e2,9:700e2}   # manual p.11-12: CMP range by BPR pressure (bar)
+ def _cmp_max(self,main_pa):return self.CMP_TABLE[min(9,max(1,int(math.ceil(main_pa/1e5-1e-9))))]
+ def _main_max(self):return min(9e5,self.plant['gas_supply_gauge_pa']-self.plant['gas_margin_pa']) if self.plant else 9e5
  def _values(self):
   bp,dp=self._targets();v={'power.enabled':self.powered,'plant.configured':bool(self.plant),'membrane.configured':bool(self.membrane),'method.configured':bool(self.method),'sample.configured':bool(self.sample),'cycle.phase':self.phase,'cycle.stage':self.stage,'cycle.fault':self.fault,'cycle.elapsed_s':self.elapsed_s,'cycle.processed_s':self.processed_s,'pressure.bpr_target_pa':bp,'pressure.cmp_target_pa':dp,'pressure.bpr_gauge_pa':self.bpr,'pressure.cmp_pa':self.cmp,'pressure.organic_gauge_pa':max(0,self.bpr-self.cmp),'flow.aqueous_m3_s':self.q[0],'flow.organic_m3_s':self.q[1],'separation.state':self.separation,'separation.aqueous_purity':self.purity[0],'separation.organic_purity':self.purity[1],'panel.mode':self.mode,'panel.value':self.cmp/100 if self.mode=='cmp' else self.bpr/1e5,'membrane.wetted':self.wetted,'tray.extension_m':self.tray,'separator.opening_m':self.opening}
   for i,p in enumerate(['aqueous','organic']):
@@ -78,8 +104,10 @@ class SyrrisAsiaFllexRuntime:
   r=self.templates[sid];return dict(substance_id=sid,log10_kow=r['values']['log10_kow'],kow=r['values']['kow'],temperature_k=None,ph=None,evidence=r['evidence'],source=r['source'],template_source=TEMPLATE_REL)
  def invoke(self,capability,**a):
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-  validate(CAPS[capability][0],a)
-  if self.phase=='running' and CAPS[capability][4]!='query' and capability not in ['acquisition.stop','power.set','panel.select']:raise ActionRejected('BUSY')
+  if capability in PANEL_CAPS:
+   if _panel_ui.check_arguments(CAPS[capability][0],a):raise ActionRejected('INVALID_ARGUMENT')
+  else:validate(CAPS[capability][0],a)
+  if self.phase=='running' and CAPS[capability][4]!='query' and capability not in ['acquisition.stop','power.set','panel.select','pressure.setpoint'] and capability not in PANEL_CAPS:raise ActionRejected('BUSY')
   if capability=='plant.configure':
    if self.plant or not all(a[k] for k in ['external_pumps_confirmed','pressure_controller_confirmed','pre_equilibrated_immiscible_phases','reference_conditions_accepted','vent_path_confirmed']):raise ActionRejected('PRECONDITION_FAILED')
    self.plant=copy.deepcopy(a);out={'configured':True}
@@ -90,7 +118,7 @@ class SyrrisAsiaFllexRuntime:
    if not self.plant or self.sample:raise ActionRejected('PRECONDITION_FAILED')
    if max(a['aqueous_flow_m3_s'],a['organic_flow_m3_s'])>self.plant['max_phase_flow_m3_s'] or a['timeout_s']<a['duration_s']:raise ActionRejected('METHOD_ENVELOPE')
    if a['bpr_gauge_pa']+self.plant['gas_margin_pa']>self.plant['gas_supply_gauge_pa']:raise ActionRejected('GAS_PRESSURE_MARGIN')
-   self.method=copy.deepcopy(a);self.release=False;out={'configured':True}
+   self.method=copy.deepcopy(a);self.release=False;self.sp=dict(main=None,cmp=None);out={'configured':True}
   elif capability=='tray.set_extension':
    if not self._safe_service() or (a['extension_m']<.05 and self.opening>0):raise ActionRejected('PRECONDITION_FAILED')
    self.tray=a['extension_m'];out=a.copy()
@@ -103,10 +131,26 @@ class SyrrisAsiaFllexRuntime:
    if any(concs>self.plant['max_dilute_concentration_kg_m3']) or sum(mass)<=0:raise ActionRejected('DILUTE_REFERENCE_REQUIRED')
    q=np.array([self.method['aqueous_flow_m3_s'],self.method['organic_flow_m3_s']]);self.sample=copy.deepcopy(a);self.vol[0]=vol;self.vol[1]=V*q/q.sum();self.mass[:2]=mass;self.initial_vol=self.vol.sum(axis=0).copy();self.initial_mass=float(sum(mass));self.feed_conc=concs;self.kow=ref['kow'];out=dict(configured=True,attachment_event='host_confirmed_external_feeds_and_prewetted100uL')
   elif capability=='power.set':
-   self.powered=a['enabled']
+   self.power_epoch+=1 if a['enabled'] and not self.powered else 0;self.powered=a['enabled']
    if not self.powered and self.phase=='running':self.phase='cancelled';self.q[:]=0
    out=a.copy()
   elif capability=='panel.select':self.mode=a['mode'];out=a.copy()
+  elif capability=='pressure.setpoint':
+   if not self.plant:raise ActionRejected('PRECONDITION_FAILED')
+   v=float(a['value_pa']);main=self._targets()[0] if not self.release else 0.
+   if a['setpoint']=='main':
+    if v!=0 and not (1e5-1e-6<=v<=self._main_max()+1e-6) or abs(v/1e4-round(v/1e4))>1e-6:raise ActionRejected('GAS_PRESSURE_MARGIN' if v>self._main_max() else 'INVALID_ARGUMENT')
+    if v==0:self.release=True;self.sp['main']=None                      # manual p.24: 0.0 bar switches the pressure off and vents
+    else:
+     self.release=False;cmp=min(self._targets()[1] if self.method else (self.sp['cmp'] or 0.),self._cmp_max(v))
+     if self.method:self.method['bpr_gauge_pa']=v;self.method['cross_membrane_pa']=cmp
+     else:self.sp.update(main=v,cmp=cmp)
+   else:
+    if abs(v/1e3-round(v/1e3))>1e-6 or v>self._cmp_max(main if main>0 else 1e5)+1e-6:raise ActionRejected('INVALID_ARGUMENT')
+    if self.method:self.method['cross_membrane_pa']=v
+    else:self.sp['cmp']=v
+   out=dict(setpoint=a['setpoint'],value_pa=v)
+  elif capability in PANEL_CAPS:return self._panel_cmd(capability,a)
   elif capability=='acquisition.start':
    if not self.powered or not self.sample or self.tray>0 or self.opening>0 or self.phase not in ('idle','cancelled') or self.wetted or self.release:raise ActionRejected('PRECONDITION_FAILED')
    self.phase='running';self.stage='pressurizing' if max(abs(self.bpr-self.method['bpr_gauge_pa']),abs(self.cmp-self.method['cross_membrane_pa']))>1. else 'extracting';self._operation_count+=1;self.operation_id=self.instance_id+':'+str(self._operation_count);out=dict(phase=self.phase,operation_id=self.operation_id)
@@ -124,9 +168,33 @@ class SyrrisAsiaFllexRuntime:
   if CAPS[capability][4]!='query':self.revision+=1
   return copy.deepcopy(out)
  def _fail(self,code):self.phase='failed';self.fault=code;self.q[:]=0
+ # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+ def panel_read(self):
+  out=self.read('agent');bp,dp=self._targets();out.update({'host.powered':self.powered,'host.power_epoch':self.power_epoch,'host.max_main_bar':self._main_max()/1e5,
+                                                           'host.max_cmp_mbar':self._cmp_max(bp if bp>0 else 1e5)/100,'host.firmware':FIRMWARE});return out
+ def panel_invoke(self,capability_id,arguments):
+  try:
+   if self._panel_session is not None:self._panel_session._guard(capability_id,arguments)   # a gesture made through a session keeps that caller's access rules
+   return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def panel_time(self):return self.time_s
+ def _panel_cmd(self,capability,a):
+  if self.panel is None:raise ActionRejected('UNSUPPORTED')
+  try:
+   if capability=='panel.press':out=dict(accepted=bool(self.panel.press(a['input_id'],float(a.get('duration_s',.1)))))
+   elif capability=='panel.turn':out=dict(accepted=bool(self.panel.turn(a['input_id'],int(a['detents']))))
+   elif capability=='panel.switch':out=dict(accepted=bool(self.panel.switch(a['input_id'],a['position'],held=tuple(a.get('held',())))))
+   elif capability=='panel.frame':return dict(frame=self.panel.frame())
+   else:
+    import hashlib,tempfile
+    data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);path=d/f"{a['display_id']}_{sha[:16]}.png"
+    if not path.exists():path.write_bytes(data)
+    return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  self.revision+=1;return out
  def _advance(self,dt):
   self.q[:]=0
-  if self.plant and self.method and self.powered:
+  if self.plant and (self.method or self.sp['main'] or self.release) and self.powered:
    bp,dp=self._targets();tau=self.plant['release_tau_s'] if self.release else self.plant['pressure_tau_s'];factor=math.exp(-dt/tau);self.bpr=bp+(self.bpr-bp)*factor;self.cmp=dp+(self.cmp-dp)*factor
    if max(abs(self.bpr-bp),abs(self.cmp-dp))<1.:self.bpr,self.cmp=bp,dp
   if self.phase!='running':return
@@ -175,7 +243,7 @@ class SyrrisAsiaFllexSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_syrris_asiafllex_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -199,17 +267,29 @@ class SyrrisAsiaFllexSession:
         if not isinstance(capability_id,str) or capability_id not in CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
         if self._role=='agent' and CAPS[capability_id][5]!='agent': raise ActionRejected('ACCESS_DENIED')
         if not isinstance(request_id,str) or not request_id: raise ActionRejected('INVALID_ARGUMENT')
-        validate(CAPS[capability_id][0],arguments)
+        if capability_id in PANEL_CAPS:
+            if _panel_ui.check_arguments(CAPS[capability_id][0],arguments): raise ActionRejected('INVALID_ARGUMENT')
+        else: validate(CAPS[capability_id][0],arguments)
         key=(self._principal,instance_id,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
         if key in h._requests:
             old,result=h._requests[key]
             if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
             return copy.deepcopy(result)
-        result=h.invoke(capability_id,**arguments); op=result.get('operation_id')
+        self._guard(capability_id,arguments); before=h.operation_id; h._panel_session=self if capability_id in PANEL_CAPS else None
+        try: result=h.invoke(capability_id,**arguments)
+        finally: h._panel_session=None
+        op=result.get('operation_id')
         if op: h._owners[op]=self._principal
+        elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before: h._owners[h.operation_id]=self._principal   # (the panel starts no run today; kept for symmetry)
         response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,
           status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
         h._requests[key]=(digest,copy.deepcopy(response)); return response
+
+    def _guard(self,capability_id,arguments):
+        """An agent may not stop or change the pressures of another agent's running extraction or release (direct call or panel alike).  The rear
+        ON/OFF switch (power.set) is a hard switch (lead rule 2026-10-19): never refused, the module reacts as to a power loss."""
+        h=self._host; owner=h._owners.get(h.operation_id)
+        if self._role=='agent' and h.phase=='running' and owner is not None and owner!=self._principal and capability_id in ('acquisition.stop','pressure.setpoint'): raise ActionRejected('ACCESS_DENIED')
 
     def write(self,*,instance_id,state_id,value,request_id):
         self._target(instance_id)
@@ -258,11 +338,11 @@ def export_syrris_asiafllex_contract_metadata():
             completion_criterion=('累计外泵流动达到duration_s；终点保留持液和背压' if key=='acquisition.start' else '宿主教学放空至表压0') if async_ else '同步配置或纯查询，不推进时钟',
             completion_state_ids=['cycle.phase'] if async_ else effects,timeout_s=None,cancellation='supported' if async_ else 'unsupported',
             retry='same_request_id',resources=['target_instance','principal_request_cache'],partial_failure_zh='参数拒绝无状态变化；过程突破、耗尽、满收集或超时保留所有已发生库存/持液/残压/湿润。暂停无传质，不是安全认证。去重仅当前进程'),
-          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT']],
+          errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT']+(['GAS_PRESSURE_MARGIN'] if key=='pressure.setpoint' else ['UNSUPPORTED'] if key.startswith('panel.') and key!='panel.select' else [])],
           example_arguments=copy.deepcopy(example),verification=[],limitations=['工程代理，无真实硬件连接；进程内过滤不能替代文件和进程部署隔离。'],source_ids=['manufacturer_primary','simulation_assumption'])
     evolving=list(slots)
-    for key in ['acquisition.start','pressure.release','acquisition.stop','power.set','plant.configure','sample.configure','membrane.configure']:
-        caps[key]['state_effects'] += [dict(state_id=k,timing='on_step' if key in ['acquisition.start','pressure.release'] else 'immediate',description_zh='有限两相载液、单溶质账本、残压和膜状态') for k in evolving if k not in [x['state_id'] for x in caps[key]['state_effects']]]
+    for key in ['acquisition.start','pressure.release','acquisition.stop','power.set','plant.configure','sample.configure','membrane.configure']+[k for k in ('pressure.setpoint','panel.turn','panel.press','panel.switch') if k in caps]:
+        caps[key]['state_effects'] += [dict(state_id=k,timing='on_step' if key in ['acquisition.start','pressure.release','pressure.setpoint','panel.turn','panel.press','panel.switch'] else 'immediate',description_zh='有限两相载液、单溶质账本、残压和膜状态') for k in evolving if k not in [x['state_id'] for x in caps[key]['state_effects']]]
     for key,code in [('sample.configure','UNKNOWN_REFERENCE'),('reference.lookup','UNKNOWN_REFERENCE'),('sample.configure','DILUTE_REFERENCE_REQUIRED'),('method.configure','METHOD_ENVELOPE'),('method.configure','GAS_PRESSURE_MARGIN')]:caps[key]['errors'].append(dict(code=code,meaning_zh=code,side_effects='none'))
     for key in ['acquisition.start','pressure.release']:caps[key]['errors'] += [dict(code=e,meaning_zh=e,side_effects='partial') for e in ['TIMEOUT','MEMBRANE_WETTING','ORGANIC_BREAKTHROUGH','FEED_EMPTY','COLLECTION_FULL']]
     mechanism=dict(component_ids=['contactor_t','ptfe_membrane','bpr_aqueous','bpr_organic','aqueous_outlet','organic_outlet'],state_ids=evolving,meaning_zh='100µL有限两相持液、实测Kow与未标定传质/毛细膜分相',implementation='lumped',equations=['Vaq+Vorg=100uL;initialphaseholdupratio=feedflowratio;prewetted purecarriers','K=Corg/Caq=10**measured_logP;originalT/pHunresolved,hostreferenceassumption','G=k_mass_transfer*interfacial_area,hostcoefficients','dmorg/dt=Qorg*Corg_feed-Qorg*morg/Vorg+G*(maq/Vaq-morg/(K*Vorg))','dmaq/dt=Qaq*Caq_feed-Qaq*maq/Vaq-G*(maq/Vaq-morg/(K*Vorg))','5x5 augmentedmatrixexponential integrates twoholdupmasses andtwo advectiveoutletintegrals exactly forfixedflowcoefficients','organicpermeatingfraction=min(1,Lorg*CMP/Qorg)','effective waterentrypressure=2*gamma*abs(cos(theta))/r;irreversiblewettingflag if CMP>=entry duringflow','aqueousleakfraction=min(1,Lwet*CMP/Qaq) whenwetted;otherwise0','eachcarriervolumeandadvectivesolutemassconservativelysplitbetweentwooutlets;finitefeedandreceiverstepclipping','initialsolute=twofeedbottles+twoholdups+twooutlets;initialeachcarrier=feed+holdup+bothoutlets','BPR/CMP exponentialtargettracking;Porg_gauge=Paq_gauge-CMP;shutdowntrapsmodeledpressure,explicitrelease separate'],parameters={},source_ids=['manufacturer_primary','manufacturer_legacy','primary_membrane_paper','experimental_logp','simulation_assumption'],limitations=['60measuredcompiledKow,not60measuredFLLEXrecoveriesormembraneefficiencycurves.OriginalT/pHunresolved;notarbitrarysolventpairs.','Single dilute neutral nonreactivesolute,pre-equilibratedwater/1-octanol only;noacid/baseequilibria,salt,cosolvent,mixturesorprecipitation.','100uLtotalholdupknown;phaseholdupbyflowratio andwellmixedphases areassumptions,notresolvedslugfloworactualRTD.','Permeance,effectivepore/contactangle/interfacialtension andkLa parametersarehostassumptions;capillaryentrycalculation notactualbubblepointcertification.','Membranewettingtriggersduringmodeledflow only,notstaticliquidexposure;oncewettednoinplacehealingormembranereplacement.','Pressuretrackingisuncalibrated;gasconsumption,compressibility,upstreamflowresistance andleakage notmodeled.','ExternalpumpsandAsiaPressureController arehostboundaries,notintrinsicFLLEXpumpsorrealnetworkcoupling.','Flowmaystartonlyafteridealizedpressureconditioning;stopandpoweroffretainmass/pressure;poststopdiffusionandpassivepressuredecaynotadvanced.','Completed timedextractiondoesnotempty100uLholdup orreleasepressure;pressure.release isseparatehostoperation,notemergencyrelief.','Singlepanelcmp/mbarandbpr/bar modes areteachingdisplay;fullencoderfirmwaremenus andindicatorLEDs unsupported.','Noactualsoluteconcentrationsensor;puritydiagnostic ismodeledcarrierphasepurity,notchemicalproductpurity.','Trayandseparatoropeningarehostmanualposeproxies;noscrewtorque,hoseattachment,robotconstraintsorsealcontact.','Totalmassunknownnull;Matterix10kgfallbacknotmanufacturerdata;localmass/inertia/frictionunknown,URDF0.1kgproxies.','Handlingafterfeedloading,drain/cleanup/reload andsolventcompatibilitycertificationnotimplemented.','Hosttemperature293.15..303.15Kchosenconditionaldomain;nofactoryFLLEXthermalratingclaimedandnoTdependenceofKow.'])

@@ -637,6 +637,144 @@ class ReviewR2(unittest.TestCase):
         h.call(h.A, 'alarm.mute', expect='STANDBY')
 
 
+class MenuFunctions(unittest.TestCase):
+    """The Sentinel Gold menu functions (manual 2.2-2.5, 5.3, chapter 7 table): PIN session, modes, display settings, clock, field calibration."""
+
+    def test_pin_session_and_levels(self):
+        g = Rig()
+        g.on()
+        g.call(g.A, 'menu.enter', expect='WRONG_PIN', pin='1111')
+        g.call(g.A, 'mode.set', expect='MENU_CLOSED', mode='quickstart')
+        self.assertEqual(g.call(g.A, 'menu.enter', pin='0000')['level'], 'fan')        # FAN PIN 0000 still opens the menu (2.1.4.2)
+        self.assertTrue(g.read('alarm.audible'))                                         # the buzzer sounds on entry
+        g.step(3.0)
+        self.assertFalse(g.read('alarm.audible'))
+        g.call(g.A, 'mode.set', expect='ADMIN_PIN_REQUIRED', mode='maintenance')
+        g.call(g.A, 'menu.configure', expect='ADMIN_PIN_REQUIRED', filter_life_display=True)
+        g.call(g.A, 'pin.set', expect='ADMIN_PIN_REQUIRED', which='fan', pin='1234')
+        g.call(g.A, 'menu.configure', unit='imperial')
+        g.call(g.A, 'mode.set', mode='quickstart')
+        self.assertEqual(g.read('settings.current')['mode'], 'quickstart')
+        g.call(g.A, 'menu.exit')
+        self.assertEqual(g.call(g.A, 'menu.enter', pin='0009')['level'], 'admin')
+        self.assertFalse(g.call(g.A, 'pin.set', which='fan', pin='0000')['pin_set'])
+        self.assertTrue(g.call(g.A, 'pin.set', which='fan', pin='1234')['pin_set'])
+        g.call(g.A, 'menu.exit')
+        self.assertEqual(g.call(g.A, 'pin.check', pin='1234')['level'], 'fan')
+        g.call(g.A, 'pin.check', expect='WRONG_PIN', pin='0000')
+        st = g.read('menu.state')
+        self.assertEqual((st['open'], st['unit'], st['fan_pin_set']), (False, 'imperial', True))
+        g.call(g.A, 'power.set', on=False)
+        g.call(g.A, 'menu.enter', expect='POWER_OFF', pin='0009')
+
+    def test_warm_up_pause_and_admin_menu(self):
+        g = Rig()
+        g.on()
+        g.sash('up')
+        g.call(g.A, 'fan.toggle')
+        g.step(10.0)
+        g.call(g.A, 'menu.enter', expect='ADMIN_PIN_REQUIRED', pin='0000')             # during warm-up only the ADMIN PIN (2.2.1.5)
+        g.call(g.A, 'menu.enter', pin='0009')
+        left = g.read('fan.remaining_s')
+        g.step(60.0)
+        self.assertEqual(g.read('fan.remaining_s'), left)                                # entering the menu pauses the warm-up
+        g.call(g.A, 'settings.configure', post_purge_s=120.0)
+        g.call(g.A, 'settings.configure', expect='WARMING_UP', warm_up_s=300.0)
+        g.call(g.A, 'menu.exit')
+        g.step(30.0)
+        self.assertAlmostEqual(g.read('fan.remaining_s'), left - 30.0, places=6)
+
+    def test_maintenance_mode(self):
+        g = Rig()
+        g.working()
+        g.call(g.A, 'settings.configure', post_purge_s=300.0)
+        g.sash('up')                                                                     # fully open: sash alarm
+        self.assertIn('SASH_ALARM', g.read('alarms.active'))
+        g.call(g.A, 'menu.enter', pin='0009')
+        g.call(g.A, 'mode.set', mode='maintenance')
+        g.call(g.A, 'menu.exit')
+        self.assertEqual(g.read('alarms.active'), [])                                    # all alarms disabled
+        self.assertTrue(g.read('menu.state')['maintenance'])
+        g.call(g.A, 'sash.move', direction='down', hold_s=2.0)                           # stopped mid-way: the light stays on
+        g.step(5.0)
+        self.assertEqual(g.read('sash.status'), 'intermediate')
+        self.assertTrue(g.read('lamp.on'))
+        g.sash('down')
+        g.sash('down')
+        self.assertEqual(g.read('sash.status'), 'closed')
+        g.call(g.A, 'fan.toggle')
+        self.assertEqual(g.read('fan.state'), 'off')                                     # no post-purge
+        g.call(g.A, 'fan.toggle')
+        self.assertEqual(g.read('fan.state'), 'on')                                      # fan with the sash closed, no warm-up
+        g.call(g.A, 'uv.toggle', expect='MAINTENANCE_MODE')
+        self.assertEqual(g.call(g.A, 'menu.enter')['level'], 'admin')                    # no PIN in maintenance mode
+        g.call(g.A, 'mode.set', mode='normal')
+        g.call(g.A, 'menu.exit')
+        self.assertFalse(g.read('menu.state')['maintenance'])
+
+    def test_field_calibration(self):
+        g = Rig()
+        g.working()
+        g.call(g.E, 'fault.inject', fault='airflow_sensor_uncalibrated', active=True)
+        self.assertIn('SENSOR_UNCALIBRATED', g.read('alarms.active'))
+        g.call(g.A, 'maintenance.field_calibration', expect='ADMIN_PIN_REQUIRED', action='calibrate', measured_inflow_m_s=0.45)
+        g.call(g.A, 'menu.enter', pin='0009')
+        g.call(g.A, 'maintenance.field_calibration', expect='NOT_CALIBRATABLE', action='calibrate')
+        g.call(g.A, 'maintenance.field_calibration', expect='CALIBRATION_ERROR', action='calibrate', measured_inflow_m_s=1.2)
+        r = g.call(g.A, 'maintenance.field_calibration', action='calibrate', measured_inflow_m_s=0.45)
+        self.assertTrue(r['calibrated'])
+        g.call(g.A, 'menu.exit')
+        g.step(5.0)
+        self.assertAlmostEqual(g.read('display.inflow_m_s'), 0.45, delta=0.02)
+        self.assertNotIn('SENSOR_UNCALIBRATED', g.read('alarms.active'))
+        self.assertNotIn('airflow_sensor_uncalibrated', g.read('truth.faults'))
+        g.call(g.A, 'menu.enter', pin='0009')
+        self.assertFalse(g.call(g.A, 'maintenance.field_calibration', action='reset')['calibrated'])
+        self.assertEqual(g.read('menu.state')['calibration_gain'], 1.0)
+
+    def test_clock_certification_and_out_of_range_display(self):
+        g = Rig(ambient_k=305.15)                                                         # 32 C: the airflow monitor is off (2.1.4.3)
+        g.working()
+        self.assertIsNone(g.read('display.inflow_m_s'))
+        g.call(g.A, 'clock.set', expect='INVALID_DATE', date='2026-02-30')
+        self.assertTrue(g.call(g.A, 'clock.set', date='2027-03-01', time='08:30')['clock'].startswith('2027-03-01T08:30'))
+        g.step(60.0)
+        self.assertTrue(g.read('device.clock').startswith('2027-03-01T08:31'))
+        g.call(g.A, 'menu.enter', pin='0009')
+        g.call(g.A, 'menu.configure', expect='INVALID_DATE', date_certified='1999-12-31')
+        g.call(g.A, 'menu.configure', date_certified='2026-01-15', airflow_out_temp=True)
+        g.call(g.A, 'menu.exit')
+        self.assertIn('RECERTIFICATION', g.read('alarms.active'))                        # Call Service for re-certification
+        self.assertIsNotNone(g.read('display.inflow_m_s'))                               # AIRFLOW OUT TEMP: velocities shown
+        self.assertEqual(g.read('airflow.status'), 'disabled')                           # the alarm stays off
+
+    def test_admin_resets(self):
+        g = Rig(filter_hours_h=10000.0, uv_hours_h=2000.0)
+        g.on()
+        self.assertTrue({'FILTER_LIFE', 'UV_LAMP_LIFE'} <= set(g.read('alarms.active')))
+        g.call(g.A, 'meters.reset', expect='ADMIN_PIN_REQUIRED', meter='filter')
+        g.call(g.A, 'menu.enter', pin='0009')
+        for m in ('filter', 'uv', 'blower'):
+            g.call(g.A, 'meters.reset', meter=m)
+        self.assertEqual(g.call(g.A, 'sash.set_cycles', count=15000)['sash_cycles'], 15000)
+        g.call(g.A, 'pin.set', which='admin', pin='4321')
+        g.call(g.A, 'settings.configure', warm_up_s=600.0, airflow_monitor=False)
+        g.call(g.A, 'menu.configure', unit='imperial', filter_life_display=True)
+        g.call(g.A, 'menu.exit')
+        al = g.read('alarms.active')
+        self.assertEqual(al, ['REPLACE_SASH_MOTOR'])
+        g.call(g.A, 'menu.enter', expect='WRONG_PIN', pin='0009')
+        g.call(g.A, 'menu.enter', pin='4321')
+        g.call(g.A, 'settings.reset_default')
+        g.call(g.A, 'sash.set_cycles', count=0)
+        g.call(g.A, 'menu.exit')
+        s, m = g.read('settings.current'), g.read('menu.state')
+        self.assertEqual((s['warm_up_s'], s['airflow_monitor'], m['unit'], m['filter_life_display']), (180.0, True, 'metric', False))
+        self.assertEqual(g.call(g.A, 'pin.check', pin='0009')['level'], 'admin')        # ADMIN PIN back to 0009
+        self.assertEqual(g.read('meters')['filter_h'], 0.0)
+        self.assertEqual(g.read('alarms.active'), [])
+
+
 class ZCoverage(unittest.TestCase):
     def test_all_capabilities_exercised(self):
         implemented = {k for k in rt.CAPS if k not in rt.UNSUPPORTED}

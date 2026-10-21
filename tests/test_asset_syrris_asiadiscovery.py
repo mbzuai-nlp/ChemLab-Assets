@@ -13,7 +13,7 @@ class AsiaTest(unittest.TestCase):
   for suffix in ['volume_m3','mass_kg']:self.assertAlmostEqual(v['truth.initial_'+suffix],sum(v['truth.'+k+'_'+suffix] for k in ['retained','collected','waste','removed']),12)
   for i in range(2):self.assertAlmostEqual(v['truth.initial_tracer_mol'][i],sum(v['truth.'+k+'_tracer_mol'][i] for k in ['retained','collected','waste','removed']),14)
  def test_contract_schemas(self):
-  m=export_syrris_asiadiscovery_contract_metadata();self.assertEqual(len(m['capabilities']),13)
+  m=export_syrris_asiadiscovery_contract_metadata();self.assertEqual(len(m['capabilities']),13+len(FRONT_CAPS)+len(ERROR_CAPS)+len(PANEL_CAPS))
   for cap in m['capabilities'].values():
    self.assertFalse(asset_tool.lint_schema(cap['input_schema']));self.assertFalse(asset_tool.lint_schema(cap['output_schema']));self.assertFalse(asset_tool.validate_value(cap['example_arguments'],cap['input_schema']))
  def test_all_78_templates_drive_runtime(self):

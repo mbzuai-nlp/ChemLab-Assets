@@ -7,7 +7,7 @@ control; safety circuit (Err. 25 with a short-circuited TRIAC, Err. 24 when lowe
 (sensor pulled while heating), Err. 4 (motor blocked), Err. 3 (heat accumulation under an overhanging pot at 310 C), Err. 14, 21, 31; boiling at
 the pressure-corrected boiling point with the latent heat; evaporation; bar decoupling in a viscous medium and the viscosity trend; timer with the
 expiry actions and the counter; intermittent / reverse stirring; operating modes A / B after a power failure; lock; HOT! display; NAMUR commands
-and watchdogs 1 / 2; energy and liquid-mass ledgers close."""
+and watchdogs 1 / 2; energy and liquid-mass ledgers close; PT1000 probe error, two-point calibration and re-set; buzzer."""
 import copy
 import json
 import math
@@ -434,6 +434,40 @@ class Physics(unittest.TestCase):
         g.call(g.E, 'fault.inject', fault='heater_switch_fault', active=True)
         self.assertEqual(g.read('error.code'), 31)
 
+    def test_safety_sensor_and_circuit_faults_13_22_26_44_46(self):
+        """manual p.27-28: the fault shows its code at once (22 at the power-up test), heating off, heating refused; the documented remedy."""
+        for fault, code in (('control_sensor_drift', 26), ('safety_sensor_drift', 46), ('safety_sensor_disconnected', 44)):
+            g = Rig()
+            g.on()
+            g.heat(80.0)
+            g.step(60.0)
+            g.call(g.E, 'fault.inject', fault=fault, active=True)
+            self.assertEqual((g.read('error.code'), g.read('heating.on'), g.read('display.message')), (code, False, f'E{code}'))
+            g.call(g.A, 'heating.set', expect='ERROR_ACTIVE', on=True)
+            g.call(g.E, 'fault.inject', fault=fault, active=False)
+            g.call(g.A, 'power.toggle')
+            g.call(g.A, 'power.toggle')
+            self.assertIsNone(g.read('error.code'))
+        g = Rig()
+        g.on()
+        g.call(g.E, 'fault.inject', fault='safety_circuit_open', active=True)
+        self.assertEqual(g.read('error.code'), 13)
+        g.call(g.A, 'safety.set_limit', limit_k=C0 + 190.0)                                              # another SAFE TEMP: the circuit is fine again
+        self.assertIsNone(g.read('error.code'))
+        g.call(g.E, 'fault.inject', fault='safety_check_fault', active=True)
+        self.assertIsNone(g.read('error.code'))
+        g.call(g.A, 'power.toggle')
+        g.call(g.A, 'power.toggle')
+        self.assertEqual(g.read('error.code'), 22)
+        g2 = Rig()                                                                                         # Err. 44: SAFE TEMP between plate and safety sensor
+        g2.on()
+        g2.heat(100.0)
+        g2.step(900.0)
+        g2.call(g2.A, 'heating.set', on=False)
+        tp = g2.truth()['plate_k']
+        g2.call(g2.A, 'safety.set_limit', limit_k=tp + 1.0)
+        self.assertEqual(g2.read('error.code'), 44)
+
     def test_timer_counter_intermittent_reverse(self):
         g = Rig()
         g.on()
@@ -545,6 +579,63 @@ class Physics(unittest.TestCase):
         g.step(10 * 86400.0)
         self.assertEqual(g.h.tick - n, int(round(10 * 86400.0 / rt.DT)))
         _balance(self, g.ledger())
+
+
+class ProbeCalibrationAndBeep(unittest.TestCase):
+    """Front-panel follow-up (2026-10-18): menu Probe calibration and Beep act on the process."""
+
+    def test_probe_error_two_point_calibration_and_reset(self):
+        g = Rig()
+        g.on()
+        g.beaker()
+        args = dict(device_1_k=C0 + 50.0, reference_1_k=C0 + 50.0, device_2_k=C0 + 100.0, reference_2_k=C0 + 100.0)
+        g.call(g.A, 'sensor.calibrate_two_point', expect='NO_SENSOR', **args)
+        g.call(g.E, 'sensor.configure_error', offset_k=1.5, gain=0.01)
+        g.call(g.A, 'sensor.set', connected=True, immersed=True)
+        g.stir(500)
+        pts = []
+        for c in (50.0, 100.0):
+            g.heat(c)
+            g.step(1800.0)
+            shown, true_c = g.read('display.temperature'), g.truth()['charge_k'] - C0
+            self.assertAlmostEqual(shown - true_c, 1.5 + 0.01 * true_c, delta=0.1)                       # the probe reads high
+            pts.append((C0 + shown, C0 + round(true_c, 1)))                                               # reference thermometer (EXT)
+        (d1, r1), (d2, r2) = pts
+        g.call(g.A, 'sensor.calibrate_two_point', expect='CAL_POINTS_TOO_CLOSE', device_1_k=d1, reference_1_k=r1, device_2_k=d1 + 5.0, reference_2_k=r1 + 5.0)
+        g.call(g.A, 'sensor.calibrate_two_point', expect='CAL_OUT_OF_RANGE', device_1_k=d1, reference_1_k=r1, device_2_k=d2, reference_2_k=r2 + 20.0)
+        cal = g.call(g.A, 'sensor.calibrate_two_point', device_1_k=d1, reference_1_k=r1, device_2_k=d2, reference_2_k=r2)['calibration']
+        self.assertAlmostEqual(cal['gain'], 1.0 / 1.01, delta=0.005)
+        g.call(g.A, 'sensor.calibrate_two_point', expect='CALIBRATION_ACTIVE', device_1_k=d1, reference_1_k=r1, device_2_k=d2, reference_2_k=r2)
+        g.heat(75.0)
+        g.step(1800.0)
+        self.assertAlmostEqual(g.read('display.temperature'), g.truth()['charge_k'] - C0, delta=0.15)     # the error is calibrated out ...
+        self.assertAlmostEqual(g.truth()['charge_k'] - C0, 75.0, delta=0.5)                             # ... in the display and the control
+        self.assertEqual(float(g.call(g.A, 'interface.set', connected=True) and g.call(g.A, 'namur.send', command='IN_PV_1')['response'].split()[0]),
+                         round(g.read('display.temperature'), 1))
+        g.call(g.A, 'sensor.reset_calibration', expect='FUNCTIONS_RUNNING')
+        g.call(g.A, 'heating.set', on=False)
+        g.call(g.A, 'stirring.set', on=False)
+        g.call(g.A, 'sensor.reset_calibration')
+        self.assertFalse(g.read('sensor.calibration')['calibrated'])
+        g.call(g.A, 'sensor.reset_calibration', expect='NOT_CALIBRATED')
+        self.assertGreater(g.read('display.temperature') - (g.truth()['charge_k'] - C0), 1.5)          # factory calibration: the error is back
+        self.assertEqual(g.call(g.E, 'truth.inspect')['process']['sensor_error'], dict(offset_k=1.5, gain=0.01))
+
+    def test_buzzer_follows_the_beep_setting(self):
+        g = Rig()
+        g.on()
+        g.call(g.A, 'timer.set', duration_s=5.0)
+        g.call(g.A, 'timer.toggle')
+        self.assertFalse(g.read('indicator.beep'))
+        g.step(6.0)
+        self.assertTrue(g.read('indicator.beep'))                                                       # 00:00:00 with Beep on
+        g.call(g.A, 'menu.configure', beep=False)
+        self.assertFalse(g.read('indicator.beep'))
+        g.call(g.A, 'menu.configure', beep=True)
+        g.call(g.A, 'timer.clear')
+        self.assertFalse(g.read('indicator.beep'))
+        g.call(g.E, 'fault.inject', fault='heater_switch_fault', active=True)
+        self.assertTrue(g.read('indicator.beep'))                                                       # an error code sounds too
 
 
 class RoundOneFixes(unittest.TestCase):

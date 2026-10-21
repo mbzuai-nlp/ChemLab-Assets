@@ -153,6 +153,19 @@ class TestDMA850(unittest.TestCase):
    self.assertEqual(set(values),set(rt.SLOTS));json.dumps(values,allow_nan=False)
    for k,v in values.items():rt.validate(rt.SLOTS[k]['schema'],v)
   self.assertTrue(all(not c['state_effects'] for k,c in meta['capabilities'].items() if c['kind'] in ['query','analysis']));SCHEMA_REPORT.update(actual_returns=len(OBSERVED),states=len(STATES))
+ def test_48_heater_conditioning_and_position_act_on_the_device_reading(self):
+  # One error model: the heater, the block conditioning and the Position move act on the device's own readings (errors + stored calibration)
+  ideal=setup();call(ideal,'thermal.set_temperature',temperature_k=330.,rate_k_s=10/60);step(ideal,900.);shown=ideal.read()['furnace.indicated_k'];self.assertAlmostEqual(ideal.furnace,shown,places=9)
+  for plant,cal,shift in [({'temperature_offset_k':2.},{},-2.),({},{'temperature_zero_k':2.},2.)]:
+   h=setup(plant=plant);call(h,'sensor.calibrate',**dict(h.calibration,**cal));call(h,'thermal.set_temperature',temperature_k=330.,rate_k_s=10/60);step(h,900.)
+   self.assertAlmostEqual(h.read()['furnace.indicated_k'],shown,delta=.01);self.assertAlmostEqual(h.furnace-ideal.furnace,shift,delta=.02)
+  m=method(1.);m['blocks'][0]['temperature_k']=310.;h=setup(sample=engineering(),plant={'temperature_offset_k':2.},method=m,preload=.2);r=run(h)
+  self.assertEqual(r['phase'],'succeeded');self.assertAlmostEqual(r['blocks'][0]['mean_temperature_k'],310.,delta=.3);self.assertAlmostEqual(h.sample_temperature,308.,delta=.3)
+  for cal,true in [({},.005/1.1),({'displacement_gain_correction':1/1.1},.005)]:
+   h=rt.TaDma850Runtime('position');call(h,'plant.configure',**dict(rt.PLANT_EXAMPLE,displacement_gain=1.1));call(h,'power.set',enabled=True)
+   for g in ['air','N2']:call(h,'gas.load',**dict(rt.GAS_EXAMPLE,gas=g,amount_mol=100.))
+   call(h,'gas.set_open',opened=True);call(h,'sensor.calibrate',**dict(rt.CALIBRATION_EXAMPLE,**cal));call(h,'drive.move',position_m=.005);wait(h,lambda:not h.read()['drive.moving']);step(h,.1)
+   p=h.panel_read();self.assertAlmostEqual(h.drive,true,places=12);self.assertAlmostEqual(p['host.position_m'],.005,places=9);self.assertAlmostEqual(p['host.position_set_m'],.005,places=12)
 # ---- 2026-10-15 real-data library: every runtime-usable record must drive an actual observed run ----
 def source_rows(ref,f):
  v=ref['values'];return sorted((T,E,D) for T,F,E,D in zip(v['temperature_k'],v['frequency_hz'],v['storage_modulus_pa'],v['loss_modulus_pa']) if math.isclose(F,f,rel_tol=1e-7,abs_tol=1e-9))

@@ -134,7 +134,7 @@ class ContractAndLibraries(unittest.TestCase):
     def test_module_identity_and_export(self):
         m = _meta()
         self.assertEqual(m['asset_type_id'], 'instrument.biorad_cfxopus')
-        self.assertEqual(set(m['capabilities']), set(rt.CAPS))
+        self.assertEqual(set(m['capabilities']), set(rt.ALL_CAPS))
         self.assertEqual(set(m['state_slots']), set(rt.SLOTS))
         for k, c in m['capabilities'].items():
             self.assertTrue(c['errors'], k)
@@ -522,7 +522,7 @@ class Framework(unittest.TestCase):
         h.step(7.0)
         s.invoke(instance_id=INST, capability_id='plate.prepare', arguments=dict(plate_id='mine', plate_type='white_lowprofile_96', seal='optical_film',
                                                                                  wells=[W('A1', ['hs_gapdh'])]), request_id='p')
-        self.assertEqual(s2.invoke(instance_id=INST, capability_id='plate.load', arguments=dict(plate_id='mine'), request_id='l')['error']['code'], 'ACCESS_DENIED')
+        self.assertEqual(s2.invoke(instance_id=INST, capability_id='plate.load', arguments=dict(plate_id='mine'), request_id='l')['status'], 'succeeded')   # physical (sweep 2026-10-19)
         s.invoke(instance_id=INST, capability_id='plate.load', arguments=dict(plate_id='mine'), request_id='l')
         s.invoke(instance_id=INST, capability_id='lid.close', arguments={}, request_id='c')
         h.step(7.0)
@@ -539,7 +539,7 @@ class Framework(unittest.TestCase):
         self.assertEqual(c['result']['phase'], 'cancelled')                         # protocol.md operation status
         self.assertEqual(s.poll(st['operation_id'])['status'], 'cancelled')
         self.assertEqual(h.read()['run.state'], 'stopped')
-        self.assertEqual(s.invoke(instance_id=INST, capability_id='user.login', arguments={}, request_id='u')['status'], 'unsupported')
+        self.assertEqual(s.invoke(instance_id=INST, capability_id='brio.connect', arguments={}, request_id='u')['status'], 'unsupported')
         check('isolation')
 
     def test_switch_lamps_skip_and_screen(self):
@@ -824,8 +824,11 @@ class ReviewRound3(unittest.TestCase):
         op = s1.invoke(instance_id=INST, capability_id='run.start', arguments=dict(scan_mode='sybr_fam'), request_id='r')['operation_id']
         h.step(300.0)
         h.invoke('fault.inject', fault='power_loss', active=True)
-        for cap, args in (('power.set', dict(enabled=False)), ('power.press_switch', {})):       # F3-02: no switching OFF of another agent's run
-            self.assertEqual(s2.invoke(instance_id=INST, capability_id=cap, arguments=args, request_id='x' + cap)['error']['code'], 'ACCESS_DENIED')
+        self.assertEqual(s1.poll(op)['status'], 'running')
+        k2 = copy.deepcopy(h)                                                     # sweep 2026-10-19: the rear power switch is a hard switch (physical):
+        k2.session('a2').invoke(instance_id=INST, capability_id='power.set', arguments=dict(enabled=False), request_id='off')   # not refused
+        self.assertEqual(k2.session('a1').poll(op)['status'], 'cancelled')       # switched off: the run ends
+        self.assertEqual(s2.invoke(instance_id=INST, capability_id='run.stop', arguments={}, request_id='stop')['error']['code'], 'ACCESS_DENIED')
         self.assertEqual(s1.poll(op)['status'], 'running')
         for st in ([dict(kind='temperature', temperature_k=368.15, hold_s=5.0), dict(kind='goto', goto_step=1, cycles=2, beep=True)],
                    [dict(kind='melt', start_k=338.15, end_k=348.15, melt_increment_k=0.5, beep=True)]):
@@ -895,6 +898,17 @@ def _build(name):
         while h.run['state'] == 'running':
             h.step(30.0)
         return h
+    if name == 'admin':
+        h = powered()
+        h.invoke('user.create', name='Analyst', password='pcr1234')
+        h.invoke('user.logout')
+        h.invoke('user.login', user='Admin')
+        h.invoke('files.save_protocol', folder='Public', name='P', protocol=rt.PROTOCOL_EXAMPLE)
+        return h
+    if name == 'admin_done':
+        h = _scenario('completed')
+        h.invoke('user.login', user='Admin')
+        return h
     if name == 'obstructed':
         h = _scenario('lid_open')
         h.invoke('fault.inject', fault='lid_obstructed', active=True)
@@ -910,7 +924,8 @@ def _scenario(name):
     return copy.deepcopy(_SC[name])
 
 
-SCENARIOS = ['fresh', 'idle', 'off', 'lid_open', 'loaded_open', 'ready', 'lid_heating', 'running', 'paused', 'melting', 'completed', 'obstructed']
+SCENARIOS = ['fresh', 'idle', 'off', 'lid_open', 'loaded_open', 'ready', 'lid_heating', 'running', 'paused', 'melting', 'completed', 'obstructed', 'admin',
+             'admin_done']
 STEP_DTS = (0.5, 5.0, 60.0)
 
 
@@ -925,12 +940,122 @@ def _variants(cap):
         'fault.inject': [dict(fault='lid_obstructed', active=True), dict(fault='power_loss', active=True), dict(fault='led_failure_channel_1', active=True),
                          dict(fault='fan_failure', active=True), dict(fault='block_sensor_drift', active=True), dict(fault='lid_obstructed', active=False)],
         'sim.step': [dict(dt_s=1.0)],
+        'user.login': [dict(user='Guest'), dict(user='Admin')], 'user.create': [dict(name='Analyst2', password='pcr1234')],
+        'user.set_password': [dict(new_password='pcr5678')], 'files.delete': [dict(path='Public/P')], 'files.rename': [dict(path='Public/P', name='P2')],
+        'system.configure': [dict(name='qPCR-1', time_zone='(UTC+08:00) Beijing, Chongqing, Hong Kong', date='2026-02-01', time='10:00', password_required=True,
+                                  screen_saver=True, screen_saver_idle_s=300)],
+        'runs.export': [dict(run_id='R001')],
     }
     return V.get(cap, [copy.deepcopy(rt.CAPS[cap]['example_arguments'])])
 
 
 def _num(x):
     return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+class TerminalLayer(unittest.TestCase):
+    """Instrument Guide chapters 2-6: user accounts and passwords, the file browser (My Files, Public, read-only samples, USB), Run Setup and the run
+    file, Run Reports, System Logs, System Settings and the clock, email settings, diagnostics, soft shut-down."""
+
+    def test_users_files_run_file_settings_and_shutdown(self):
+        h = powered()
+        with self.assertRaises(rt.ActionRejected):
+            h.invoke('files.create_folder', parent='Public', name='A')                  # LOGIN_REQUIRED
+        self.assertEqual(h.read()['term.users'][0]['name'], 'Admin')
+        h.invoke('user.create', name='Analyst', password='pcr1234')                     # creates My Files and logs in
+        self.assertEqual((h.read()['term.user'], h.read()['term.users'][0]['name']), ('Analyst', 'Analyst'))
+        for bad, code in ((dict(name='analyst'), 'LOGGED_IN'),):
+            with self.assertRaises(rt.ActionRejected) as e:
+                h.invoke('user.create', **bad)
+            self.assertEqual(str(e.exception), code)
+        h.invoke('user.set_email', email='analyst@example.org')
+        h.invoke('user.set_password', new_password='pcr5678', current_password='pcr1234')
+        h.invoke('files.create_folder', parent='My Files/Analyst', name='Assays')
+        out = h.invoke('files.save_protocol', folder='My Files/Analyst/Assays', name='SYBR', protocol=rt.PROTOCOL_EXAMPLE)
+        self.assertEqual(out, dict(path='My Files/Analyst/Assays/SYBR', overwritten=False))
+        self.assertTrue(h.invoke('files.save_protocol', folder='My Files/Analyst/Assays', name='SYBR', protocol=rt.PROTOCOL_EXAMPLE)['overwritten'])
+        for args, code in ((dict(folder='Public/Bio-Rad qPCR', name='X', protocol=rt.PROTOCOL_EXAMPLE), 'READ_ONLY'),
+                           (dict(folder='My Files/Admin', name='X', protocol=rt.PROTOCOL_EXAMPLE), 'FOLDER_NOT_ALLOWED'),
+                           (dict(folder='Public', name='CFX_2stepAmp+Melt', protocol=rt.PROTOCOL_EXAMPLE, from_path='Public/Bio-Rad qPCR/CFX_2stepAmp+Melt'),
+                            'RENAME_REQUIRED'),
+                           (dict(folder='Public', name='bad/name', protocol=rt.PROTOCOL_EXAMPLE), 'INVALID_NAME')):
+            with self.assertRaises(rt.ActionRejected) as e:
+                h.invoke('files.save_protocol', **args)
+            self.assertEqual(str(e.exception), code)
+        h.invoke('files.copy', path='Public/Bio-Rad qPCR/CFX_2stepAmp+Melt', folder='My Files/Analyst')
+        with self.assertRaises(rt.ActionRejected) as e:
+            h.invoke('files.copy', path='Public/Bio-Rad qPCR/CFX_2stepAmp+Melt', folder='My Files/Analyst')
+        self.assertEqual(str(e.exception), 'NAME_EXISTS')
+        self.assertTrue(h.invoke('files.copy', path='Public/Bio-Rad qPCR/CFX_2stepAmp+Melt', folder='My Files/Analyst', overwrite=True)['overwritten'])
+        h.invoke('files.rename', path='My Files/Analyst/CFX_2stepAmp+Melt', name='Mine')
+        h.invoke('files.copy', path='My Files/Analyst/Assays', folder='USB')
+        self.assertEqual(h.read()['usb.files'], ['Assays/SYBR'])
+        self.assertEqual(h.invoke('files.delete', path='USB/Assays')['deleted'], 1)
+        self.assertEqual(h.read()['usb.files'], [])
+        with self.assertRaises(rt.ActionRejected) as e:
+            h.invoke('files.delete', path='Public/Bio-Rad qPCR/CFX_2stepAmp')
+        self.assertEqual(str(e.exception), 'READ_ONLY')
+        h.invoke('files.open', path='My Files/Analyst/Assays/SYBR')
+        self.assertEqual((h.read()['protocol.name'], h.read()['protocol.path']), ('SYBR', 'My Files/Analyst/Assays/SYBR'))
+        open_lid(h)
+        close_lid(h)
+        h.invoke('run.configure', run_file_name='run1', plate_id='PL-7', notify_beep=True, notify_email=True)
+        self.assertEqual(h.read()['run.setup']['folder'], 'My Files/Analyst/Assays')       # the protocol's folder (guide p.113)
+        h.invoke('run.start', scan_mode='sybr_fam')
+        self.assertIsNone(h.read()['run.setup'])
+        h.step(120.0)
+        h.invoke('run.stop')
+        e = next(x for x in h.read()['files.entries'] if x['path'] == 'My Files/Analyst/Assays/run1')
+        self.assertEqual((e['kind'], e['run']['status'], e['run']['plate_id']), ('run', 'stopped', 'PL-7'))
+        codes = [x['code'] for x in h.events]
+        self.assertIn('BEEP', codes)
+        self.assertIn('EMAIL_NOT_SENT', codes)
+        self.assertEqual(h.invoke('runs.export', run_id='R001')['files'], ['RunReports/R001_SYBR_report.pdf'])
+        h.invoke('logs.export')
+        for cap, args in (('runs.recover', dict(run_id='R001')), ('logs.clear', {}), ('diagnostics.run', {}), ('system.configure', dict(name='Q')),
+                          ('user.remove', dict(user='Admin'))):
+            with self.assertRaises(rt.ActionRejected) as e:
+                h.invoke(cap, **args)
+            self.assertEqual(str(e.exception), 'ADMIN_REQUIRED', cap)
+        h.invoke('user.logout')
+        with self.assertRaises(rt.ActionRejected) as e:
+            h.invoke('user.login', user='Analyst', password='pcr1234')
+        self.assertEqual(str(e.exception), 'WRONG_PASSWORD')
+        with self.assertRaises(rt.ActionRejected) as e:
+            h.invoke('user.login', user='Service', password='anything')
+        self.assertEqual(str(e.exception), 'WRONG_PASSWORD')
+        h.invoke('user.login', user='Admin')
+        h.invoke('system.configure', time_zone='(UTC+08:00) Beijing, Chongqing, Hong Kong', password_required=True, screen_saver=True, screen_saver_idle_s=300)
+        t0 = h.read()['term.datetime']
+        self.assertEqual(t0[11:13], '19')                                                # -11 h -> +8 h shifts the local time by 19 h
+        h.invoke('system.configure', date='2027-03-04', time='09:30')
+        self.assertEqual(h.read()['term.datetime'][:16], '2027-03-04T09:30')
+        h.invoke('email.configure', server='smtp.example.org', port=25, use_ssl=False, authentication=True, account='lab')
+        self.assertEqual(h.read()['email.settings']['account'], 'lab')
+        h.invoke('fault.inject', fault='led_failure_channel_2', active=True)
+        res = {x['test']: x['result'] for x in h.invoke('diagnostics.run')['results']}
+        self.assertEqual((res['optics_ch2'], res['optics_ch1']), ('Fail', 'Pass'))
+        h.invoke('user.reset_password', user='Analyst', new_password='pcr0000')
+        h.invoke('runs.recover', run_id='R001')
+        h.invoke('logs.clear')
+        h.invoke('runs.delete', run_ids=['R001'])
+        self.assertEqual(h.read()['runs.count'], 0)
+        h.invoke('user.remove', user='Analyst')
+        self.assertFalse(any(x['path'].startswith('My Files/Analyst') for x in h.read()['files.entries']))
+        h.invoke('user.logout')
+        h.invoke('user.create', name='Tech', password='abcd')
+        h.invoke('user.logout')
+        with self.assertRaises(rt.ActionRejected) as e:
+            h.invoke('user.create', name='Nopw')
+        self.assertEqual(str(e.exception), 'PASSWORD_REQUIRED')
+        h.invoke('system.shutdown')
+        self.assertEqual((h.read()['power.enabled'], h.read()['term.shutdown']), (False, True))
+        h.invoke('plant.configure', **rt.PLANT_EXAMPLE)                                  # no restart without the switch
+        self.assertFalse(h.read()['power.enabled'])
+        h.invoke('power.set', enabled=False)
+        h.invoke('power.set', enabled=True)
+        self.assertEqual((h.read()['power.enabled'], h.read()['term.shutdown'], h.read()['term.user']), (True, False, None))
+        check('terminal_layer')
 
 
 def _flat(v, prefix=''):

@@ -196,7 +196,7 @@ class ToclTests(unittest.TestCase):
  def test_unsupported_options_metadata_and_real_button_bindings(self):
   h=ready()
   for k in r.UNSUPPORTED:self.reject(h,'UNSUPPORTED',k)
-  m=r.export_shimadzu_tocl_contract_metadata();self.assertEqual(len(m['capabilities']),29);self.assertEqual(len(m['state_slots']),32);self.assertIn('button_start',m['capabilities']['measurement.start']['component_ids']);self.assertIn('button_power',m['capabilities']['power.toggle']['component_ids'])
+  m=r.export_shimadzu_tocl_contract_metadata();self.assertEqual(len(r.CAPS),29);self.assertEqual(len(m['capabilities']),29+len(r.KEY_CAPS)+len(r.PANEL_CAPS));self.assertEqual(len(m['state_slots']),32+16+4+1);self.assertIn('button_start',m['capabilities']['measurement.start']['component_ids']);self.assertIn('button_power',m['capabilities']['power.toggle']['component_ids'])
   for k,v in m['capabilities'].items():
    if v['kind']=='query' or k in r.UNSUPPORTED:self.assertEqual(v['state_effects'],[])
  def test_unknown_fields_nonfinite_and_invalid_clock_atomic(self):

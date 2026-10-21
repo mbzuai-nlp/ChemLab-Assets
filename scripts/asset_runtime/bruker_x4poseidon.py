@@ -34,7 +34,9 @@ import functools
 import hashlib
 import json
 import math
+import os
 import random
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -97,8 +99,8 @@ def validate(s, v):
     elif k == 'object':
         if not isinstance(v, dict):
             raise ActionRejected('INVALID_ARGUMENT')
-        if 'properties' in s:
-            if set(v) != set(s['properties']):
+        if 'properties' in s:                                            # required keys (obj(): all of them) and no others
+            if not set(s.get('required', s['properties'])) <= set(v) <= set(s['properties']):
                 raise ActionRejected('INVALID_ARGUMENT')
             for key, value in v.items():
                 validate(s['properties'][key], value)
@@ -1124,6 +1126,35 @@ LOAD_POSITION = dict(sod=0.250, cz=0.250)
 CENTER_POSITION = dict(sod=0.200, cz=0.300)
 
 
+ASSET_VERSION = '1.1.2'
+
+
+# ---------------------------------------------------------------- front panel (touch-screen status display, mains button, emergency stop, status light)
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.bruker_x4poseidon (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+if os.environ.get('X4_PANEL_BUILD'):                                         # the spec builder imports this module before the spec exists
+    PANEL_SPEC = dict(spec_version=_panel_ui.SPEC_VERSION, inputs={}, displays={'screen': dict(kind='touch_tft', size=[800, 480])},
+                      screens={'off': dict(style='static')})
+else:
+    PANEL_SPEC = _panel_ui.load_spec(ASSET / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.touch / press / switch / capture / frame (kept out of CAPS:
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # CAPS stays the instrument's own command set)
+PANEL_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+
+
 class BrukerX4PoseidonRuntime:
     """X4 POSEIDON (reflection source, flat panel, fixed geometry, standard rotation stage): power and safety, door, X-ray source, filter
     changer, sample carriage / lift / rotation, detector calibration, radiography, CT scans, FDK reconstruction and analysis (SI units)."""
@@ -1171,7 +1202,11 @@ class BrukerX4PoseidonRuntime:
         self.used_substances = set()
         self._rate_cache = {}
         self._principals, self._requests, self._owners = {}, {}, {}
+        self._caller = None                                                  # session principal while a session call runs (panel gestures act as that caller)
         self._porosity_owner = None                              # principal of the last porosity analysis (the session sets it)
+        self.power_epoch = 0                                     # power-ups seen by the panel
+        self.panel_capture_dir = None                            # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self)
 
     # ---------------------------------------------------------------- basics
     @property
@@ -1309,15 +1344,15 @@ class BrukerX4PoseidonRuntime:
 
     # ---------------------------------------------------------------- commands
     def invoke(self, capability_id, **a):
-        if capability_id not in CAPS:
+        if capability_id not in ALL_CAPS:
             raise ActionRejected('UNKNOWN_CAPABILITY')
         if capability_id in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED')
-        validate(CAPS[capability_id]['input_schema'], a)
-        a = coerce(CAPS[capability_id]['input_schema'], a)             # integral floats of (nested) integer fields -> int
+        validate(ALL_CAPS[capability_id]['input_schema'], a)
+        a = coerce(ALL_CAPS[capability_id]['input_schema'], a)         # integral floats of (nested) integer fields -> int
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
         out = fn(**a)
-        if CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation'):
+        if ALL_CAPS[capability_id]['kind'] not in ('query', 'analysis', 'simulation'):
             self.revision += 1
         return out
 
@@ -1346,6 +1381,67 @@ class BrukerX4PoseidonRuntime:
     def _need_still(self):
         if self._stage_moving() or self._filter_moving() or self._door_moving():
             raise ActionRejected('MOTION_IN_PROGRESS')
+
+    # ---------------------------------------------------------------- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the touch screen and the status light show: the agent slots plus whether the system has power and the power-up count."""
+        out = self.read('agent')
+        out.update({'host.powered': bool(self.power), 'host.power_epoch': self.power_epoch, 'host.booting': self.state == 'booting'})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would.  A gesture made through a session acts as that session's caller: the
+        session's guards apply (the mains button is refused while another agent's acquisition runs; the safety button always works) and an
+        operation started from the panel belongs to the caller."""
+        try:
+            caller = self._caller
+            if caller is not None:
+                BrukerX4PoseidonSession(self, caller)._guard(capability_id, arguments)
+            out = self.invoke(capability_id, **arguments)
+            op = out.get('operation_id') if capability_id in ASYNC else None
+            if caller is not None and op:
+                self._owners[op] = caller
+                rid = self.operations[op].get('record_id')
+                if rid:
+                    self._owners[rid] = caller
+            return out
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args, **kw):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args, **kw)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_touch(self, display_id, x, y, duration_s=0.1, to_x=None, to_y=None):
+        to = None if to_x is None or to_y is None else (int(to_x), int(to_y))
+        return self._panel(self.panel.touch, display_id, int(x), int(y), float(duration_s), to=to)
+
+    def _cmd_panel_press(self, input_id, duration_s=0.1, held=()):
+        return self._panel(self.panel.press, input_id, float(duration_s), held=tuple(held))
+
+    def _cmd_panel_switch(self, input_id, position, held=()):
+        return self._panel(self.panel.switch, input_id, position, held=tuple(held))
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
 
     # ---------------------------------------------------------------- setup, samples, power, safety, faults
     def _cmd_plant_configure(self, room_k, mains_voltage_v, relative_humidity, noise_seed):
@@ -1528,6 +1624,7 @@ class BrukerX4PoseidonRuntime:
             if not (MAINS_V[0] * 0.9 <= self.plant['mains_voltage_v'] <= MAINS_V[1] * 1.1):
                 raise ActionRejected('MAINS_OUT_OF_RANGE')
             self.power, self.state, self.state_t0 = True, 'booting', self.t
+            self.power_epoch += 1
             self.warm_needed = True
             if self.error == 'MAINS_FAULT':
                 self.error = None
@@ -3135,7 +3232,13 @@ _DATA_GUARDED = {'measurement.result', 'records.delete'}
 _RECORD_ARG = {'measurement.result': 'record_id', 'records.delete': 'record_id'}
 _ANALYSIS_RECORD_ARGS = {'recon.start': ['record_id'], 'data.porosity': ['record_id'], 'data.cracks': ['record_id'], 'data.attenuation': ['record_id'],
                          'data.slice': ['record_id'], 'data.edge_resolution': ['record_id']}
-_CONTROL_GUARDED = {k for k, v in CAPS.items() if v['visibility'] == 'agent' and v['kind'] in ('device_command', 'robot_skill') and k not in UNSUPPORTED}
+_HARD_POWER = ('power.set', 'power.press_button')   # the mains button cuts the power: physical, never refused (the device reacts as to a power loss)
+# during another agent's acquisition only the commands that stop or change it are refused (ACCESS_DENIED): the door, the filter changer, the stage
+# and switching the X-ray off; starting another acquisition or calibration, acknowledging and the settings follow the device's own lock
+# (MEASUREMENT_RUNNING)
+_CONTROL_GUARDED = {'door.open', 'door.close', 'filter.select', 'stage.go_to', 'stage.move', 'stage.rotate', 'xray.enable'}
+# placing / removing a sample at the open door (robot skills) is physical and never refused; the safety button (push and release) stays open to all
+_SAFETY = ('emergency.stop', 'emergency.release')
 
 
 class BrukerX4PoseidonSession:
@@ -3170,7 +3273,7 @@ class BrukerX4PoseidonSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -3211,7 +3314,7 @@ class BrukerX4PoseidonSession:
         if capability_id in _CONTROL_GUARDED and self._foreign_op():
             if capability_id in ('power.set', 'power.press_button') and not h.power:
                 return
-            if capability_id == 'emergency.stop':                    # the safety button always works
+            if capability_id in _SAFETY:                                # the safety button (push and release) always works
                 return
             raise ActionRejected('ACCESS_DENIED')
         if capability_id in _DATA_GUARDED:
@@ -3242,15 +3345,19 @@ class BrukerX4PoseidonSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             self._guard(capability_id, arguments)
-            result = h.invoke(capability_id, **arguments)
+            h._caller = self._principal
+            try:
+                result = h.invoke(capability_id, **arguments)
+            finally:
+                h._caller = None
             if self._role == 'agent':
                 if capability_id == 'records.list':
                     result = dict(records=[r for r in result['records'] if not self._foreign(r)])
@@ -3648,7 +3755,27 @@ LIMITATIONS = [
     '台架：黄铜样品夹按铜（8.96 g/cm³）、旋转台壳体与转盘按等面积铝圆柱（半径45.1 mm、高50 mm）参与衰减；室温与湿度只作记录，空气密度取NIST表列值。',
     '上电后各轴保持断电时的位置（绝对位置，工程假设；厂家未说明回原点行为）。',
     '没有真实X4 POSEIDON硬件与3DxSUITE软件接口；机器人装样没有接触验证。',
+    '前面板层（1.1.0，近似）：厂家资料只给出触摸屏与多功能状态灯的存在和产品图（标题栏、两个标签页、电压kV与电流µA读数条）；面板按产品图画出状态显示，'
+    '屏上不含操作控件（扫描、门与X射线由3DxSUITE或能力调用控制）；电源按钮与安全按钮作为面板输入。',
 ]
+
+# ---------------------------------------------------------------- contract metadata of the panel commands
+_PANEL_USES = _panel_ui.spec_capabilities(PANEL_SPEC)
+for _k in PANEL_GESTURES:
+    EFFECTS[_k] = list(dict.fromkeys(x for c in _PANEL_USES for x in EFFECTS.get(c, [])))      # a gesture changes what the commands it calls change
+    ON_STEP[_k] = list(dict.fromkeys(x for c in _PANEL_USES for x in ON_STEP.get(c, [])))
+    ON_STEP_ZH[_k] = '同手势调用的能力（启动、X射线关闭、错误锁存等按其规则在之后的step中演化）'
+PRECONDITIONS.update({**{k: ('已声明实验室条件；面板按panel_ui.json处理手势：断电时只有电源按钮与安全按钮起作用；被调用能力的前提同样适用（被拒时手势不被接受）',
+                             ['power.enabled', 'system.state', 'emergency.stopped']) for k in PANEL_GESTURES},
+                      'panel.capture': ('已声明实验室条件（断电时为暗屏）', ['power.enabled']), 'panel.frame': ('无', [])})
+CAP_ERRORS.update({**{k: ['PLANT_REQUIRED'] for k in PANEL_GESTURES}, 'panel.capture': ['PLANT_REQUIRED'], 'panel.frame': []})
+CAP_SOURCES.update({k: [_BRO, _PHOTO, _SIM] for k in PANEL_CAPS})
+RESOURCES.update({k: ['touchscreen'] for k in PANEL_CAPS})
+OBSERVES.update({k: ['power.enabled', 'system.state', 'emergency.stopped', 'system.error_code'] for k in PANEL_GESTURES})
+EXEC_TEXT.update({k: ('手势瞬时完成（不推进仿真时钟）：被调用能力的效果立即生效；结果只说明是否被仪器接受，画面须用panel.capture查看',
+                      '同步：被调用的能力被拒时其效果不发生') for k in PANEL_GESTURES})
+CAP_LIMITS.update({k: ['面板层按panel_ui.json（近似：厂家资料只有产品图与特性列表）解释手势并调用本运行层的同名能力；手势不推进仿真时钟；屏上标签页名称与布局为假设。']
+                   for k in PANEL_CAPS})
 
 
 def _sampling_text(k):
@@ -3661,13 +3788,13 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if (k in _CONTROL_GUARDED or k in _DATA_GUARDED or k in _ANALYSIS_RECORD_ARGS or CAPS[k]['visibility'] != 'agent') else []
+    extra = ['ACCESS_DENIED'] if (k in _CONTROL_GUARDED or k in _DATA_GUARDED or k in _ANALYSIS_RECORD_ARGS or ALL_CAPS[k]['visibility'] != 'agent') else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
 def _foreign_text(k):
-    if k == 'emergency.stop':
-        return '；安全按钮不受另一个agent的操作限制'
+    if k in _SAFETY:
+        return '；安全按钮（按下与释放）不受另一个agent的操作限制'
     return '；另一个agent的采集操作进行中时，agent调用被拒（ACCESS_DENIED；未通电时开机除外）' if k in _CONTROL_GUARDED else ''
 
 
@@ -3678,7 +3805,7 @@ def export_bruker_x4poseidon_contract_metadata():
                         reference_conditions=v['reference'], origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'BrukerX4PoseidonSession.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         async_ = k in ASYNC
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}

@@ -29,17 +29,29 @@ Process model (fixed 1 s grid anchored at t = 0; SI units: K, Pa, kg, J, W; rela
     the set point was reached once), class 1 cut-off, tolerance range alarms, door alarm, water / wastewater / humidity system alarms, buzzer and
     reset, power failure resume, data logger.
   * Ledgers: chamber energy (air, vapour, steel, glass, films, ice, samples) and the water of the whole humidity system close exactly; electrical
-    energy is accumulated."""
+    energy is accumulated.
+
+Front panel (panel.switch / panel.touch / panel.capture / panel.frame): the MB2 touchscreen pages, icons, forms and dialogs of the E7 manual
+(panel_ui.json beside the contract), run by the generic engine _panel_ui.py on top of the capabilities below (no second copy of the logic).  The
+controller functions behind it are device functions here (1.1.0): controller clock (real-time clock, time zone, daylight-saving switch), user
+management (authorization levels User / Admin / Service with passwords), general settings (language, unit, display, measurement chart, Ethernet,
+e-mail, anti-condensation), the controller functions Humidification off / Dehumidification off, timer program (stopwatch), program start delay,
+pause and the end message, time-program names, copy and delete, per-section tolerance bands and repetitions, and week programs."""
 import bisect
 import copy
+import datetime
+import hashlib
 import json
 import math
+import os
 import re
+import tempfile
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
 ASSET_TYPE_ID = "instrument.binder_kbf115"
 CATALOG_ID = "CHEM-198"
+ASSET_VERSION = '1.1.2'
 ROOT = Path(__file__).resolve().parents[2]
 ASSET_DIR = ROOT / 'assets/expansion_batch04/t2_vacuum/binder_kbf115'
 LIBS = {'instrument': 'instrument_model.json', 'sorption': 'sorption_templates.json'}
@@ -308,8 +320,12 @@ SETPOINT = obj(dict(temperature_k=number('K', T_SET_LO, T_SET_HI), relative_humi
 SETPOINT_EXAMPLE = dict(temperature_k=313.15, relative_humidity=0.75, fan_fraction=1.0)
 SECTION = obj(dict(duration_s=number('s', 1.0, DOC['section_duration_max_s']), temperature_k=number('K', T_SET_LO, T_SET_HI),
                    relative_humidity=number('1', 0.0, RH_SET_HI), fan_fraction=number('1', FAN_LO, FAN_HI), transition=enum(['ramp', 'step']),
-                   humidity_control=BOOL, tolerance_k=nullable(number('K', 0.1, 50.0)), tolerance_rh=nullable(number('1', 0.01, 0.5))),
-              optional=('fan_fraction', 'humidity_control', 'tolerance_k', 'tolerance_rh'))
+                   humidity_control=BOOL, tolerance_k=nullable(number('K', 0.1, 50.0)), tolerance_rh=nullable(number('1', 0.01, 0.5)),
+                   tolerance_k_min=number('K', -99999.0, 999999.0), tolerance_k_max=number('K', -99999.0, 999999.0),
+                   tolerance_rh_min=number('1', -99999.0, 999999.0), tolerance_rh_max=number('1', -99999.0, 999999.0),
+                   idle_mode=BOOL, humidification_off=BOOL, dehumidification_off=BOOL, repeat_count=integer(-1, 99), repeat_from=integer(1, 99)),
+              optional=('fan_fraction', 'humidity_control', 'tolerance_k', 'tolerance_rh', 'tolerance_k_min', 'tolerance_k_max', 'tolerance_rh_min',
+                        'tolerance_rh_max', 'idle_mode', 'humidification_off', 'dehumidification_off', 'repeat_count', 'repeat_from'))
 PROGRAM = obj(dict(program=integer(2, DOC['programs']['memories']), sections=array(SECTION, 1, DOC['programs']['sections']),
                    repeat=nullable(obj(dict(from_section=integer(1, 99), to_section=integer(2, 100), count=integer(1, 99))))),
               optional=('repeat',))
@@ -335,8 +351,10 @@ cap('power.set', obj(dict(on=BOOL)), obj(dict(on=BOOL)), dict(on=True), ['power_
 cap('power.toggle', obj({}), obj(dict(on=BOOL)), {}, ['power_switch'], '主电源开关按一下')
 cap('setpoint.set', SETPOINT, obj(dict(setpoints=FREE_OBJ, chart_region=TEXT)), SETPOINT_EXAMPLE, _PANEL,
     '定值模式设定：温度（−5…70 °C；控湿时控制范围10…70 °C）、相对湿度（0…80 %RH，受气候图限制）与风机转速（40–100 %）')
-cap('function.set', obj(dict(humidity_control=BOOL, idle_mode=BOOL), optional=('humidity_control', 'idle_mode')),
-    obj(dict(functions=FREE_OBJ)), dict(humidity_control=True), _PANEL, '控制器功能：湿度控制开/关（Humidity off）、Idle mode（停止控制）')
+cap('function.set', obj(dict(humidity_control=BOOL, idle_mode=BOOL, humidification_off=BOOL, dehumidification_off=BOOL),
+                         optional=('humidity_control', 'idle_mode', 'humidification_off', 'dehumidification_off')),
+    obj(dict(functions=FREE_OBJ)), dict(humidity_control=True), _PANEL,
+    '控制器功能：湿度控制开/关（Control on/off）、Idle mode（停止控制）、Humidification off（只关加湿）、Dehumidification off（只关除湿；1.1.0）')
 cap('safety.configure', obj(dict(mode=enum(['limit', 'offset']), value_k=number('K', 0.5, 373.15))), obj(dict(safety=FREE_OBJ)), dict(mode='offset', value_k=2.0),
     _PANEL, '3.1级安全控制器：Limit（绝对温度上限，273.15–373.15 K）或Offset（设定之上的偏移，0.5–30 K）')
 cap('tolerance.configure', obj(dict(temperature_k=number('K', DOC['temperature_tolerance_k'][0], DOC['temperature_tolerance_k'][1]),
@@ -349,7 +367,9 @@ cap('alarm.reset', obj({}), obj(dict(muted=array(TEXT, 0, 16), cleared=array(TEX
     'Reset alarm：静音全部报警；条件已消失的报警同时清除（“Humidity system”报警不得确认）')
 cap('program.write', PROGRAM, obj(dict(program=integer(2, 25), sections=integer(1, 100), duration_s=number('s'))), PROGRAM_EXAMPLE, _PANEL,
     '写入时间程序（2…25号；每段时长、温度、湿度、风机、ramp/step、湿度控制、程序公差带；可重复若干连续段）')
-cap('program.start', obj(dict(program=integer(2, 25))), obj(dict(program=integer(2, 25), started=BOOL)), dict(program=2), _PANEL, '启动时间程序（结束后转定值模式）')
+cap('program.start', obj(dict(program=integer(2, 25), delay_s=number('s', 0.0, 30 * DAY)), optional=('delay_s',)),
+    obj(dict(program=integer(2, 25), started=BOOL)), dict(program=2), _PANEL,
+    '启动时间程序（结束后转定值模式并显示“Device changes to fixed value operation mode”）；delay_s：程序延时启动（Program start时刻，1.1.0）')
 cap('program.stop', obj({}), obj(dict(stopped=BOOL)), {}, _PANEL, '停止程序，转定值模式')
 cap('logger.configure', obj(dict(interval_s=number('s', LOG_MIN, LOG_MAX))), obj(dict(interval_s=number('s'))), dict(interval_s=60.0), _PANEL,
     '数据记录器存储间隔（出厂60 s）')
@@ -374,14 +394,226 @@ cap('ledger.read', obj({}), obj(dict(ledger=FREE_OBJ)), {}, _BODY, '腔内能量
 cap('fault.inject', obj(dict(fault=enum(FAULTS), active=BOOL)), obj(dict(faults=array(TEXT, 0, 16))), dict(fault='door_heating_failure', active=True), _BODY,
     '故障注入：加热器、压缩机、加湿模块、风机、温度/湿度/安全传感器、门传感器、门加热失效，废水管堵塞，市电中断', 'evaluator', 'simulation')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 30 * DAY))), obj(dict(time_s=number('s'))), dict(dt_s=60.0), _BODY, '宿主推进仿真时钟', 'evaluator', 'simulation')
+# ---- controller functions behind the touchscreen (1.1.0; E7 manual chapters 8-17)
+CLOCK_EPOCH = datetime.datetime(2025, 12, 31, 23, 0)        # UTC of 2026-01-01 00:00 at the factory time zone UTC+01:00 (assumption)
+LEVELS = ['user', 'admin', 'service']
+RANK = {'user': 1, 'admin': 2, 'service': 3}
+FACTORY_PASSWORDS = dict(user='1', admin='2', service='\x00BINDER')     # E7 14.1: User '1', Admin '2'; the Service password is BINDER's (unknown)
+WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+TIME_TEXT = {'type': 'string', 'pattern': r'([01]\d|2[0-3]):[0-5]\d', 'maxLength': 5}
+DATE_TEXT = {'type': 'string', 'pattern': r'20\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])', 'maxLength': 10}
+IPV4 = r'((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)'
+_TZ = [f'UTC{h:+03d}:00' for h in range(-12, 15)]
+SETTINGS = [   # key, type, range / options, factory value, manual page (E7), label of the controller field
+    dict(key='chamber.language', type='enum', options=['de', 'en', 'fr', 'es', 'it'], default='en', page='p.100', label='Language'),
+    dict(key='chamber.language_query', type='bool', default=False, page='p.100', label='Language query at restart'),
+    dict(key='chamber.temperature_unit', type='enum', options=['C', 'F'], default='C', page='p.102', label='Temperature unit'),
+    dict(key='datetime.time_zone', type='enum', options=_TZ, default='UTC+01:00', page='p.100-101', label='Time zone'),
+    dict(key='datetime.dst', type='enum', options=['automatic', 'inactive'], default='inactive', page='p.101', label='Daylight saving time switch'),
+    dict(key='datetime.dst_start', type='date', default='2026-03-29', page='p.101', label='Start of daylight saving time'),
+    dict(key='datetime.dst_end', type='date', default='2026-10-25', page='p.101', label='End of daylight saving time'),
+    dict(key='display.brightness', type='int', min=0, max=100, default=100, page='p.103', label='Brightness'),
+    dict(key='display.screensaver_s', type='int', min=10, max=32767, default=600, page='p.103', label='Wait time for screen saver'),
+    dict(key='display.continuous', type='bool', default=False, page='p.103', label='Activate continuous operation'),
+    dict(key='display.continuous_begin', type='time', default='08:00', page='p.103', label='Begin continuous operation'),
+    dict(key='display.continuous_end', type='time', default='17:00', page='p.103', label='End continuous operation'),
+    dict(key='chart.storage_interval_s', type='num', min=LOG_MIN, max=LOG_MAX, default=float(DOC['storage_interval_s']), page='p.115',
+         label='Storage interval'),
+    dict(key='chart.storage_values', type='enum', options=['mean', 'current', 'min', 'max'], default='current', page='p.115', label='Storage values'),
+    dict(key='chart.t_min_c', type='num', min=-20.0, max=110.0, default=-20.0, page='p.115', label='Min. temperature'),
+    dict(key='chart.t_max_c', type='num', min=-20.0, max=110.0, default=110.0, page='p.115', label='Max. temperature'),
+    dict(key='chart.rh_min_pct', type='num', min=0.0, max=100.0, default=0.0, page='p.115', label='Min. humidity'),
+    dict(key='chart.rh_max_pct', type='num', min=0.0, max=100.0, default=100.0, page='p.115', label='Max. humidity'),
+    dict(key='various.anti_condensation_pct', type='int', min=0, max=100, default=0, page='p.120', label='Anti-condensation'),
+    dict(key='ethernet.ip_assignment', type='enum', options=['dhcp', 'manual'], default='dhcp', page='p.104', label='IP address assignment'),
+    dict(key='ethernet.ip_address', type='ip', default='0.0.0.0', page='p.104', label='IP address'),
+    dict(key='ethernet.subnet_mask', type='ip', default='255.255.255.0', page='p.104', label='Subnet mask'),
+    dict(key='ethernet.gateway', type='ip', default='0.0.0.0', page='p.104', label='Standard gateway'),
+    dict(key='ethernet.dns_name', type='text', max_len=24, default='KBF115', page='p.104', label='DNS device name'),
+    dict(key='ethernet.dns_mode', type='enum', options=['automatic', 'manual'], default='automatic', page='p.104', label='DNS server address'),
+    dict(key='ethernet.dns_server', type='ip', default='0.0.0.0', page='p.104', label='DNS server'),
+    dict(key='email.address_1', type='text', max_len=64, default='', page='p.105', label='Email address 1'),
+    dict(key='email.address_2', type='text', max_len=64, default='', page='p.105', label='Email address 2'),
+    dict(key='email.address_3', type='text', max_len=64, default='', page='p.105', label='Email address 3'),
+    dict(key='email.authentication', type='enum', options=['none', 'smtp_auth'], default='none', page='p.106', label='Authentication'),
+    dict(key='email.user', type='text', max_len=64, default='', page='p.106', label='Email user name'),
+    dict(key='email.password', type='text', max_len=32, default='', page='p.106', label='Email password', secret=True),
+    dict(key='email.server_url', type='text', max_len=64, default='', page='p.106', label='SMTP mail server URL'),
+    dict(key='email.port', type='int', min=1, max=65535, default=25, page='p.106', label='SMTP port number'),
+    dict(key='email.sender', type='text', max_len=64, default='', page='p.106', label='Email sender'),
+]
+SETTING = {f['key']: f for f in SETTINGS}
+CLEARS_MEMORY = {'chart.storage_interval_s', 'chart.t_min_c', 'chart.t_max_c', 'chart.rh_min_pct', 'chart.rh_max_pct'}   # E7 17.2
+WEEK_SECTION = obj(dict(weekday=enum(WEEKDAYS + ['daily']), time=TIME_TEXT, temperature_k=number('K', T_SET_LO, T_SET_HI),
+                        relative_humidity=number('1', 0.0, RH_SET_HI), fan_fraction=number('1', FAN_LO, FAN_HI), idle_mode=BOOL,
+                        humidification_off=BOOL, dehumidification_off=BOOL),
+                   optional=('fan_fraction', 'idle_mode', 'humidification_off', 'dehumidification_off'))
+KIND = enum(['time', 'week'])
+SESSION = obj(dict(session=FREE_OBJ))
+cap('program.pause', obj({}), obj(dict(paused=BOOL)), {}, _PANEL, '暂停正在运行的时间程序（程序时间停止、时间显示闪烁；E7 10.2.1）')
+cap('program.resume', obj({}), obj(dict(paused=BOOL)), {}, _PANEL, '继续已暂停的时间程序（Program start图标；E7 10.2.1）')
+cap('program.acknowledge_end', obj({}), obj(dict(end_notice=nullable(TEXT))), {}, _PANEL, '确认程序结束信息“Device changes to fixed value operation mode”（E7 8.3、10.3）')
+cap('program.set_name', obj(dict(kind=KIND, program=integer(1, 25), name={'type': 'string', 'maxLength': 30}, info={'type': 'string', 'maxLength': 80}),
+                            optional=('info',)), obj(dict(program=integer(1, 25), name=TEXT)), dict(kind='time', program=2, name='Stability 25/60'), _PANEL,
+    '程序名称与附加信息（时间程序2–25号，周程序1–5号；E7 10.4、11.3）')
+cap('program.delete', obj(dict(kind=KIND, program=integer(1, 25))), obj(dict(deleted=BOOL)), dict(kind='time', program=2), _PANEL, '删除程序（E7 10.5.1、11.4.1）')
+cap('program.copy', obj(dict(kind=KIND, source=integer(1, 25), target=integer(1, 25))), obj(dict(program=integer(1, 25))), dict(kind='time', source=2, target=3), _PANEL,
+    '复制程序并替换（或新建）目标程序位置（Copy program / Replace program；E7 10.5、11.4）')
+cap('timer_program.start', obj(dict(duration_s=number('s', 1.0, DOC['section_duration_max_s']), delay_s=number('s', 0.0, 30 * DAY)), optional=('delay_s',)),
+    obj(dict(started=BOOL)), dict(duration_s=3600.0), _PANEL,
+    '定时程序（秒表）：在给定时长内按启动时的定值设定与控制器功能控制（运行中改设定不生效），可延时启动；结束后转定值模式并显示结束信息（E7 8）')
+cap('week_program.write', obj(dict(program=integer(1, 5), course=enum(['ramp', 'step']), sections=array(WEEK_SECTION, 1, 100)), optional=('course',)),
+    obj(dict(program=integer(1, 5), sections=integer(1, 100))), dict(program=1, course='step', sections=[
+        dict(weekday='mon', time='08:00', temperature_k=303.15, relative_humidity=0.65), dict(weekday='fri', time='18:00', temperature_k=298.15, relative_humidity=0.60)]),
+    _PANEL, '写入周程序（1–5号；最多100个切换点：星期或每天、时刻、温度、湿度、风机、控制器功能；整个程序ramp或step；E7 11）')
+cap('week_program.start', obj(dict(program=integer(1, 5))), obj(dict(program=integer(1, 5), started=BOOL)), dict(program=1), _PANEL,
+    '启动周程序：按控制器时钟的星期与时刻取切换点设定（ramp时向下一切换点线性过渡；E7 11.1），用program.stop取消')
+cap('clock.set', obj(dict(date=DATE_TEXT, time=TIME_TEXT)), obj(dict(clock=TEXT)), dict(date='2026-10-18', time='09:30'), _PANEL,
+    '设定控制器本地日期与时间（实时时钟，断电与关机时继续走；时区与夏令时见settings.configure；E7 15.2）')
+cap('user.login', obj(dict(level=enum(LEVELS), password={'type': 'string', 'maxLength': 32})), SESSION, dict(level='admin', password='2'), _PANEL,
+    '用户登录：选择授权级别并输入其密码（出厂：User 1、Admin 2；Service为BINDER服务密码；E7 14.2）')
+cap('user.logout', obj({}), SESSION, {}, _PANEL, '用户退出（E7 14.3）；开机后也处于未登录状态')
+cap('user.set_password', obj(dict(level=enum(LEVELS), password={'type': 'string', 'maxLength': 32})), SESSION, dict(level='user', password='1'), _PANEL,
+    '设定或删除（空密码）某授权级别的密码：只能改当前级别及以下，User级别不能改（E7 14.5）')
+cap('settings.configure', obj(dict(key=enum([f['key'] for f in SETTINGS]), value={'anyOf': [{'type': 'string', 'maxLength': 64}, {'type': 'number', 'x-unit': '1'}, BOOL]})),
+    obj(dict(key=TEXT, value=FREE_OBJ)), dict(key='display.brightness', value=80), _PANEL,
+    '控制器一般设定（Settings菜单：语言、温度单位、时区与夏令时、显示亮度与屏保、测量图表存储间隔/存储值/刻度、防凝露、以太网、电子邮件；E7 15、17.2、20）；'
+    '改存储间隔或刻度清空测量记录与事件列表，改语言清空事件列表（手册）')
+cap('settings.factory_reset', obj({}), obj(dict(reset=BOOL)), {}, _PANEL,
+    '恢复出厂设定（Service子菜单，Admin级别；E7 5.5.3）：一般设定、密码、蜂鸣器、公差带、安全控制器与记录间隔回到出厂值；程序与时钟保留')
+
+
+def _outside_band(v, sp, lo, hi):
+    """E7 10.7.5 program tolerance band: deviations from the section set-point (0 = off; -99999 / 999999 = infinite)."""
+    if v is None:
+        return False
+    return (lo is not None and lo != 0 and lo > -99999.0 and v < sp + lo) or (hi is not None and hi != 0 and hi < 999999.0 and v > sp + hi)
+
+
+def _check_setting(key, value):
+    f = SETTING[key]
+    t = f['type']
+    if t == 'bool':
+        return isinstance(value, bool)
+    if t == 'enum':
+        return value in f['options']
+    if t in ('int', 'num'):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or (t == 'int' and not float(value).is_integer()):
+            return False
+        return f['min'] <= value <= f['max']
+    if not isinstance(value, str):
+        return False
+    if t == 'text':
+        return len(value) <= f['max_len']
+    if t == 'ip':
+        return re.fullmatch(IPV4, value) is not None
+    if t == 'time':
+        return re.fullmatch(TIME_TEXT['pattern'], value) is not None
+    if t == 'date':
+        try:
+            datetime.date.fromisoformat(value)
+            return True
+        except ValueError:
+            return False
+    return False
+
+
+_ALARM_FX = '*alarms'
+_RUN_FX = ['program.status', 'setpoint.current', 'chart.region', 'state.current', 'safety.settings', 'truth.climate', _ALARM_FX]
+NEW_CAP_ERRORS = {
+    'program.pause': ['PLANT_REQUIRED', 'POWER_OFF', 'NO_PROGRAM'], 'program.resume': ['PLANT_REQUIRED', 'POWER_OFF', 'NO_PROGRAM'],
+    'program.acknowledge_end': ['PLANT_REQUIRED', 'POWER_OFF'], 'program.set_name': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_PROGRAM'],
+    'program.delete': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_PROGRAM', 'PROGRAM_RUNNING'],
+    'program.copy': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_PROGRAM', 'PROGRAM_RUNNING'], 'timer_program.start': ['PLANT_REQUIRED', 'POWER_OFF'],
+    'week_program.write': ['PLANT_REQUIRED', 'POWER_OFF', 'PROGRAM_RUNNING'], 'week_program.start': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_PROGRAM'],
+    'clock.set': ['PLANT_REQUIRED', 'POWER_OFF', 'INVALID_DATE'], 'user.login': ['PLANT_REQUIRED', 'POWER_OFF', 'WRONG_PASSWORD', 'NO_PASSWORD'],
+    'user.logout': ['PLANT_REQUIRED', 'POWER_OFF'], 'user.set_password': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_AUTHORIZED'],
+    'settings.configure': ['PLANT_REQUIRED', 'POWER_OFF', 'INVALID_SETTING'], 'settings.factory_reset': ['PLANT_REQUIRED', 'POWER_OFF'],
+}
+NEW_PRECONDITIONS = {
+    'program.pause': ('控制器有电；有正在运行的时间程序（不在延时等待中）', ['power.on', 'program.status']),
+    'program.resume': ('控制器有电；有已暂停的时间程序', ['power.on', 'program.status']), 'program.acknowledge_end': ('控制器有电', ['power.on', 'program.status']),
+    'program.set_name': ('控制器有电；该程序已写入', ['power.on', 'program.store']),
+    'program.delete': ('控制器有电；该程序已写入且不在运行', ['power.on', 'program.store', 'program.status']),
+    'program.copy': ('控制器有电；源程序已写入；目标不在运行', ['power.on', 'program.store', 'program.status']),
+    'timer_program.start': ('控制器有电', ['power.on', 'setpoint.fixed']), 'week_program.write': ('控制器有电；不能覆盖正在运行的周程序', ['power.on', 'program.status']),
+    'week_program.start': ('控制器有电；该周程序已写入', ['power.on', 'program.store']), 'clock.set': ('控制器有电；日期须存在', ['power.on', 'controller.clock']),
+    'user.login': ('控制器有电；该级别设了密码且密码正确', ['power.on', 'user.session']), 'user.logout': ('控制器有电', ['power.on', 'user.session']),
+    'user.set_password': ('控制器有电；有效授权为Admin或Service，且只能改当前级别及以下', ['power.on', 'user.session']),
+    'settings.configure': ('控制器有电；值在该设定的范围或选项内', ['power.on', 'device.settings']), 'settings.factory_reset': ('控制器有电', ['power.on', 'device.settings']),
+}
+NEW_EFFECTS = {
+    'program.pause': ['program.status', 'state.current'], 'program.resume': ['program.status', 'state.current'], 'program.acknowledge_end': ['program.status'],
+    'program.set_name': ['program.store'], 'program.delete': ['program.store', 'program.status'], 'program.copy': ['program.store', 'program.status'],
+    'timer_program.start': list(_RUN_FX), 'week_program.write': ['program.store', 'program.status'], 'week_program.start': list(_RUN_FX),
+    'clock.set': ['controller.clock', 'setpoint.current', 'chart.region', 'state.current', 'safety.settings', _ALARM_FX], 'user.login': ['user.session'],
+    'user.logout': ['user.session'], 'user.set_password': ['user.session'],
+    'settings.configure': ['device.settings', 'logger.settings', 'controller.clock', 'truth.climate', 'truth.power', 'setpoint.current', 'chart.region',
+                           'safety.settings', 'state.current', _ALARM_FX],                  # the time zone moves the clock of a running week program
+    'settings.factory_reset': ['device.settings', 'user.session', 'tolerance.settings', 'safety.settings', 'logger.settings', 'controller.clock', 'truth.climate',
+                               'truth.power', 'setpoint.current', 'chart.region', 'state.current', _ALARM_FX],
+}
+NEW_STEPPED = ('timer_program.start', 'week_program.start', 'program.pause', 'program.resume', 'clock.set', 'settings.configure', 'settings.factory_reset')
+NEW_PARAM_ZH = {'kind': '程序类型（time时间程序、week周程序）', 'name': '程序名称', 'info': '程序附加信息', 'source': '源程序号', 'target': '目标程序号',
+                'duration_s': '定时程序时长', 'course': '周程序过渡方式（ramp/step）', 'date': '本地日期', 'time': '本地时刻', 'level': '授权级别（user/admin/service）',
+                'password': '密码（空=删除）', 'key': '设定项', 'value': '设定值', 'input_id': '面板输入件', 'display_id': '显示件', 'position': '开关位置',
+                'x': '触摸点x（像素）', 'y': '触摸点y（像素）', 'to_x': '拖动终点x', 'to_y': '拖动终点y', 'humidification_off': 'Humidification off（只关加湿）',
+                'dehumidification_off': 'Dehumidification off（只关除湿）'}
+NEW_CAP_LIMITS = {
+    'timer_program.start': ['延时按仿真时钟计（停电期间也走）；运行中改定值设定在结束后生效（手册）；结束信息不确认也已转定值模式（与运行层time程序一致的选择）。'],
+    'week_program.write': ['切换点按控制器本地时钟（时区、夏令时）的星期与时刻；ramp时温度与湿度向下一切换点线性过渡，风机与控制器功能按当前切换点；没有切换点前沿用一周中最后一个切换点。'],
+    'clock.set': ['实时时钟由电池维持（主开关断开与停电时继续走）；出厂时间与时区为假设（2026-01-01 00:00，UTC+01:00，夏令时Inactive）；夏令时按设定的开始与结束日期+1 h。'],
+    'user.login': ['面板按授权级别显示或隐藏菜单（User级别无Settings与Service；全部级别都设密码且未登录时锁定）；直接能力调用不受登录限制（运行层API代表已授权的操作者）。'],
+    'settings.configure': ['以太网与电子邮件设定只保存与显示：仿真中没有网络，不发送邮件；防凝露按门区加热功率×(1+强度)计入玻璃门节点（工程假设）；'
+                           '存储值mean/min/max按存储间隔内各1 s读数计算，出厂按current（运行层原有记录方式，手册截图为Mean values）。'],
+    'settings.factory_reset': ['手册只写“Reset to factory settings”：恢复的范围为假设（一般设定、密码、蜂鸣器、公差带、安全控制器、记录间隔），程序、定值设定与时钟保留。'],
+}
 UNSUPPORTED = {
-    'week_program.run': '周程序（5个×100切换点）本运行层未实现；只实现定值、时间程序与Idle模式。',
     'alarm_relay.read': '无源报警继电器输出为选件（数据表OPTIONS；未选）。', 'analog_output.read': '4–20 mA模拟输出为选件（未选）。',
     'door_lock.set': '可锁门把手为选件（未选）。', 'light.set': 'LED灯条为附件（未选）。', 'rs485.command': 'RS 485接口为选件（未选；以太网APT-COM为标配但本运行层不建模通信）。',
     'pt100_object.read': '附加柔性Pt100为选件（未选）。',
 }
 for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, _BODY, _v, 'agent', 'device_command')
+
+# ---------------------------------------------------------------- front-panel hookup (panel_ui.json beside the contract; generic engine _panel_ui.py)
+EVENT_TEXT = {   # event list texts of the controller (English menu language)
+    'POWER_ON': 'Power on', 'POWER_OFF': 'Power off', 'POWER_FAILURE': 'Power failure', 'PLANT_CONFIGURED': 'Start-up', 'SETPOINT': 'Setpoint changed',
+    'HUMIDITY_ON': 'Humidity control on', 'HUMIDITY_OFF': 'Humidity control off', 'IDLE': 'Idle mode on', 'IDLE_OFF': 'Idle mode off',
+    'HUMIDIFICATION_OFF': 'Humidification off', 'HUMIDIFICATION_OFF_CLEARED': 'Humidification on', 'DEHUMIDIFICATION_OFF': 'Dehumidification off',
+    'DEHUMIDIFICATION_OFF_CLEARED': 'Dehumidification on', 'ALARM_RESET': 'Alarm reset', 'SAFETY_CONTROLLER': 'Safety controller(high)',
+    'SAFETY_RELEASED': 'Safety controller released', 'OVERTEMPERATURE_CLASS1': 'Over temperature protective device', 'SET_POINT_REACHED': 'Setpoint reached',
+    'DOOR_OPEN': 'Door open', 'DOOR_CLOSED': 'Door closed', 'WATER_OPEN': 'Water supply', 'CAN_REFILLED': 'Freshwater can filled',
+    'PROGRAM_START': 'Program start', 'PROGRAM_STOP': 'Program cancelled', 'PROGRAM_END': 'Program end', 'PROGRAM_PAUSE': 'Program pause (tolerance band)',
+    'PROGRAM_CONTINUE': 'Program continued', 'PROGRAM_HELD': 'Program pause', 'PROGRAM_RESUMED': 'Program continued', 'PROGRAM_DELAY_END': 'Program start',
+    'SECTION': 'Next section', 'PROGRAM_WRITTEN': 'Program saved', 'PROGRAM_DELETED': 'Program deleted', 'PROGRAM_COPIED': 'Program copied',
+    'CLOCK_SET': 'Date and time changed', 'PASSWORD_SET': 'Password changed', 'PASSWORD_DELETED': 'Password deleted', 'FACTORY_RESET': 'Factory settings',
+    'TEMPERATURE_RANGE': 'Temperature range alarm', 'HUMIDITY_RANGE': 'Humidity range alarm', 'SAFETY_SENSOR': 'Safety controller sensor',
+    'TEMPERATURE_SENSOR': 'Temperature sensor', 'HUMIDITY_SENSOR': 'Humidity sensor', 'DOOR_SENSOR': 'Door sensor', 'FRESHWATER_SUPPLY': 'Freshwater supply',
+    'FRESHWATER_CAN_EMPTY': 'Freshwater can empty', 'WASTEWATER': 'Wastewater', 'HUMIDITY_SYSTEM': 'Humidity system'}
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.binder_kbf115 (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+if os.environ.get('KBF115_PANEL_BUILD'):                                     # outputs/panel_ui/binder_kbf115/build_panel_spec.py writes the spec
+    PANEL_SPEC, PANEL_CAPS = {'screens': {}}, {}
+else:
+    PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
+    PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)               # panel.switch / touch / capture / frame (kept out of CAPS: CAPS stays the
+ALL_CAPS = dict(CAPS, **PANEL_CAPS)                                          # instrument's own command set)
 
 
 # ---------------------------------------------------------------- state slots
@@ -426,6 +658,10 @@ slot('water.supply_open', BOOL, '1', 'setpoint', 'freshwater_inlet', '进水龙�
 slot('water.can_kg', nullable(number('kg')), 'kg', 'derived', 'freshwater_inlet', '选配水桶剩余水量（水管供水时为空；桶上可见液位）')
 slot('samples.count', integer(0, 200), '1', 'derived', 'shelves', '腔内样品数（宿主声明）')
 slot('logger.settings', FREE_OBJ, '1', 'setpoint', 'touchscreen', '数据记录器存储间隔与记录条数')
+slot('controller.clock', nullable(TEXT), '1', 'derived', 'touchscreen', '控制器本地日期时间（ISO YYYY-MM-DDTHH:MM:SS，实时时钟；控制器无电时为空）')
+slot('user.session', FREE_OBJ, '1', 'setpoint', 'touchscreen', '用户管理：已登录级别、有效授权级别（未登录时为无密码保护的最高级别）、是否锁定、各级别是否设了密码（密码本身不公开）')
+slot('device.settings', FREE_OBJ, '1', 'setpoint', 'touchscreen', '控制器一般设定（Settings菜单：语言、温度单位、日期时间、显示、测量图表、Various、以太网、电子邮件）')
+slot('program.store', FREE_OBJ, '1', 'setpoint', 'touchscreen', '程序存储：时间程序（2–25号）与周程序（1–5号）的名称、说明与段')
 slot('truth.climate', FREE_OBJ, '1', 'process_truth', 'cabinet', '空气温湿度与露点、金属、玻璃、蒸发器、冰、凝水、加湿与废水、控制器与功率', 'evaluator')
 slot('truth.samples', FREE_OBJ, '1', 'process_truth', 'shelves', '样品温度、含水、状态与暴露统计', 'evaluator')
 slot('truth.power', FREE_OBJ, '1', 'process_truth', 'cabinet', '电功率分项与电流', 'evaluator')
@@ -452,7 +688,7 @@ class BinderKbf115Runtime:
         self.main_switch = False
         self.mode = 'fixed'
         self.fixed = dict(temperature_k=T0 + 25.0, relative_humidity=0.60, fan_fraction=1.0)
-        self.functions = dict(humidity_control=True, idle_mode=False)
+        self.functions = dict(humidity_control=True, idle_mode=False, humidification_off=False, dehumidification_off=False)
         self.safety = dict(mode='offset', value_k=2.0)
         self.tol = dict(temperature_k=3.0, relative_humidity=0.10, delay_s=900.0)
         self.buzzer = True
@@ -501,7 +737,19 @@ class BinderKbf115Runtime:
                         e_steam_in_j=0.0, e_sample_heat_in_j=0.0, e_refrigeration_out_j=0.0, e_drain_out_j=0.0, e_samples_added_j=0.0, e_samples_removed_j=0.0,
                         w_supply_in_kg=0.0, w_exchange_in_kg=0.0, w_pumped_out_kg=0.0, w_overflow_kg=0.0, w_samples_added_kg=0.0, w_samples_removed_kg=0.0,
                         w_initial_kg=0.0, w_can_refill_kg=0.0, electric_energy_j=0.0, e_reconfigure_in_j=0.0)
+        self.week = {}                                     # week programs 1-5
+        self.prog_names = {}                               # ('time' | 'week', number) -> dict(name, info)
+        self.end_notice = None                             # 'Device changes to fixed value operation mode' until confirmed
+        self.clock = dict(base_s=0.0, ref_t=0.0)           # controller real-time clock (UTC seconds after CLOCK_EPOCH_UTC at time ref_t)
+        self.passwords = dict(FACTORY_PASSWORDS)
+        self.logged = None
+        self.settings = {f['key']: copy.deepcopy(f['default']) for f in SETTINGS}
+        self.power_epoch = 0                               # power-ups seen by the panel
+        self._acc = {}                                     # readings of the current storage interval (storage values mean / min / max)
+        self.panel_capture_dir = None                      # panel.capture files (default: <tmp>/chemistry_sim_panel/<instance>)
+        self.panel = _panel_ui.PanelUI(PANEL_SPEC, self, PANEL_HOOKS)
         self._principals, self._requests, self._caller = {}, {}, None
+        self.run_owner = None                              # 1.1.2: agent whose call started the running timer / time / week program (None: unowned)
 
     # ---- sessions
     @property
@@ -554,7 +802,17 @@ class BinderKbf115Runtime:
         return self._door_seen() and self.door_since is not None and self.t - self.door_since >= DOC['door_open_behaviour']['all_off_after_s'] - 1e-9
 
     def _setpoint(self):
-        """Active set point: fixed value or the running program section (ramp / step)."""
+        """Active set point: fixed value, the running time-program section (ramp / step), the frozen timer-program values or the week program
+        switching point of the controller clock; a program waiting for its start time uses the fixed values."""
+        p = self.prog
+        if self.mode == 'program' and p is not None and p.get('kind', 'time') != 'time':
+            if p.get('start_at') is not None:
+                return self._fixed_setpoint('fixed (program start pending)')
+            if p['kind'] == 'timer':
+                return dict(p['frozen'], source='timer program', tolerance_k=None, tolerance_rh=None)
+            return self._week_setpoint(p)
+        if self.mode == 'program' and p is not None and p.get('start_at') is not None:
+            return self._fixed_setpoint('fixed (program start pending)')
         if self.mode == 'program' and self.prog is not None:
             P = self.programs[self.prog['program']]
             secs = P['sections']
@@ -566,11 +824,25 @@ class BinderKbf115Runtime:
                 T += f * (secs[i + 1]['temperature_k'] - T)
                 rh += f * (secs[i + 1]['relative_humidity'] - rh)
             return dict(temperature_k=T, relative_humidity=rh, fan_fraction=s.get('fan_fraction', 1.0), humidity_control=s.get('humidity_control', True) and self.functions['humidity_control'],
-                        source=f'program {self.prog["program"]} section {i + 1}', tolerance_k=s.get('tolerance_k'), tolerance_rh=s.get('tolerance_rh'))
-        return dict(self.fixed, humidity_control=self.functions['humidity_control'], source='fixed', tolerance_k=None, tolerance_rh=None)
+                        source=f'program {self.prog["program"]} section {i + 1}', tolerance_k=s.get('tolerance_k'), tolerance_rh=s.get('tolerance_rh'),
+                        idle_mode=s.get('idle_mode', False), humidification_off=s.get('humidification_off', False),
+                        dehumidification_off=s.get('dehumidification_off', False))
+        return self._fixed_setpoint('fixed')
+
+    def _fixed_setpoint(self, source):
+        return dict(self.fixed, humidity_control=self.functions['humidity_control'], source=source, tolerance_k=None, tolerance_rh=None,
+                    idle_mode=False, humidification_off=self.functions['humidification_off'], dehumidification_off=self.functions['dehumidification_off'])
 
     def _controlling(self):
-        return self._mains_ok() and not self.functions['idle_mode'] and self.mode != 'idle'
+        return self._mains_ok() and not self._idle()
+
+    def _idle(self):
+        """Idle mode: the controller function (fixed value), or the function line of the running program section / switching point; a timer
+        program keeps the functions active at its start (E7 8)."""
+        sp = self._setpoint()
+        if sp['source'] == 'timer program':
+            return sp.get('idle_mode', False)
+        return self.functions['idle_mode'] or self.mode == 'idle' or sp.get('idle_mode', False)
 
     def _humidity_active(self, sp):
         T = sp['temperature_k']
@@ -591,12 +863,12 @@ class BinderKbf115Runtime:
             return 'off'
         if not self._mains_ok():
             return 'outage'
-        if self.functions['idle_mode'] or self.mode == 'idle':
+        if self._idle():
             return 'idle'
         if self._door_off():
             return 'door_off'
         if self.mode == 'program' and self.prog is not None:
-            return 'program_paused' if self.prog['paused'] else 'program'
+            return 'program_paused' if (self.prog['paused'] or self.prog.get('held')) else 'program'
         return 'fixed'
 
     def _q_max(self, Ta):
@@ -689,7 +961,7 @@ class BinderKbf115Runtime:
         run = ctrl and not door_off
         # ---- fan
         fan = 0.0
-        if mains and not door_off and 'fan_failure' not in self.faults and not (self.functions['idle_mode'] or self.mode == 'idle'):
+        if mains and not door_off and 'fan_failure' not in self.faults and not self._idle():
             fan = FAN_LO if door_seen else sp['fan_fraction']
         fh = max(fan, 0.15) ** 0.8                                         # forced convection factor (natural convection floor)
         # ---- sensors (first order)
@@ -737,17 +1009,18 @@ class BinderKbf115Runtime:
         if hum_on and sRH is not None and sT is not None:
             e = sp['relative_humidity'] - sRH * p_sat(sT) / p_sat(T_set)          # humidity referred to the set temperature: controls the vapour content
             kp = V * rho_sat(self.Ta) / ENG['rh_control_time_s']                 # kg/s per unit RH: closes the loop in about rh_control_time_s
-            d_max = ENG['dehum_evaporator_ua_w_k'] / (rho_moist(self.Ta, pa, pv) * CP_AIR) * self.mv / V
+            d_max = 0.0 if sp.get('dehumidification_off') else ENG['dehum_evaporator_ua_w_k'] / (rho_moist(self.Ta, pa, pv) * CP_AIR) * self.mv / V
             v0 = kp * e + self.I_RH
             self.rh_out_s = 0.0 if abs(e) <= ENG['rh_integral_band'] else self.rh_out_s + h
-            s_lim = min(ENG['steam_max_kg_s'] * self.hum_ready, self.hum_kg / h)
+            s_cap = 0.0 if sp.get('humidification_off') else ENG['steam_max_kg_s']
+            s_lim = min(s_cap * self.hum_ready, self.hum_kg / h)
             if not ((v0 >= s_lim and e > 0.0) or (v0 <= -d_max and e < 0.0) or (v0 < 0.0 and not comp)):   # integral separation (slow outside the band), anti-windup
                 f_i = 1.0 if abs(e) <= ENG['rh_integral_band'] or self.rh_out_s >= ENG['rh_integral_hold_s'] else 0.0
-                self.I_RH = min(max(self.I_RH + f_i * kp / ENG['rh_controller_integral_s'] * e * h, -d_max), ENG['steam_max_kg_s'])
+                self.I_RH = min(max(self.I_RH + f_i * kp / ENG['rh_controller_integral_s'] * e * h, -d_max), s_cap)
             v = kp * e + self.I_RH
             if v > 0.0:
-                self.steam = min(v, ENG['steam_max_kg_s'] * self.hum_ready, self.hum_kg / h)
-            elif v < 0.0 and comp:
+                self.steam = min(v, s_cap * self.hum_ready, self.hum_kg / h)
+            elif v < 0.0 and comp and not sp.get('dehumidification_off'):
                 d_dem = -v
             if self.hum_wait <= 0.0:                                         # first switch-on / power interruption: about 20 min before humidification
                 self.hum_ready = min(self.hum_ready + h / DOC['humidifier_restart_s'], 1.0)
@@ -923,7 +1196,8 @@ class BinderKbf115Runtime:
         self.Ts += q_s / Cs
         # glass door: air, room, door heating, fog film
         Cg = ENG['door_glass_heat_capacity_j_k'] + self.fog * CP_WATER
-        P_dh = ENG['door_heating_w'] if (mains and 'door_heating_failure' not in self.faults) else 0.0
+        P_dh = ENG['door_heating_w'] * (1.0 + self.settings['various.anti_condensation_pct'] / 100.0) \
+            if (mains and 'door_heating_failure' not in self.faults) else 0.0
         g_amb = ENG['door_glass_ua_w_k'] * (6.0 if door_open else 1.0)
         q_g = h * (G_ag * (Ta_new - self.Tg) + g_amb * (Tamb - self.Tg) + P_dh)
         L['e_glass_in_j'] += h * g_amb * (Tamb - self.Tg)
@@ -1009,7 +1283,7 @@ class BinderKbf115Runtime:
             self.reached_RH = True
             self.reached_at[1] = sp['relative_humidity']
         if self.mode == 'program' and self.prog is not None and mains:
-            self._advance_program(h, sp, sT, sRH)
+            self._program_clock(h, sp, sT, sRH)
         if hum_on:
             self.service_s += h
         reg = chart_region(sp['temperature_k'], sp['relative_humidity']) if (run and self._humidity_active(sp)) else 'dry'
@@ -1032,9 +1306,20 @@ class BinderKbf115Runtime:
                 s['degraded'] += (1.0 - s['degraded']) * (1.0 - math.exp(-k * h))
         self._update_alarms(h)
         # ---- data logger
+        if mains:                                                            # storage values: mean / min / max of the 1 s readings of the interval
+            for key, v in (('T', self._sensor_T()), ('RH', self._sensor_RH())):
+                if v is not None:
+                    a = self._acc.setdefault(key, [0, 0.0, v, v])
+                    a[0], a[1], a[2], a[3] = a[0] + 1, a[1] + v, min(a[2], v), max(a[3], v)
         if mains and self.t + h >= self.next_log - 1e-9:
             sp2 = self._setpoint()
             T_r, RH_r = self._sensor_T(), self._sensor_RH()
+            mode = self.settings['chart.storage_values']
+            if mode != 'current':
+                pick = {'mean': lambda a: a[1] / a[0], 'min': lambda a: a[2], 'max': lambda a: a[3]}[mode]
+                T_r = pick(self._acc['T']) if T_r is not None and 'T' in self._acc else T_r
+                RH_r = pick(self._acc['RH']) if RH_r is not None and 'RH' in self._acc else RH_r
+            self._acc = {}
             self.log.append(dict(time_s=round(self.t + h, 3), temperature_c=None if T_r is None else round(T_r - T0, 2),
                                  humidity_pct=None if RH_r is None else round(RH_r * 100.0, 2), set_temperature_c=round(sp2['temperature_k'] - T0, 2),
                                  set_humidity_pct=round(sp2['relative_humidity'] * 100.0, 2) if self._humidity_active(sp2) else None,
@@ -1058,24 +1343,35 @@ class BinderKbf115Runtime:
         s = P['sections'][p['section']]
         tk, tr = s.get('tolerance_k'), s.get('tolerance_rh')
         out = (tk is not None and sT is not None and abs(sT - sp['temperature_k']) > tk) or \
-              (tr is not None and sRH is not None and sp['humidity_control'] and abs(sRH - sp['relative_humidity']) > tr)
+              (tr is not None and sRH is not None and sp['humidity_control'] and abs(sRH - sp['relative_humidity']) > tr) or \
+              _outside_band(sT, sp['temperature_k'], s.get('tolerance_k_min'), s.get('tolerance_k_max')) or \
+              (sp['humidity_control'] and _outside_band(sRH, sp['relative_humidity'], s.get('tolerance_rh_min'), s.get('tolerance_rh_max')))
         if out != p['paused']:
             p['paused'] = out
             self._event('program', 'PROGRAM_PAUSE' if out else 'PROGRAM_CONTINUE', '程序暂停（超出公差带）' if out else '回到公差带内：程序继续')
         if out:
             return
         p['elapsed'] += h
+        p['run_s'] = p.get('run_s', 0.0) + h
         while p['elapsed'] >= s['duration_s'] - 1e-9:
             p['elapsed'] -= s['duration_s']
             rep = P.get('repeat')
+            sec_n, sec_from = s.get('repeat_count', 0), s.get('repeat_from')
+            done = p.setdefault('sec_reps', {})
             if rep and p['section'] + 1 == rep['to_section'] and p['reps_done'] < rep['count']:
                 p['reps_done'] += 1
                 p['section'] = rep['from_section'] - 1
+            elif sec_n and sec_from and sec_from <= p['section'] and (sec_n < 0 or done.get(str(p['section']), 0) < sec_n):
+                done[str(p['section'])] = done.get(str(p['section']), 0) + 1        # E7 10.7.6: sections from 'start section' to this one again
+                for k in [k for k in done if sec_from - 1 <= int(k) < p['section']]:
+                    done.pop(k)                                                  # inner repetitions start over on each pass
+                p['section'] = sec_from - 1
             else:
                 p['section'] += 1
             if p['section'] >= len(P['sections']):
                 self._event('program', 'PROGRAM_END', f'程序{p["program"]}结束：转定值模式')
                 self.mode, self.prog = 'fixed', None
+                self.end_notice = 'time'
                 return
             s = P['sections'][p['section']]
             self._event('program', 'SECTION', f'程序段{p["section"] + 1}')
@@ -1101,8 +1397,8 @@ class BinderKbf115Runtime:
         out_T = ctrl and self.reached_T and sT is not None and abs(sT - sp['temperature_k']) > self.tol['temperature_k']
         out_RH = ctrl and hum and self.reached_RH and sRH is not None and abs(sRH - sp['relative_humidity']) > self.tol['relative_humidity']
         door = self._door_seen()
-        for code, cond in (('IDLE_MODE', self.functions['idle_mode'] or self.mode == 'idle'), ('TEMPERATURE_RANGE', out_T), ('HUMIDITY_RANGE', out_RH),
-                           ('HUMIDITY_OFF', not hum), ('DOOR_OPEN', door), ('HUMIDITY_MODULE_SERVICE', self.service_s >= DOC['humidity_service_s']),
+        for code, cond in (('IDLE_MODE', self._idle()), ('TEMPERATURE_RANGE', out_T), ('HUMIDITY_RANGE', out_RH),
+                           ('HUMIDITY_OFF', not hum or sp.get('humidification_off') or sp.get('dehumidification_off')), ('DOOR_OPEN', door), ('HUMIDITY_MODULE_SERVICE', self.service_s >= DOC['humidity_service_s']),
                            ('CLIMATE_CHART_B', hum and ctrl and chart_region(sp['temperature_k'], sp['relative_humidity']) == 'B'),
                            ('CLIMATE_CHART_B_24H', hum and ctrl and self.b_time >= 86400.0),
                            ('CLIMATE_CHART_OUTSIDE', hum and ctrl and chart_region(sp['temperature_k'], sp['relative_humidity']) == 'outside')):
@@ -1155,6 +1451,7 @@ class BinderKbf115Runtime:
         self.notes = notes
 
     notes = []
+    _acc = {}
     ended = set()
     b_time = 0.0
     region = 'dry'
@@ -1166,12 +1463,26 @@ class BinderKbf115Runtime:
         return any(a not in self.muted for a in self.alarms)
 
     # ---- commands
+    def _foreign_run(self, capability_id, args):
+        """Lead rule 10-19 (1.1.2): an agent may not stop, pause, resume, replace or change (set points, controller functions, safety controller,
+        factory reset; the clock of a running week program) another agent's running program - from the touch screen or a direct call alike (the
+        session sets _caller around every call).  Doors, the main switch (a hard switch: physical, never refused; power.set / power.toggle model
+        it), the evaluator and unowned programs are not restricted."""
+        c, o = self._caller, self.run_owner
+        if self.prog is None or o is None or c is None or c == o or self._principals.get(c) != 'agent' or capability_id not in OWNER_GUARDED:
+            return False
+        if capability_id == 'clock.set':
+            return self.prog.get('kind') == 'week'
+        return True
+
     def invoke(self, capability_id, **args):
         if capability_id in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED')
+        if self._foreign_run(capability_id, args):
+            raise ActionRejected('ACCESS_DENIED')
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
         out = fn(**args)
-        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'samples.read', 'log.read'):
+        if capability_id not in ('events.read', 'truth.inspect', 'ledger.read', 'samples.read', 'log.read', 'panel.capture', 'panel.frame'):
             self.revision += 1
         if self.plant is not None and 'alarms.active' in EFFECTS.get(capability_id, ()):
             self._update_alarms(timed=False)
@@ -1209,6 +1520,8 @@ class BinderKbf115Runtime:
         self._need_plant()
         if on and not self.main_switch:
             self.main_switch = True
+            self.power_epoch += 1
+            self.logged = None                                               # E7 6.2: after switching on, log in again
             self._event('system', 'POWER_ON', '主电源开关接通：按断电前的模式继续')
         elif not on and self.main_switch:
             self.main_switch = False
@@ -1241,8 +1554,14 @@ class BinderKbf115Runtime:
         active = self._humidity_active(dict(new, humidity_control=self.functions['humidity_control']))   # same rule as chart.region (humidity off below 5 C)
         return dict(setpoints=dict(new), chart_region=chart_region(new['temperature_k'], new['relative_humidity']) if active else 'dry')
 
-    def _cmd_function_set(self, humidity_control=None, idle_mode=None):
+    def _cmd_function_set(self, humidity_control=None, idle_mode=None, humidification_off=None, dehumidification_off=None):
         self._need_panel()
+        for key, v, on_zh in (('humidification_off', humidification_off, '只关加湿（Humidification off）'),
+                              ('dehumidification_off', dehumidification_off, '只关除湿（Dehumidification off）')):
+            if v is not None and v != self.functions[key]:
+                self.functions[key] = v
+                self.reached_RH = False
+                self._event('operation', key.upper() if v else key.upper() + '_CLEARED', on_zh if v else on_zh + '：取消')
         if humidity_control is not None and humidity_control != self.functions['humidity_control']:
             self.functions['humidity_control'] = humidity_control
             self.reached_RH = False
@@ -1287,8 +1606,10 @@ class BinderKbf115Runtime:
 
     def _cmd_program_write(self, program, sections, repeat=None):
         self._need_panel()
-        if self.prog is not None and self.prog['program'] == program:
+        if self.prog is not None and self.prog.get('kind', 'time') == 'time' and self.prog['program'] == program:
             raise ActionRejected('PROGRAM_RUNNING')
+        if any(x.get('repeat_count') and not (x.get('repeat_from') and x['repeat_from'] <= i) for i, x in enumerate(sections)):
+            raise ActionRejected('INVALID_REPEAT')                         # E7 10.7.6: start section before the current one
         if repeat is not None and not (1 <= repeat['from_section'] < repeat['to_section'] <= len(sections)):
             raise ActionRejected('INVALID_REPEAT')
         self.programs[program] = dict(sections=[dict(s, transition=s['transition']) for s in copy.deepcopy(sections)], repeat=copy.deepcopy(repeat))
@@ -1298,15 +1619,23 @@ class BinderKbf115Runtime:
         self._event('program', 'PROGRAM_WRITTEN', f'程序{program}写入：{len(sections)}段')
         return dict(program=program, sections=len(sections), duration_s=dur)
 
-    def _cmd_program_start(self, program):
+    def _cmd_program_start(self, program, delay_s=0.0):
         self._need_panel()
         if program not in self.programs:
             raise ActionRejected('UNKNOWN_PROGRAM')
         self.mode = 'program'
         self.prog = dict(program=program, section=0, elapsed=0.0, reps_done=0, paused=False)
+        self.run_owner = self._starter()
+        if delay_s > 0.0:
+            self.prog['start_at'] = self.t + float(delay_s)                  # E7 10.1.1: until the start the fixed values are controlled
+        self.end_notice = None
         self.reached_T = self.reached_RH = False
-        self._event('program', 'PROGRAM_START', f'程序{program}启动')
+        self._event('program', 'PROGRAM_START', f'程序{program}启动' + (f'（延时{delay_s:.0f} s）' if delay_s > 0.0 else ''))
         return dict(program=program, started=True)
+
+    def _starter(self):
+        c = self._caller
+        return c if c is not None and self._principals.get(c) == 'agent' else None
 
     def _cmd_program_stop(self):
         self._need_panel()
@@ -1321,6 +1650,7 @@ class BinderKbf115Runtime:
         self._need_panel()
         self.log_interval = float(interval_s)
         self.next_log = self.t + self.log_interval
+        self.settings['chart.storage_interval_s'] = self.log_interval
         return dict(interval_s=self.log_interval)
 
     def _cmd_log_read(self, last):
@@ -1463,6 +1793,9 @@ class BinderKbf115Runtime:
         return dict(ledger=self._ledger())
 
     def _cmd_fault_inject(self, fault, active):
+        if fault == 'mains_outage' and not active and 'mains_outage' in self.faults:
+            self.power_epoch += 1
+            self.logged = None
         self._need_plant()
         (self.faults.add if active else self.faults.discard)(fault)
         self._event('fault', 'FAULT_' + fault.upper(), f'故障{fault}：{"注入" if active else "清除"}')
@@ -1470,6 +1803,374 @@ class BinderKbf115Runtime:
 
     def _cmd_sim_step(self, dt_s):
         return dict(time_s=self.step(dt_s))
+
+    # ---- controller clock (real-time clock; time zone and daylight-saving switch from the settings)
+    def _clock_utc(self, t=None):
+        t = self.t if t is None else t
+        return CLOCK_EPOCH + datetime.timedelta(seconds=math.floor(self.clock['base_s'] + (t - self.clock['ref_t']) + 1e-6))
+
+    def _zone_s(self, local):
+        off = int(self.settings['datetime.time_zone'][3:6]) * 3600
+        if self.settings['datetime.dst'] == 'automatic' and self.settings['datetime.dst_start'] <= local.date().isoformat() < self.settings['datetime.dst_end']:
+            off += 3600
+        return off
+
+    def _clock_local(self, t=None):
+        u = self._clock_utc(t)
+        return u + datetime.timedelta(seconds=self._zone_s(u + datetime.timedelta(seconds=int(self.settings['datetime.time_zone'][3:6]) * 3600)))
+
+    def _clock_text(self, t=None):
+        return self._clock_local(t).strftime('%Y-%m-%dT%H:%M:%S')
+
+    def _cmd_clock_set(self, date, time):
+        self._need_panel()
+        try:
+            local = datetime.datetime.fromisoformat(f'{date}T{time}')
+        except ValueError:
+            raise ActionRejected('INVALID_DATE') from None
+        utc = local - datetime.timedelta(seconds=self._zone_s(local))
+        self.clock = dict(base_s=(utc - CLOCK_EPOCH).total_seconds(), ref_t=self.t)
+        self._event('operation', 'CLOCK_SET', f'设定日期时间{self._clock_text()}')
+        return dict(clock=self._clock_text())
+
+    # ---- user management (E7 14): authorization levels User < Admin < Service, passwords per level
+    def _authorization(self):
+        if self.logged is not None:
+            return self.logged
+        free = [lv for lv in LEVELS if not self.passwords[lv]]
+        return max(free, key=RANK.get) if free else None                   # the highest level without a password, or none (locked)
+
+    def _session_view(self):
+        a = self._authorization()
+        return dict(logged_in=self.logged, authorization=a, locked=a is None, protected={lv: bool(self.passwords[lv]) for lv in LEVELS})
+
+    def _cmd_user_login(self, level, password):
+        self._need_panel()
+        if not self.passwords[level]:
+            raise ActionRejected('NO_PASSWORD')                              # E7 14.1: without a password the level needs no (and allows no) login
+        if password != self.passwords[level]:
+            raise ActionRejected('WRONG_PASSWORD')
+        self.logged = level
+        return dict(session=self._session_view())
+
+    def _cmd_user_logout(self):
+        self._need_panel()
+        self.logged = None
+        return dict(session=self._session_view())
+
+    def _cmd_user_set_password(self, level, password):
+        self._need_panel()
+        a = self._authorization()
+        if a is None or RANK[a] < RANK['admin'] or RANK[level] > RANK[a]:
+            raise ActionRejected('NOT_AUTHORIZED')                         # E7 14.5: own level and the lower ones; not with User authorization
+        self.passwords[level] = password
+        self._event('operation', 'PASSWORD_SET' if password else 'PASSWORD_DELETED', f'密码{level}' + ('已设定' if password else '已删除'))
+        return dict(session=self._session_view())
+
+    # ---- general settings (E7 15, 17.2, 20)
+    def _cmd_settings_configure(self, key, value):
+        self._need_panel()
+        if not _check_setting(key, value):
+            raise ActionRejected('INVALID_SETTING')
+        t = SETTING[key]['type']
+        value = int(value) if t == 'int' else float(value) if t == 'num' else value
+        if value != self.settings[key]:
+            if key == 'chart.storage_interval_s':
+                self.log_interval = float(value)
+                self.next_log = self.t + self.log_interval
+            if key in CLEARS_MEMORY:                                         # E7 17.2: storage rate or scaling clears the memory and the event list
+                self.log, self.events, self.events_dropped = [], [], 0
+            if key == 'chamber.language':                                    # E7 16.3: a new language clears the event list
+                self.events, self.events_dropped = [], 0
+            self.settings[key] = value
+        return dict(key=key, value=dict(value=value))
+
+    def _cmd_settings_factory_reset(self):
+        self._need_panel()
+        self.settings = {f['key']: copy.deepcopy(f['default']) for f in SETTINGS}
+        self.passwords, self.logged = dict(FACTORY_PASSWORDS), None
+        self.buzzer = True
+        self.tol = dict(temperature_k=3.0, relative_humidity=0.10, delay_s=900.0)
+        self.safety = dict(mode='offset', value_k=2.0)
+        self.log_interval = DOC['storage_interval_s']
+        self.next_log = self.t + self.log_interval
+        self._event('operation', 'FACTORY_RESET', '恢复出厂设定')
+        return dict(reset=True)
+
+    # ---- program store (E7 10.4-10.5, 11.3-11.4)
+    def _store(self, kind):
+        return self.programs if kind == 'time' else self.week
+
+    def _running(self, kind, program):
+        p = self.prog
+        return p is not None and p.get('kind', 'time') == kind and p.get('program') == program
+
+    def _store_view(self):
+        out = dict(time={}, week={})
+        for kind in ('time', 'week'):
+            for n, P in sorted(self._store(kind).items()):
+                nm = self.prog_names.get(f'{kind}:{n}', {})
+                e = dict(name=nm.get('name', ''), info=nm.get('info', ''), sections=copy.deepcopy(P['sections']))
+                e.update(dict(repeat=copy.deepcopy(P.get('repeat'))) if kind == 'time' else dict(course=P['course']))
+                out[kind][str(n)] = e
+        return out
+
+    def _cmd_program_set_name(self, kind, program, name, info=None):
+        self._need_panel()
+        if program not in self._store(kind):
+            raise ActionRejected('UNKNOWN_PROGRAM')
+        old = self.prog_names.get(f'{kind}:{program}', {})
+        self.prog_names[f'{kind}:{program}'] = dict(name=name, info=old.get('info', '') if info is None else info)
+        return dict(program=program, name=name)
+
+    def _cmd_program_delete(self, kind, program):
+        self._need_panel()
+        if program not in self._store(kind):
+            raise ActionRejected('UNKNOWN_PROGRAM')
+        if self._running(kind, program):
+            raise ActionRejected('PROGRAM_RUNNING')
+        del self._store(kind)[program]
+        self.prog_names.pop(f'{kind}:{program}', None)
+        self._event('program', 'PROGRAM_DELETED', f'{"时间" if kind == "time" else "周"}程序{program}已删除')
+        return dict(deleted=True)
+
+    def _cmd_program_copy(self, kind, source, target):
+        self._need_panel()
+        st = self._store(kind)
+        if source not in st or not ((2 <= target <= 25) if kind == 'time' else (1 <= target <= 5)):
+            raise ActionRejected('UNKNOWN_PROGRAM')
+        if self._running(kind, target):
+            raise ActionRejected('PROGRAM_RUNNING')
+        st[target] = copy.deepcopy(st[source])
+        if f'{kind}:{source}' in self.prog_names:
+            self.prog_names[f'{kind}:{target}'] = dict(self.prog_names[f'{kind}:{source}'])
+        else:
+            self.prog_names.pop(f'{kind}:{target}', None)
+        self._event('program', 'PROGRAM_COPIED', f'程序{source}复制到{target}')
+        return dict(program=target)
+
+    # ---- program operation (E7 8, 10.1-10.3, 11.1-11.2)
+    def _frozen(self):
+        """Timer program: the fixed-value set-points and controller functions active at its start (E7 8)."""
+        return dict(self.fixed, humidity_control=self.functions['humidity_control'], idle_mode=self.functions['idle_mode'],
+                    humidification_off=self.functions['humidification_off'], dehumidification_off=self.functions['dehumidification_off'])
+
+    def _program_clock(self, h, sp, sT, sRH):
+        p = self.prog
+        if p.get('start_at') is not None:                                    # program delay time (fixed values controlled meanwhile)
+            if self.t + h < p['start_at'] - 1e-9:
+                return
+            p['start_at'] = None
+            if p.get('kind') == 'timer':
+                p['frozen'] = self._frozen()
+            self._event('program', 'PROGRAM_DELAY_END', '程序延时结束：程序开始运行')
+            return
+        kind = p.get('kind', 'time')
+        if kind == 'timer':
+            p['elapsed'] += h
+            if p['elapsed'] >= p['duration_s'] - 1e-9:
+                self._event('program', 'PROGRAM_END', '定时程序结束：转定值模式')
+                self.mode, self.prog, self.end_notice = 'fixed', None, 'timer'
+            return
+        if kind == 'week' or p.get('held'):
+            return
+        self._advance_program(h, sp, sT, sRH)
+
+    def _cmd_program_pause(self):
+        self._need_panel()
+        p = self.prog
+        if p is None or p.get('kind', 'time') != 'time' or p.get('start_at') is not None or p.get('held'):
+            raise ActionRejected('NO_PROGRAM')
+        p['held'] = True
+        self._event('program', 'PROGRAM_HELD', '程序暂停（Program pause）')
+        return dict(paused=True)
+
+    def _cmd_program_resume(self):
+        self._need_panel()
+        p = self.prog
+        if p is None or not p.get('held'):
+            raise ActionRejected('NO_PROGRAM')
+        p['held'] = False
+        self._event('program', 'PROGRAM_RESUMED', '程序继续')
+        return dict(paused=False)
+
+    def _cmd_program_acknowledge_end(self):
+        self._need_panel()
+        was, self.end_notice = self.end_notice, None
+        return dict(end_notice=was)
+
+    def _cmd_timer_program_start(self, duration_s, delay_s=0.0):
+        self._need_panel()
+        self.mode = 'program'
+        self.prog = dict(kind='timer', program=None, duration_s=float(duration_s), elapsed=0.0, paused=False)
+        self.run_owner = self._starter()
+        if delay_s > 0.0:
+            self.prog['start_at'] = self.t + float(delay_s)
+        else:
+            self.prog['frozen'] = self._frozen()
+        self.end_notice = None
+        self.reached_T = self.reached_RH = False
+        self._event('program', 'PROGRAM_START', f'定时程序启动：{duration_s:.0f} s' + (f'（延时{delay_s:.0f} s）' if delay_s > 0.0 else ''))
+        return dict(started=True)
+
+    def _cmd_week_program_write(self, program, sections, course='step'):
+        self._need_panel()
+        if self._running('week', program):
+            raise ActionRejected('PROGRAM_RUNNING')
+        order = lambda s: (-1 if s['weekday'] == 'daily' else WEEKDAYS.index(s['weekday']), s['time'])     # noqa: E731
+        self.week[program] = dict(course=course, sections=sorted(copy.deepcopy(sections), key=order))     # E7 11.4: arranged chronologically
+        self._event('program', 'PROGRAM_WRITTEN', f'周程序{program}写入：{len(sections)}个切换点')
+        return dict(program=program, sections=len(sections))
+
+    def _cmd_week_program_start(self, program):
+        self._need_panel()
+        if program not in self.week:
+            raise ActionRejected('UNKNOWN_PROGRAM')
+        self.mode = 'program'
+        self.prog = dict(kind='week', program=program, paused=False)
+        self.run_owner = self._starter()
+        self.end_notice = None
+        self.reached_T = self.reached_RH = False
+        self._event('program', 'PROGRAM_START', f'周程序{program}启动')
+        return dict(program=program, started=True)
+
+    def _week_setpoint(self, p):
+        """Week program: the switching point at or before the clock's weekday and time (cyclic over the week); ramp: linear to the next one."""
+        P = self.week[p['program']]
+        now = self._clock_local()
+        mow = now.weekday() * 1440 + now.hour * 60 + now.minute + now.second / 60.0
+        pts = []
+        for s in P['sections']:
+            hh, mm = (int(x) for x in s['time'].split(':'))
+            pts += [(d * 1440 + hh * 60 + mm, s) for d in (range(7) if s['weekday'] == 'daily' else [WEEKDAYS.index(s['weekday'])])]
+        pts.sort(key=lambda x: x[0])
+        k = max((i for i, (m, _) in enumerate(pts) if m <= mow + 1e-9), default=len(pts) - 1)
+        (m0, s0), (m1, s1) = pts[k], pts[(k + 1) % len(pts)]
+        T, rh = s0['temperature_k'], s0['relative_humidity']
+        if P['course'] == 'ramp' and len(pts) > 1:
+            f = ((mow - m0) % 10080) / (((m1 - m0) % 10080) or 10080)
+            T += f * (s1['temperature_k'] - T)
+            rh += f * (s1['relative_humidity'] - rh)
+        return dict(temperature_k=T, relative_humidity=rh, fan_fraction=s0.get('fan_fraction', 1.0), humidity_control=self.functions['humidity_control'],
+                    source=f'week program {p["program"]}', tolerance_k=None, tolerance_rh=None, idle_mode=s0.get('idle_mode', False),
+                    humidification_off=s0.get('humidification_off', False), dehumidification_off=s0.get('dehumidification_off', False))
+
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    def panel_read(self):
+        """What the controller firmware sees: the agent slots plus mains, the power-up count, the clock fields, the events of the day, the chart
+        recorder curves, the running program's progress and the stored programs' names (from the slots), the passwords' presence."""
+        out = self.read('agent')
+        mains = self.plant is not None and self._mains_ok()
+        now = self._clock_local()
+        out.update({'host.mains': mains, 'host.power_epoch': self.power_epoch,
+                    'host.clock': dict(date=now.strftime('%Y-%m-%d'), time=now.strftime('%H:%M:%S'), hhmm=now.strftime('%H:%M'),
+                                       weekday=WEEKDAYS[now.weekday()]),
+                    'host.events': self._panel_events(now), 'host.chart': self._panel_chart(), 'host.program': self._panel_program(),
+                    'host.functions': [k for k in FUNCTION_LINES if self.functions[k]], 'host.buzzer': self.buzzer,
+                    'host.function_bits': ''.join('1' if self.functions[k] else '0' for k in reversed(FUNCTION_LINES)).rjust(16, '0'),
+                    'host.time_programs': [dict(id=n, name=f'{n} ' + self.prog_names.get(f'time:{n}', {}).get('name', '')) for n in sorted(self.programs)],
+                    'host.week_programs': [dict(id=n, name=f'{n} ' + self.prog_names.get(f'week:{n}', {}).get('name', '')) for n in sorted(self.week)]})
+        for kind, rng in (('time', range(2, 26)), ('week', range(1, 6))):
+            st_ = self._store(kind)
+            out[f'host.{kind}_places'] = [dict(id=n, used=n in st_, name=(self.prog_names.get(f'{kind}:{n}', {}).get('name') or '(program)') if n in st_ else '')
+                                          for n in rng]
+        return out
+
+    def _panel_events(self, now):
+        """Event list of the controller: the events of the current day, the last 100 (E7 16.3)."""
+        day = now.strftime('%Y-%m-%d')
+        rows = []
+        for e in self.events:
+            if e['kind'] in ('truth', 'fault'):
+                continue
+            lt = self._clock_local(e['time_s'])
+            if lt.strftime('%Y-%m-%d') == day:
+                rows.append(dict(time=lt.strftime('%H:%M:%S'), text=EVENT_TEXT.get(e['code'], e['code'].replace('_', ' ').capitalize())))
+        return rows[-100:][::-1]
+
+    def _panel_chart(self):
+        """Chart recorder curves (hours of the simulation clock; display scaling from the measurement-chart settings)."""
+        pts = dict(t=[], rh=[], sp_t=[], sp_rh=[], door=[])
+        for r in self.log[-2000:]:
+            x = r['time_s'] / 3600.0
+            if r['temperature_c'] is not None:
+                pts['t'].append([x, r['temperature_c']])
+            if r['humidity_pct'] is not None:
+                pts['rh'].append([x, r['humidity_pct']])
+            pts['sp_t'].append([x, r['set_temperature_c']])
+            if r['set_humidity_pct'] is not None:
+                pts['sp_rh'].append([x, r['set_humidity_pct']])
+            pts['door'].append([x, 100.0 if r['door_open'] else 0.0])
+        pts['now_h'] = self.t / 3600.0
+        return pts
+
+    def _panel_program(self):
+        """Program bar of the Normal display: name, elapsed run time, total and the fraction (E7 8.1, 10.1)."""
+        p = self.prog
+        if p is None or self.mode != 'program':
+            return None
+        kind = p.get('kind', 'time')
+        if kind == 'timer':
+            total, run = p['duration_s'], p['elapsed']
+            name = 'Timer program'
+        elif kind == 'week':
+            total, run = None, None
+            name = self.prog_names.get(f'week:{p["program"]}', {}).get('name') or f'Week program {p["program"]}'
+        else:
+            P = self.programs[p['program']]
+            total = sum(s['duration_s'] for s in P['sections'])
+            rep = P.get('repeat')
+            if rep:
+                total += rep['count'] * sum(s['duration_s'] for s in P['sections'][rep['from_section'] - 1:rep['to_section']])
+            if any(s.get('repeat_count', 0) < 0 for s in P['sections']):
+                total = None                                                 # infinite repetitions: no grey bar (E7 10.1)
+            run = p.get('run_s', 0.0)
+            name = self.prog_names.get(f'time:{p["program"]}', {}).get('name') or f'Program {p["program"]}'
+        r = None if run is None else int(run)
+        return dict(kind=kind, name=name, waiting=p.get('start_at') is not None, held=bool(p.get('held')), paused=bool(p.get('paused')),
+                    run_text=None if r is None else f'{r // 3600:02d}:{r % 3600 // 60:02d}:{r % 60:02d}',
+                    fraction=None if (total is None or run is None) else min(run / total, 1.0))
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (these commands check before they change anything)."""
+        try:
+            validate(CAPS[capability_id]['input_schema'], arguments)
+            out = self.invoke(capability_id, **arguments)
+            return out
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel(self, gesture, *args, **kw):
+        self._need_plant()
+        try:
+            return dict(accepted=bool(gesture(*args, **kw)))
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _cmd_panel_switch(self, input_id, position):
+        return self._panel(self.panel.switch, input_id, position)
+
+    def _cmd_panel_touch(self, display_id, x, y, duration_s=0.1, to_x=None, to_y=None):
+        to = None if to_x is None or to_y is None else (int(to_x), int(to_y))
+        return self._panel(self.panel.touch, display_id, int(x), int(y), float(duration_s), to)
+
+    def _cmd_panel_capture(self, display_id):
+        """Close-up camera of the touchscreen: a PNG file named by its content (large data is returned as a file reference)."""
+        self._need_plant()
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _cmd_panel_frame(self):
+        return dict(frame=self.panel.frame())
 
     # ---- read
     def read(self, visibility='agent'):
@@ -1481,7 +2182,11 @@ class BinderKbf115Runtime:
         al = list(self.alarms) if mains else []
         prog = None
         if self.prog is not None:
-            prog = dict(self.prog, section=self.prog['section'] + 1)
+            prog = dict(self.prog, kind=self.prog.get('kind', 'time'))
+            if prog['kind'] == 'time':
+                prog['section'] = self.prog['section'] + 1
+            prog.pop('frozen', None)
+            prog.pop('sec_reps', None)
         out = {'clock.time_s': self.t, 'plant.configured': pc, 'power.on': self.main_switch, 'state.current': self._state(),
                'temperature.chamber_k': sT, 'humidity.chamber': sRH,
                'display.temperature': None if sT is None else round(sT - T0, 1), 'display.humidity': None if sRH is None else round(sRH * 100.0, 1),
@@ -1489,14 +2194,16 @@ class BinderKbf115Runtime:
                                         fan_fraction=sp['fan_fraction'], mode=self.mode, source=sp['source']),
                'setpoint.fixed': dict(self.fixed), 'functions.current': dict(self.functions),
                'chart.region': chart_region(sp['temperature_k'], sp['relative_humidity']) if self._humidity_active(sp) else 'dry',
-               'program.status': dict(running=prog, stored=sorted(self.programs)),
+               'program.status': dict(running=prog, stored=sorted(self.programs), week_stored=sorted(self.week), end_notice=self.end_notice if mains else None),
                'safety.settings': dict(self.safety, limit_k=self._safety_limit(sp)), 'tolerance.settings': dict(self.tol),
                'alarms.active': al, 'notifications.active': list(self.notes) if mains else [], 'alarm.audible': self._audible() if pc else False,
                'indicator.pilot': bool(mains), 'indicator.alarm_header': bool(mains and al), 'indicator.door_open': bool(mains and 'DOOR_OPEN' in self.notes),
                'indicator.water': bool(mains and ({'FRESHWATER_SUPPLY', 'FRESHWATER_CAN_EMPTY', 'WASTEWATER'} & set(al))),
                'door.outer_angle_rad': self.door, 'door.glass_angle_rad': self.glass, 'door.glass_fogged': bool(pc and self.fog / A_GLASS > 0.002),
                'water.supply_open': self.supply_open, 'water.can_kg': self.can_kg, 'samples.count': len(self.samples),
-               'logger.settings': dict(interval_s=self.log_interval, records=len(self.log))}
+               'logger.settings': dict(interval_s=self.log_interval, records=len(self.log)),
+               'controller.clock': self._clock_text() if mains else None, 'user.session': self._session_view(), 'device.settings': dict(self.settings),
+               'program.store': self._store_view()}
         if visibility != 'agent':
             if not pc:
                 out['truth.climate'], out['truth.samples'], out['truth.power'] = {}, {}, {}
@@ -1557,7 +2264,7 @@ class BinderKbf115Session:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -1591,13 +2298,13 @@ class BinderKbf115Session:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or capability_id not in ALL_CAPS:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and ALL_CAPS[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            validate(ALL_CAPS[capability_id]['input_schema'], arguments)
             h._caller = self._principal
             try:
                 result = _jsonable(h.invoke(capability_id, **arguments))
@@ -1629,6 +2336,184 @@ class BinderKbf115Session:
         raise ActionRejected('UNKNOWN_OPERATION')
 
 
+# ---------------------------------------------------------------- front-panel program editor (E7 10.4-10.7, 11.3-11.6): the panel edits a copy of one
+# program (UI variable 'pe'); nothing is stored until Confirm in the program view writes it with program.write / week_program.write
+FUNCTION_LINES = ['idle_mode', 'humidification_off', 'dehumidification_off']
+
+
+def _unit_f(panel):
+    return panel.host.settings['chamber.temperature_unit'] == 'F'
+
+
+def _new_section(host, kind):
+    f = host.fixed
+    s = dict(temperature_k=f['temperature_k'], relative_humidity=f['relative_humidity'], fan_fraction=f['fan_fraction'])
+    if kind == 'week':
+        return dict(s, weekday=None, time='00:00')                         # E7 11.3: no weekday yet (marked red, cannot be saved)
+    return dict(s, duration_s=3600.0, transition='ramp')
+
+
+def _hook_pe_open(panel, ctx, a):
+    kind, n = a['kind'], int(panel._src(a['program'], ctx))
+    h = panel.host
+    store = h._store(kind)
+    nm = h.prog_names.get(f'{kind}:{n}', {})
+    P = copy.deepcopy(store[n]) if n in store else dict(sections=[_new_section(h, kind)], repeat=None, course='step')
+    panel.ui['vars']['pe'] = dict(kind=kind, program=n, name=nm.get('name', ''), info=nm.get('info', ''), course=P.get('course', 'step'),
+                                  sections=P['sections'], repeat=P.get('repeat'), new=n not in store, sel=0)
+    return True
+
+
+def _pe(panel):
+    return panel.ui['vars']['pe']
+
+
+def _hook_pe_select(panel, ctx, a):
+    pe = _pe(panel)
+    i = ctx.get('row_index')
+    if i is None or not 0 <= i < len(pe['sections']):
+        return False
+    pe['sel'] = int(i)
+    return True
+
+
+def _hook_pe_section_op(panel, ctx, a):
+    """Section editor and program editor: new (at the end, or before / after the current one), copy, insert / replace the copy, delete."""
+    pe, op = _pe(panel), a['op']
+    secs, i = pe['sections'], pe['sel']
+    clip = panel.ui['vars'].get('clip_section')
+    if op == 'new':
+        j = len(secs) if a.get('where', 'end') == 'end' else i + (a['where'] == 'after')
+        secs.insert(j, _new_section(panel.host, pe['kind']))
+    elif op == 'copy':
+        panel.ui['vars']['clip_section'] = dict(kind=pe['kind'], section=copy.deepcopy(secs[i]))
+        return True
+    elif op in ('insert', 'replace'):
+        if not clip or clip['kind'] != pe['kind']:
+            return False
+        if op == 'replace':
+            secs[i] = copy.deepcopy(clip['section'])
+            return True
+        j = i + (a.get('where') == 'after')
+        secs.insert(j, copy.deepcopy(clip['section']))
+    elif op == 'delete':
+        if len(secs) <= 1:
+            return False                                                 # a program keeps at least one section (assumption)
+        del secs[i]
+        j = min(i, len(secs) - 1)
+    else:
+        return False
+    if len(secs) > 100:
+        del secs[j]
+        return False
+    pe['sel'] = j
+    return True
+
+
+def _hook_pe_get(panel, ctx, a):
+    """A field of the selected section in display units (degC or degF, %, h / min / s)."""
+    pe = _pe(panel)
+    s = pe['sections'][pe['sel']]
+    f, F = a['f'], _unit_f(panel)
+    tconv = (lambda k: (k - T0) * 1.8 + 32.0) if F else (lambda k: k - T0)
+    dconv = (lambda d: d * 1.8) if F else (lambda d: d)
+    d = int(round(s.get('duration_s', 0.0)))
+    val = {'dur_h': d // 3600, 'dur_m': d % 3600 // 60, 'dur_s': d % 60, 'course': s.get('transition', 'step'),
+           'functions': [k for k in FUNCTION_LINES if s.get(k)], 'rep_n': s.get('repeat_count', 0), 'rep_from': s.get('repeat_from', 1),
+           't': round(tconv(s['temperature_k']), 2), 't_min': round(dconv(s.get('tolerance_k_min', 0.0)), 4), 't_max': round(dconv(s.get('tolerance_k_max', 0.0)), 4),
+           'rh': round(s['relative_humidity'] * 100.0, 2), 'rh_min': round(s.get('tolerance_rh_min', 0.0) * 100.0, 4),
+           'rh_max': round(s.get('tolerance_rh_max', 0.0) * 100.0, 4), 'fan': round(s.get('fan_fraction', 1.0) * 100.0, 2),
+           'weekday': s.get('weekday'), 'moment': s.get('time', '00:00')}
+    return val[f]
+
+
+def _hook_pe_store_section(panel, ctx, a):
+    """Section view Confirm: the form's values into the selected section of the copy."""
+    pe, b = _pe(panel), ctx.get('buffer') or {}
+    s = pe['sections'][pe['sel']]
+    F = _unit_f(panel)
+    tk = (lambda v: (v - 32.0) / 1.8 + T0) if F else (lambda v: v + T0)
+    dk = (lambda v: v / 1.8) if F else (lambda v: v)
+    if 'dur_h' in b:
+        s['duration_s'] = float(max(int(b['dur_h']) * 3600 + int(b['dur_m']) * 60 + int(b['dur_s']), 1))   # minimum entry 1 s (E7 10.7.2)
+        s['transition'] = b['course']
+        s['repeat_count'], s['repeat_from'] = int(b['rep_n']), int(b['rep_from'])
+        for key, v in (('tolerance_k_min', dk(b['t_min'])), ('tolerance_k_max', dk(b['t_max'])), ('tolerance_rh_min', b['rh_min'] / 100.0),
+                       ('tolerance_rh_max', b['rh_max'] / 100.0)):
+            s[key] = float(v)
+    else:
+        s['weekday'], s['time'] = b['weekday'], b['moment']
+    t = b['t_f'] if F else b['t_c']
+    s['temperature_k'] = min(max(tk(float(t)), T_SET_LO), T_SET_HI)
+    s['relative_humidity'] = float(b['rh']) / 100.0
+    s['fan_fraction'] = float(b['fan']) / 100.0
+    for k in FUNCTION_LINES:
+        s[k] = k in (b.get('functions') or [])
+    if pe['kind'] == 'week':
+        order = lambda x: (9 if x.get('weekday') is None else -1 if x['weekday'] == 'daily' else WEEKDAYS.index(x['weekday']), x['time'])   # noqa: E731
+        pe['sections'].sort(key=order)                                       # E7 11.4: arranged chronologically once the start is set
+        pe['sel'] = pe['sections'].index(s)
+    return True
+
+
+def _hook_pe_header(panel, ctx, a):
+    """'Change program name' entry: name, information and (week programs) the course."""
+    pe, b = _pe(panel), ctx.get('buffer') or {}
+    pe['name'], pe['info'] = b.get('name', pe['name']), b.get('info', pe['info'])
+    if 'course' in b:
+        pe['course'] = b['course']
+    return True
+
+
+def _hook_pe_rows(panel, ctx, a):
+    """Program view rows: section number, duration or weekday / moment, temperature, humidity, course (week sections without a weekday red)."""
+    pe = _pe(panel)
+    F = _unit_f(panel)
+    out = []
+    for i, s in enumerate(pe['sections']):
+        t = (s['temperature_k'] - T0) * 1.8 + 32.0 if F else s['temperature_k'] - T0
+        if pe['kind'] == 'time':
+            d = int(round(s['duration_s']))
+            when = f'{d // 3600:02d}:{d % 3600 // 60:02d}:{d % 60:02d}'
+            course = s.get('transition', 'step').capitalize()
+        else:
+            when = f"{(s['weekday'] or '---').capitalize()} {s['time']}"
+            course = ''
+        out.append(dict(n=i + 1, when=when, t=f'{t:.1f}', rh=f"{s['relative_humidity'] * 100.0:.1f}", course=course, ok=pe['kind'] == 'time' or s.get('weekday') is not None))
+    return out
+
+
+def _hook_pe_sections(panel, ctx, a):
+    pe = _pe(panel)
+    keys = ['duration_s', 'temperature_k', 'relative_humidity', 'fan_fraction', 'transition', 'tolerance_k_min', 'tolerance_k_max', 'tolerance_rh_min',
+            'tolerance_rh_max', 'repeat_count', 'repeat_from', 'humidity_control', 'tolerance_k', 'tolerance_rh'] + FUNCTION_LINES
+    if pe['kind'] == 'week':
+        keys = ['weekday', 'time', 'temperature_k', 'relative_humidity', 'fan_fraction'] + FUNCTION_LINES
+    return [{k: s[k] for k in keys if k in s and s[k] is not None} for s in pe['sections']]
+
+
+def _hook_pe_complete(panel, ctx, a):
+    pe = _pe(panel)
+    return pe['kind'] == 'time' or all(s.get('weekday') is not None for s in pe['sections'])
+
+
+def _hook_start_delay(panel, ctx, a):
+    """Program start moment of the 'Program start' form -> delay from the controller clock (s, 0 when in the past; E7 8.1, 10.1)."""
+    b = ctx.get('buffer') or {}
+    try:
+        start = datetime.datetime.fromisoformat(f"{b['start_date']}T{b['start_time']}")
+    except (KeyError, ValueError, TypeError):
+        return 0.0
+    now = panel.host._clock_local().replace(second=0)
+    d = (start - now).total_seconds()
+    return d if a.get('signed') else max(d, 0.0)                             # signed: a past instant (chart history search)
+
+
+PANEL_HOOKS = dict(pe_open=_hook_pe_open, pe_select=_hook_pe_select, pe_section_op=_hook_pe_section_op, pe_get=_hook_pe_get,
+                   pe_store_section=_hook_pe_store_section, pe_header=_hook_pe_header, pe_rows=_hook_pe_rows, pe_sections=_hook_pe_sections,
+                   pe_complete=_hook_pe_complete, start_delay=_hook_start_delay)
+
+
 # ---------------------------------------------------------------- contract metadata
 ERROR_ZH = {
     'INVALID_ARGUMENT': '参数不符合输入模式或取值范围', 'REQUEST_CONFLICT': '同一request_id对应不同的调用', 'UNKNOWN_INSTANCE': '实例不存在',
@@ -1641,6 +2526,9 @@ ERROR_ZH = {
     'NO_SHELF': '该层没有搁架（搁架数见plant.configure）', 'SHELF_OVERLOAD': '超过每层搁架30 kg', 'LOAD_LIMIT': '超过总允许载荷100 kg',
     'UNQUANTIFIED_SOLUTION': '该物质没有实测溶液支（水活度–浓度），不能以溶液状态放入',
     'HEAT_LOAD_LIMIT': '腔内样品总发热超过500 W（工程上限；数据表40 °C最大热补偿200 W）',
+    'NO_PROGRAM': '没有正在运行（或已暂停）的时间程序', 'INVALID_DATE': '日期或时刻不存在', 'WRONG_PASSWORD': '密码错误',
+    'NO_PASSWORD': '该授权级别没有设密码：无需也不能登录', 'NOT_AUTHORIZED': '当前授权级别不能修改该级别的密码（User级别不能修改密码）',
+    'INVALID_SETTING': '设定值不在该设定项的范围或选项内',
 }
 _P = ['PLANT_REQUIRED']
 _PP = _P + ['POWER_OFF']
@@ -1653,6 +2541,7 @@ CAP_ERRORS = {
                                                          'UNQUANTIFIED_SOLUTION', 'HEAT_LOAD_LIMIT'],
     'sample.remove': _P + ['UNKNOWN_SAMPLE', 'OUTER_DOOR_CLOSED', 'GLASS_DOOR_CLOSED'], 'samples.read': [], 'truth.inspect': _P, 'ledger.read': [],
     'fault.inject': _P, 'sim.step': [],
+    **NEW_CAP_ERRORS, **{k: ([] if k == 'panel.frame' else _P) for k in PANEL_CAPS},
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 PRECONDITIONS = {
@@ -1669,6 +2558,11 @@ PRECONDITIONS = {
     'sample.place': ('外门与玻璃门打开；样品编号唯一；该层有搁架；每层≤30 kg、总≤100 kg；样品总发热≤500 W', ['door.outer_angle_rad', 'door.glass_angle_rad', 'samples.count']),
     'sample.remove': ('样品存在；外门与玻璃门打开', ['door.outer_angle_rad', 'door.glass_angle_rad', 'samples.count']),
     'truth.inspect': ('无', ['plant.configured']), 'fault.inject': ('无', ['plant.configured']),
+    **NEW_PRECONDITIONS,
+    **{k: ('面板按当前页面与手册规则处理手势：主开关断或停电时屏幕暗、只有主开关起作用；屏保时第一次触摸只唤醒；未登录且各级都设密码时只能查看；'
+           '被调用能力的前提同样适用（被拒时显示仪器自己的提示，手势不被接受）', ['power.on', 'user.session'])
+       for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')},
+    'panel.capture': ('无（无电时为暗屏）', ['power.on']),
 }
 _DISPLAY = ['temperature.chamber_k', 'humidity.chamber', 'display.temperature', 'display.humidity']
 _ALARMS = ['alarms.active', 'notifications.active', 'alarm.audible'] + _INDS
@@ -1691,10 +2585,22 @@ EFFECTS = {
     'sim.step': ['clock.time_s'],
 }
 EFFECTS['power.toggle'] = list(EFFECTS['power.set'])
+EFFECTS.update({k: list(dict.fromkeys(x for v in fx for x in (_ALARMS if v == _ALARM_FX else [v]))) for k, fx in NEW_EFFECTS.items()})
+EFFECTS['logger.configure'] = EFFECTS['logger.configure'] + ['device.settings']
+EFFECTS['program.write'] = EFFECTS['program.write'] + ['program.store']
+for _k in ('power.set', 'power.toggle', 'fault.inject', 'plant.configure'):
+    EFFECTS[_k] = EFFECTS[_k] + ['controller.clock']                      # the clock is shown only with mains
 _STEPPED = ('plant.configure', 'power.set', 'power.toggle', 'setpoint.set', 'function.set', 'safety.configure', 'tolerance.configure', 'alarm.reset', 'program.start',
             'program.stop', 'door.move', 'glass_door.move', 'water.supply', 'can.refill', 'sample.place', 'sample.remove', 'fault.inject')
 ON_STEP = {k: list(_EVOLVE) for k in _STEPPED}
-ON_STEP['sim.step'] = _EVOLVE + ['clock.time_s']
+for _k in NEW_STEPPED:
+    ON_STEP[_k] = list(_EVOLVE)
+_PANEL_EFFECTS = list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in EFFECTS.get(c, [])))
+for _k in PANEL_CAPS:
+    if _k not in ('panel.capture', 'panel.frame'):
+        EFFECTS[_k] = list(_PANEL_EFFECTS)                                   # a gesture changes what the commands it calls change
+        ON_STEP[_k] = list(_EVOLVE)
+ON_STEP['sim.step'] = _EVOLVE + ['clock.time_s', 'controller.clock']
 ON_STEP_ZH = {
     'sim.step': '按1 s网格积分：空气（干空气与水汽）、内腔金属、玻璃门与样品的传热传质，温度与湿度比例积分控制（加热、制冷、蒸汽加湿、蒸发器除湿与结冰），'
                 '门封与开门空气交换，壁面与玻璃凝水，加湿容器补水、废水泵，安全控制器、公差带与门报警，程序推进，数据记录',
@@ -1708,7 +2614,9 @@ ON_STEP_ZH = {
 EXEC_TEXT = {'setpoint.set': ('setpoint.current为新值；腔温与湿度在之后的step中趋近', '超出设定范围时拒绝'),
              'door.move': ('door.outer_angle_rad为给定角度', '玻璃门开着时拒绝关外门'),
              'program.start': ('program.status.running为该程序；设定按段推进', '程序不存在时拒绝')}
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+EXEC_TEXT.update({k: ('手势瞬时完成（不推进仿真时钟）：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看',
+                       '被拒的手势不改变状态') for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')})
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 for _k in ('door.move', 'glass_door.move', 'water.supply', 'can.refill', 'sample.place', 'sample.remove'):
     RESOURCES[_k] = ['host_clock', 'robot_or_operator']
 OBSERVES = {'setpoint.set': ['temperature.chamber_k', 'humidity.chamber'], 'door.move': ['door.outer_angle_rad', 'temperature.chamber_k', 'humidity.chamber'],
@@ -1722,7 +2630,7 @@ CAP_SOURCES.update({'plant.configure': [_DS, _SIM], 'power.set': [_E7, _E6], 'po
                     'events.read': [_E7, _SIM], 'truth.inspect': [_SIM], 'ledger.read': [_SIM], 'fault.inject': [_E7, _E6, _SIM], 'sim.step': [_SIM],
                     'door.move': [_DS, _E7], 'glass_door.move': [_DS, _SIM]})
 CAP_SOURCES.update({k: [_DS] for k in UNSUPPORTED})
-CAP_SOURCES['week_program.run'] = [_E7]
+CAP_SOURCES.update({k: [_E7, _SIM] for k in list(NEW_CAP_ERRORS) + list(PANEL_CAPS)})
 PARAM_ZH = {'ambient_k': '室温', 'relative_humidity': '相对湿度（0–1）', 'pressure_pa': '大气压', 'mains_v': '电源电压', 'water_supply': '供水方式（pipe水管或can选配水桶）',
             'shelves': '搁架数（标配2，最多5）', 'noise_seed': '噪声随机数种子（只在首次声明时生效）', 'on': '是否接通', 'temperature_k': '温度设定或公差带宽',
             'fan_fraction': '风机转速（0.4–1）', 'humidity_control': '湿度控制开/关', 'idle_mode': 'Idle mode', 'mode': '安全控制器模式', 'value_k': '安全控制器值',
@@ -1730,7 +2638,7 @@ PARAM_ZH = {'ambient_k': '室温', 'relative_humidity': '相对湿度（0–1）
             'since_s': '起始时间', 'angle_rad': '开启角', 'open': '接通或断开', 'sample_id': '样品编号', 'substance_id': '物质（模板库编号或inert）', 'shelf': '搁架层（1为最上层）',
             'dry_mass_kg': '干样品质量', 'heat_output_w': '样品或被测件的发热功率（如通电器件；数据表“最大热补偿”即此负荷）', 'exposed_area_m2': '暴露面积', 'initial_k': '放入时温度', 'initial_water_kg': '放入时所含水（溶液或吸附水；惰性物为表面水）',
             'heat_capacity_j_kg_k': '干样品比热（默认840）', 'container_mass_kg': '容器（培养皿）质量', 'degradation': '宿主声明的降解规律：k = rate_ref_per_s·exp(−Ea/R·(1/T − 1/298.15 K))·(RH/0.60)^n，参考条件25 °C/60 %RH（ICH长期条件）',
-            'fault': '故障名', 'active': '注入或清除', 'dt_s': '推进时间'}
+            'fault': '故障名', 'active': '注入或清除', 'dt_s': '推进时间', **NEW_PARAM_ZH}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.climate_chamber_process.limitations。'
 CAP_LIMITS = {
     'setpoint.set': ['控制为比例积分抽象（真实MB2控制器参数未公开）；气候图之外的设定可以输入，能否达到由蒸发器最低温度、制冷量与湿负荷决定（区域B按蒸发器结冰限时）。'],
@@ -1740,7 +2648,11 @@ CAP_LIMITS = {
                      '降解只有宿主声明降解规律时才计算，本机不提供任何材料的老化数据。'],
     'sample.remove': ['只返回称量质量与目视外观；暴露记录（平均动力学温度按ICH约定ΔH=83.144 kJ/mol）、内部状态与降解分数在truth.inspect的removed_samples中（评测者）。',
                       '降解规律的参考条件为298.15 K与60 %RH（k = rate_ref·exp(−Ea/R·(1/T−1/298.15))·(RH/0.60)^n）。'],
-    'program.write': ['实现时间程序（ramp/step、段公差带暂停、段重复）；周程序与程序内特殊功能（灯光、CO₂等）未实现。'],
+    'program.write': ['实现时间程序（ramp/step、段公差带暂停（对称带tolerance_k/tolerance_rh或E7的上下限）、段重复（程序级repeat或E7的每段repeat_count/repeat_from）、'
+                      '段内控制器功能Idle mode / Humidification off / Dehumidification off）；灯光、CO₂等选件功能没有（本配置无此选件）。'],
+    **NEW_CAP_LIMITS,
+    **{k: ['面板层按panel_ui.json（E7手册页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟；手册未写之处的选择见panel_ui.json的assumptions。']
+       for k in PANEL_CAPS},
     'log.read': ['数据记录器内容为运行层记录；USB导出格式（文件）不建模，返回记录列表。'],
     'water.supply': ['水管供水视为压力无限；水质（去离子水）与钙化不建模。'],
 }
@@ -1769,10 +2681,14 @@ def _sampling_text(k):
     return 'Changes when a command is accepted.'
 
 
+OWNER_GUARDED = ('program.stop', 'program.pause', 'program.resume', 'program.start', 'timer_program.start', 'week_program.start', 'setpoint.set',
+                 'function.set', 'safety.configure', 'settings.factory_reset', 'clock.set')   # 1.1.2 owner rule (_foreign_run)
+
+
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if CAPS[k]['visibility'] != 'agent' else []
+    extra = ['ACCESS_DENIED'] if ALL_CAPS[k]['visibility'] != 'agent' or k in OWNER_GUARDED else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1839,7 +2755,7 @@ def export_binder_kbf115_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'BinderKbf115Session.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',

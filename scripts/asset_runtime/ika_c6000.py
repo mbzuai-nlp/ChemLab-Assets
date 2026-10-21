@@ -33,6 +33,7 @@ import random
 from pathlib import Path
 
 PROTOCOL_VERSION = '1.0.0'
+ASSET_VERSION = '1.2.0'
 SLUG = 'ika_c6000'
 ASSET_TYPE_ID = 'instrument.' + SLUG
 CATALOG_ID = 'CHEM-150'
@@ -393,12 +394,82 @@ cap('ledger.read', obj({}), LEDGER, {}, 'housing', '受限：能量账（外筒/
 cap('provenance.read', obj({}), obj(dict(library=TEXT, substances=array(TEXT, 0, 200))), {}, 'decomposition_vessel', '受限：本实例使用过的模板库记录', 'evaluator', 'query')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=60.0), 'housing',
     '唯一宿主时间推进（纳秒整数时钟，余数累计；1s仪器周期在全局时间网格上执行）', 'evaluator', 'simulation')
+# error codes of the operating instructions (chapter 13, p.36-37) whose causes the simulation does not have: the evaluator raises them (fault.inject);
+# the device shows the documented message, a running measurement ends with it (end sequence: degas, drain, open), and the documented remedy clears it:
+# 'ack' = confirm the message (back to Wait), 'test' = confirm, then the system test runs again (Restart), 'power' = switch the device off and on.
+# A cause that is still present shows the code again where the device would find it: at the next measurement start, system test or power-up.
+MANUAL_FAULTS = {   # code: (displayed message, remedy, where a persisting cause shows again)
+    'E01': ('Wrong stirrer rotation speed!', 'ack', 'start'), 'E02': ('Internal communication error', 'power', 'boot'),
+    'E09': ('No ignition wire detected!', 'ack', 'start'), 'E10': ('Upper water sensor reacts too soon!', 'ack', 'start'),
+    'E14': ('Temperature sensor at upper limit!', 'power', 'boot'), 'E15': ('Temperature sensor at lower limit!', 'power', 'boot'),
+    'E20': ('No heat pulse in inner water cycle!', 'test', 'test'), 'E21': ('No heat pulse in outer water cycle!', 'test', 'test'),
+    'E22': ('Error converter!', 'test', 'test'), 'E23': ('Error regulator!', 'test', 'test'),
+    'E30': ('Error while reading the vessel ID!', 'ack', None)}          # E30: one failed RFID read (scan again); not kept as a cause
+SWEEP_CAPS = ('fault.inject', 'fault.clear')
+cap('fault.inject', obj(dict(code=enum(list(MANUAL_FAULTS)))), obj(dict(faults=array(TEXT, 0, 16))), dict(code='E22'), 'housing',
+    '评测者：注入手册第13章错误码（E01、E02、E09、E10、E14、E15、E20–E23、E30）：屏上显示该错误，进行中的测量以该码结束（照常排气、排水、开盖）；按手册排除：E01/E09/E10/E30'
+    '确认后回到等待，E20–E23确认后重新自检，E02/E14/E15须关机再开机；原因未撤销时在下次测量开始、自检或开机时再出现（E30只是一次读卡失败，须重新扫描）',
+    'evaluator', 'simulation')
+cap('fault.clear', obj({}), obj(dict(faults=array(TEXT, 0, 16))), {}, 'housing', '评测者：撤销全部注入的错误原因（代表维修）；屏上的错误仍按手册排除', 'evaluator', 'simulation')
+# ---------------------------------------------------------------- touch-screen functions of the operating instructions (front panel, panel_ui.json)
+_NAME30 = dict(type='string', minLength=1, maxLength=30)
+LANGUAGES = ['English', 'Deutsch']                                    # assumption: the languages of the menu are not listed
+UNITS = ['J/g', 'kJ/kg', 'cal/g', 'BTU/lb']                            # factory J/g (manual 10.4); the other units are an assumption
+REPORTS = ['DIN 51900']               # the Report the manual names and shows (11.6.4 example); the input forms and formulas of other standards are
+                                       # not in our manuals (they 'can be found in the respective standard'), so they are not offered (sync audit 2026-10-19)
+PREFERENCES = obj(dict(language=enum(LANGUAGES), unit=enum(UNITS), decomposition=BOOL, input_takeover=BOOL, sample_name_from_date=BOOL, report=enum(REPORTS),
+                       key_tones=BOOL, volume=integer(0, 10)))
+FACTORY_PREFERENCES = dict(language='English', unit='J/g', decomposition=False, input_takeover=True, sample_name_from_date=True, report='DIN 51900', key_tones=True,
+                           volume=5)                                    # manual 10.4 factory settings (volume: assumption)
+MODULES = obj(dict(balance=BOOL, sample_rack=BOOL, printer=BOOL, tap_water=BOOL))
+EPOCH0 = 1767225600.0                                                  # device clock 2026-01-01 00:00 at t = 0 (assumption)
+MAX_USERS = 30
+cap('measurement.cancel', obj({}), obj(dict(measurement_id=TEXT, cancelled_after_ignition=BOOL)), {}, ['touch_display', 'cover_shell'],
+    '测量画面的取消键（手册11.5.5项D）：取消进行中的测量；点火前取消可再次启动，点火后不可；仪器照常排气、排水、开盖（进入这一结束程序后不能再取消）')
+cap('measurement.modify', obj(dict(measurement_id=TEXT, name=_NAME30, sample_mass_kg=number('kg', SAMPLE_MASS_RANGE_KG[0], SAMPLE_MASS_RANGE_KG[1]),
+                                   vessel_name=nullable(TEXT), aids=array(MEAS_AID, 0, 6), user=nullable(TEXT))), obj(dict(measurement_id=TEXT)),
+    dict(measurement_id='m-1', name='BA_cal_1', sample_mass_kg=1.0e-3, vessel_name=None, aids=[dict(aid_name='IKA cotton wool thread', mass_kg=None)], user=None),
+    'touch_display', '测量菜单Edit > Modify（手册11.5.2）：修改尚未点火的记录的名称、称样量、氧弹、点火/助燃辅料与用户（规则同新建测量）')
+cap('measurement.convert', obj(dict(measurement_id=TEXT)), obj(dict(measurement_id=TEXT, kind=enum(['measurement', 'calibration']))), dict(measurement_id='m-1'),
+    'touch_display', '测量菜单Edit > Meas. <-> calib.（手册11.5.2）：测量与标定互换；已完成的记录按当前C值（测量）或参考燃烧值（标定）重算；C值正在使用的标定不能转换')
+cap('vessel.modify', obj(dict(vessel_name=TEXT, name=_NAME30, serial_number=dict(type='string', minLength=10, maxLength=10), previous_ignitions=integer(0, 100000),
+                              platinum_wire=BOOL)), obj(dict(vessel_name=TEXT)),
+    dict(vessel_name='C6012 no. 1', name='C6012 no. 1', serial_number='0012345678', previous_ignitions=0, platinum_wire=False), 'touch_display',
+    '氧弹菜单Edit > Modify（手册11.2.2）：修改名称、序列号、已点火次数与铂丝；记录中的氧弹名随之改名')
+cap('vessel.delete', obj(dict(vessel_name=TEXT)), obj(dict(deleted=BOOL)), dict(vessel_name='C6012 no. 1'), 'touch_display',
+    '氧弹菜单Edit > Delete（手册11.2.2）：删除登记（测量进行中不能删除；已有记录保留氧弹名）')
+cap('aid.delete', obj(dict(name=_NAME30)), CONFIGURED, dict(name='Gelatine capsule C 9'), 'touch_display',
+    '点火/助燃辅料清单Edit > Delete（手册11.4.3）；出厂“IKA cotton wool thread”不可删除')
+cap('user.save', obj(dict(name=_NAME30, abbreviation=dict(type='string', minLength=1, maxLength=5), replace=nullable(TEXT))), obj(dict(name=TEXT)),
+    dict(name='Operator A', abbreviation='OA', replace=None), 'touch_display', '设置 > User：新建或修改用户（名称≤30字符且唯一、缩写，手册11.4.6；最多30个为假设）')
+cap('user.delete', obj(dict(name=TEXT)), obj(dict(deleted=BOOL)), dict(name='Operator A'), 'touch_display', '设置 > User > Edit > Delete（手册11.4.6）')
+cap('user.select', obj(dict(name=nullable(TEXT))), obj(dict(name=nullable(TEXT))), dict(name='Operator A'), 'touch_display',
+    '新测量表单的User下拉（手册11.5.1）：当前用户，新建的测量记入该用户')
+cap('preferences.configure', PREFERENCES, CONFIGURED, dict(FACTORY_PREFERENCES), 'touch_display',
+    '设置：语言、单位（显示值随之换算）、测量设置中的Decomposition（试验后不自动排气，留作残余分析）、Input takeover（新测量沿用上次的氧弹、辅料与用户）、'
+    'Sample name from date and time（按YYMMDDHHmmss自动命名）、Report（热值计算标准）、Audio（按键音、音量）（手册11.4）')
+cap('clock.set', obj(dict(date=TEXT, time=TEXT)), obj(dict(datetime=TEXT)), dict(date='2026-10-19', time='08:30'), 'touch_display',
+    '设置 > Date/time（手册11.4.8）：设备日期与时间（YYYY-MM-DD、HH:MM）')
+cap('modules.configure', MODULES, CONFIGURED, dict(balance=False, sample_rack=False, printer=False, tap_water=True), ['touch_display', 'interface_panel'],
+    '模块（手册11.3）：天平、样品架、打印机、Tap water（直接接自来水时须开，自检据此判断冷却方式）的启用；本配置没有连接天平、样品架与打印机')
+cap('system.test_restart', obj({}), obj(dict(state=TEXT)), {}, 'touch_display', '功能栏“System test restart”：重新运行自检（等待状态，无测量）')
+cap('system.test_skip', obj({}), obj(dict(test_result=nullable(enum(['green', 'yellow', 'red'])))), {}, 'touch_display',
+    '功能栏“Skip Initial System Test”：不等完自检时长，按当前冷却水读数立即给出自检结果')
+cap('system.factory_reset', obj({}), CONFIGURED, {}, 'touch_display',
+    '维护 > Factory Reset：设置回到出厂状态（工作模式、测量设置、参考燃烧值、辅料、用户、单位、语言、报告、声音、模块）；登记的氧弹与测量记录保留（假设）')
+cap('maintenance.o2_fill', obj({}), obj(dict(rfid=TEXT)), {}, ['filling_head', 'o2_valve_group', 'decomposition_vessel'],
+    '维护程序“O2 Fill”（手册11.7.1）：给挂着的氧弹手动充氧（之后用O2 Degas排气）；须开盖、氧弹已准备或清洁且未带压')
+cap('maintenance.change_seal', obj(dict(active=BOOL)), obj(dict(active=BOOL)), dict(active=True), ['filling_head'],
+    '维护程序“Change Seal”（手册11.7.1）：充氧活塞降到最低位以便更换密封圈（须接氧气）；再次选择结束；进行中不能启动测量或充氧')
+cap('device.empty_for_transport', obj({}), obj(dict(draining=BOOL)), {}, ['water_valve_group', 'discharge_fitting'],
+    '维护 > Empty Device（手册11.7、12.1.3）：程序控制排空水路（内筒排水；外筒水路排空未建模）')
+TOUCH_CAPS = ('measurement.cancel', 'measurement.modify', 'measurement.convert', 'vessel.modify', 'vessel.delete', 'aid.delete', 'user.save', 'user.delete',
+              'user.select', 'preferences.configure', 'clock.set', 'modules.configure', 'system.test_restart', 'system.test_skip', 'system.factory_reset',
+              'maintenance.o2_fill', 'maintenance.change_seal', 'device.empty_for_transport')   # touch-screen functions added in 1.1.0 (verified by the panel suite)
 UNSUPPORTED = {
     'mode.adiabatic': '本型号（C 6000 isoperibol）没有绝热模式与绝热调整（只有C 6000 global standards有）',
     'sample_rack.use': 'C 5020样品架不在Package 2/12中',
     'data.export': '打印、U盘导出、以太网/FTP与CalWin C 6040通信未建模',
-    'maintenance.change_seal': '更换充氧活塞密封圈（维护程序Change seal）未建模',
-    'device.empty_for_transport': '运输前排空各水路（Empty device，手册12.1.3 Emptying water）未建模',
     'sample.halogen': '含卤素样品的HCl/Cl2生成与卤素酸校正未建模（C 6012虽耐卤素，模板库只收C/H/N/O/S物质）',
     'hardware.connect': '无真实串口/USB/以太网与仪器固件通信',
     'robot.handle_vessel': '无机器人拧紧氧弹、挂接与RFID移动的接触验证',
@@ -467,6 +538,7 @@ for k, u, c, m in [('truth.shell_k', 'K', 'decomposition_vessel', '氧弹壳体�
          '绝对压力，按氧弹内全部气体物质的量在25°C（298.15K）与氧弹自由容积下的理想气体压力；未挂氧弹时为1atm' if k == 'truth.vessel_pressure_pa' else None)
 slot('truth.vessels', {'type': 'object', 'additionalProperties': {'type': 'object'}}, '1', 'process_truth', 'decomposition_vessel',
      '各实体氧弹的真实状态（位置、内容、气体与酸摩尔数、燃烧分数）', 'evaluator')
+slot('truth.faults', array(TEXT, 0, 16), '1', 'process_truth', 'housing', '评测者注入、尚未撤销的手册错误原因（第13章）', 'evaluator')
 
 
 class _Sum:
@@ -498,6 +570,40 @@ LEDGER_FLOWS = ['jacket_heater_j', 'inner_heater_j', 'stirrer_j', 'ignition_j', 
                 'fill_sensible_j', 'drain_sensible_j', 'water_filled_kg', 'water_drained_kg', 'o2_filled_mol', 'o2_vented_mol', 'o2_consumed_mol']
 
 
+slot('measurements.list', array({'type': 'object'}, 0, MAX_RECORDS), '1', 'derived', 'touch_display',
+     '测量与标定列表（名称、类型、状态、模式、氧弹、称样量、用户、温升、C值、热值；会话对agent只列本人记录）')
+slot('aids.lists', {'type': 'object'}, '1', 'setpoint', 'touch_display', '外加能量清单1–3（名称、比能量或绝对能量、出厂条目标记）')
+slot('users.list', array({'type': 'object'}, 0, MAX_USERS), '1', 'setpoint', 'touch_display', '用户（名称、缩写）')
+slot('users.current', nullable(TEXT), '1', 'setpoint', 'touch_display', '新测量表单当前选中的用户')
+slot('preferences', PREFERENCES, '1', 'setpoint', 'touch_display', '设置：语言、单位、Decomposition、Input takeover、按日期命名、Report、按键音、音量')
+slot('modules.state', MODULES, '1', 'setpoint', 'interface_panel', '模块启用：天平、样品架、打印机、Tap water')
+slot('device.datetime', TEXT, '1', 'derived', 'touch_display', '设备日期时间（ISO，随仿真时钟走）')
+slot('maintenance.seal_change', BOOL, '1', 'derived', 'filling_head', '维护程序Change Seal进行中（充氧活塞在最低位）')
+slot('simulation.last', nullable({'type': 'object'}), '1', 'derived', 'touch_display', '最近一次模拟计算的结果（显示在测量列表上）')
+slot('evaluation.last', nullable({'type': 'object'}), '1', 'derived', 'touch_display', '最近一次标准评价的结果页（按Report）')
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.ika_c6000 (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET / 'panel_ui.json', capabilities=set(CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / touch / capture / frame (CAPS stays the instrument's command set)
+PANEL_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+_PANELS = __import__('weakref').WeakKeyDictionary()                           # runtime -> its panel (kept out of the runtime's own data)
+
+
 class IkaC6000Runtime:
     """C 6000 isoperibol with its C 6012 vessel: process model, instrument logic and evaluation (SI units)."""
 
@@ -520,6 +626,7 @@ class IkaC6000Runtime:
         self.shutdown_done = True
         self.test_result = None
         self.error = None
+        self.faults = set()                              # causes of manual error codes injected by the evaluator (MANUAL_FAULTS)
         self.mode = 'isoperibol_22'                      # manual 10.2: an isoperibol device is preset to Isoperibol (22 C)
         self.settings = dict(o2_flush=False, auto_vessel_detection=True, reference_value_j_kg=FACTORY_REFERENCE_J_KG)   # manual factory settings
         self.aid_lists = {1: {'IKA cotton wool thread': dict(energy_kind='absolute', value=COTTON_THREAD_J, fixed=True)}, 2: {}, 3: {}}
@@ -548,6 +655,17 @@ class IkaC6000Runtime:
         self.led = {k: _Sum() for k in LEDGER_FLOWS}
         self._E0 = None
         self._principals, self._requests, self._owners = {}, {}, {}
+        self._caller = None                                                  # session principal while a session call runs (panel keys act as that caller)
+        # touch-screen functions (operating instructions chapter 10-11): users, settings, modules, clock, maintenance states, last results
+        self.users, self.current_user = [], None
+        self.prefs = dict(FACTORY_PREFERENCES)
+        self.modules = dict(balance=False, sample_rack=False, printer=False, tap_water=False)
+        self.clock_offset = EPOCH0
+        self.seal_change = False
+        self.last_input = None
+        self.last_simulation = self.last_evaluation = None
+        self.power_epoch = 0
+        self.panel_capture_dir = None
 
     # ---------------------------------------------------------------- basics
     @property
@@ -647,10 +765,16 @@ class IkaC6000Runtime:
                                            c_values_j_k={md: r['c'].get(md) for md in MODES}) for n, r in self.registry.items()},
             'result.delta_t_k': self.last_result['delta_t'], 'result.gross_calorific_value_j_kg': self.last_result['ho'], 'result.c_value_j_k': self.last_result['c'],
             'lift.position_m': self.lift, 'stirrer.angle_rad': self.stir_angle,
+            'measurements.list': [self._list_entry(r) for r in self.records.values()],
+            'aids.lists': {str(n): {k: dict(v) for k, v in lst.items()} for n, lst in self.aid_lists.items()},
+            'users.list': copy.deepcopy(self.users), 'users.current': self.current_user, 'preferences': dict(self.prefs), 'modules.state': dict(self.modules),
+            'device.datetime': self._iso(), 'maintenance.seal_change': self.seal_change, 'simulation.last': copy.deepcopy(self.last_simulation),
+            'evaluation.last': copy.deepcopy(self.last_evaluation),
             'truth.shell_k': hv['T_shell'] if hv else self.Tw, 'truth.head_k': hv['T_head'] if hv else self.Tw, 'truth.water_k': self.Tw, 'truth.jacket_k': self.Tj,
             'truth.water_kg': self.water_kg, 'truth.c_total_j_k': self._c_water() + (self._vessel_c(hv) if hv else 0.0),
             'truth.jacket_heater_w': self.p_jacket, 'truth.inner_heater_w': self.p_inner, 'truth.cooling_w': self._cooling_w(), 'truth.stirrer_w': self.p_stir,
             'truth.last_heat_released_j': hv['last_heat_j'] if hv else 0.0, 'truth.vessel_pressure_pa': self._vessel_pressure(hv) if hv else P_ATM,
+            'truth.faults': sorted(self.faults),
             'truth.vessels': {r: dict(model=v['model'], location=v['location'], state=v['state'], ignitions=v['ignitions'], sample=copy.deepcopy(v['sample']),
                                       gas_mol=copy.deepcopy(v['gas']), acids_mol=dict(v['acids']), burned_fraction=v['burned_fraction'], residue=v['residue'],
                                       vapour_lost_kg=v['vapour_lost_kg'], inspection_required=v['inspection_required'], heat_capacity_j_k=self._vessel_c(v),
@@ -686,6 +810,11 @@ class IkaC6000Runtime:
 
     # ---------------------------------------------------------------- commands
     def invoke(self, capability_id, **a):
+        if capability_id in PANEL_CAPS:
+            out = self._panel_command(capability_id, a)
+            if capability_id in PANEL_GESTURES:
+                self.revision += 1
+            return out
         if capability_id not in CAPS:
             raise ActionRejected('UNKNOWN_CAPABILITY')
         if capability_id in UNSUPPORTED:
@@ -726,6 +855,7 @@ class IkaC6000Runtime:
             self.rng = random.Random(a['noise_seed'])
             amb = a['ambient_k']
             self.Tw = self.Tj = self.probe_k = self.t2_lag = amb
+            self.modules['tap_water'] = a['cooling_source'] == 'tap_water'       # the device is installed for the declared cooling water
             self.vessels = {'C6012-0001': _new_vessel('C6012-0001', 'C 6012', random.Random(a['noise_seed'] * 7919 + 1))}
             for v in self.vessels.values():
                 v['T_shell'] = v['T_head'] = amb
@@ -743,10 +873,46 @@ class IkaC6000Runtime:
         self._E0 += self._stored_energy() - e0                   # a vessel brought in at room temperature is not a heat input
         return dict(provided=True)
 
+    def _fault_found(self, where):
+        """An injected cause that is still present shows its code where the device finds it (power-up, system test, measurement start)."""
+        code = next((c for c in sorted(self.faults) if MANUAL_FAULTS[c][2] == where), None)
+        if code is not None:
+            self._show_fault(code)
+        return code is not None
+
+    def _show_fault(self, code):
+        """The device shows a manual error: a running measurement ends with it (its end sequence still runs), otherwise the error waits."""
+        if self.run is not None and not self.run.get('final'):
+            self._fail_run(code, f'{code}：{MANUAL_FAULTS[code][0]}（评测者注入）')
+        elif self.run is not None:
+            self.run['final'] = ('failed', code)
+        else:
+            self.error, self.state, self.state_t0 = code, 'error', self.time_s
+            self._event('error', code, f'{code}：{MANUAL_FAULTS[code][0]}（评测者注入）')
+
+    def _cmd_fault_inject(self, code):
+        self._need_plant()
+        if code == 'E30':
+            self.last_scanned = None                                          # the read just failed: scan again
+        else:
+            if len(self.faults) >= 16 and code not in self.faults:
+                raise ActionRejected('INVALID_ARGUMENT')
+            self.faults.add(code)
+        if self.power and self.state not in ('off', 'booting', 'shutdown'):
+            self._show_fault(code)
+        return dict(faults=sorted(self.faults))
+
+    def _cmd_fault_clear(self):
+        self._need_plant()
+        self.faults.clear()
+        self._event('fault', 'FAULT_CLEAR', '评测者撤销注入的错误原因（维修）')
+        return dict(faults=[])
+
     def _cmd_power_set(self, enabled):
         self._need_plant()
         if enabled and not self.power:
             self.power = True
+            self.power_epoch += 1
             self.state, self.state_t0 = 'booting', self.time_s
             self.test_len_s = SYSTEM_TEST_S
             self.power_on_s = self.time_s
@@ -830,8 +996,10 @@ class IkaC6000Runtime:
         if self.error is None:
             raise ActionRejected('NO_ERROR')
         code = self.error
+        if code in MANUAL_FAULTS and MANUAL_FAULTS[code][1] == 'power':
+            raise ActionRejected('SWITCH_OFF_REQUIRED')                       # manual p.36-37: switch the device off and on
         self.error = None
-        if code in ('SYSTEM_TEST_RED', 'E31', 'E32'):
+        if code in ('SYSTEM_TEST_RED', 'E31', 'E32') or (code in MANUAL_FAULTS and MANUAL_FAULTS[code][1] == 'test'):
             self.state, self.state_t0 = 'system_test', self.time_s             # "Restart": the system test runs again
             self.test_len_s = SYSTEM_TEST_S
             self._event('system', 'SYSTEM_TEST_RESTART', '确认后重新自检')
@@ -1089,7 +1257,8 @@ class IkaC6000Runtime:
                                  mode=None, error_code=None, created_s=self.time_s, started_s=None, finished_s=None, delta_t_k=None, ignition_energy_j=None,
                                  q_ext_j=None, c_value_j_k=None, gross_calorific_value_j_kg=None, reference_value_j_kg=None, fore_drift_k_s=None,
                                  after_drift_k_s=None, ignition_time_s=None, main_end_time_s=None, quality_flags=[], points=[], saved=False, ignited=False,
-                                 vessel_rfid_truth=None, delta_t_cal=None)
+                                 vessel_rfid_truth=None, delta_t_cal=None, user=self.current_user)
+        self.last_input = dict(vessel_name=vessel_name, aids=copy.deepcopy(aids), user=self.current_user)
         return dict(measurement_id=mid)
 
     def _record(self, mid):
@@ -1123,6 +1292,7 @@ class IkaC6000Runtime:
                         stable_since=None, t_main_end=None, fill_check_t=None, e_ign=None)
         self.state = 'measuring'
         self._event('measurement', 'START', f'测量{measurement_id}已启动：请扫描并挂入氧弹后确认', mid=measurement_id)
+        self._fault_found('start')
         return dict(operation_id=op['operation_id'])
 
     def _cmd_measurement_confirm(self):
@@ -1240,14 +1410,19 @@ class IkaC6000Runtime:
                     if measurement_id in r['calibrations'][md] and not r['manual'][md]:
                         r['c'][md] = sum(self.records[x]['c_value_j_k'] for x in r['calibrations'][md]) / len(r['calibrations'][md])
                         self._event('data', 'C_VALUE_UPDATED', f'{name}（{md}）的C值按酸校正后的标定更新为{r["c"][md]:.1f}J/K', mid=measurement_id)
-            return dict(measurement_id=measurement_id, kind='calibration', standard='DIN 51900', gross_uncorrected_j_kg=None, nitric_acid_j=q_n, sulfuric_acid_j=q_s,
-                        gross_calorific_value_j_kg=None, net_calorific_value_j_kg=None, c_value_uncorrected_j_k=rec['c_value_raw_j_k'], c_value_j_k=c)
+            out = dict(measurement_id=measurement_id, kind='calibration', standard=self.prefs['report'], gross_uncorrected_j_kg=None, nitric_acid_j=q_n,
+                       sulfuric_acid_j=q_s, gross_calorific_value_j_kg=None, net_calorific_value_j_kg=None, c_value_uncorrected_j_k=rec['c_value_raw_j_k'], c_value_j_k=c)
+            self.last_evaluation = dict(out)
+            return out
         ho = rec['gross_calorific_value_j_kg'] - (q_n + q_s) / m
         hu = None
         if hydrogen_mass_fraction is not None:
             hu = ho - h_vap_water_j_kg() * (water_per_hydrogen() * hydrogen_mass_fraction + moisture_mass_fraction)
-        return dict(measurement_id=measurement_id, kind='measurement', standard='DIN 51900', gross_uncorrected_j_kg=rec['gross_calorific_value_j_kg'], nitric_acid_j=q_n,
-                    sulfuric_acid_j=q_s, gross_calorific_value_j_kg=ho, net_calorific_value_j_kg=hu, c_value_uncorrected_j_k=None, c_value_j_k=rec['c_value_j_k'])
+        out = dict(measurement_id=measurement_id, kind='measurement', standard=self.prefs['report'], gross_uncorrected_j_kg=rec['gross_calorific_value_j_kg'],
+                   nitric_acid_j=q_n, sulfuric_acid_j=q_s, gross_calorific_value_j_kg=ho, net_calorific_value_j_kg=hu, c_value_uncorrected_j_k=None,
+                   c_value_j_k=rec['c_value_j_k'])
+        self.last_evaluation = dict(out)
+        return out
 
     def _cmd_measurement_simulate(self, measurement_id, delta_t_k, ignition_energy_j, c_value_j_k, reference_value_j_kg):
         """Manual 11.5.3: the record's own values are the defaults; a calibration keeps its stored acid correction."""
@@ -1257,15 +1432,19 @@ class IkaC6000Runtime:
         if rec['kind'] == 'calibration':
             ref = reference_value_j_kg if reference_value_j_kg is not None else (rec['reference_value_j_kg'] if rec['reference_value_j_kg'] is not None
                                                                                   else self.settings['reference_value_j_kg'])
-            return dict(measurement_id=measurement_id, kind='calibration', gross_calorific_value_j_kg=None,
-                        c_value_j_k=(ref * m + q_ext + (rec['acid_correction_j'] or 0.0)) / delta_t_k)
+            out = dict(measurement_id=measurement_id, kind='calibration', gross_calorific_value_j_kg=None,
+                       c_value_j_k=(ref * m + q_ext + (rec['acid_correction_j'] or 0.0)) / delta_t_k)
+            self.last_simulation = dict(out, delta_t_k=delta_t_k, ignition_energy_j=ignition_energy_j)
+            return out
         c = c_value_j_k if c_value_j_k is not None else rec['c_value_j_k']
         if c is None:
             vn, md = rec['vessel_name'], rec['mode'] or self.mode
             c = self.registry[vn]['c'][md] if vn in self.registry else None
         if c is None:
             raise ActionRejected('C_VALUE_REQUIRED')
-        return dict(measurement_id=measurement_id, kind='measurement', gross_calorific_value_j_kg=(c * delta_t_k - q_ext) / m, c_value_j_k=c)
+        out = dict(measurement_id=measurement_id, kind='measurement', gross_calorific_value_j_kg=(c * delta_t_k - q_ext) / m, c_value_j_k=c)
+        self.last_simulation = dict(out, delta_t_k=delta_t_k, ignition_energy_j=ignition_energy_j)
+        return out
 
     def _cmd_measurement_delete(self, measurement_ids):
         """Measurement menu "Delete": not the running record and not a calibration a C-value is based on (manual 11.5.2 / menu tree)."""
@@ -1338,6 +1517,399 @@ class IkaC6000Runtime:
     def _cmd_sim_step(self, dt_s):
         self.step(dt_s)
         return dict(time_s=self.time_s)
+
+    # ---------------------------------------------------------------- touch-screen functions (operating instructions chapter 10-11)
+    def _iso(self):
+        return self._iso_at(self.time_s)
+
+    def _iso_at(self, t_s):
+        import datetime
+        return datetime.datetime.fromtimestamp(self.clock_offset + t_s, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
+    def _list_entry(self, r):
+        return {k: r.get(k) for k in ('measurement_id', 'name', 'kind', 'status', 'mode', 'vessel_name', 'sample_mass_kg', 'user', 'created_s', 'finished_s',
+                                      'delta_t_k', 'c_value_j_k', 'gross_calorific_value_j_kg', 'error_code', 'saved', 'ignited')}
+
+    def _entered_aids(self, aids):
+        out = []
+        for a in aids:
+            d = self._aid_def(a['aid_name'])
+            if (d['energy_kind'] == 'specific') != (a['mass_kg'] is not None):
+                raise ActionRejected('AID_MASS_MISMATCH')
+            out.append(dict(aid_name=a['aid_name'], energy_kind=d['energy_kind'], value=d['value'], mass_kg=a['mass_kg'],
+                            energy_j=d['value'] if d['energy_kind'] == 'absolute' else d['value'] * a['mass_kg']))
+        if sum(e['energy_j'] for e in out) > MAX_ENERGY_J:
+            raise ActionRejected('INVALID_ARGUMENT')
+        return out
+
+    def _need_user(self, name):
+        if name is not None and not any(u['name'] == name for u in self.users):
+            raise ActionRejected('UNKNOWN_USER')
+
+    def _cmd_measurement_cancel(self):
+        self._need_power()
+        if self.run is None:
+            raise ActionRejected('NOT_RUNNING')
+        mid, after = self.run['mid'], self.run['ignited']
+        self._cancel_run(self.run['op'])
+        return dict(measurement_id=mid, cancelled_after_ignition=after)
+
+    def _cmd_measurement_modify(self, measurement_id, name, sample_mass_kg, vessel_name, aids, user):
+        self._need_power()
+        rec = self._record(measurement_id)
+        if self.run is not None and self.run['mid'] == measurement_id:
+            raise ActionRejected('MEASUREMENT_RUNNING')
+        if rec['ignited'] or rec['status'] not in ('created', 'cancelled_before_ignition', 'failed'):
+            raise ActionRejected('NOT_MODIFIABLE')
+        if vessel_name is None and not self.settings['auto_vessel_detection']:
+            raise ActionRejected('VESSEL_REQUIRED')
+        if vessel_name is not None:
+            self._registered(vessel_name)
+        self._need_user(user)
+        entered = self._entered_aids(aids)
+        rec.update(name=name, sample_mass_kg=sample_mass_kg, vessel_name=vessel_name, vessel_requested=vessel_name, aids=entered, user=user, saved=False)
+        return dict(measurement_id=measurement_id)
+
+    def _cmd_measurement_convert(self, measurement_id):
+        self._need_power()
+        rec = self._record(measurement_id)
+        if self.run is not None and self.run['mid'] == measurement_id:
+            raise ActionRejected('MEASUREMENT_RUNNING')
+        if any(measurement_id in r['calibrations'][md] for r in self.registry.values() for md in MODES):
+            raise ActionRejected('RECORD_IN_USE')                           # manual 11.5.2: a calibration used for a C-value cannot be converted
+        new = 'calibration' if rec['kind'] == 'measurement' else 'measurement'
+        if rec['status'] == 'completed' and rec['delta_t_k']:
+            dt, m, q = rec['delta_t_k'], rec['sample_mass_kg'], rec['q_ext_j'] or 0.0
+            if new == 'calibration':
+                ref = self.settings['reference_value_j_kg']
+                c = (ref * m + q) / dt
+                rec.update(kind=new, reference_value_j_kg=ref, c_value_raw_j_k=c, c_value_j_k=c, acid_correction_j=None, gross_calorific_value_j_kg=None)
+            else:
+                c = self.registry[rec['vessel_name']]['c'].get(rec['mode']) if rec['vessel_name'] in self.registry else None
+                if c is None:
+                    raise ActionRejected('C_VALUE_REQUIRED')
+                rec.update(kind=new, reference_value_j_kg=None, c_value_raw_j_k=None, c_value_j_k=c, acid_correction_j=None, gross_calorific_value_j_kg=(c * dt - q) / m)
+        else:
+            rec['kind'] = new
+        rec['saved'] = False
+        return dict(measurement_id=measurement_id, kind=new)
+
+    def _cmd_vessel_modify(self, vessel_name, name, serial_number, previous_ignitions, platinum_wire):
+        self._need_ready()
+        r = self._registered(vessel_name)
+        if name != vessel_name and name in self.registry:
+            raise ActionRejected('VESSEL_ALREADY_REGISTERED')
+        if not serial_number.isalnum():
+            raise ActionRejected('INVALID_ARGUMENT')
+        r.update(serial_number=serial_number, previous_ignitions=int(previous_ignitions), platinum_wire=platinum_wire)
+        if name != vessel_name:
+            self.registry = {(name if k == vessel_name else k): v for k, v in self.registry.items()}
+            for rec in self.records.values():
+                for key in ('vessel_name', 'vessel_requested'):
+                    if rec[key] == vessel_name:
+                        rec[key] = name
+            if self.last_input and self.last_input['vessel_name'] == vessel_name:
+                self.last_input['vessel_name'] = name
+        return dict(vessel_name=name)
+
+    def _cmd_vessel_delete(self, vessel_name):
+        self._need_ready()
+        self._registered(vessel_name)
+        del self.registry[vessel_name]
+        for rec in self.records.values():                                  # created measurements of this vessel fall back to automatic detection
+            if rec['status'] == 'created' and rec['vessel_requested'] == vessel_name:
+                rec['vessel_requested'] = rec['vessel_name'] = None
+        if self.last_input and self.last_input['vessel_name'] == vessel_name:
+            self.last_input['vessel_name'] = None
+        self._event('vessel', 'DELETED', f'氧弹登记{vessel_name}已删除')
+        return dict(deleted=True)
+
+    def _cmd_aid_delete(self, name):
+        self._need_power()
+        d = self._aid_def(name)
+        if d.get('fixed'):
+            raise ActionRejected('AID_FIXED')
+        for lst in self.aid_lists.values():
+            lst.pop(name, None)
+        return dict(configured=True)
+
+    def _cmd_user_save(self, name, abbreviation, replace):
+        self._need_power()
+        if replace is not None and not any(u['name'] == replace for u in self.users):
+            raise ActionRejected('UNKNOWN_USER')
+        if name != replace and any(u['name'] == name for u in self.users):
+            raise ActionRejected('USER_EXISTS')
+        if replace is None and len(self.users) >= MAX_USERS:
+            raise ActionRejected('TOO_MANY_USERS')
+        rec = dict(name=name, abbreviation=abbreviation)
+        if replace is None:
+            self.users.append(rec)
+        else:
+            self.users = [rec if u['name'] == replace else u for u in self.users]
+            if self.current_user == replace:
+                self.current_user = name
+        return dict(name=name)
+
+    def _cmd_user_delete(self, name):
+        self._need_power()
+        self._need_user(name)
+        self.users = [u for u in self.users if u['name'] != name]
+        if self.current_user == name:
+            self.current_user = None
+        return dict(deleted=True)
+
+    def _cmd_user_select(self, name):
+        self._need_power()
+        self._need_user(name)
+        self.current_user = name
+        return dict(name=name)
+
+    def _cmd_preferences_configure(self, **a):
+        self._need_power()
+        if self.run is not None and a['decomposition'] != self.prefs['decomposition']:
+            raise ActionRejected('MEASUREMENT_RUNNING')
+        self.prefs = dict(a)
+        return dict(configured=True)
+
+    def _cmd_clock_set(self, date, time):
+        import datetime
+        self._need_power()
+        try:
+            t = datetime.datetime.strptime(date + 'T' + time, '%Y-%m-%dT%H:%M').replace(tzinfo=datetime.timezone.utc).timestamp()
+        except ValueError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        self.clock_offset = t - self.time_s
+        return dict(datetime=self._iso())
+
+    def _cmd_modules_configure(self, **a):
+        self._need_power()
+        if self.run is not None:
+            raise ActionRejected('MEASUREMENT_RUNNING')
+        self.modules = dict(a)
+        return dict(configured=True)
+
+    def _cmd_system_test_restart(self):
+        self._need_ready()
+        self.state, self.state_t0, self.test_len_s = 'system_test', self.time_s, SYSTEM_TEST_S
+        self.test_result = None
+        self._event('system', 'SYSTEM_TEST_RESTART', '功能栏：重新自检')
+        return dict(state=self.state)
+
+    def _cmd_system_test_skip(self):
+        self._need_power()
+        if self.state != 'system_test' or self.readings is None:
+            raise ActionRejected('NOT_IN_SYSTEM_TEST')
+        self._system_test_result()
+        self._event('system', 'SYSTEM_TEST_SKIPPED', '功能栏：跳过自检等待，按当前读数给出结果')
+        return dict(test_result=self.test_result)
+
+    def _cmd_system_factory_reset(self):
+        self._need_ready()
+        self.mode = 'isoperibol_22'
+        self.settings = dict(o2_flush=False, auto_vessel_detection=True, reference_value_j_kg=FACTORY_REFERENCE_J_KG)
+        self.aid_lists = {1: {'IKA cotton wool thread': dict(energy_kind='absolute', value=COTTON_THREAD_J, fixed=True)}, 2: {}, 3: {}}
+        self.users, self.current_user, self.last_input = [], None, None
+        self.prefs = dict(FACTORY_PREFERENCES)
+        self.modules = dict(balance=False, sample_rack=False, printer=False, tap_water=self.plant['cooling_source'] == 'tap_water')
+        self.state, self.state_t0, self.test_len_s, self.test_result = 'system_test', self.time_s, MODE_TEST_S, None   # the factory mode is tested
+        self._event('system', 'FACTORY_RESET', '恢复出厂设置（氧弹登记与测量记录保留）')
+        return dict(configured=True)
+
+    def _cmd_maintenance_o2_fill(self):
+        self._need_ready()
+        if self.seal_change:
+            raise ActionRejected('SEAL_CHANGE_ACTIVE')
+        if self.hung is None:
+            raise ActionRejected('NO_VESSEL_HUNG')
+        v = self.vessels[self.hung]
+        if v['state'] not in ('clean', 'prepared') or self._pressurized(v):
+            raise ActionRejected('VESSEL_NOT_READY')
+        self._fill_oxygen(v)
+        self._event('maintenance', 'O2_FILL', f'维护：氧弹{self.hung}手动充氧')
+        return dict(rfid=self.hung)
+
+    def _cmd_maintenance_change_seal(self, active):
+        self._need_ready()
+        if active and self.plant['oxygen_supply_pa'] <= P_ATM:
+            raise ActionRejected('NO_OXYGEN')                              # manual 11.7.1: only possible when oxygen is connected
+        self.seal_change = active
+        self._event('maintenance', 'CHANGE_SEAL', '维护：充氧活塞降到最低位（换密封圈）' if active else '维护：换密封圈结束')
+        return dict(active=active)
+
+    def _cmd_device_empty_for_transport(self):
+        self._need_ready()
+        self.water_target = 0.0
+        self.maint_stirrer = False
+        self._event('maintenance', 'EMPTY_DEVICE', '维护：排空水路（内筒排水）')
+        return dict(draining=True)
+
+    # ---------------------------------------------------------------- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    @property
+    def panel(self):
+        p = _PANELS.get(self)
+        if p is None:
+            p = _PANELS[self] = _panel_ui.PanelUI(PANEL_SPEC, self)
+        return p
+
+    def panel_read(self):
+        """What the touch screen shows: the agent slots plus power, power-up count, names, the run progress and curve, and display-ready rows of the
+        measurement, archive, vessel, calibration, aid, information and log lists (read-only views of the runtime state)."""
+        out = self.read('agent')
+        run = self.run
+        rec = self.records.get(run['mid']) if run else None
+        seq = ['awaiting_vessel', 'closing', 'filling', 'fill_check', 'o2_filling', 'equalising', 'pre_trial', 'main_trial', 'after_trial', 'degassing', 'draining',
+               'opening']
+        t0 = rec['started_s'] if rec and rec['started_s'] is not None else self.time_s
+        names = [r['name'] for r in self.records.values()]
+        last = next((n for n in reversed(names) if '_' in n and n.rsplit('_', 1)[-1].isdigit()), None)
+        stem, num = (last.rsplit('_', 1)[0], int(last.rsplit('_', 1)[1])) if last else ('Measurement', 0)
+        unit = self.prefs['unit']
+        fac = {'J/g': 1e-3, 'kJ/kg': 1e-3, 'cal/g': 1 / 4186.8, 'BTU/lb': 1 / 2326.0}[unit]
+        list_of = {}
+        for n, lst in self.aid_lists.items():
+            for name in lst:
+                list_of.setdefault(name, n)
+
+        def slots(aids):
+            out_ = {}
+            for a in aids:
+                n = list_of.get(a['aid_name'])
+                if n is not None and str(n) not in out_:
+                    out_[str(n)] = dict(name=a['aid_name'], mass_g=round(a['mass_kg'] * 1e3, 7) if a.get('mass_kg') is not None else None)
+            return out_
+
+        def value_text(r):
+            if r['kind'] == 'calibration' and r.get('c_value_j_k') is not None:
+                return f"{r['c_value_j_k']:.1f} J/K"
+            if r.get('gross_calorific_value_j_kg') is not None:
+                return f"{r['gross_calorific_value_j_kg'] * fac:.1f} {unit}"
+            return ''
+
+        def when(t_s):
+            return None if t_s is None else self._iso_at(t_s).replace('T', ' ')[:16]
+
+        def fmt(v, f, u=''):
+            return '' if v is None else (f.format(v) + u)
+
+        views, details, curves = {}, {}, {}
+        for m, r in self.records.items():
+            v = self._result(r)
+            v.update(user=r['user'], aid_slots=slots(r['aids']), aids=copy.deepcopy(r['aids']))
+            views[m] = v
+            details[m] = [dict(label=k, value=x) for k, x in (
+                ('Name', r['name']), ('Type', r['kind'].capitalize()), ('Status', r['status']), ('Working mode', r['mode'] or ''),
+                ('Vessel', r['vessel_name'] or 'automatic'), ('Sample weight', fmt(r['sample_mass_kg'] * 1e3, '{:.4f}', ' g')), ('User', r['user'] or ''),
+                ('External energy', fmt(sum(a['energy_j'] for a in r['aids']), '{:.1f}', ' J')), ('Delta T', fmt(r['delta_t_k'], '{:.4f}', ' K')),
+                ('Ignition energy', fmt(r['ignition_energy_j'], '{:.1f}', ' J')), ('C-value', fmt(r['c_value_j_k'], '{:.1f}', ' J/K')),
+                ('Ho', fmt(r['gross_calorific_value_j_kg'] * fac if r['gross_calorific_value_j_kg'] is not None else None, '{:.1f}', ' ' + unit)),
+                ('Acid correction', fmt(r['acid_correction_j'], '{:.1f}', ' J')), ('Fore drift', fmt(r['fore_drift_k_s'], '{:.2e}', ' K/s')),
+                ('After drift', fmt(r['after_drift_k_s'], '{:.2e}', ' K/s')), ('Started', when(r['started_s']) or ''), ('Finished', when(r['finished_s']) or ''),
+                ('Error', r['error_code'] or ''), ('Flags', ', '.join(r['quality_flags'])))]
+            pts = [[p['time_s'] - (r['started_s'] or 0.0), p['t1_k'] - 273.15] for p in r['points']]
+            curves[m] = dict(points=pts, span=max(600.0, pts[-1][0] - pts[0][0]) if pts else None,
+                             y_min=round(min(p[1] for p in pts) - 0.2, 1) if pts else None)
+        done = [r for r in self.records.values() if r['status'] in ('completed', 'failed', 'cancelled_after_ignition')]
+        row = lambda r: dict(measurement_id=r['measurement_id'], name=r['name'], kind=r['kind'], status=r['status'], value_text=value_text(r),   # noqa: E731
+                             finished_s=r['finished_s'] if r['finished_s'] is not None else r['created_s'], date=when(r['finished_s']) or '')
+        archive = sorted(done, key=lambda r: -(r['finished_s'] or 0.0))
+        vessel_rows, cal_rows, cal_sel, stat_rows = [], {}, {}, {}
+        for n, r in self.registry.items():
+            c = r['c'].get(self.mode)
+            vessel_rows.append(dict(name=n, serial_number=r['serial_number'], ignitions=r['previous_ignitions'] + r['ignitions'],
+                                    previous_ignitions=r['previous_ignitions'], platinum_wire=r['platinum_wire'], rfid=r['rfid'],
+                                    c_text=f'{c:.1f} J/K' if c is not None else '-'))
+            cal_rows[n] = [dict(id=m, text=f"{x['name']}  {x['c_value_j_k']:.1f} J/K") for m, x in self.records.items()
+                           if x['kind'] == 'calibration' and x['status'] == 'completed' and x['c_value_j_k'] is not None and x['vessel_name'] == n
+                           and x['mode'] == self.mode]
+            cal_sel[n] = list(r['calibrations'][self.mode])
+            sts = self._stats(n, self.mode)
+            stat_rows[n] = [dict(label=k, value=x) for k, x in (
+                ('C-value', fmt(sts['c_value_j_k'], '{:.1f}', ' J/K') + (' (manual)' if r['manual'][self.mode] else '')), ('Calibrations', str(sts['n'])),
+                ('Average', fmt(sts['mean_j_k'], '{:.1f}', ' J/K')), ('Maximum', fmt(sts['max_j_k'], '{:.1f}', ' J/K')),
+                ('Minimum', fmt(sts['min_j_k'], '{:.1f}', ' J/K')), ('Range', fmt(sts['range_j_k'], '{:.1f}', ' J/K')),
+                ('RSD', fmt(sts['rsd'] * 100 if sts['rsd'] is not None else None, '{:.3f}', ' %')), ('Sigma', fmt(sts['sigma_j_k'], '{:.2f}', ' J/K')),
+                ('UWL / LWL', '' if sts['uwl_j_k'] is None else f"{sts['uwl_j_k']:.1f} / {sts['lwl_j_k']:.1f}"),
+                ('UCL / LCL', '' if sts['ucl_j_k'] is None else f"{sts['ucl_j_k']:.1f} / {sts['lcl_j_k']:.1f}"))]
+        aid_rows = {str(n): [dict(name=k, energy_kind=d['energy_kind'], value=d['value'],
+                                  entry_value=d['value'] * 1e-3 if d['energy_kind'] == 'specific' else d['value'],
+                                  energy_text=f"{d['value'] * 1e-3:.1f} J/g" if d['energy_kind'] == 'specific' else f"{d['value']:.1f} J") for k, d in lst.items()]
+                    for n, lst in self.aid_lists.items()}
+        aid_rows['0'] = [x for n in sorted(self.aid_lists) for x in aid_rows[str(n)]]
+        m_ = self.readings if self.power else None
+        info = [('Device', 'C 6000 isoperibol'), ('Software version', 'simulated 1.0'), ('Working mode', self.mode),
+                ('Available modes', ', '.join(out['mode.available']) or '-'), ('System test', self.test_result or '-'),
+                ('T1 inner vessel', fmt(m_['t1'] - 273.15 if m_ else None, '{:.4f}', ' C')), ('T2 outer vessel', fmt(m_['t2'] - 273.15 if m_ else None, '{:.4f}', ' C')),
+                ('T5 cooling water', fmt(m_['t5'] - 273.15 if m_ else None, '{:.2f}', ' C')), ('T6 ambient', fmt(m_['t6'] - 273.15 if m_ else None, '{:.2f}', ' C')),
+                ('Since power-on', fmt((self.time_s - self.power_on_s) / 60.0 if self.power_on_s is not None else None, '{:.0f}', ' min')),
+                ('Registered vessels', str(len(self.registry))), ('Stored measurements', f'{len(self.records)} / {MAX_RECORDS}')]
+        last_aids = {}
+        if self.last_input:
+            last_aids = slots(self.last_input['aids'])
+        out.update({
+            'host.powered': self.power, 'host.power_epoch': self.power_epoch,
+            'host.date_name': self._iso().replace('-', '').replace(':', '').replace('T', '')[2:], 'host.next_auto_name': f'{stem}_{num + 1}',
+            'host.last_input': dict(vessel_name=self.last_input['vessel_name'], user=self.last_input['user'], aids=last_aids) if self.last_input else None,
+            'host.progress': (seq.index(run['phase']) + 1) / len(seq) if run and run['phase'] in seq else None,
+            'host.run_points': [[t - t0, T - 273.15] for t, T in (run['raw'] if run else [])][-MAX_POINTS:],
+            'host.run_span': (run['raw'][-1][0] - t0) if run and run['raw'] else 0.0,
+            'host.run_y_min': round(min(T for _, T in run['raw']) - 273.15 - 0.2, 1) if run and run['raw'] else None,
+            'host.meas_rows': [row(r) for r in self.records.values()], 'host.archive_rows': [row(r) for r in archive],
+            'host.archive_by_name': [row(r) for r in sorted(done, key=lambda r: r['name'].lower())],
+            'host.records': views, 'host.detail_rows': details, 'host.record_curves': curves, 'host.vessel_rows': vessel_rows, 'host.cal_rows': cal_rows,
+            'host.cal_selected': cal_sel, 'host.stat_rows': stat_rows, 'host.aid_rows': aid_rows, 'host.info_rows': [dict(label=k, value=v) for k, v in info],
+            'host.log_rows': [dict(n=i, time=when(e['time_s']), code=f"{e['kind']} {e['code']}") for i, e in enumerate(self.events)][::-1][:100],
+            'host.last_id': next(reversed(self.records), None)})
+        return out
+
+    def panel_invoke(self, capability_id, arguments):
+        """A panel action calls the same command a direct call would (each command checks before it changes anything).  A key pressed through a
+        session acts as that session's caller: the session's ownership guards apply and the records and runs it creates belong to the caller."""
+        try:
+            if capability_id in UNSUPPORTED:
+                raise ActionRejected('UNSUPPORTED')
+            caller = self._caller
+            if caller is not None:
+                IkaC6000Session(self, caller)._guard(capability_id, arguments)
+            out = self.invoke(capability_id, **arguments)
+            if caller is not None:
+                if capability_id in ASYNC and out.get('operation_id'):
+                    self._owners[out['operation_id']] = caller
+                if capability_id == 'measurement.create':
+                    self._owners[out['measurement_id']] = caller
+            return out
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.time_s
+
+    def _panel_command(self, capability_id, a):
+        if _panel_ui.check_arguments(PANEL_CAPS[capability_id]['input_schema'], a):      # optional keys (duration_s, to_x / to_y)
+            raise ActionRejected('INVALID_ARGUMENT')
+        try:
+            if capability_id == 'panel.press':
+                return dict(accepted=bool(self.panel.press(a['input_id'], float(a.get('duration_s', 0.1)))))
+            if capability_id == 'panel.touch':
+                to = (a['to_x'], a['to_y']) if 'to_x' in a and 'to_y' in a else None
+                return dict(accepted=bool(self.panel.touch(a['display_id'], a['x'], a['y'], float(a.get('duration_s', 0.1)), to)))
+            if capability_id == 'panel.capture':
+                return self._panel_capture(a['display_id'])
+            return dict(frame=self.panel.frame())
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _panel_capture(self, display_id):
+        """Close-up camera of a display: a PNG file named by its content (large data is returned as a file reference)."""
+        import hashlib
+        import tempfile
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.time_s, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
 
     # ---------------------------------------------------------------- combustion chemistry
     def _fill_oxygen(self, v):
@@ -1568,6 +2140,7 @@ class IkaC6000Runtime:
             self.state, self.state_t0 = 'system_test', t
             self.lift_target = LIFT_TRAVEL_M                                     # manual 10.1: the cover opens automatically
             self._event('system', 'SYSTEM_TEST', '自检开始（冷却水温度、流量、温度）')
+            self._fault_found('boot')
         elif self.state == 'system_test' and t - self.state_t0 >= self.test_len_s - 1e-9:
             self._system_test_result()
         if self.run is not None:
@@ -1576,6 +2149,10 @@ class IkaC6000Runtime:
         self.immersed = self._immersed()
 
     def _system_test_result(self):
+        if self._fault_found('test'):
+            self.test_result = 'red'
+            self.state_t0 = self.time_s
+            return
         r = self.readings
         if self.plant['cooling_flow_m3_s'] < COOLING_FLOW_MIN_M3_S or self.plant['cooling_pressure_pa'] < 0.3e5:
             self.error, self.state = ('E32' if self.plant['cooling_flow_m3_s'] < COOLING_FLOW_MIN_M3_S else 'E31'), 'error'
@@ -1587,6 +2164,9 @@ class IkaC6000Runtime:
         elif self.mode not in self._available_modes(r['t5']):
             self.test_result, self.state = 'yellow', 'wait'
             self._event('system', 'SYSTEM_TEST_YELLOW', '自检黄色：当前工作模式与冷却水温度不符，须更改模式')
+        elif self.modules['tap_water'] != (self.plant['cooling_source'] == 'tap_water'):
+            self.test_result, self.state = 'yellow', 'wait'
+            self._event('system', 'SYSTEM_TEST_YELLOW', '自检黄色：模块Tap water设置与冷却水供给不符（手册11.3），须更改')
         else:
             self.test_result, self.state = 'green', 'wait'
             self._event('system', 'SYSTEM_TEST_GREEN', '自检通过，等待')
@@ -1693,7 +2273,7 @@ class IkaC6000Runtime:
                     self._fail_run('EVALUATION_FAILED', '前后期数据不足，无法计算结果')
         elif ph == 'degassing':
             if el >= (DEGAS_S if run['o2_filled'] else 0.0) - 1e-9:
-                if run['o2_filled'] and run.get('vessel_rfid'):
+                if run['o2_filled'] and run.get('vessel_rfid') and not self.prefs['decomposition']:   # Decomposition on: vented by hand
                     self._degas(self.vessels[run['vessel_rfid']])
                 self._set_phase('draining')
         elif ph == 'draining':
@@ -1886,10 +2466,18 @@ def _solve3(A, b):
 
 
 # ---------------------------------------------------------------- host session: identity filter, request binding, ownership
-_CONTROL_GUARDED = {'measurement.start', 'measurement.confirm', 'cover.open', 'cover.close', 'maintenance.run', 'mode.set', 'settings.configure', 'system.shutdown',
-                    'error.acknowledge', 'vessel.hang', 'vessel.remove', 'vessel.scan', 'power.set', 'power.toggle', 'aid.define', 'vessel.register',
-                    'vessel.set_c_value', 'vessel.select_calibrations'}
-_DATA_GUARDED = {'measurement.result', 'measurement.evaluate', 'measurement.simulate', 'measurement.start', 'measurement.delete'}
+# hanging / removing / scanning the vessel (robot skills) and the mains rocker switch (power.set / power.toggle) are physical: never refused (the device
+# reacts by its own rules; switching off is a power loss); the menu Shutdown (soft) stays guarded
+# during another agent's measurement only commands that stop or change that measurement (cancel, confirm, cover, mode, measurement settings, external
+# energies, the vessel's C-value and record, maintenance programs on the same circuits, system test, reset) or the soft Shutdown are refused
+# (ACCESS_DENIED); the others (start another measurement, register a vessel, acknowledge, preferences) follow the device's own rules
+_CONTROL_GUARDED = {'measurement.confirm', 'cover.open', 'cover.close', 'maintenance.run', 'mode.set', 'settings.configure', 'system.shutdown',
+                    'aid.define',
+                    'vessel.set_c_value', 'vessel.select_calibrations', 'measurement.cancel', 'vessel.modify', 'vessel.delete', 'system.test_restart',
+                    'system.factory_reset', 'maintenance.o2_fill', 'maintenance.change_seal', 'device.empty_for_transport',
+                    'modules.configure'}
+_DATA_GUARDED = {'measurement.result', 'measurement.evaluate', 'measurement.simulate', 'measurement.start', 'measurement.delete', 'measurement.modify',
+                 'measurement.convert'}
 
 
 class IkaC6000Session:
@@ -1924,7 +2512,7 @@ class IkaC6000Session:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -1944,6 +2532,11 @@ class IkaC6000Session:
         if self._role == 'agent' and self._foreign(h.last_result.get('mid')):     # another agent's result stays with that agent
             for k in ('result.delta_t_k', 'result.gross_calorific_value_j_kg', 'result.c_value_j_k'):
                 values[k] = None
+        if self._role == 'agent':                                              # records of another agent stay with that agent
+            values['measurements.list'] = [r for r in values['measurements.list'] if not self._foreign(r['measurement_id'])]
+            for k in ('simulation.last', 'evaluation.last'):
+                if values[k] and self._foreign(values[k]['measurement_id']):
+                    values[k] = None
         ids = list(values) if state_ids is None else state_ids
         if not isinstance(ids, list) or any(not isinstance(k, str) for k in ids):
             raise ActionRejected('INVALID_ARGUMENT')
@@ -1992,15 +2585,23 @@ class IkaC6000Session:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            if not isinstance(capability_id, str) or (capability_id not in CAPS and capability_id not in PANEL_CAPS):
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            table = PANEL_CAPS if capability_id in PANEL_CAPS else CAPS
+            if self._role == 'agent' and table[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            if table is CAPS:
+                validate(table[capability_id]['input_schema'], arguments)
+            elif _panel_ui.check_arguments(table[capability_id]['input_schema'], arguments):
+                raise ActionRejected('INVALID_ARGUMENT')
             self._guard(capability_id, arguments)
-            result = h.invoke(capability_id, **arguments)
+            h._caller = self._principal
+            try:
+                result = h.invoke(capability_id, **arguments)
+            finally:
+                h._caller = None
             if capability_id == 'archive.list' and self._role == 'agent':
                 result = dict(measurements=[m for m in result['measurements'] if not self._foreign(m['measurement_id'])])
             if capability_id == 'events.read' and self._role == 'agent':   # another agent's measurement events stay with that agent
@@ -2083,6 +2684,7 @@ EFFECTS = {
     'vessel.provide': ['truth.vessels'],
     'power.set': _POWER_EFFECTS, 'power.toggle': _POWER_EFFECTS, 'system.shutdown': ['system.state', 'stirrer.running'],
     'error.acknowledge': ['system.error_code', 'system.state'],
+    'fault.inject': ['truth.faults', 'system.error_code', 'system.state', 'measurement.phase'], 'fault.clear': ['truth.faults'],
     'mode.set': ['mode.working', 'system.state', 'system.test_result'], 'settings.configure': ['settings.o2_flush', 'settings.auto_vessel_detection', 'settings.reference_value_j_kg'],
     'aid.define': [], 'vessel.scan': ['vessel.last_scanned_rfid'], 'vessel.register': ['vessels.registered'], 'vessel.prepare': ['truth.vessels'],
     'vessel.hang': _HUNG_EFFECTS, 'vessel.remove': _HUNG_EFFECTS, 'vessel.inspect': ['truth.vessels'],
@@ -2091,17 +2693,35 @@ EFFECTS = {
     'measurement.confirm': ['measurement.phase'], 'measurement.result': [], 'measurement.evaluate': ['vessels.registered'], 'measurement.simulate': [],
     'measurement.delete': [], 'archive.list': [], 'events.read': [], 'cover.open': [], 'cover.close': [],
     'maintenance.run': ['stirrer.running', 'truth.vessel_pressure_pa', 'truth.vessels'], 'ledger.read': [], 'provenance.read': [], 'sim.step': ['clock.time_s'],
+    'measurement.cancel': ['measurement.phase', 'measurements.list'], 'measurement.modify': ['measurements.list'], 'measurement.convert': ['measurements.list'],
+    'vessel.modify': ['vessels.registered', 'measurements.list'], 'vessel.delete': ['vessels.registered', 'measurements.list'], 'aid.delete': ['aids.lists'],
+    'user.save': ['users.list', 'users.current'], 'user.delete': ['users.list', 'users.current'], 'user.select': ['users.current'], 'preferences.configure': ['preferences'],
+    'clock.set': ['device.datetime'], 'modules.configure': ['modules.state'], 'system.test_restart': ['system.state', 'system.test_result'],
+    'system.test_skip': ['system.state', 'system.test_result', 'system.error_code'],
+    'system.factory_reset': ['mode.working', 'settings.o2_flush', 'settings.auto_vessel_detection', 'settings.reference_value_j_kg', 'aids.lists', 'users.list',
+                             'users.current', 'preferences', 'modules.state', 'system.state', 'system.test_result'],
+    'maintenance.o2_fill': ['truth.vessel_pressure_pa', 'truth.vessels'], 'maintenance.change_seal': ['maintenance.seal_change'],
+    'device.empty_for_transport': ['stirrer.running', 'truth.water_kg'],
 }
+EFFECTS['aid.define'] = ['aids.lists']
+EFFECTS['measurement.create'] = ['measurements.list']
+EFFECTS['measurement.delete'] = ['measurements.list']
+EFFECTS['measurement.simulate'] = ['simulation.last']
+EFFECTS['measurement.evaluate'] = ['vessels.registered', 'evaluation.last', 'measurements.list']
+EFFECTS['plant.configure'] = EFFECTS['plant.configure'] + ['modules.state']                 # the Tap water module follows the declared cooling source
+for _k in ('measurement.start', 'measurement.confirm', 'system.shutdown', 'power.set', 'power.toggle'):
+    EFFECTS[_k] = EFFECTS[_k] + ['measurements.list']                                     # the record's status / vessel / saved flag in the list
 for _k, _v in EFFECTS.items():
     CAPS[_k]['effects'] = list(_v)
 _TIMED = {'power.set', 'power.toggle', 'system.shutdown', 'error.acknowledge', 'mode.set', 'measurement.start', 'measurement.confirm', 'cover.open', 'cover.close',
-          'maintenance.run', 'sim.step'}
+          'maintenance.run', 'sim.step', 'measurement.cancel', 'system.test_restart', 'system.factory_reset', 'device.empty_for_transport'}
 PRECONDITIONS = {
     'plant.configure': ('冷却水压力≤1.5bar（数据表）；重新声明时随机数种子保持首次值', []),
     'vessel.provide': ('已声明实验室条件；RFID不重复（实验台最多8个实体氧弹）', ['plant.configured']),
     'power.set': ('已声明实验室条件', ['plant.configured']), 'power.toggle': ('已声明实验室条件', ['plant.configured']),
     'system.shutdown': ('通电、处于等待状态（手册10.3）、无测量与待确认错误', ['power.enabled', 'system.state', 'measurement.id', 'system.error_code']),
-    'error.acknowledge': ('通电且有待确认的错误', ['power.enabled', 'system.error_code']),
+    'error.acknowledge': ('通电且有待确认的错误；E02/E14/E15须关机再开机（SWITCH_OFF_REQUIRED）', ['power.enabled', 'system.error_code']),
+    'fault.inject': ('评测者；已声明实验室条件；同时最多16个原因', ['plant.configured', 'truth.faults']), 'fault.clear': ('评测者；已声明实验室条件', ['plant.configured']),
     'mode.set': ('通电、自检完成、无测量与待确认错误；模式须与冷却水温度相符（手册5.3表）；换模式后自检运行（期间NOT_READY）', ['power.enabled', 'system.state', 'system.error_code',
                                                                                                   'mode.available', 'cooling_water.indicated_k']),
     'settings.configure': ('通电、无测量进行', ['power.enabled', 'measurement.id']),
@@ -2135,6 +2755,23 @@ PRECONDITIONS = {
     'cover.close': ('通电、自检完成、无测量与待确认错误', ['power.enabled', 'system.state', 'measurement.id', 'system.error_code']),
     'maintenance.run': ('通电、自检完成、无测量与待确认错误；排气须有挂着的氧弹', ['power.enabled', 'system.state', 'measurement.id', 'vessel.hung_rfid']),
     'ledger.read': ('无', []), 'provenance.read': ('无', []), 'sim.step': ('无', []),
+    'measurement.cancel': ('通电；有测量进行且未进入排气、排水、开盖的结束程序', ['power.enabled', 'measurement.id', 'measurement.phase']),
+    'measurement.modify': ('通电；记录存在、未点火、未在进行；氧弹与辅料规则同新建测量；用户已登记', ['power.enabled', 'measurements.list', 'vessels.registered', 'users.list']),
+    'measurement.convert': ('通电；记录不在进行且未被C值使用；已完成的测量转标定按当前参考燃烧值重算，标定转测量须有该氧弹该模式C值', ['power.enabled', 'measurements.list', 'vessels.registered']),
+    'vessel.modify': ('通电、自检完成、无测量与待确认错误；氧弹已登记；新名称未被占用；序列号10位字母数字', ['power.enabled', 'system.state', 'vessels.registered']),
+    'vessel.delete': ('通电、自检完成、无测量与待确认错误；氧弹已登记', ['power.enabled', 'system.state', 'vessels.registered']),
+    'aid.delete': ('通电；辅料已登记且不是出厂棉线', ['power.enabled', 'aids.lists']),
+    'user.save': ('通电；名称唯一（改名时原名存在）；最多30个', ['power.enabled', 'users.list']), 'user.delete': ('通电；用户存在', ['power.enabled', 'users.list']),
+    'user.select': ('通电；用户存在或null', ['power.enabled', 'users.list']),
+    'preferences.configure': ('通电；测量进行中不能改Decomposition', ['power.enabled', 'measurement.id']), 'clock.set': ('通电；日期与时间有效', ['power.enabled']),
+    'modules.configure': ('通电、无测量进行', ['power.enabled', 'measurement.id']),
+    'system.test_restart': ('通电、自检完成、无测量与待确认错误', ['power.enabled', 'system.state', 'measurement.id', 'system.error_code']),
+    'system.test_skip': ('通电且自检进行中', ['power.enabled', 'system.state']),
+    'system.factory_reset': ('通电、自检完成、无测量与待确认错误', ['power.enabled', 'system.state', 'measurement.id', 'system.error_code']),
+    'maintenance.o2_fill': ('通电、自检完成、无测量与待确认错误；未在换密封圈；有挂着的清洁或已准备且未带压的氧弹', ['power.enabled', 'system.state', 'vessel.hung_rfid',
+                                                                                                  'maintenance.seal_change']),
+    'maintenance.change_seal': ('通电、自检完成、无测量与待确认错误；开始时须接氧气', ['power.enabled', 'system.state', 'measurement.id']),
+    'device.empty_for_transport': ('通电、自检完成、无测量与待确认错误', ['power.enabled', 'system.state', 'measurement.id']),
 }
 ERROR_ZH = {
     'INVALID_ARGUMENT': '参数不符合输入结构、类型或范围', 'ACCESS_DENIED': '该角色无权调用，或当前测量/记录属于另一个agent', 'REQUEST_CONFLICT': '同一request_id已用于不同的请求',
@@ -2142,7 +2779,7 @@ ERROR_ZH = {
     'NOT_RUNNING': '操作不在进行中', 'PLANT_REQUIRED': '尚未声明实验室条件', 'POWER_OFF': '未通电（或断电中止了测量）', 'COOLING_PRESSURE_TOO_HIGH': '冷却水压力超过1.5bar',
     'MEASUREMENT_RUNNING': '有测量正在进行', 'INVALID_VESSEL': 'RFID为空、重复或实验台已有8个氧弹', 'NOT_READY': '软件加载、自检或关机中（关机只能在等待状态）',
     'NOT_CANCELLABLE': '测量已进入自动结束程序（排气、排水、开盖），结果或错误已确定，不能再取消', 'RECORD_IN_USE': '该标定正被某个氧弹的C值使用，不能删除',
-    'NO_ERROR': '没有待确认的错误', 'ERROR_PENDING': '有待确认的错误（先确认）', 'RUN_MODE_NOT_POSSIBLE': 'E26：所选工作模式与冷却水温度不符（手册5.3表）',
+    'NO_ERROR': '没有待确认的错误', 'ERROR_PENDING': '有待确认的错误（先确认）', 'SWITCH_OFF_REQUIRED': 'E02/E14/E15：确认无效，须关机再开机（手册第13章）', 'RUN_MODE_NOT_POSSIBLE': 'E26：所选工作模式与冷却水温度不符（手册5.3表）',
     'AID_FIXED': '出厂“IKA cotton wool thread”条目不可修改或删除', 'UNKNOWN_VESSEL': '实体氧弹不存在', 'VESSEL_NOT_ON_BENCH': '氧弹不在实验台上（挂在盖上）',
     'VESSEL_NOT_SCANNED': '尚未用RFID扫描氧弹（自动识别时须在测量启动后扫描）', 'VESSEL_ALREADY_REGISTERED': '名称或RFID已登记', 'TOO_MANY_VESSELS': '每台最多登记4个氧弹',
     'VESSEL_NOT_CLEAN': '氧弹未清洁（先检查/滴定后清洁）', 'UNKNOWN_SUBSTANCE': '物质不在燃烧模板库中（含卤素物质未收录）', 'FORM_NOT_POSSIBLE': '样品形态与25°C相态不符',
@@ -2157,13 +2794,16 @@ ERROR_ZH = {
     'E07': 'E07：注水温度未低于要求值（冷却水过热）', 'E11': 'E11：关盖错误/点火回路不通（未挂或挂了未准备的氧弹）', 'E24': 'E24：内水路未达到工作温度稳定判据',
     'E29': 'E29：主期稳定判据超时', 'E31': 'E31：内水路流量过低', 'E32': 'E32：外水路流量过低', 'SYSTEM_TEST_RED': '自检红色：冷却水温度超出12–27°C',
     'USER_CANCEL': '测量被取消（点火前取消可重新启动，点火后不可）',
+    'NOT_MODIFIABLE': '记录已点火或已完成，不能修改', 'UNKNOWN_USER': '用户未登记', 'USER_EXISTS': '用户名已存在', 'TOO_MANY_USERS': '最多30个用户（假设）',
+    'NOT_IN_SYSTEM_TEST': '自检未在进行', 'SEAL_CHANGE_ACTIVE': '换密封圈程序进行中', 'NO_OXYGEN': '未接氧气（换密封圈须接氧气）',
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 _READY = ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'MEASUREMENT_RUNNING', 'ERROR_PENDING']
 CAP_ERRORS = {
     'plant.configure': ['COOLING_PRESSURE_TOO_HIGH'], 'vessel.provide': ['PLANT_REQUIRED', 'INVALID_VESSEL'],
     'power.set': ['PLANT_REQUIRED'], 'power.toggle': ['PLANT_REQUIRED'], 'system.shutdown': ['PLANT_REQUIRED', 'POWER_OFF', 'MEASUREMENT_RUNNING', 'ERROR_PENDING', 'NOT_READY'],
-    'error.acknowledge': ['PLANT_REQUIRED', 'POWER_OFF', 'NO_ERROR'], 'mode.set': _READY + ['RUN_MODE_NOT_POSSIBLE'],
+    'error.acknowledge': ['PLANT_REQUIRED', 'POWER_OFF', 'NO_ERROR', 'SWITCH_OFF_REQUIRED'], 'mode.set': _READY + ['RUN_MODE_NOT_POSSIBLE'],
+    'fault.inject': ['PLANT_REQUIRED'], 'fault.clear': ['PLANT_REQUIRED'],
     'settings.configure': ['PLANT_REQUIRED', 'POWER_OFF', 'MEASUREMENT_RUNNING'], 'aid.define': ['PLANT_REQUIRED', 'POWER_OFF', 'AID_FIXED'],
     'vessel.scan': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'UNKNOWN_VESSEL', 'VESSEL_NOT_ON_BENCH'],
     'vessel.register': _READY + ['VESSEL_NOT_SCANNED', 'VESSEL_ALREADY_REGISTERED', 'TOO_MANY_VESSELS'],
@@ -2184,13 +2824,26 @@ CAP_ERRORS = {
     'measurement.simulate': ['UNKNOWN_MEASUREMENT', 'C_VALUE_REQUIRED'], 'cover.open': _READY, 'cover.close': _READY,
     'measurement.delete': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_READY', 'UNKNOWN_MEASUREMENT', 'MEASUREMENT_RUNNING', 'RECORD_IN_USE'],
     'maintenance.run': _READY + ['NO_VESSEL_HUNG'],
+    'measurement.cancel': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_RUNNING', 'NOT_CANCELLABLE'],
+    'measurement.modify': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_MEASUREMENT', 'MEASUREMENT_RUNNING', 'NOT_MODIFIABLE', 'VESSEL_REQUIRED', 'VESSEL_NOT_REGISTERED',
+                           'UNKNOWN_USER', 'UNKNOWN_AID', 'AID_MASS_MISMATCH'],
+    'measurement.convert': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_MEASUREMENT', 'MEASUREMENT_RUNNING', 'RECORD_IN_USE', 'C_VALUE_REQUIRED'],
+    'vessel.modify': _READY + ['VESSEL_NOT_REGISTERED', 'VESSEL_ALREADY_REGISTERED'], 'vessel.delete': _READY + ['VESSEL_NOT_REGISTERED'],
+    'aid.delete': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_AID', 'AID_FIXED'],
+    'user.save': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_USER', 'USER_EXISTS', 'TOO_MANY_USERS'], 'user.delete': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_USER'],
+    'user.select': ['PLANT_REQUIRED', 'POWER_OFF', 'UNKNOWN_USER'], 'preferences.configure': ['PLANT_REQUIRED', 'POWER_OFF', 'MEASUREMENT_RUNNING'],
+    'clock.set': ['PLANT_REQUIRED', 'POWER_OFF'], 'modules.configure': ['PLANT_REQUIRED', 'POWER_OFF', 'MEASUREMENT_RUNNING'],
+    'system.test_restart': _READY, 'system.test_skip': ['PLANT_REQUIRED', 'POWER_OFF', 'NOT_IN_SYSTEM_TEST'], 'system.factory_reset': _READY,
+    'maintenance.o2_fill': _READY + ['SEAL_CHANGE_ACTIVE', 'NO_VESSEL_HUNG', 'VESSEL_NOT_READY'], 'maintenance.change_seal': _READY + ['NO_OXYGEN'],
+    'device.empty_for_transport': _READY,
 }
 _PARTIAL = {'USER_CANCEL', 'POWER_OFF', 'E03', 'E04', 'E05', 'E07', 'E11', 'E24', 'E29', 'EVALUATION_FAILED'}
 MODEL_NONE_ZH = {
     'plant.configure': '只声明宿主实验室条件（室温、冷却水、氧气供给、噪声种子），没有可见模型变化',
     'vessel.provide': '只在过程层增加一个实体氧弹；场景只显示随包的一个C 6012（挂在盖下）',
     'system.shutdown': '保存记录并把盖的目标位置设为关闭；升降随sim.step推进（盖的升降绑定已在场景流程中验证）',
-    'error.acknowledge': '只清除错误状态，没有可见模型变化', 'mode.set': '只改工作模式与外筒目标温度；温度读数随sim.step演化',
+    'error.acknowledge': '只清除错误状态，没有可见模型变化', 'fault.inject': '评测者故障注入：只改错误状态与测量结局，没有可见模型变化',
+    'fault.clear': '评测者撤销故障原因，没有可见模型变化', 'mode.set': '只改工作模式与外筒目标温度；温度读数随sim.step演化',
     'settings.configure': '只写入测量设置，没有可见模型变化', 'aid.define': '只写入辅料清单，没有可见模型变化',
     'vessel.scan': '只记录RFID读取；场景不移动氧弹（氧弹几何固定挂在盖下）', 'vessel.register': '只写入氧弹登记，没有可见模型变化',
     'vessel.prepare': '样品、助燃物与吸收水只进入过程账；场景没有坩埚内容的可见表示',
@@ -2202,6 +2855,11 @@ MODEL_NONE_ZH = {
     'measurement.simulate': '只读计算', 'measurement.delete': '只删除归档记录，没有可见模型变化', 'archive.list': '只读列表', 'events.read': '只读事件',
     'ledger.read': '只读账目（evaluator）', 'provenance.read': '只读来源记录（evaluator）',
     'sim.step': '推进统一宿主时钟；升降、搅拌与读数随绑定状态变化，由各绑定在场景中验证',
+    **{k: '只写入设备设置或记录，没有可见模型变化' for k in ('measurement.modify', 'measurement.convert', 'vessel.modify', 'vessel.delete', 'aid.delete', 'user.save',
+                                                     'user.delete', 'user.select', 'preferences.configure', 'clock.set', 'modules.configure', 'system.factory_reset')},
+    'measurement.cancel': '取消后照常排气、排水、开盖；升降随sim.step推进', 'system.test_restart': '只改仪器状态（自检），读数随sim.step推进',
+    'system.test_skip': '只改仪器状态', 'maintenance.o2_fill': '过程层给挂着的氧弹充氧，没有可见模型变化', 'maintenance.change_seal': '充氧活塞位置未建模为几何',
+    'device.empty_for_transport': '内筒排水随sim.step推进，没有可见几何变化',
 }
 _GUARDED = _CONTROL_GUARDED | _DATA_GUARDED
 _MEAS_RES = ['host_clock', 'lift', 'inner_vessel', 'outer_vessel', 'decomposition_vessel', 'oxygen_supply', 'cooling_water']
@@ -2213,7 +2871,13 @@ RESOURCES = {'measurement.start': _MEAS_RES, 'measurement.confirm': ['lift', 'fi
              'vessel.prepare': ['decomposition_vessel'], 'vessel.hang': ['filling_head', 'decomposition_vessel'], 'vessel.remove': ['filling_head', 'decomposition_vessel'],
              'vessel.inspect': ['decomposition_vessel'], 'washings.titrate': ['decomposition_vessel'], 'vessel.clean': ['decomposition_vessel'],
              'vessel.set_c_value': ['vessel_registry'], 'vessel.select_calibrations': ['vessel_registry'], 'measurement.evaluate': ['archive', 'vessel_registry'],
-             'measurement.create': ['archive'], 'measurement.delete': ['archive'], 'sim.step': ['host_clock']}
+             'measurement.create': ['archive'], 'measurement.delete': ['archive'], 'sim.step': ['host_clock'],
+             'measurement.cancel': ['lift', 'inner_vessel', 'decomposition_vessel'], 'measurement.modify': ['archive'], 'measurement.convert': ['archive', 'vessel_registry'],
+             'vessel.modify': ['vessel_registry', 'archive'], 'vessel.delete': ['vessel_registry'], 'aid.delete': ['touch_display'], 'user.save': ['touch_display'],
+             'user.delete': ['touch_display'], 'user.select': ['touch_display'], 'preferences.configure': ['touch_display'], 'clock.set': ['touch_display'],
+             'modules.configure': ['touch_display'], 'system.test_restart': ['outer_vessel', 'cooling_water'], 'system.test_skip': ['touch_display'],
+             'system.factory_reset': ['touch_display', 'outer_vessel'], 'maintenance.o2_fill': ['oxygen_valves', 'decomposition_vessel'],
+             'maintenance.change_seal': ['oxygen_valves'], 'device.empty_for_transport': ['inner_vessel', 'water_valves']}
 _ROBOT = '实体操作为宿主/机器人技能的过程层抽象，没有接触或机器人验证；模型中C 6012网格始终挂在盖下，不随操作移动。'
 _ROLLBACK = ('断电未经菜单关机时回到上次关机保存的状态：其后新建的记录丢失，改动或删除的已保存记录恢复，标定选择与C值回到当时（手册10.3的工程解释）；'
              '断电中止测量时不排气、不排水，氧弹在排气前一直算带压。')
@@ -2232,7 +2896,13 @@ CAP_LIMITS = {
     'measurement.confirm': ['自动识别时只核对启动后扫描的RFID；挂上的实体氧弹与扫描不符无法被仪器发现（与真实仪器相同）。'],
     'measurement.evaluate': ['DIN 51900酸校正常数取Parr 6300手册（HNO3 14.1cal/meq、H2SO4 72.2kcal/mol）；卤素酸校正不支持。'],
     'measurement.delete': ['每个agent只能删除自己的记录；归档400条上限没有按agent的配额。'],
-    'maintenance.run': ['只建模搅拌、内/外水路流量检查、RFID读取、氧弹排气与注/排水；换密封圈与运输前排空不建模。'],
+    'maintenance.run': ['只建模搅拌、内/外水路流量检查、RFID读取、氧弹排气与注/排水；手动充氧、换密封圈与排空见各自能力。'],
+    'maintenance.change_seal': ['充氧活塞位置只作为状态（maintenance.seal_change），没有几何与机械模型。'],
+    'device.empty_for_transport': ['只排空内筒水路；外筒水路排空与运输准备未建模（外筒热节点保留）。'],
+    'preferences.configure': ['语言（英/德）、单位（J/g、kJ/kg、cal/g、BTU/lb）与报告标准（DIN 51900、ISO 1928、ASTM D5865、ASTM D240）的选项清单为假设；'
+                              '所有报告标准都按DIN 51900的酸校正与Hu公式计算，只改结果页标注。'],
+    'modules.configure': ['本配置没有连接天平、样品架与打印机：启用后请求天平值、样品架与打印在面板上显示未连接；Tap water与声明的冷却水来源不符时自检为黄色（假设）。'],
+    'system.factory_reset': ['恢复出厂只重置设置、辅料、用户、模式与模块；登记的氧弹与测量记录保留（假设）。'],
     'sim.step': ['唯一的宿主时间推进；逻辑与读数在1s仪器周期上执行，升降与搅拌连续推进。'],
 }
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.c6000_isoperibol_bomb_calorimetry.limitations。'
@@ -2264,11 +2934,13 @@ OBSERVES = {
     'measurement.simulate': [], 'measurement.delete': [],
     'archive.list': [], 'events.read': ['system.error_code'], 'cover.open': ['cover.state'], 'cover.close': ['cover.state'],
     'maintenance.run': ['stirrer.running', 'stirrer.indicated_rpm'], 'ledger.read': [], 'provenance.read': [], 'sim.step': ['clock.time_s'],
+    'measurement.cancel': ['measurement.phase'], 'system.test_restart': ['system.state', 'system.test_result'], 'system.test_skip': ['system.test_result'],
+    'maintenance.change_seal': ['maintenance.seal_change'],
 }
 _MAN, _DS, _WB, _BR = 'manufacturer_manual', 'manufacturer_primary', 'user_workbook', 'manufacturer_brochure_2018'
 CAP_SOURCES = {
     'plant.configure': [_DS, _MAN, 'simulation_assumption'], 'vessel.provide': [_DS, _BR, 'simulation_assumption'], 'power.set': [_MAN], 'power.toggle': [_MAN],
-    'system.shutdown': [_MAN], 'error.acknowledge': [_MAN], 'mode.set': [_DS, _MAN, _WB], 'settings.configure': [_MAN, 'nist_srm39j'], 'aid.define': [_MAN],
+    'system.shutdown': [_MAN], 'error.acknowledge': [_MAN], 'fault.inject': [_MAN, 'simulation_assumption'], 'fault.clear': ['simulation_assumption'], 'mode.set': [_DS, _MAN, _WB], 'settings.configure': [_MAN, 'nist_srm39j'], 'aid.define': [_MAN],
     'vessel.scan': [_MAN, _DS], 'vessel.register': [_MAN, _BR], 'vessel.prepare': [_MAN, 'combustion_library', 'simulation_assumption'], 'vessel.hang': [_MAN],
     'vessel.remove': [_MAN], 'vessel.inspect': [_MAN], 'washings.titrate': [_MAN, 'parr_6300_manual', _BR, 'simulation_assumption'], 'vessel.clean': [_MAN],
     'vessel.set_c_value': [_MAN], 'vessel.select_calibrations': [_MAN], 'vessel.statistics': [_MAN], 'measurement.create': [_MAN, _WB],
@@ -2279,7 +2951,10 @@ CAP_SOURCES = {
     'ledger.read': ['runtime_code'], 'provenance.read': ['combustion_library'], 'sim.step': ['runtime_code', 'plant_derivation'],
     'mode.adiabatic': [_MAN, _WB, _BR], 'sample_rack.use': [_DS, _MAN], 'data.export': [_MAN, _DS], 'maintenance.change_seal': [_MAN],
     'device.empty_for_transport': [_MAN], 'sample.halogen': [_DS, _MAN, 'combustion_library'], 'hardware.connect': [_DS], 'robot.handle_vessel': ['simulation_assumption'],
-    'accuracy.certification': [_DS, _BR]}
+    'accuracy.certification': [_DS, _BR],
+    **{k: [_MAN] for k in ('measurement.cancel', 'measurement.modify', 'measurement.convert', 'vessel.modify', 'vessel.delete', 'aid.delete', 'user.save', 'user.delete',
+                           'user.select', 'clock.set', 'system.test_restart', 'system.test_skip', 'maintenance.o2_fill')},
+    'preferences.configure': [_MAN, 'simulation_assumption'], 'modules.configure': [_MAN, 'simulation_assumption'], 'system.factory_reset': [_MAN, 'simulation_assumption']}
 PARAM_ZH = {
     'ambient_k': '实验室环境温度（数据表允许20–30°C）', 'cooling_source': '冷却水来源（自来水经C 25减压阀，或冷却器/冷凝器）', 'cooling_water_k': '冷却水温度（数据表12–27°C）',
     'cooling_flow_m3_s': '冷却水流量（数据表60–70L/h）', 'cooling_pressure_pa': '冷却水表压（≤1.5bar）', 'oxygen_supply_pa': '氧气供给绝对压力（30bar，≤40bar）',
@@ -2302,6 +2977,12 @@ LIMITATIONS = [
     'agent只看到示值、设定、结果与事件；真实温度、热容、放热、气体与酸摩尔数、燃烧分数只对evaluator可见；滴定与残渣检查返回的是带误差的观察值。',
     '没有真实硬件、IKA固件或厂家准确度验证。',
 ]
+
+
+PANEL_PRECONDITION_ZH = ('面板按当前屏幕与手册规则处理手势：断电时屏幕黑；软件加载约30s、自检约5min（安全须知须确认）后进入主菜单；错误信息须确认；被调用能力的前提同样适用'
+                         '（被拒时显示仪器的信息，手势不被接受）；经会话的手势以该会话调用者身份执行：取消、删除、修改、评价另一agent的测量或记录与直接调用一样被拒（ACCESS_DENIED），'
+                         '新建的测量与启动的测量归调用者；屏幕本身显示全部记录')
+PANEL_LIMITATION_ZH = '面板层按panel_ui.json（手册PDF页码证据）解释手势并调用本运行层的同名能力；手势不推进仿真时钟；手册未写之处（页面布局、语言与单位清单、提示文字）见panel_ui.json的assumptions。'
 
 
 def export_ika_c6000_contract_metadata():
@@ -2342,6 +3023,25 @@ def export_ika_c6000_contract_metadata():
             c['state_effects'] += [dict(state_id=s, timing='on_step', description_zh='由统一宿主时钟推进升降、注排水、温度、测量阶段与结果')
                                    for s in SLOTS if s not in v['effects'] and SLOTS[s]['origin'] in ('sensor', 'derived', 'scene', 'process_truth', 'setpoint')]
         caps[k] = c
+    fx = list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in CAPS[c]['effects']))
+    for k, d in PANEL_CAPS.items():
+        g = k in PANEL_GESTURES
+        caps[k] = dict(function_zh=d['function_zh'], kind=d['kind'], visibility=d['visibility'], component_ids=sorted(set(d['component_ids']) | ({'touch_bezel'} if k != 'panel.press' else set())),
+                       input_schema=copy.deepcopy(d['input_schema']), output_schema=copy.deepcopy(d['output_schema']), example_arguments=copy.deepcopy(d['example_arguments']),
+                       availability='implemented', implementation={layer: 'absent' if layer in ('scene', 'robot', 'hardware') else 'implemented'
+                                                                  for layer in ['process', 'scene', 'robot', 'hardware', 'host']},
+                       binding=dict(backend='host', artifact_id='runtime', entrypoint='asset_runtime.ika_c6000.IkaC6000Session.invoke',
+                                    invocation=f'session.invoke(instance_id="c6000_01",capability_id={k!r},arguments={d["example_arguments"]!r},request_id="unique")'),
+                       preconditions=[dict(description_zh=PANEL_PRECONDITION_ZH, state_ids=['power.enabled', 'system.state', 'system.error_code', 'measurement.id'],
+                                           enforced_by='runtime', check='panel_ui.json screens, gates and bindings')] if g else [],
+                       state_effects=[dict(state_id=x, timing='immediate', description_zh='面板手势调用的能力的效果（与直接调用同一能力相同）') for x in fx] if g else [],
+                       observes=[], model_effects=dict(mode='none', description_zh='屏幕纹理与触摸联动属于后续Matterix步骤，本版本只在过程层。', binding_ids=[]),
+                       execution=dict(mode='synchronous', time_domain='simulation',
+                                      completion_criterion='手势瞬时完成（不推进仿真时钟）；结果只说明是否被仪器接受，屏幕须用panel.capture查看' if g else '不推进物理时钟',
+                                      completion_state_ids=fx if g else [], timeout_s=None, cancellation='unsupported', retry='same_request_id',
+                                      resources=['touch_display'], partial_failure_zh='手势调用的每个能力各自先检查再修改；被拒绝时显示仪器自己的信息，手势返回accepted=false'),
+                       errors=[dict(code=e, meaning_zh=ERROR_ZH[e], side_effects='none') for e in _COMMON_ERRORS],
+                       verification=[], limitations=[PANEL_LIMITATION_ZH], source_ids=[_MAN, 'simulation_assumption'])
     params = {}
     units = dict(C_METAL='J/K', WATER_KG='kg', G_SHELL='W/K', G_HEAD='W/K', G_WJ='W/K', G_WA='W/K', G_BA='W/K', C_JACKET='J/K', G_JA='W/K', HX_EFF='1',
                  P_JACKET_MAX='W', P_INNER_MAX='W', P_STIRRER='W')

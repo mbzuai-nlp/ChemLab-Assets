@@ -310,12 +310,14 @@ class TestHS8697Templates(unittest.TestCase):
 
 class TestDR6000Templates(unittest.TestCase):
     def setUp(self):
-        self.dr = HachDR6000("dr_tpl", scene_adapter=scene)
+        self.t = 0.0
+        self.dr = HachDR6000("dr_tpl", scene_adapter=scene, clock=lambda: self.t)
         self.meta = export_hach_dr6000_contract_metadata()
         self.call = Caller(self, self.dr, self.meta)
 
     def load(self, sample_id):
         self.call("power.set", enabled=True)
+        self.t += 165.0                               # startup and self-check before a reading
         self.call("lid.set_angle", angle_rad=HALF_PI)
         self.call("sample.load", sample_id=sample_id)
         self.call("lid.set_angle", angle_rad=0.0)

@@ -1,8 +1,12 @@
-"""CHEM132 finite-inventory TGA curve-anchored engineering proxy; observation and truth separated."""
+"""CHEM132 finite-inventory TGA curve-anchored engineering proxy; observation and truth separated.
+
+Front panel (panel.switch / panel.touch / panel.capture / panel.frame): the One-Touch-Away app-style touch screen and the power switch
+(panel_ui.json beside the contract, approximate: the Discovery screen pages are not documented) run by the generic engine _panel_ui.py on top
+of the capabilities below (no second copy of the logic)."""
 from pathlib import Path
-import copy,json,math,importlib.util,bisect
+import copy,json,math,importlib.util,bisect,hashlib,os,tempfile,weakref
 import numpy as np
-PROTOCOL_VERSION='1.0.0';SLUG='ta_tga5500';CATALOG_ID='CHEM-132';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.1';SLUG='ta_tga5500';CATALOG_ID='CHEM-132';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG
 DT=.1;R_GAS=8.31446261815324
 class ActionRejected(ValueError):pass
@@ -132,6 +136,17 @@ cap('ledger.read',obj({}),LEDGER,['controller'],'样品/N2/O2/热量有限守恒
 cap('sim.step',obj({'dt_s':number('s',0,3600)}),obj({'time_s':number('s',0)}),['controller'],'唯一宿主时钟','simulation','evaluator',{'dt_s':.1})
 cap('emergency.stop',obj({}),obj({'latched':BOOL}),['controller'],'软件停机保留物料和余热')
 cap('emergency.reset',obj({}),obj({'latched':BOOL}),['controller'],'冷态复位，不自动重启')
+cap('method.advance',obj({}),obj({'segment_index':integer(0,100)}),['controller'],'运行中跳到方法下一段（从当前程序温度开始，切换到该段气体）；已是最后一段则正常结束方法')  # touch screen: Advance method segments
+# Autosampler pan transfer (brochure p.12: loading / unloading pans; Q500 guide p.16 LOAD/UNLOAD, p.17 PAN TO FRONT; 25 positions p.29): pans
+# wait on the carousel outside the furnace; a load / unload turns the carousel to the position and the pan enters / leaves the balance through the
+# same steps as sample.load / sample.remove when the carousel is there.  A pan returned after it was heated holds its residue and is not reloaded.
+CAROUSEL_N=25;CPOS=integer(1,CAROUSEL_N)
+cap('tray.place',obj({'position':CPOS,'sample':SAMPLE}),obj({'placed':BOOL}),['carousel'],'手工把装好样品的盘放到转盘位置1-25（炉外，室温）','configuration','evaluator',{'position':2,'sample':SAMPLE_EXAMPLE})
+cap('tray.remove',obj({'position':CPOS}),obj({'removed':BOOL}),['carousel'],'手工从转盘位置取走样品盘（含已测残渣）','configuration','evaluator',{'position':2})
+cap('autosampler.load',obj({'position':CPOS}),obj({'accepted':BOOL}),['carousel','balance_hook','sample_pan'],'自动进样器LOAD：转盘转到所选位置后把样品盘挂上天平（炉体打开、天平空、冷态）',example={'position':2})
+cap('autosampler.unload',obj({'position':CPOS}),obj({'accepted':BOOL}),['carousel','balance_hook','sample_pan'],'自动进样器UNLOAD：转盘转到所选空位后把天平上的样品盘（含残渣）放回',example={'position':2})
+OWNER_GUARDED=('acquisition.stop','acquisition.result','method.advance')  # owner-only while another agent's run is the current one
+RUN_GUARDED=('thermal.set_cooling',)  # accepted while a run is active (air cool acts on the furnace), so owner-only while another agent's run is running
 UNSUPPORTED=['autosampler.sequence','hires.native','mtga.native','tga_ms.acquire','tga_ftir.acquire','curie.calibrate','kinetics.arrhenius_identify','noise.empirical','accuracy.certification','hardware.connect','pan.sealed_pressure','gas.pyrolysis_composition']
 for k in UNSUPPORTED:cap(k,obj({}),obj({}),['controller'],'明确未实现：'+k)
 for k,c,z in [('plant.configured','controller','模型配置'),('power.enabled','power_switch','电源'),('sample.present','sample_pan','有限样品存在'),('gas.opened','gas_manifold','两吹扫支路开启'),('thermal.enabled','furnace','主动加热'),('cooling.enabled','furnace','强制冷却'),('emergency.latched','controller','软件停机锁存'),('furnace.opened','furnace','炉体完全下降'),('furnace.moving','furnace','炉体运动'),('carousel.moving','carousel','转盘运动'),('punch.moving','pan_punch','冲头运动')]:slot(k,BOOL,'1',z,component=c)
@@ -146,9 +161,29 @@ for k,u in [('truth.furnace_k','K'),('truth.sample_k','K'),('truth.sample_mass_k
 slot('clock.time_s',number('s',0),'s','唯一宿主时钟');slot('acquisition.phase',PHASE,'1','异步状态');slot('acquisition.elapsed_s',number('s',0),'s','实际运行时间');slot('acquisition.points',integer(0,2000000),'1','观测点');slot('acquisition.segment_index',integer(0,99),'1','当前温度段');slot('acquisition.stage',enum(['ramp','hold']),'1','当前阶段');slot('panel.temperature_text',TEXT,'1','断电空；温度粗显示°C一位小数');slot('panel.mass_text',TEXT,'1','断电空；质量mg六位小数')
 SAMPLE_EXAMPLE['reference_id']='fsri_abs_n2_10k_r1';CAPS['sample.load']['example_arguments']=copy.deepcopy(SAMPLE_EXAMPLE);CAPS['reference.query']['example_arguments']={'reference_id':SAMPLE_EXAMPLE['reference_id']}
 slot('model.fault',nullable(TEXT),'1','超工程温域/源温域后停止未校准反应，已产生物料不复原')
+slot('autosampler.tray_occupied',array(BOOL,CAROUSEL_N,CAROUSEL_N),'1','转盘25个位置是否有样品盘',component='carousel');slot('autosampler.balance_origin',nullable(CPOS),'1','天平上样品盘来自的转盘位置（手工挂上时为空）',component='sample_pan');slot('autosampler.transfer',nullable(enum(['load','unload'])),'1','正在进行的取放',component='carousel')
+def _panel_engine():
+ """The shared front-panel engine (_panel_ui.py beside this file): as a package module, else loaded from its file path."""
+ try:
+  from . import _panel_ui as engine;return engine
+ except ImportError:
+  import sys
+  if '_chemsim_panel_ui' not in sys.modules:
+   s=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'));sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(s);s.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+  return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=None if os.environ.get('TA_PANEL_BUILD') else _panel_ui.load_spec(ASSET/'panel_ui.json',capabilities=set(CAPS))  # TA_PANEL_BUILD: spec being written
+PANEL_CAPS=_panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}  # panel.* kept out of CAPS: CAPS stays the instrument's own command set
+ALL_CAPS=dict(CAPS,**PANEL_CAPS);_PANELS=weakref.WeakKeyDictionary()
+def validate_arguments(k,v):
+ """Capability arguments: the instrument's own validator; panel.* schemas (optional keys) by the engine's checker."""
+ if k in PANEL_CAPS:
+  if not isinstance(v,dict) or _panel_ui.check_arguments(PANEL_CAPS[k]['input_schema'],v):raise ActionRejected('INVALID_ARGUMENT')
+ else:validate(CAPS[k]['input_schema'],v)
+
 class TaTga5500Runtime:
  def __init__(self,instance_id='tga5500_01'):
-  self.instance_id=instance_id;self.plant=None;self.sample=None;self.reference=None;self.model=None;self.power=False;self.furnace_lower=.11;self.furnace_target=.11;self.carousel_angle=0.;self.carousel_target_angle=0.;self.carousel_index=1;self.punch=0.;self.punch_target=0.;self.thermal_enabled=False;self.cooling=False;self.emergency=False;self.model_fault=None;self.gas_open=False;self.selected='N2';self.sample_flow=0.;self.balance_flow=0.;self.gases={};self.gas_remaining={'N2':0.,'O2':0.};self.gas_loaded={'N2':0.,'O2':0.};self.gas_recovered={'N2':0.,'O2':0.};self.gas_exhausted={'N2':0.,'O2':0.};self.chamber=[0.,0.];self.initial_chamber=[0.,0.];self.capacity=0.;self.furnace=298.15;self.sample_temperature=298.15;self.sample_energy=0.;self.target=298.15;self.final_target=298.15;self.rate=1.;self.heater_power=0.;self.obs_mass=0.;self.obs_oxygen=0.;self.balance_range='low';self.mass_loaded=0.;self.mass_recovered=0.;self.mass_emitted=0.;self.oxygen_uptake=0.;self.loss=0.;self.uptake=0.;self.heater_input=0.;self.reaction_heat=0.;self.ambient_loss=0.;self.cooling_removed=0.;self.emitted_sensible=0.;self.recovered_sensible=0.;self.method=copy.deepcopy(METHOD_EXAMPLE);self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.phase='idle';self.elapsed=0.;self.segment_index=0;self.stage='ramp';self.rows=[];self.operation_id=None;self.operation_method=None;self.operation_calibration=None;self.operation_reference=None;self.operation_source=None;self.operation_projection=None;self.operation_start=0.;self.error=None;self.records={};self.schedule=[];self.duration=0.;self._counter=0;self.time_s=0.;self._ticks=0;self._remainder=0.;self.revision=0;self._requests={};self._owners={};self._cancel_operations={};self._principals={'agent':'agent','evaluator':'evaluator'}
+  self.instance_id=instance_id;self.plant=None;self.sample=None;self.reference=None;self.model=None;self.power=False;self.furnace_lower=.11;self.furnace_target=.11;self.carousel_angle=0.;self.carousel_target_angle=0.;self.carousel_index=1;self.punch=0.;self.punch_target=0.;self.thermal_enabled=False;self.cooling=False;self.emergency=False;self.model_fault=None;self.gas_open=False;self.selected='N2';self.sample_flow=0.;self.balance_flow=0.;self.gases={};self.gas_remaining={'N2':0.,'O2':0.};self.gas_loaded={'N2':0.,'O2':0.};self.gas_recovered={'N2':0.,'O2':0.};self.gas_exhausted={'N2':0.,'O2':0.};self.chamber=[0.,0.];self.initial_chamber=[0.,0.];self.capacity=0.;self.furnace=298.15;self.sample_temperature=298.15;self.sample_energy=0.;self.target=298.15;self.final_target=298.15;self.rate=1.;self.heater_power=0.;self.obs_mass=0.;self.obs_oxygen=0.;self.balance_range='low';self.mass_loaded=0.;self.mass_recovered=0.;self.mass_emitted=0.;self.oxygen_uptake=0.;self.loss=0.;self.uptake=0.;self.heater_input=0.;self.reaction_heat=0.;self.ambient_loss=0.;self.cooling_removed=0.;self.emitted_sensible=0.;self.recovered_sensible=0.;self.method=copy.deepcopy(METHOD_EXAMPLE);self.calibration=copy.deepcopy(CALIBRATION_EXAMPLE);self.phase='idle';self.elapsed=0.;self.segment_index=0;self.stage='ramp';self.rows=[];self.operation_id=None;self.operation_method=None;self.operation_calibration=None;self.operation_reference=None;self.operation_source=None;self.operation_projection=None;self.operation_start=0.;self.error=None;self.records={};self.schedule=[];self.duration=0.;self._counter=0;self.time_s=0.;self._ticks=0;self._remainder=0.;self.revision=0;self._requests={};self._owners={};self._cancel_operations={};self._principals={'agent':'agent','evaluator':'evaluator'};self.power_epoch=0;self.panel_capture_dir=None;self.tray=[None]*CAROUSEL_N;self.balance_origin=None;self.transfer=None;self.pan_run=False;self._caller=None
  def register_principal(self,principal_id,visibility='agent'):
   if not isinstance(principal_id,str) or not principal_id or principal_id in self._principals or visibility not in ('agent','debug','evaluator'):raise ActionRejected('REQUEST_CONFLICT')
   self._principals[principal_id]=visibility
@@ -183,6 +218,19 @@ class TaTga5500Runtime:
   stock=self.gases.get(gas,{})
   for key,target in [('flow_reference_temperature_k','reference_temperature_k'),('flow_reference_pressure_pa','reference_pressure_pa')]:matches=matches and isinstance(c.get(key),(int,float)) and target in stock and math.isclose(c[key],stock[target],rel_tol=1e-6)
   if not matches:raise ActionRejected('CONDITION_TRANSFER_NOT_ACCEPTED')
+ def _advance_segment(self):
+  """End the running segment now and continue with the next one from the current program temperature (the method ends after the last)."""
+  e=self.elapsed;i=self.segment_index;segs=self.method['segments']
+  base=next((lo+(hi-lo)*max(0.,min(1.,(e-a)/(b-a))) for a,b,lo,hi,j,stage,gas in self.schedule if e<b-1e-10),self.schedule[-1][3])
+  new=[x for x in self.schedule if x[1]<=e+1e-10]+[(a,e,lo,base,j,stage,gas) for a,b,lo,hi,j,stage,gas in self.schedule if a<e-1e-10 and e<b-1e-10]
+  t=e;previous=base
+  for j,seg in enumerate(segs[i+1:],i+1):
+   ramp=abs(seg['target_k']-previous)/seg['rate_k_s']
+   if ramp>0:new.append((t,t+ramp,previous,seg['target_k'],j,'ramp',seg['gas']));t+=ramp
+   if seg['hold_s']>0:new.append((t,t+seg['hold_s'],seg['target_k'],seg['target_k'],j,'hold',seg['gas']));t+=seg['hold_s']
+   previous=seg['target_k']
+  if t<=e+1e-12:self.duration=e;self._finish('succeeded');return i
+  nxt=next(x for x in new if x[0]>=e-1e-10);self.schedule=new;self.duration=t;self.segment_index=nxt[4];self.stage=nxt[5];self.selected=nxt[6];return self.segment_index
  def _ready(self,require_sample=True):
   if not self.power or self.emergency or self.furnace_lower>1e-12 or self._moving() or self.punch>1e-12:raise ActionRejected('NOT_READY')
   if require_sample and not self.sample:raise ActionRejected('NO_SAMPLE')
@@ -192,9 +240,19 @@ class TaTga5500Runtime:
   if not self.power or not self.plant:return dict(furnace=None,sample=None,mass=None,oxygen=None)
   p=self.plant;c=self.calibration;mass=(self.obs_mass-c['mass_zero_kg'])*c['mass_gain_correction'];resolution=8e-12 if self.balance_range=='low' else 6e-11;limit=.0001 if self.balance_range=='low' else .001
   return dict(furnace=(p['temperature_gain']*self.furnace+p['temperature_offset_k']-c['temperature_zero_k'])*c['temperature_gain_correction'],sample=(p['temperature_gain']*self.sample_temperature+p['temperature_offset_k']-c['temperature_zero_k'])*c['temperature_gain_correction'],mass=None if self._mass()>limit+1e-15 else float(round(mass/resolution)*resolution),oxygen=float(self.obs_oxygen))
+ def _control_k(self,t):
+  """The true furnace temperature at which the device's own furnace reading (sensor error and stored calibration, as _indicated) shows t:
+  the controller holds its reading at the program temperature, so a sensor error or a temperature calibration moves the furnace."""
+  p=self.plant;c=self.calibration;return (t/c['temperature_gain_correction']+c['temperature_zero_k']-p['temperature_offset_k'])/p['temperature_gain']
+ def _guard(self,k,principal,role):
+  """A run belongs to the operator who started it: another agent may not stop it, read its result, skip its segments or switch air cooling
+  while it runs (direct call or panel)."""
+  if k in OWNER_GUARDED and role=='agent' and self.operation_id is not None and self._owners.get(self.operation_id)!=principal:raise ActionRejected('ACCESS_DENIED')
+  if k in RUN_GUARDED and role=='agent' and self.phase=='running' and self._owners.get(self.operation_id)!=principal:raise ActionRejected('ACCESS_DENIED')
  def read(self,role='evaluator'):
   a=self._indicated();p=self.plant;pressure=sum(self.chamber)*R_GAS*p['chamber_reference_temperature_k']/p['chamber_volume_m3'] if p else 0.
   d={'plant.configured':p is not None,'power.enabled':self.power,'sample.present':self.sample is not None,'gas.opened':self.gas_open,'thermal.enabled':self.thermal_enabled,'cooling.enabled':self.cooling,'emergency.latched':self.emergency,'furnace.opened':bool(self.furnace_lower>=.11-1e-12),'furnace.moving':bool(abs(self.furnace_target-self.furnace_lower)>1e-12),'carousel.moving':bool(abs(self._angle_error())>1e-12),'punch.moving':bool(abs(self.punch_target-self.punch)>1e-12),'furnace.lower_m':self.furnace_lower,'furnace.target_m':self.furnace_target,'punch.press_m':self.punch,'punch.target_m':self.punch_target,'carousel.angle_rad':self.carousel_angle,'carousel.target_index':self.carousel_index,'power.angle_rad':.28 if self.power else 0.,'gas.selected':self.selected,'gas.sample_flow_m3_s':self.sample_flow,'gas.balance_flow_m3_s':self.balance_flow,'balance.range':self.balance_range,'thermal.target_k':self.target,'thermal.final_target_k':self.final_target,'furnace.indicated_k':a['furnace'],'sample.indicated_k':a['sample'],'mass.indicated_kg':a['mass'],'gas.oxygen_fraction':a['oxygen'],'truth.furnace_k':self.furnace,'truth.sample_k':self.sample_temperature,'truth.sample_mass_kg':self._mass(),'truth.loss_kg':self.loss,'truth.oxygen_uptake_kg':self.uptake,'truth.n2_mol':self.gas_remaining['N2'],'truth.o2_mol':self.gas_remaining['O2'],'truth.chamber_n2_mol':self.chamber[0],'truth.chamber_o2_mol':self.chamber[1],'truth.chamber_pressure_pa':pressure,'truth.heater_w':self.heater_power,'clock.time_s':self.time_s,'acquisition.phase':self.phase,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'acquisition.segment_index':self.segment_index,'acquisition.stage':self.stage,'panel.temperature_text':'' if a['furnace'] is None else f"{a['furnace']-273.15:.1f}",'panel.mass_text':'' if a['mass'] is None else f"{a['mass']*1e6:.6f}",'model.fault':self.model_fault}
+  d.update({'autosampler.tray_occupied':[x is not None for x in self.tray],'autosampler.balance_origin':self.balance_origin,'autosampler.transfer':self.transfer['kind'] if self.transfer else None})
   return {k:v for k,v in d.items() if role!='agent' or SLOTS[k]['visibility']=='agent'}
  def _ledger(self):
   Ef=self.plant['furnace_capacity_j_k']*(self.furnace-self.plant['ambient_k']) if self.plant else 0.
@@ -214,7 +272,47 @@ class TaTga5500Runtime:
   return dict(operation_id=self.operation_id,phase=self.phase,elapsed_s=self.elapsed,rows=copy.deepcopy(self.rows),reference_id=self.operation_reference,template_source=self.operation_source,projection_json=self.operation_projection,method_json=json.dumps(self.operation_method,sort_keys=True) if self.operation_method else None,calibration_json=json.dumps(self.operation_calibration,sort_keys=True) if self.operation_calibration else None,evidence='Measured source T/mass curve anchors explicitly accepted projected irreversible loss with thermal lag and engineering relaxation. Not calibrated Arrhenius kinetics or arbitrary-rate prediction; transferred rate/gas/pan/mass/temperature conditions require explicit acceptance. Source raw arrays remain unmodified. Optional O2 uptake uses explicit engineering capacity/rate/Ea, never inferred from loss curve. Calibrated independent dynamic balance observes pan+residue; no true mass or source residue is returned. Isothermal reference-volume N2/O2 chamber mixes finite inventories; unknown evolved species are a separate mass reservoir and do not alter chamber gas pressure. Finite heat ledger includes reaction heat and emitted sensible enthalpy; incoming O2 reference enthalpy is zero at ambient. Manufacturer resolution is quantization, not certified noise or accuracy.',error_code=self.error)
  def _finish(self,phase,error=None):
   self.phase=phase;self.error=error;self.thermal_enabled=False;self.heater_power=0.;self._record();self.records[self.operation_id]=self._result()
+ @property
+ def panel(self):
+  """Front-panel UI state (engine object, kept outside __dict__ so state snapshots and atomic rollback stay plain data)."""
+  if self not in _PANELS:_PANELS[self]=_panel_ui.PanelUI(PANEL_SPEC,self)
+  return _PANELS[self]
+ def panel_read(self):
+  """What the panel firmware sees: the agent slots plus power, power-up count, serial, remaining run time, the active method, weight percent
+  of the run's first weight and the weight-percent / temperature traces of the current or last run (chart)."""
+  d=self.read('agent');rows=self.rows if self.phase=='running' or not self.operation_id else self.records.get(self.operation_id,{}).get('rows',self.rows)
+  pick=rows[::max(1,len(rows)//300)]+rows[-1:] if rows else [];m=d['mass.indicated_kg'];ref=next((r['mass_kg'] for r in rows if r['mass_kg']),None) or m
+  seg=[dict(n=i+1,target_c=s['target_k']-273.15,rate_c_min=s['rate_k_s']*60,hold_min=s['hold_s']/60,gas=s['gas'],current=self.phase=='running' and i==self.segment_index) for i,s in enumerate(self.method['segments'])]
+  d.update({'host.powered':self.power,'host.power_epoch':self.power_epoch,'host.instance_id':self.instance_id,'host.remaining_s':max(0.,self.duration-self.elapsed) if self.phase=='running' else None,
+            'host.weight_pct':100*m/ref if m is not None and ref else None,'host.method':dict(start_c=self.method['start_temperature_k']-273.15,segments=seg),
+            'host.plot_w':[[r['elapsed_s']/60,100*r['mass_kg']/ref] for r in pick if r['mass_kg'] is not None and ref],
+            'host.plot_t':[[r['elapsed_s']/60,r['sample_k']-273.15] for r in pick if r['sample_k'] is not None],'host.plot_span':max(1.,pick[-1]['elapsed_s']/60) if pick else 10.})
+  return d
+ def panel_time(self):return self.time_s
+ def panel_invoke(self,capability_id,arguments):
+  """A panel action takes the path of a direct call (atomic; a refusal is shown as the device's message); a gesture made through a session keeps
+  that caller's access rules (_guard)."""
+  try:
+   if self._caller:self._guard(capability_id,*self._caller)
+   return self.invoke(capability_id,**arguments)
+  except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+ def _panel_command(self,k,a):
+  validate_arguments(k,a)
+  if not self.plant:raise ActionRejected('NOT_CONFIGURED')
+  if k=='panel.frame':return dict(frame=self.panel.frame())
+  if k=='panel.capture':
+   data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest();d=Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id;d.mkdir(parents=True,exist_ok=True);p=d/f"{a['display_id']}_{sha[:16]}.png"
+   if not p.exists():p.write_bytes(data)
+   return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(p),format='png',width=w,height=h,sha256=sha))
+  if ('to_x' in a)!=('to_y' in a):raise ActionRejected('INVALID_ARGUMENT')
+  try:
+   if k=='panel.press':ok=self.panel.press(a['input_id'],float(a.get('duration_s',.1)))
+   elif k=='panel.switch':ok=self.panel.switch(a['input_id'],a['position'])
+   else:ok=self.panel.touch(a['display_id'],a['x'],a['y'],float(a.get('duration_s',.1)),to=(a['to_x'],a['to_y']) if 'to_x' in a else None)
+  except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+  self.revision+=1;return {'accepted':bool(ok)}
  def invoke(self,capability,**kwargs):
+  if capability in PANEL_CAPS:return self._panel_command(capability,kwargs)
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
   validate(CAPS[capability]['input_schema'],kwargs)
   if capability in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
@@ -243,12 +341,12 @@ class TaTga5500Runtime:
    model=prepare_reference(ref,a['accept_curve_projection'])
    if self.sample_temperature>model['temperature'][-1]:raise ActionRejected('REFERENCE_TEMPERATURE_RANGE')
    if self.sample_temperature<model['temperature'][0] and not a['accept_cold_extension']:raise ActionRejected('COLD_EXTENSION_NOT_ACCEPTED')
-   self.sample=copy.deepcopy(a);self.reference=copy.deepcopy(ref);self.model=model;self.loss=self.uptake=0.;self.model_fault=None;self.mass_loaded+=a['mass_kg'];self.sample_temperature=self.plant['ambient_k']+self.sample_energy/self._cp();return {'loaded':True}
+   self.sample=copy.deepcopy(a);self.reference=copy.deepcopy(ref);self.model=model;self.pan_run=False;self.loss=self.uptake=0.;self.model_fault=None;self.mass_loaded+=a['mass_kg'];self.sample_temperature=self.plant['ambient_k']+self.sample_energy/self._cp();return {'loaded':True}
   if k=='sample.remove':
    self._mechanical()
    if not self.sample:raise ActionRejected('NOT_LOADED')
    if self.furnace_lower<.11-1e-12:raise ActionRejected('CELL_NOT_ACCESSIBLE')
-   m=self._mass();energy=m*self.sample['heat_capacity_j_kg_k']*(self.sample_temperature-self.plant['ambient_k']);self.mass_recovered+=m;self.recovered_sensible+=energy;self.sample_energy-=energy;self.sample=None;self.reference=None;self.model=None;self.loss=self.uptake=0.;self.model_fault=None;return {'removed':True}
+   m=self._mass();energy=m*self.sample['heat_capacity_j_kg_k']*(self.sample_temperature-self.plant['ambient_k']);self.mass_recovered+=m;self.recovered_sensible+=energy;self.sample_energy-=energy;self.balance_origin=None;self.sample=None;self.reference=None;self.model=None;self.loss=self.uptake=0.;self.model_fault=None;return {'removed':True}
   if k=='gas.load':
    g=a['gas']
    if g in self.gases or self.gas_open or self.phase=='running':raise ActionRejected('BUSY')
@@ -272,9 +370,10 @@ class TaTga5500Runtime:
    if a['opened'] and (not self.power or self.emergency or self.gas_remaining['N2']<=0 or self.gas_remaining[self.selected]<=0 or self.sample_flow<=0 or self.balance_flow<=0):raise ActionRejected('NO_GAS')
    self.gas_open=a['opened'];return {'opened':self.gas_open}
   if k=='power.set':
-   if self.phase=='running':raise ActionRejected('BUSY')
+   if self.phase=='running' and not a['enabled']:self._finish('failed','POWER_LOSS')  # the power switch is a hard switch (final sync): never refused; a running experiment ends as on a power loss
+   if a['enabled'] and not self.power:self.power_epoch+=1
    self.power=a['enabled']
-   if not self.power:self.thermal_enabled=False;self.gas_open=False;self.heater_power=0.;self.furnace_target=self.furnace_lower;self.punch_target=self.punch;self.carousel_target_angle=self.carousel_angle
+   if not self.power:self.thermal_enabled=False;self.gas_open=False;self.heater_power=0.;self.furnace_target=self.furnace_lower;self.punch_target=self.punch;self.carousel_target_angle=self.carousel_angle;self.transfer=None
    return {'enabled':self.power}
   if k=='furnace.set':
    self._mechanical()
@@ -329,7 +428,7 @@ class TaTga5500Runtime:
     previous=s['target_k']
    if t<=0:raise ActionRejected('EMPTY_PROGRAM')
    if t/self.method['sample_interval_s']>1999900:raise ActionRejected('PROGRAM_TOO_LONG')
-   self.duration=t;self._counter+=1;self.operation_id=f'{self.instance_id}:tga:{self._counter}';self.operation_start=self.time_s;self.phase='running';self.elapsed=0.;self.segment_index=0;self.stage=self.schedule[0][5];self.selected=self.schedule[0][6];self.rows=[];self.error=None;self.operation_method=copy.deepcopy(self.method);self.operation_calibration=copy.deepcopy(self.calibration);self.operation_reference=self.sample['reference_id'];self.operation_source=json.dumps(self.reference.get('source',{}),sort_keys=True);self.operation_projection=json.dumps(self.model['stats'],sort_keys=True);self.target=self.method['start_temperature_k'];self.final_target=previous;self.thermal_enabled=True;self._record();return {'operation_id':self.operation_id}
+   self.pan_run=True;self.duration=t;self._counter+=1;self.operation_id=f'{self.instance_id}:tga:{self._counter}';self.operation_start=self.time_s;self.phase='running';self.elapsed=0.;self.segment_index=0;self.stage=self.schedule[0][5];self.selected=self.schedule[0][6];self.rows=[];self.error=None;self.operation_method=copy.deepcopy(self.method);self.operation_calibration=copy.deepcopy(self.calibration);self.operation_reference=self.sample['reference_id'];self.operation_source=json.dumps(self.reference.get('source',{}),sort_keys=True);self.operation_projection=json.dumps(self.model['stats'],sort_keys=True);self.target=self.method['start_temperature_k'];self.final_target=previous;self.thermal_enabled=True;self._record();return {'operation_id':self.operation_id}
   if k=='acquisition.stop':
    if self.phase!='running':raise ActionRejected('NOT_RUNNING')
    self._finish('cancelled');return {'phase':'cancelled'}
@@ -341,13 +440,51 @@ class TaTga5500Runtime:
   if k=='analysis.mass_stages':return analyze_mass(**a)
   if k=='ledger.read':return self._ledger()
   if k=='emergency.stop':
-   self.emergency=True;self.thermal_enabled=False;self.heater_power=0.;self.gas_open=False;self.furnace_target=self.furnace_lower;self.punch_target=self.punch;self.carousel_target_angle=self.carousel_angle
+   self.emergency=True;self.thermal_enabled=False;self.heater_power=0.;self.gas_open=False;self.furnace_target=self.furnace_lower;self.punch_target=self.punch;self.carousel_target_angle=self.carousel_angle;self.transfer=None
    if self.phase=='running':self._finish('failed','SOFTWARE_STOP')
    return {'latched':True}
   if k=='emergency.reset':
    if not self._cold():raise ActionRejected('HOT_CELL')
    self.emergency=False;return {'latched':False}
+  if k=='method.advance':
+   if self.phase!='running':raise ActionRejected('NOT_RUNNING')
+   return {'segment_index':self._advance_segment()}
+  if k=='tray.place':
+   if self.tray[a['position']-1] is not None:raise ActionRejected('TRAY_POSITION_OCCUPIED')
+   if not a['sample']['accept_engineering']:raise ActionRejected('MODEL_NOT_ACCEPTED')
+   ref=library()['substances'].get(a['sample']['reference_id'])
+   if not ref:raise ActionRejected('INVALID_REFERENCE')
+   prepare_reference(ref,a['sample']['accept_curve_projection']);self.tray[a['position']-1]=dict(sample=copy.deepcopy(a['sample']),run=False);return {'placed':True}
+  if k=='tray.remove':
+   if self.tray[a['position']-1] is None:raise ActionRejected('TRAY_POSITION_EMPTY')
+   if self.transfer and self.transfer['position']==a['position']:raise ActionRejected('MECHANISM_MOVING')
+   self.tray[a['position']-1]=None;return {'removed':True}
+  if k in ['autosampler.load','autosampler.unload']:
+   n=a['position'];load=k=='autosampler.load';pan=self.tray[n-1]
+   self._mechanical()
+   if not self.power or self.emergency or self.punch>1e-12 or self.transfer:raise ActionRejected('NOT_READY')
+   if self.furnace_lower<.11-1e-12:raise ActionRejected('CELL_NOT_ACCESSIBLE')
+   if load and pan is None:raise ActionRejected('TRAY_POSITION_EMPTY')
+   if load and pan['run']:raise ActionRejected('PAN_ALREADY_RUN')
+   if not load and pan is not None:raise ActionRejected('TRAY_POSITION_OCCUPIED')
+   if load and self.sample:raise ActionRejected('BALANCE_OCCUPIED')
+   if not load and not self.sample:raise ActionRejected('BALANCE_EMPTY')
+   self._dry_run('sample.load',pan['sample']) if load else self._dry_run('sample.remove',{})   # the pan can go on / off the balance
+   self.carousel_index=n;self.carousel_target_angle=self._carousel_target();self.transfer=dict(kind='load' if load else 'unload',position=n);return {'accepted':True}
   raise ActionRejected('UNKNOWN_CAPABILITY')
+ def _dry_run(self,k,a):
+  snapshot=copy.deepcopy(self.__dict__)
+  try:self._invoke(k,a)
+  finally:self.__dict__.clear();self.__dict__.update(snapshot)
+ def _finish_transfer(self):
+  """The carousel is at the position: the pan goes on the balance as sample.load, or comes off as sample.remove and back on the carousel."""
+  t=self.transfer;self.transfer=None;n=t['position']
+  try:
+   if t['kind']=='load':
+    self._invoke('sample.load',self.tray[n-1]['sample']);self.tray[n-1]=None;self.balance_origin=n
+   else:
+    run=self.pan_run or abs(self._mass()-self.sample['mass_kg'])>1e-15;pan=dict(sample=dict(self.sample,mass_kg=self._mass()),run=run);self._invoke('sample.remove',{});self.tray[n-1]=pan
+  except ActionRejected:pass                                                  # conditions changed while turning: the pan stays where it was
  def _program(self,t):
   for start,end,lo,hi,i,stage,gas in self.schedule:
    if t<end-1e-10:return lo+(hi-lo)*max(0.,min(1.,(t-start)/(end-start))),i,stage,gas
@@ -358,7 +495,7 @@ class TaTga5500Runtime:
   b=self.balance_flow*pN['reference_pressure_pa']/(R_GAS*pN['reference_temperature_k']) if pN else 0.;s=self.sample_flow*pS['reference_pressure_pa']/(R_GAS*pS['reference_temperature_k']) if pS else 0.
   return {'N2':b+(s if self.selected=='N2' else 0.),'O2':s if self.selected=='O2' else 0.},s,b
  def _thermal_solution(self,h,mass,energy):
-  p=self.plant;amb=p['ambient_k'];C=self._cp(mass);G=p['sample_conductance_w_k'];cf=p['furnace_capacity_j_k'];ga=p['ambient_conductance_w_k'];gc=p['forced_cooling_conductance_w_k'] if self.cooling and self.power else 0.;gain=p['controller_gain_w_k'] if self.thermal_enabled and self.power and not self.emergency else 0.;den=C+h*G;a=energy/den;b=h*G/den;base=cf/h+ga+gc+G*(1-b);rhs=cf/h*(self.furnace-amb)+G*a;target=self.target-amb
+  p=self.plant;amb=p['ambient_k'];C=self._cp(mass);G=p['sample_conductance_w_k'];cf=p['furnace_capacity_j_k'];ga=p['ambient_conductance_w_k'];gc=p['forced_cooling_conductance_w_k'] if self.cooling and self.power else 0.;gain=p['controller_gain_w_k'] if self.thermal_enabled and self.power and not self.emergency else 0.;den=C+h*G;a=energy/den;b=h*G/den;base=cf/h+ga+gc+G*(1-b);rhs=cf/h*(self.furnace-amb)+G*a;target=self._control_k(self.target)-amb   # the controller acts on the device's furnace reading
   x=(rhs+gain*target)/(base+gain);heat=gain*(target-x)
   if heat<0:x=rhs/base;heat=0.
   elif heat>p['heater_max_w']:heat=p['heater_max_w'];x=(rhs+heat)/base
@@ -395,6 +532,7 @@ class TaTga5500Runtime:
     self._physics(h,s*h,b*h)
     if self.power and not self.emergency:
      self.furnace_lower+=max(-self.plant['furnace_speed_m_s']*h,min(self.plant['furnace_speed_m_s']*h,self.furnace_target-self.furnace_lower));self.punch+=max(-self.plant['punch_speed_m_s']*h,min(self.plant['punch_speed_m_s']*h,self.punch_target-self.punch));delta=max(-self.plant['carousel_speed_rad_s']*h,min(self.plant['carousel_speed_rad_s']*h,self._angle_error()));self.carousel_angle=(self.carousel_angle+delta+math.pi)%(2*math.pi)-math.pi
+     if self.transfer and not self._moving() and abs(((self._carousel_target()-self.carousel_angle+math.pi)%(2*math.pi))-math.pi)<=1e-9:self._finish_transfer()
    for g,r in rates.items():self.gas_remaining[g]=max(0.,self.gas_remaining[g]-r*h)
    self.time_s+=h;left-=h
    if running:self.elapsed+=h
@@ -428,7 +566,7 @@ class TaTga5500Session:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  meta=export_ta_tga5500_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  meta=export_ta_tga5500_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;values=h.read(self._role);ids=list(values) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -438,17 +576,20 @@ class TaTga5500Session:
   h=self._host
   try:
    self._target(instance_id)
-   if not isinstance(capability_id,str) or capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
-   if self._role=='agent' and CAPS[capability_id]['visibility']!='agent':raise ActionRejected('ACCESS_DENIED')
+   if not isinstance(capability_id,str) or capability_id not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
+   if self._role=='agent' and ALL_CAPS[capability_id]['visibility']!='agent':raise ActionRejected('ACCESS_DENIED')
    if not isinstance(request_id,str) or not request_id:raise ActionRejected('INVALID_ARGUMENT')
-   validate(CAPS[capability_id]['input_schema'],arguments);key=(self._principal,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+   validate_arguments(capability_id,arguments);key=(self._principal,request_id);digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
    if key in h._requests:
     old,result=h._requests[key]
     if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
     return copy.deepcopy(result)
-   if capability_id in ('acquisition.stop','acquisition.result') and self._role=='agent' and h.operation_id is not None and h._owners.get(h.operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
-   result=h.invoke(capability_id,**arguments);operation=result.get('operation_id') if capability_id=='acquisition.start' else None
+   h._guard(capability_id,self._principal,self._role);started=h.operation_id;h._caller=(self._principal,self._role)
+   try:result=h.invoke(capability_id,**arguments)
+   finally:h._caller=None
+   operation=result.get('operation_id') if capability_id=='acquisition.start' else None
    if operation:h._owners[operation]=self._principal
+   if capability_id in PANEL_CAPS and h.operation_id!=started:h._owners[h.operation_id]=self._principal  # Start on the touch screen: the run belongs to the operator who pressed it
    response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
   except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
  def write(self,*,instance_id,state_id,value,request_id):
@@ -477,24 +618,37 @@ class TaTga5500Session:
 OBSERVATIONS=['furnace.indicated_k','sample.indicated_k','mass.indicated_kg','gas.oxygen_fraction','panel.temperature_text','panel.mass_text']
 EFFECTS={'plant.configure':['plant.configured','truth.furnace_k','truth.sample_k','truth.chamber_n2_mol','truth.chamber_pressure_pa','thermal.target_k','thermal.final_target_k'],
 'sample.load':['sample.present','truth.sample_mass_kg','truth.sample_k','truth.loss_kg','truth.oxygen_uptake_kg','model.fault']+OBSERVATIONS,
-'sample.remove':['sample.present','truth.sample_mass_kg','truth.loss_kg','truth.oxygen_uptake_kg','model.fault']+OBSERVATIONS,
+'sample.remove':['sample.present','truth.sample_mass_kg','truth.loss_kg','truth.oxygen_uptake_kg','model.fault','autosampler.balance_origin']+OBSERVATIONS,
 'gas.load':['truth.n2_mol','truth.o2_mol'],'gas.unload':['truth.n2_mol','truth.o2_mol'],'gas.set_flow':['gas.sample_flow_m3_s','gas.balance_flow_m3_s'],'gas.select':['gas.selected'],'gas.set_open':['gas.opened'],
-'power.set':['power.enabled','power.angle_rad','thermal.enabled','gas.opened','truth.heater_w','furnace.target_m','furnace.moving','punch.target_m','punch.moving','carousel.target_index','carousel.moving']+OBSERVATIONS,
+'power.set':['power.enabled','power.angle_rad','thermal.enabled','acquisition.phase','acquisition.points','gas.opened','truth.heater_w','furnace.target_m','furnace.moving','punch.target_m','punch.moving','carousel.target_index','carousel.moving','autosampler.transfer']+OBSERVATIONS,
 'furnace.set':['furnace.target_m','furnace.moving'],'carousel.index':['carousel.target_index','carousel.moving'],'punch.set':['punch.target_m','punch.moving'],
  'thermal.set_temperature':['thermal.final_target_k','thermal.enabled'],'thermal.disable':['thermal.enabled','truth.heater_w'],'thermal.set_cooling':['cooling.enabled'],
 'balance.set_range':['balance.range']+OBSERVATIONS,'sensor.calibrate':OBSERVATIONS,'balance.tare':OBSERVATIONS,
 'acquisition.start':['acquisition.phase','acquisition.elapsed_s','acquisition.points','acquisition.segment_index','acquisition.stage','thermal.target_k','thermal.final_target_k','thermal.enabled','gas.selected'],
 'acquisition.stop':['acquisition.phase','acquisition.points','thermal.enabled','truth.heater_w'],
-'emergency.stop':['emergency.latched','acquisition.phase','acquisition.points','thermal.enabled','gas.opened','truth.heater_w','furnace.target_m','furnace.moving','punch.target_m','punch.moving','carousel.moving'],
-'emergency.reset':['emergency.latched'],'sim.step':list(SLOTS)}
+'emergency.stop':['emergency.latched','acquisition.phase','acquisition.points','thermal.enabled','gas.opened','truth.heater_w','furnace.target_m','furnace.moving','punch.target_m','punch.moving','carousel.moving','autosampler.transfer'],
+'emergency.reset':['emergency.latched'],'tray.place':['autosampler.tray_occupied'],'tray.remove':['autosampler.tray_occupied'],'autosampler.load':['carousel.target_index','carousel.moving','autosampler.transfer'],'autosampler.unload':['carousel.target_index','carousel.moving','autosampler.transfer'],'method.advance':['acquisition.segment_index','acquisition.stage','acquisition.phase','acquisition.points','thermal.enabled','gas.selected','truth.heater_w'],'sim.step':list(SLOTS)}
 for k,v in EFFECTS.items():CAPS[k]['effects']=v
+_PANEL_EFFECTS=list(dict.fromkeys(x for c in (_panel_ui.spec_capabilities(PANEL_SPEC) if PANEL_SPEC else []) for x in CAPS[c]['effects']))
+for k in PANEL_CAPS:PANEL_CAPS[k]['effects']=[] if k in ('panel.capture','panel.frame') else list(_PANEL_EFFECTS)  # a gesture changes what the commands it calls change
+PANEL_LIMITATIONS=['面板层按panel_ui.json解释手势并调用本运行层的同名能力；Discovery触屏页面无公开操作手册，页面布局、标签与提示文字为近似（approximate），见panel_ui.json的assumptions。','手势不推进仿真时钟；长按无文档含义（按短按处理）；屏幕无超时。']
+def _panel_contract_entry(k):
+ """Contract fields of a panel.* capability that differ from the instrument commands."""
+ query=k in ('panel.capture','panel.frame')
+ return dict(preconditions=[] if query else [dict(description_zh='已声明plant（否则NOT_CONFIGURED）；关机时屏幕暗、只有电源开关起作用；被调用能力的前提同样适用，被拒时显示仪器的错误对话框且手势不被接受，状态不变。',state_ids=['plant.configured','power.enabled','acquisition.phase'],enforced_by='runtime',check='TaTga5500Runtime._panel_command')],
+  errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['NOT_CONFIGURED','INVALID_ARGUMENT','UNKNOWN_CAPABILITY','UNKNOWN_INSTANCE','ACCESS_DENIED','REQUEST_CONFLICT']],
+  model_effects=dict(mode='none',description_zh='屏幕纹理与按键关节触发属于后续Matterix步骤',binding_ids=[]),
+  execution=dict(mode='synchronous',time_domain='simulation',completion_criterion='手势瞬时完成：界面状态与被调用能力的效果立即生效；结果只说明是否被仪器接受，屏幕须用panel.capture查看' if not query else '查询即时返回，不改变状态',completion_state_ids=[],timeout_s=None,cancellation='unsupported',retry='same_request_id',resources=['host_clock'],partial_failure_zh='一次手势可调用多个能力；被拒的能力原子回滚并显示错误对话框，此前已执行的能力保留（与实机逐次按键一致）。'),
+  limitations=list(PANEL_LIMITATIONS),source_ids=['simulation_assumption'])
 ERRORS=['UNKNOWN_CAPABILITY','UNKNOWN_INSTANCE','UNKNOWN_OPERATION','INVALID_ARGUMENT','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','BUSY','NOT_RUNNING','INITIALIZATION_ONLY','MODEL_NOT_ACCEPTED','PLANT_CONFIGURATION','NOT_CONFIGURED','HOT_CELL','THERMAL_CONTROL_ACTIVE','MECHANISM_MOVING','CELL_NOT_ACCESSIBLE','ALREADY_LOADED','NOT_LOADED','INVALID_REFERENCE','CURVE_PROJECTION_NOT_ACCEPTED','COLD_EXTENSION_NOT_ACCEPTED','CONDITION_TRANSFER_NOT_ACCEPTED','REFERENCE_CONDITIONS_NOT_ACCEPTED','NO_GAS','NO_SAMPLE','NOT_READY','MODEL_FAULT','BALANCE_OVERLOAD','PAN_TEMPERATURE_RANGE','REFERENCE_TEMPERATURE_RANGE','THERMAL_MODEL_RANGE','PUNCH_DEMO_POSITION','TARE_REQUIRES_EMPTY_STABLE','SAMPLING_GRID','START_NOT_EQUILIBRATED','EMPTY_PROGRAM','PROGRAM_TOO_LONG','GAS_EXHAUSTED','TIMEOUT','SOFTWARE_STOP','ANALYSIS_DATA','ANALYSIS_BOUNDARIES','MIXING_DOMAIN']
 def export_ta_tga5500_contract_metadata():
  slots={};caps={}
  for k,v in SLOTS.items():slots[k]=dict(meaning_zh=v['meaning'],component_ids=[v['component']],value_schema=copy.deepcopy(v['schema']),unit=v['unit'],reference_conditions='SI. Gas volumes require explicit source reference absolute pressure/temperature. Isothermal chamber pressure is an engineering reference-volume proxy, not hot furnace pressure. Low/high mass resolution8e-12/6e-11kg is quantization, not accuracy.',origin=v['origin'],visibility=v['visibility'],access='read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'TaTga5500Session.read(state_ids=[{k!r}])'),write_via=None,sampling=dict(mode='instant',time_domain='simulation',window_description='Host0.1s fixed partition; <=0.01s implicit thermal/conservative gas steps plus program and finite inventory endpoints; queries never step.'),source_ids=['simulation_assumption'])
- for k,c in CAPS.items():
+ for k,c in ALL_CAPS.items():
   un=k in UNSUPPORTED;async_=k=='acquisition.start';caps[k]={key:copy.deepcopy(c[key]) for key in ['input_schema','output_schema','component_ids','function_zh','kind','visibility','example_arguments']};caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ['scene','robot','hardware'] else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.ta_tga5500.TaTga5500Session.invoke',invocation=f'session.invoke(instance_id="tga5500_01",capability_id={k!r},arguments={c["example_arguments"]!r},request_id="unique")'),preconditions=[] if c['kind'] in ['query','analysis'] or un else [dict(description_zh='冷态开炉和互锁、盘温域/真实源温域、显式假设、有限两气源和天平N2保护；拒绝原子无副作用',state_ids=['power.enabled','furnace.lower_m','sample.present','gas.opened','thermal.enabled','acquisition.phase'],enforced_by='runtime',check='atomic invoke and physical preconditions')],state_effects=[dict(state_id=x,timing='immediate',description_zh='实际命令即时变化') for x in c['effects']],observes=[],model_effects=dict(mode='none',description_zh='四关节/数字屏由独立场景验证；样品残渣无网格变化，自动盘转移不实现',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='完成有限温度目标段和保温；实际炉温及样品温度有热滞后，不保证化学转化完成' if async_ else '返回接受；运动/质量/热量等待宿主step',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','furnace','sample_pan','balance','N2','O2','carousel'],partial_failure_zh='取消/耗尽停止主动加热，保留残渣/氧/余热；后续由实际温度继续有限反应，冷却后不锁存高温失重目标。终态观测历史冻结。模型超域停止未校准反应而不回滚已发生变化。'),errors=[dict(code=x,meaning_zh=x,side_effects='partial' if async_ and x in ['GAS_EXHAUSTED','BALANCE_OVERLOAD','THERMAL_MODEL_RANGE','REFERENCE_TEMPERATURE_RANGE','TIMEOUT','SOFTWARE_STOP'] else 'none') for x in ERRORS],verification=[],limitations=['原始TGA曲线经明确接受的质量投影仅锚定工程失重目标，不是任意条件机理动力学','升温/气体/装样质量/盘配置迁移与未知Cp/G/tau/氧化参数均显式工程输入','厂家质量精密度与基线/ballistic指标不等于已验证模拟精度','HiRes/MTGA/逸出气鉴定与完整自动换盘未实现'],source_ids=['manufacturer_specs','simulation_assumption'])
-  if k in ['acquisition.start','acquisition.stop','emergency.stop','power.set','thermal.set_temperature','thermal.disable','thermal.set_cooling','furnace.set','carousel.index','punch.set','gas.set_open','gas.select']:caps[k]['state_effects'] += [dict(state_id=x,timing='on_step',description_zh='宿主推进温度/质量/独立观测/气体/关节') for x in SLOTS if x not in ['plant.configured','power.enabled','power.angle_rad','sample.present','emergency.latched']]
+  if k in ['acquisition.start','acquisition.stop','emergency.stop','power.set','thermal.set_temperature','thermal.disable','thermal.set_cooling','furnace.set','carousel.index','punch.set','gas.set_open','gas.select','method.advance','autosampler.load','autosampler.unload']:caps[k]['state_effects'] += [dict(state_id=x,timing='on_step',description_zh='宿主推进温度/质量/独立观测/气体/关节') for x in SLOTS if x not in ['plant.configured','power.enabled','power.angle_rad','sample.present','emergency.latched']]
+  if k in PANEL_CAPS:caps[k].update(_panel_contract_entry(k))
+  if k in ['tray.place','tray.remove','autosampler.load','autosampler.unload']:caps[k]['errors']+=[dict(code=e,meaning_zh=z,side_effects='none') for e,z in [('TRAY_POSITION_EMPTY','转盘位置没有样品盘'),('TRAY_POSITION_OCCUPIED','转盘位置已有样品盘'),('BALANCE_OCCUPIED','天平上已有样品盘'),('BALANCE_EMPTY','天平上没有样品盘'),('PAN_ALREADY_RUN','样品盘已测过（残渣），不再装载')]]
  mechanism=dict(component_ids=['controller','furnace','sample_pan','balance','gas_manifold'],state_ids=list(slots),meaning_zh='曲线锚定失重、有限氧化/两气体混合与开口焓守恒',implementation='lumped',equations=[
  'Raw experimental T,m/m0 arrays remain unchanged in reference.query. Explicit accepted transform: stable ascending T, first at duplicate T, normalize original first mass, clip[0,1], cummin. Every changed/removed point and max adjustment is recorded. This is a curve-anchored engineering proxy; variable-rate and atmosphere transfer are not Arrhenius kinetic prediction.',
  'L_ref(Ts)=m0*(1-interp(projected_mass_fraction,Ts)); dL=max(0,L_ref(Ts)-L)*(1-exp(-dt/tau)). Irreversible actual L, but target is NOT latched: cancelled hot sample can continue losing mass under residual heat; cooled sample with L_ref<L stops. Above measured T rejected/faulted; optional cold extension is flat initial response explicitly accepted.',
@@ -502,11 +656,11 @@ def export_ta_tga5500_contract_metadata():
  'Gas1 finite N2 supplies sample N2 plus independent balance N2. Gas2 finite O2 supplies sample only. dn=q_ref*p_ref/(R*T_ref)*dt. Chamber initial N2 is accounted. Fill the finite O2-consumption deficit first; remaining inlet performs exact exponential CSTR replacement exp(-dn/n_capacity), explicitly exhausting each species. Consumed O2 lowers total chamber moles/pressure until finite feed replenishes it; no free N2.',
  'Reference-volume chamber is isothermal at explicitly supplied mixing T; p=nRT/V is not furnace hot-gas pressure. Unknown evolved volatile mass is tracked separately without guessed molecular weight; pyrolysis gas composition, pressure and sensible gas transport are not solved.',
  'Es=(Cpan+mCp)*(Ts-Tamb); Ef=Cf*(Tf-Tamb). Emitted dm exports dm*Cp*(Ts_old-Tamb); incoming O2 has zero reference sensible enthalpy at ambient, explicit reaction heat q=dm_loss*h_loss+dm_O2*h_ox. Update finite sample energy, then solve the two-node thermal coupling implicitly. No Cp-change heat is invented.',
- 'Cf*dTf/dt=Pheater-Gambient*(Tf-Tamb)-Gcool*(Tf-Tamb)-Gs*(Tf-Ts); dEs/dt=Gs*(Tf-Ts)+reaction_heat-emitted_sensible. Heater=clip(K*(Tprogram-Tf),0,Pmax). Ambient/forced-cooling exchanges are signed. Gcool draws heat to ambient and cannot drive a passive body below ambient; heat removed remains in ledger. Whole-instrument1200W is NOT a measured heater rating.',
+ 'Cf*dTf/dt=Pheater-Gambient*(Tf-Tamb)-Gcool*(Tf-Tamb)-Gs*(Tf-Ts); dEs/dt=Gs*(Tf-Ts)+reaction_heat-emitted_sensible. Heater=clip(K*(Tcontrol-Tf),0,Pmax) with Tcontrol=(Tprogram/temperature_gain_correction+temperature_zero_k-temperature_offset_k)/temperature_gain: the controller holds the device reading (same affine map as the indicated temperatures) at the program temperature, so sensor errors and the stored temperature calibration move the furnace; identity with the default zero errors and no calibration. Ambient/forced-cooling exchanges are signed. Gcool draws heat to ambient and cannot drive a passive body below ambient; heat removed remains in ledger. Whole-instrument1200W is NOT a measured heater rating.',
  'Independent mass signal first-order approaches gain*(pan_mass+sample_mass)+offset; external calibration and empty-pan observed tare precede quantization8ng/60ng. Overload is unavailable, not a clipped sample truth. Furnace/sample temperatures are gain/offset observation proxies; no invented empirical noise or accuracy certification.',
  'analysis.mass_stages consumes external observed time/T/mass/blank and independently supplied initial weighed mass. Explicit index windows yield signed mass changes, residual fraction and finite-difference DTG peak midpoint temperatures. This does not identify chemistry, source true residue or kinetic activation energy.',
  'Pan domain: ceramic1473.15K, platinum1273.15K, aluminum873.15K, each ambient lower bound. The full furnace1200°C envelope is not valid for every pan. Linear ramp.01..500K/min; no unsupported ballistic algorithm.',
- 'Four engineering mechanisms: cold IR furnace vertical opening.11m;25-position shortest-path carousel;index1-only .016m punch demo;power. No pan reparenting/automatic transfer or physical lid rupture. Cold/load guards protect finite specimen and balance.'
+ 'Four engineering mechanisms: cold IR furnace vertical opening.11m;25-position shortest-path carousel;index1-only .016m punch demo;power. Autosampler load / unload move a carousel pan onto or off the balance as a logical transfer when the carousel reaches the position (no hook contact model or scene reparenting); a pan returned after heating holds its residue and is not reloaded; no physical lid rupture. Cold/load guards protect finite specimen and balance.'
  ],parameters={},source_ids=['manufacturer_specs','simulation_assumption','fsri_sta_2023','zenodo_23013247_phytochemical_tga'],limitations=['No OEM HiRes/MTGA/MS/FTIR proprietary algorithm or calibrated sensor noise.','Reaction enthalpy, Cp, conductance, relaxation and optional O2 kinetics explicitly assumed.','Finite balance N2 stream is accounted but thermal entrainment/buoyancy of purge is not modeled.','Loss species mass reservoir has no asserted molecular composition, chamber pressure feedback or ideal-gas conversion.','After a model-domain fault reactions halt until sample removal/reload; no unsupported extrapolation or free restoration.','Joint/mesh and Matterix multi-env validation are separate; no autonomous physical pan pickup.'])
  spec=importlib.util.spec_from_file_location('_tga_local_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update({k:v['meaning'] for k,v in SLOTS.items()});ann.annotate_export(SLUG,caps,slots,{'tga_conservation':mechanism},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE),'sample.load':(SAMPLE,SAMPLE_EXAMPLE),'gas.load':(GAS,GAS_EXAMPLE),'method.configure':(METHOD,METHOD_EXAMPLE),'sensor.calibrate':(CALIBRATION,CALIBRATION_EXAMPLE)})
  return dict(asset_type_id=ASSET_TYPE_ID,catalog_id=CATALOG_ID,capabilities=caps,state_slots=slots,mechanisms={'tga_conservation':mechanism})

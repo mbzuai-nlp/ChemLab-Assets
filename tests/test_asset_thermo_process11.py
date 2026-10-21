@@ -319,4 +319,11 @@ class LibraryTests(Process11Tests.__mro__[1]):
         h=r.ThermoProcess11Runtime();d=h.session().describe(instance_id=h.instance_id)['capabilities']
         self.assertIn('material.lookup',d);self.assertNotIn('material.load_reference',d)
         self.assertEqual(d and h.session().invoke(instance_id=h.instance_id,capability_id='material.load_reference',arguments=r.LOAD_REF_EXAMPLE,request_id='x')['error']['code'],'ACCESS_DENIED')
+    def test_documented_alarm_codes_injected_by_the_evaluator(self):
+        # Manual 6.19: ME004 (barrel safety switch) stops the drive and a timed run; no drive start until the cause is cleared
+        h=running();h.step(2);h.invoke('fault.inject',code='ME004');self.assertFalse(h.drive);self.assertEqual(h.phase,'failed')
+        self.assertEqual(h.read('agent')['alarms.active'],'ME004 Barrel safety switch tripped')
+        self.rejected(h,'drive.set_enabled',{'enabled':True})
+        self.assertEqual(h.invoke('fault.clear',code='ME004'),{'latched':[]});h.invoke('drive.set_enabled',enabled=True);self.assertTrue(h.drive)
+        s=h.session();self.assertEqual(s.invoke(instance_id=h.instance_id,capability_id='fault.inject',arguments={'code':'HE001'},request_id='f')['error']['code'],'ACCESS_DENIED')
 if __name__=='__main__':unittest.main()

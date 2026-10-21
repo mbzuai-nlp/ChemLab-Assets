@@ -81,6 +81,32 @@ INTERNAL_V = 2e-4                             # inlet / valve block volume of th
 STATES = ['off', 'run_up', 'standby', 'evacuation', 'measure', 'vent', 'calibration']
 FAULTS = ['filament_1_failure', 'both_filaments_failure', 'turbo_failure', 'scroll_pump_failure', 'sniffer_capillary_blocked', 'sniffer_capillary_broken',
           'internal_test_leak_empty', 'helium_contamination']
+# the other codes of the manual's list of errors and warnings (8.2, p.92-97) and their displayed message; the evaluator raises them by code (fault.inject):
+# a warning (W) shows until OK and the detector stays in stand-by or measurement (8.1); an error (E) interrupts the measurement (stand-by, valves
+# closed), is shown until Restart (new run-up) and returns while its cause is still present.  Their electrical causes are not modelled.
+MANUAL_CODES = {
+    'E03': 'Suppressor test failed', 'W03': 'Suppressor test failed', 'E04': 'Temperature monitoring, turbo molecular pump is defect',
+    'E05': 'Temperature monitoring, turbo molecular pump is defect', 'E07': 'TMP power supply faulty', 'E08': 'TMP acceleration time too high!',
+    'W16': 'Turbo molecular pump service interval expired!', 'W17': 'Forepump service interval expired!', 'W21': 'EEPROM write time out',
+    'W22': 'EEPROM parameter queue overflow', 'E23': '24V of the OPTION socket is too high', 'E24': '24V at socket OPTION is too low.',
+    'E25': 'Receded valve voltage too low (< 7V).', 'W28': 'Real time clock reset! Please enter date and time!',
+    'E29': '24V supply for fans is too low (< 20V).', 'E30': '24 V of the remote control is too low.',
+    'W31': 'The offset voltage of the preamplifier is too high (> 5mV).', 'W32': 'Preamplifier temperature is too high (> 60 C).',
+    'W33': 'Preamplifier temperature is too low (< 2 C).', 'E34': '24V voltage at MSV board is too low!', 'E35': 'Anode-cathode voltage is too high!',
+    'E36': 'Anode-cathode voltage is too low.', 'E37': 'Suppressor voltage reference value too high!', 'E38': 'Suppressor potential too high!',
+    'E39': 'Suppressor potential is too low.', 'E40': 'The anode potential exceeds its nominal value by over 10%!',
+    'E41': 'The anode potential has dropped below its nominal value by over 10%!', 'E42': 'Nominal value of the anode potential is too high!',
+    'E43': 'Cathode current is too high!', 'E44': 'Cathode current is too low!', 'W46': 'Emission for cathode 2 can not be switched on!',
+    'E48': 'Anode heater is faulty!', 'E50': 'No communication with turbo pump.', 'W53': 'Temperature at electronic unit is too high (>55 C)',
+    'E54': 'Temperature at electronic unit is too high (>60 C).', 'W55': 'Temperature at electronic unit is too low (< 2 C)',
+    'E56': 'Inlet pressure p1 too low!', 'E58': 'Foreline pressure p2 too low!', 'E60': 'p2 > 10 mbar after 5 minutes since power on',
+    'E61': 'Emission fail.', 'E73': 'Emission off (p2 too high)', 'W77': 'Peak not in Range',
+    'W78': 'Differences of signal between test leak open and closed is too low.', 'W79': 'Signal of test leak is too small',
+    'W83': 'All EEPROM parameter lost. Please check your settings.', 'W85': 'Lost EEPROM parameter! Please check your settings!',
+    'W86': 'AC/DC factor too low', 'W87': 'AC/DC factor too high'}
+MAX_INJECTED = 10                             # simultaneously injected manual codes (the state lists hold at most 16 entries)
+RS232_CONTROL = ('rs232', 'all', 'local_rs232')   # control locations that accept commands over RS232 (interface description 1.1; manual 6.6.4.1)
+SIM_CONTROL_LOCATION = 'local_rs232'          # the simulated unit is set up for computer control (assumption; the factory default is Local)
 ZERO_MODES = ['manual', 'i_zero', 'zero_at_ultra', 'disabled']
 MAX_LEAKS = 12
 MAX_EVENTS_LOG = 2000
@@ -132,13 +158,13 @@ def outgassing_q(mat, t_s):
     return m['q_pa_m3_s_m2']
 
 
-def mantissa_exponent(q_pa_m3_s):
-    """Display form in mbar l/s: mantissa 1.0-9.9 and the decimal exponent."""
+def mantissa_exponent(q_pa_m3_s, decimals=1):
+    """Display form in mbar l/s: mantissa 1.0-9.9 (menu View > Decimal places: 1 or 2 decimals) and the decimal exponent."""
     if q_pa_m3_s is None or q_pa_m3_s <= 0:
         return None, None
     v = q_pa_m3_s / MBAR_L
     e = math.floor(math.log10(v))
-    m = round(v / 10 ** e, 1)
+    m = round(v / 10 ** e, decimals)
     if m >= 10.0:
         m, e = 1.0, e + 1
     return m, e
@@ -280,8 +306,10 @@ cap('events.read', obj(dict(since_s=number('s', 0.0))), obj(dict(events=array(EV
 cap('truth.inspect', obj({}), obj(dict(gas=FREE_OBJ, detector=FREE_OBJ, leaks=FREE_OBJ, faults=array(TEXT, 0, 16))), {}, _BODY,
     '评测者读取过程真值：被测件总压、氦分压、出气负荷、各漏孔真实氦/空气流量与通道延迟、内部背景、真实灵敏度与校准误差', 'evaluator', 'query')
 cap('ledger.read', obj({}), obj(dict(ledger=FREE_OBJ)), {}, _BODY, '氦与总气体（Pa·m³）的守恒账', 'evaluator', 'query')
-cap('fault.inject', obj(dict(fault=enum(FAULTS), active=BOOL)), obj(dict(faults=array(TEXT, 0, 16))), dict(fault='filament_1_failure', active=True), _BODY,
-    '故障注入：灯丝1断（切到灯丝2，W45）、两灯丝断（E47）、涡轮泵故障（E52）、涡旋泵故障、吸枪毛细管堵（W62）/断（W63）、内置校准漏孔耗尽（W81）、质谱室氦污染（背景升高）', 'evaluator', 'simulation')
+cap('fault.inject', obj(dict(fault=enum(FAULTS + list(MANUAL_CODES)), active=BOOL)), obj(dict(faults=array(TEXT, 0, 16))), dict(fault='filament_1_failure', active=True), _BODY,
+    '故障注入：灯丝1断（切到灯丝2，W45）、两灯丝断（E47）、涡轮泵故障（E52）、涡旋泵故障、吸枪毛细管堵（W62）/断（W63）、内置校准漏孔耗尽（W81）、质谱室氦污染（背景升高）；'
+    '以及手册8.2列表的其余代码（E03–E08、W16–W33、E34–E44、W46、E48、E50、W53–E61、E73、W77–W79、W83–W87）：警告显示到按OK、检漏仪保持待机或测量；'
+    '错误中断测量（待机、阀关闭）、显示到Restart（重新启动），原因未撤销时再出现；active=false撤销原因（同时最多10个手册代码）', 'evaluator', 'simulation')
 cap('sim.step', obj(dict(dt_s=number('s', 0.0, 86400.0))), obj(dict(time_s=number('s'))), dict(dt_s=60.0), _BODY, '宿主推进仿真时钟', 'evaluator', 'simulation')
 UNSUPPORTED = {
     'auto_leak_test.run': 'Auto Leak Test模式需要选配的TC1000测试室（未选）。', 'remote.rc1000': 'RC1000遥控器为选件（未选）。',
@@ -289,6 +317,127 @@ UNSUPPORTED = {
 }
 for _k, _v in UNSUPPORTED.items():
     cap(_k, obj({}), obj({}), {}, _BODY, _v, 'agent', 'device_command')
+
+
+# ---------------------------------------------------------------- softkey menu (operating manual chapters 5-8): device settings and functions
+ASSET_VERSION = '1.3.0'
+PRESSURE_UNITS = {'mbar': 100.0, 'Pa': 1.0, 'Torr': 133.322368, 'atm': 101325.0}                      # Pa per unit (manual 6.4.4)
+LEAK_UNITS = {'mbar l/s': 0.1, 'Pa m3/s': 1.0, 'Torr l/s': 0.133322368, 'atm cc/s': 0.101325}      # Pa m3/s per unit
+SNIFF_UNITS = ['ppm', 'g/a eq', 'oz/yr eq']                                                       # sniff mode only (R134a equivalent)
+M_R134A = 0.10203                                                                                 # kg/mol (PubChem CID 13129)
+LANGUAGES = ['English', 'German', 'French', 'Italian', 'Spanish', 'Polish', 'Chinese', 'Japanese', 'Korean']
+TIME_AXIS_S = [16, 32, 64, 128, 256, 512, 960]
+RECORDER_SIGNALS = ['off', 'p1', 'p2', 'lr_lin', 'lr_log', 'lr_mantissa', 'lr_exponent']
+RECORDER_SCALES_V = [0.5, 1.0, 2.0, 2.5, 5.0, 10.0]
+VACUUM_RANGES = ['normal', 'ultra_only', 'fine_only', 'softpump']
+CONTROL_LOCATIONS = ['local', 'plc', 'rs232', 'all', 'local_plc', 'local_rs232']
+RS232_PROTOCOLS = ['diagnostics', 'printer', 'leakware', 'ascii']
+AUDIO_ALARMS = ['pinpoint', 'leak_rate_prop', 'setpoint', 'trigger_alarm']
+PURGE_S = 20.0                                                                                    # manual 5.3.1 / 6.6.1.1
+EPOCH0 = 1767225600.0                                                                             # device clock at t = 0 (2026-01-01 00:00)
+PIN = integer(0, 9999)                                                                            # 4-digit PIN as a number (0000 = no PIN)
+
+
+def default_settings():
+    """Factory settings of settings.configure (manual 2.5 default parameters)."""
+    return dict(trigger_1_pa_m3_s=DOC['trigger_1_pa_m3_s'], trigger_2_pa_m3_s=DOC['trigger_2_pa_m3_s'], mode='vacuum', zero_mode='manual',
+                background_suppression=True, vent_delay_s=DOC['vent_delay_s'], max_evacuation_s=DOC['max_evacuation_s'], alarm_delay_s=DOC['alarm_delay_s'],
+                machine_factor=1.0, data_log_period_s=1.0, max_evacuation_100mbar_s=30.0, calibration_request=False)
+
+
+MENU_DEFAULTS = dict(
+    scale='log', decades=4, range_auto=True, range_upper_exp=-5, time_axis_s=32, contrast=50, invert=False, background_standby=False, decimals=1,
+    lower_display_limit_exp=-12, volume=2, min_volume=0, beep=True, pressure_unit='mbar', leak_unit='mbar l/s', alarm_delay_infinite=False,
+    audio_alarm='trigger_alarm', auto_purge=True, no_vent=False, vacuum_ranges='normal', internal_test_leak_pa_m3_s=ENG['internal_test_leak_pa_m3_s'],
+    external_test_leak_vacuum_pa_m3_s=DOC['external_test_leak_vacuum_pa_m3_s'], external_test_leak_sniff_pa_m3_s=1e-5 * MBAR_L, control_location='local',
+    rs232_protocol='ascii', recorder_1='lr_log', recorder_2='p1', recorder_scale_v=0.5, recorder_upper_exp=6, language='English',
+    leak_rate_filter='i_cal', mains_hz=50, filter_interval_h=2000, filter_message=False, particle_protection=False, contamination_protection=False,
+    contamination_limit_pa_m3_s=1e-3 * MBAR_L, evac_gross_pa=P_MAX_IN, gross_fine_pa=RANGES['FINE']['p_max_pa'], sniff_p_max_pa=DOC['sniff_inlet_window_pa'][1],
+    sniff_p_min_pa=DOC['sniff_inlet_window_pa'][0], evac_100mbar_endless=False, evac_15mbar_endless=False, cal_access=True, trigger_access=False)
+
+
+def _int_enum(unit, items):
+    return {'type': 'integer', 'x-unit': unit, 'minimum': min(items), 'maximum': max(items), 'enum': list(items)}
+
+
+MENU = obj(dict(
+    scale=enum(['log', 'linear']), decades=integer(2, 9), range_auto=BOOL, range_upper_exp=integer(-11, 3), time_axis_s=_int_enum('s', TIME_AXIS_S),
+    contrast=integer(0, 99), invert=BOOL, background_standby=BOOL, decimals=integer(1, 2), lower_display_limit_exp=integer(-12, -5), volume=integer(0, 15),
+    min_volume=integer(0, 15), beep=BOOL, pressure_unit=enum(list(PRESSURE_UNITS)), leak_unit=enum(list(LEAK_UNITS) + SNIFF_UNITS), alarm_delay_infinite=BOOL,
+    audio_alarm=enum(AUDIO_ALARMS), auto_purge=BOOL, no_vent=BOOL, vacuum_ranges=enum(VACUUM_RANGES),
+    internal_test_leak_pa_m3_s=number('Pa m3/s', 1e-12, 1e-3), external_test_leak_vacuum_pa_m3_s=number('Pa m3/s', 1e-12, 1e-3),
+    external_test_leak_sniff_pa_m3_s=number('Pa m3/s', 1e-10, 1e-1), control_location=enum(CONTROL_LOCATIONS), rs232_protocol=enum(RS232_PROTOCOLS),
+    recorder_1=enum(RECORDER_SIGNALS), recorder_2=enum(RECORDER_SIGNALS), recorder_scale_v=dict(number('V/decade', 0.5, 10.0), enum=RECORDER_SCALES_V),
+    recorder_upper_exp=integer(-12, 6), language=enum(LANGUAGES), leak_rate_filter=enum(['fixed', 'i_cal']), mains_hz=_int_enum('Hz', [50, 60]),
+    filter_interval_h=integer(500, 4000), filter_message=BOOL, particle_protection=BOOL, contamination_protection=BOOL,
+    contamination_limit_pa_m3_s=number('Pa m3/s', 1e-12, 1.0), evac_gross_pa=number('Pa', 300.0, 1500.0), gross_fine_pa=number('Pa', 50.0, 200.0),
+    sniff_p_max_pa=number('Pa', 10.0, 200.0), sniff_p_min_pa=number('Pa', 2.0, 100.0), evac_100mbar_endless=BOOL, evac_15mbar_endless=BOOL, cal_access=BOOL,
+    trigger_access=BOOL), optional=tuple(MENU_DEFAULTS))
+TERMINAL_CAPS = {}                                                     # softkey-menu functions (1.1.0); kept apart from CAPS (the 1.0 command set)
+
+
+def tcap(k, s, o, e, c, meaning, kind='device_command'):
+    TERMINAL_CAPS[k] = dict(input_schema=s, output_schema=o, example_arguments=e, component_ids=c, function_zh=meaning, visibility='agent', kind=kind)
+
+
+_MENU_KEYS = ['lcd_display', 'soft_pads']
+tcap('menu.configure', MENU, obj(dict(menu=FREE_OBJ)), dict(volume=5), _MENU_KEYS,
+     '软键菜单的设备设置：View（刻度线性/对数与十进数、显示范围自动/手动、趋势时间轴、对比度/反色、待机显示背景、小数位、显示下限）、Trigger & Alarms（音量与最小音量、按键音、'
+     '压力与漏率单位、无限报警延时、报警音类型）、Vacuum settings（自动吹扫、不放气、真空档位方式、内置校准漏孔漏率、外部校准漏孔漏率）、Interfaces（控制位置、RS232协议、'
+     '记录仪输出与刻度）、Miscellaneous（语言、漏率滤波、电源频率、排气过滤器维护间隔与提示）、Monitoring（颗粒保护、污染保护与限值、换档压力、吸枪压力上下限、'
+     '抽空时间无限）、Access Control（CAL直接访问、Trigger&Alarms访问）；只给出要改的键', 'configuration')
+tcap('clock.set', obj(dict(year=integer(2000, 2099), month=integer(1, 12), day=integer(1, 31), hour=integer(0, 23), minute=integer(0, 59))),
+     obj(dict(datetime=TEXT)), dict(year=2026, month=10, day=19, hour=8, minute=30), _MENU_KEYS, 'Settings > Miscellaneous > Time&Date（手册6.6.5.1）：设置设备日期与时间')
+tcap('access.set_pin', obj(dict(kind=enum(['device', 'menu']), pin=PIN)), obj(dict(kind=TEXT, active=BOOL)), dict(kind='menu', pin=1234), _MENU_KEYS,
+     'Access Control > Change Device PIN / Change Menu-PIN（手册6.8.3–6.8.4）：0000为不设PIN；Device-PIN开机时询问，Menu-PIN进菜单时询问')
+tcap('device.unlock', obj(dict(pin=PIN)), obj(dict(unlocked=BOOL)), dict(pin=1234), _MENU_KEYS,
+     '开机输入Device-PIN（手册6.8.3：设了PIN时，输入正确前检漏仪不启动泵，run-up不开始）')
+tcap('parameters.save', obj(dict(slot=integer(1, 3), name=dict(type='string', minLength=1, maxLength=12, pattern='^[A-Z0-9 ._-]+$'))),
+     obj(dict(slot=integer(1, 3), name=TEXT)), dict(slot=1, name='LINE A'), _MENU_KEYS, 'Settings > Parameter save / load > Save（手册6.6.6）：把当前设置存到3组之一并命名')
+tcap('parameters.load', obj(dict(slot=integer(1, 3))), obj(dict(settings=FREE_OBJ, menu=FREE_OBJ)), dict(slot=1), _MENU_KEYS,
+     'Settings > Parameter save / load > Load：载入已存的参数组（测量中不能借此切换真空/吸枪模式）')
+tcap('parameters.load_defaults', obj({}), obj(dict(settings=FREE_OBJ, menu=FREE_OBJ)), {}, _MENU_KEYS,
+     'Settings > Parameter save / load > load default values：载入出厂参数（手册2.5），PIN不变')
+tcap('purge.set', obj(dict(on=BOOL)), obj(dict(on=BOOL)), dict(on=True), ['scroll_pump', 'soft_pads'],
+     '待机中软键7手动吹扫涡旋泵（手册5.3.1：再按停止，START也停止）')
+tcap('warning.acknowledge', obj({}), obj(dict(acknowledged=array(TEXT, 0, 16))), {}, _MENU_KEYS,
+     '警告/错误信息按OK（软键8）确认：信息从屏上消失，警告三角在原因消除前保留（手册8.1）')
+tcap('system.restart', obj({}), obj(dict(state=TEXT)), {}, _MENU_KEYS, '错误信息按Restart（软键8）：检漏仪重新启动（约3 min run-up，手册8.1）')
+tcap('calibration.proceed', obj({}), obj(dict(stage=TEXT)), {}, _MENU_KEYS,
+     '吸枪模式外部校准第6步（手册7.2.2；RS232第二个*CAL）：关闭外部校准漏孔（把吸枪移开）后按OK（软键8），检漏仪等背景稳定后计算新的吸枪校准因子')
+SNIFF_CAL_STEP_S = 15.0                                                    # each sniff calibration step (open leak, closed leak) settles for 15 s (assumption)
+ALL_CAPS = {**CAPS, **TERMINAL_CAPS}
+
+
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.inficon_ul1000fab (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import importlib.util
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec = importlib.util.spec_from_file_location('_chemsim_panel_ui', Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui'] = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+
+
+_panel_ui = _panel_engine()
+PANEL_SPEC = _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(ALL_CAPS))
+PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC)                    # panel.press / capture / frame
+PANEL_GESTURES = [k for k in PANEL_CAPS if k not in ('panel.capture', 'panel.frame')]
+_PANELS = __import__('weakref').WeakKeyDictionary()                           # runtime -> its panel (kept out of the runtime's own data)
+NAME_CHARS = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
+
+
+def _hook_name(panel, ctx, s):
+    """Parameter-set name typed character by character on the softkeys (vars name_0 ... name_11 hold indexes into NAME_CHARS)."""
+    text = ''.join(NAME_CHARS[int(panel.ui['vars'].get(f'name_{i}') or 0) % len(NAME_CHARS)] for i in range(12)).strip()
+    return text or 'SET'
+
+
+PANEL_HOOKS = {'name_text': _hook_name}
 
 
 # ---------------------------------------------------------------- state slots
@@ -327,6 +476,20 @@ slot('truth.gas', FREE_OBJ, '1', 'process_truth', 'inlet_flange', '气体真值�
 slot('truth.detector', FREE_OBJ, '1', 'process_truth', 'mass_spectrometer', '检测器真值：进入质谱的氦流量、内部背景、真实/校准灵敏度、未经扣除的信号', 'evaluator')
 slot('truth.leaks', FREE_OBJ, '1', 'process_truth', 'inlet_flange', '各漏孔真值：氦与空气流量、通道导率与延迟、喷氦状态', 'evaluator')
 slot('truth.faults', array(TEXT, 0, 16), '1', 'process_truth', 'detector_body', '已注入的故障', 'evaluator')
+slot('menu.settings', FREE_OBJ, '1', 'setpoint', 'lcd_display', '软键菜单的设备设置（显示、单位、声音、真空、接口、杂项、监控、访问；不含PIN）')
+slot('device.datetime', TEXT, '1', 'derived', 'lcd_display', '设备日期时间（ISO 8601，设备本地钟）')
+slot('access.device_locked', BOOL, '1', 'derived', 'lcd_display', '开机后等待Device-PIN（输入正确前不启动泵）')
+slot('access.pins_set', obj(dict(device=BOOL, menu=BOOL)), '1', 'setpoint', 'lcd_display', '是否设了Device-PIN / Menu-PIN（PIN本身不可读）')
+slot('parameters.sets', array(nullable(FREE_OBJ), 3, 3), '1', 'setpoint', 'lcd_display', '3个参数组（名称与保存时间；空为未保存）')
+slot('calibration.history', array(FREE_OBJ, 0, 50), '1', 'derived', 'internal_test_leak', '校准历史（时间、内部/外部、旧因子、新因子、是否接受）')
+slot('calibration.factor_sniff', number('1'), '1', 'derived', 'cal_key', '吸枪模式校准因子（相对出厂灵敏度；吸枪模式外部校准更新，真空模式用calibration.factor）')
+slot('leak.hold_pa_m3_s', nullable(number('Pa m3/s')), 'Pa m3/s', 'derived', 'lcd_display', '最大值保持（测量中再按START）：开启以来的最大显示漏率；未开启为空')
+slot('purge.active', BOOL, '1', 'derived', 'scroll_pump', '涡旋泵吹扫进行中（待机20 s后自动吹扫20 s，或软键7手动）')
+slot('recorder.output_v', array(number('V', 0.0, 10.0), 2, 2), 'V', 'derived', 'connector_plate', '记录仪两路输出电压（按菜单信号与刻度，10 mV分辨率）')
+slot('audio.tone', obj(dict(on=BOOL, hz=nullable(number('Hz')), volume=integer(0, 15))), '1', 'derived', 'display_panel',
+     '扬声器：是否发声、频率（多音报警为空）与音量（按报警类型与触发阈值1）')
+slot('service.exhaust_filter_h', number('h'), 'h', 'derived', 'scroll_pump', '排气过滤器自上次维护起的运行小时')
+slot('alarms.unacknowledged', array(TEXT, 0, 16), '1', 'derived', 'lcd_display', '屏上尚未按OK确认的警告/错误')
 SCENE_MIRRORED = {'display.angle_rad', 'display.leak_mantissa', 'display.leak_exponent', 'indicator.reject', 'indicator.ready'}
 
 
@@ -363,12 +526,12 @@ class InficonUl1000fabRuntime:
         self.auto_zero = 0.0
         self.s_cal = 1.0                                   # calibrated sensitivity (relative)
         self.cal_factor = 1.0
+        self.s_cal_sniff = 1.0                             # sniff mode has its own calibration factor (RS232 manual: calibration factor sniff, mass 4)
+        self.cal_factor_sniff = 1.0
         self.cal = None
         self.angle = 0.0
         self.alarm_since = None
-        self.settings = dict(trigger_1_pa_m3_s=DOC['trigger_1_pa_m3_s'], trigger_2_pa_m3_s=DOC['trigger_2_pa_m3_s'], mode='vacuum', zero_mode='manual',
-                             background_suppression=True, vent_delay_s=DOC['vent_delay_s'], max_evacuation_s=DOC['max_evacuation_s'], alarm_delay_s=DOC['alarm_delay_s'],
-                             machine_factor=1.0, data_log_period_s=1.0, max_evacuation_100mbar_s=30.0, calibration_request=False)
+        self.settings = default_settings()
         self.filament = 1
         self.faults = set()
         self.warnings = {}
@@ -379,6 +542,19 @@ class InficonUl1000fabRuntime:
                         gas_outgassing=0.0, gas_vent_in=0.0, gas_pumped=0.0, gas_vent_out=0.0, he_removed_with_part=0.0, gas_removed_with_part=0.0, he_added_with_part=0.0,
                         gas_added_with_part=0.0)
         self._principals, self._requests, self._caller = {}, {}, None
+        # softkey menu functions (operating manual chapters 5-8)
+        self.menu = dict(MENU_DEFAULTS, control_location=SIM_CONTROL_LOCATION)   # factory Local; the simulated unit accepts RS232 commands too
+        self.pins = dict(device=0, menu=0)
+        self.locked = False
+        self.param_sets = [None, None, None]
+        self.cal_history = []
+        self.hold_on, self.hold_max = False, None
+        self.purge_on, self.purge_end, self.purge_due = False, None, None
+        self.filter_h = 0.0
+        self.ack = set()
+        self.clock_offset = EPOCH0
+        self.power_epoch = 0
+        self.panel_capture_dir = None
 
     # ---- sessions
     @property
@@ -414,7 +590,7 @@ class InficonUl1000fabRuntime:
         self._need_power()
         if self.state == 'run_up':
             raise ActionRejected('RUNNING_UP')
-        if 'both_filaments_failure' in self.faults or 'turbo_failure' in self.faults:
+        if 'both_filaments_failure' in self.faults or 'turbo_failure' in self.faults or any(f[0] == 'E' for f in self.faults & set(MANUAL_CODES)):
             raise ActionRejected('DETECTOR_FAULT')
 
     # ---- gas system
@@ -457,11 +633,29 @@ class InficonUl1000fabRuntime:
         if 'scroll_pump_failure' in self.faults:
             return 0.0, 0.0
         if st in ('evacuation',) or (st == 'calibration' and self.range is None):
-            return S_ROUGH, S_ROUGH
+            if self.menu['particle_protection'] and self.p1 >= 100.0:          # manual 6.6.7: no pumping before the inlet is below 1 mbar
+                return 0.0, 0.0
+            return self._s_rough(), self._s_rough()
         rng = self.range or 'GROSS'
         if rng == 'ULTRA':
             return ENG['air_speed_ultra_m3_s'], S_HE['ULTRA']
-        return S_ROUGH, S_HE[rng]
+        return self._s_rough(), S_HE[rng]
+
+    def _s_rough(self):
+        """Scroll-pump speed at the inlet: 60 Hz mains about 20 % faster (manual 6.6.5.4); SOFTPUMP keeps V1a closed in GROSS / FINE (about half)."""
+        s = S_ROUGH * (1.2 if self.menu['mains_hz'] == 60 else 1.0)
+        return s * (0.5 if self.menu['vacuum_ranges'] == 'softpump' and self.range != 'ULTRA' else 1.0)
+
+    def _thr(self):
+        """Switching points EVAC-GROSS, GROSS-FINE, FINE-ULTRA (Pa); menu Monitoring functions: FINE-ULTRA follows GROSS-FINE (manual 6.6.7)."""
+        m = self.menu
+        return m['evac_gross_pa'], m['gross_fine_pa'], RANGES['ULTRA']['p_max_pa'] * m['gross_fine_pa'] / RANGES['FINE']['p_max_pa']
+
+    def _evac_timeout(self):
+        """Two-stage gross-leak check (manual 6.6.7 Maximum evacuation time; 'endless' switches a stage off)."""
+        m, st = self.menu, self.settings
+        return (not m['evac_100mbar_endless'] and self.p1 >= 1e4 and self.evac_s > st['max_evacuation_100mbar_s']) or \
+            (not m['evac_15mbar_endless'] and self.evac_s > st['max_evacuation_s'])
 
     def _outgas(self):
         if not self.part or self.sniffer or self.part['surface_area_m2'] <= 0:
@@ -490,7 +684,8 @@ class InficonUl1000fabRuntime:
         pa = self.plant['pressure_pa']
         # ---- state timers
         if self.state == 'run_up':
-            self.timer -= h
+            if not self.locked:                                              # manual 6.8.3: without the Device-PIN the pumps do not start
+                self.timer -= h
             if self.timer <= 1e-9:
                 self.state, self.timer, self.standby_s = 'standby', 0.0, 0.0
                 self._event('operation', 'READY', '启动完成，待机')
@@ -586,27 +781,34 @@ class InficonUl1000fabRuntime:
             self.pump_s = 0.0
             self._event('operation', 'VENTED', '入口已放气')
         # ---- autoranging
+        thr = self._thr()
+        vr = self.menu['vacuum_ranges']
         if self.state == 'calibration' and self.range is None:               # calibration from standby: pump the inlet down first (as START), then autorange
             self.evac_s += h
-            if self.p1 < P_MAX_IN:
+            if self.p1 < thr[0]:
                 self.range, self.range_s = 'GROSS', 0.0
-            elif (self.p1 >= 1e4 and self.evac_s > self.settings['max_evacuation_100mbar_s']) or self.evac_s > self.settings['max_evacuation_s']:
+            elif self._evac_timeout():
                 self.cal = None
                 self.state, self.range = 'standby', None
                 self.warnings_latch = 'W76'
                 self._event('alarm', 'W76', '校准抽空超时（大漏或设置过短），校准中止')
         if self.state == 'evacuation' and not self.sniffer:
-            if self.p1 < P_MAX_IN:
+            if self.p1 < thr[0]:
                 self.state, self.range, self.measure_s, self.range_s = 'measure', 'GROSS', 0.0, 0.0
                 self._event('operation', 'MEASURE_GROSS', '入口压力低于15 mbar：GROSS测量')
-            elif (self.p1 >= 1e4 and self.evac_s > self.settings['max_evacuation_100mbar_s']) or self.evac_s > self.settings['max_evacuation_s']:
+            elif self._evac_timeout():
                 self.state, self.range = 'standby', None                    # two-stage gross-leak check (manual: p1 < 100 mbar within 30 s, < 15 mbar within the maximum time)
                 self.warnings_latch = 'W76'
                 self._event('alarm', 'W76', '超过最长抽空时间（大漏或设置过短）')
         self.range_s = getattr(self, 'range_s', 0.0) + h
-        if self.state in ('measure', 'calibration') and self.range is not None and not self.sniffer and (self.range_s >= ENG['range_dwell_s'] or self.p1 >= P_MAX_IN * 1.02):
-            for rng, (lo, hi) in (('ULTRA', (None, RANGES['ULTRA']['p_max_pa'])), ('FINE', (RANGES['ULTRA']['p_max_pa'], RANGES['FINE']['p_max_pa'])),
-                                  ('GROSS', (RANGES['FINE']['p_max_pa'], P_MAX_IN))):
+        if self.state == 'measure' and not self.sniffer and ((vr == 'ultra_only' and self.range == 'ULTRA' and self.p1 > thr[2] * 1.10)
+                                                             or (vr == 'fine_only' and self.range == 'FINE' and self.p1 > 100.0)):
+            self.state, self.range = 'evacuation', None                     # manual 6.6.1.3: ULTRA ONLY / FINE ONLY fall back to evacuation
+            self._event('operation', 'RANGE_EVACUATION', 'ULTRA ONLY / FINE ONLY：入口压力回升，回到抽空')
+        if self.state in ('measure', 'calibration') and self.range is not None and not self.sniffer and (self.range_s >= ENG['range_dwell_s'] or self.p1 >= thr[0] * 1.02):
+            ladder = ((('ULTRA', (None, thr[2])), ('FINE', (thr[2], thr[1]))) if vr != 'fine_only' else (('FINE', (None, thr[1])),)) + \
+                (('GROSS', (thr[1], thr[0])),)                               # FINE ONLY: the unit stays in FINE (manual 4.3.1, 6.6.1.3)
+            for rng, (lo, hi) in ladder:
                 if self.p1 < hi * (0.98 if rng != self.range else 1.10) and (lo is None or self.p1 >= lo * (0.90 if rng == self.range else 1.0)):
                     if rng != self.range:
                         order = ['GROSS', 'FINE', 'ULTRA']
@@ -621,7 +823,7 @@ class InficonUl1000fabRuntime:
                             self._do_zero()
                     break
             else:
-                if self.p1 >= P_MAX_IN * 1.02:
+                if self.p1 >= thr[0] * 1.02:
                     self.range = None
                     if self.state == 'measure':
                         self.state = 'evacuation'
@@ -634,17 +836,18 @@ class InficonUl1000fabRuntime:
                         self.cal['t'] = 0.0                                    # baseline restarts after the pump-down
         # ---- detector signal (helium flow into the mass spectrometer)
         q_det = S_he * self.p_he if (self.state == 'measure' or (self.state == 'calibration' and self.range is not None)) else 0.0
-        if self.sniffer and self.state == 'measure':
-            q_det = self._sniff_signal()
+        if self.sniffer and (self.state == 'measure' or (self.state == 'calibration' and self.range is not None)):
+            q_det = self._sniff_signal()                                     # sniff mode (also during its external calibration)
         if self.cal and self.cal['kind'] == 'internal':
             q_det += self._test_leak_now() if self.cal['stage'] == 'open' else 0.0
         if 'helium_contamination' in self.faults:
             self.bg = max(self.bg, 1e-8 * MBAR_L)
         self.bg += (ENG['internal_background_floor_pa_m3_s'] - self.bg) * (1 - math.exp(-h / ENG['internal_background_tau_s'])) + ENG['internal_background_gain'] * q_det * h * 1e-3
-        raw = (q_det + self.bg) * self._s_true() / self.s_cal if self.powered and (self.state == 'measure' or (self.state == 'calibration' and self.range is not None)) else 0.0
+        raw = (q_det + self.bg) * self._s_true() / self._s_cal() if self.powered and (self.state == 'measure' or (self.state == 'calibration' and self.range is not None)) else 0.0
         if 'both_filaments_failure' in self.faults:
             raw = 0.0
-        self.sig += (raw - self.sig) * (1 - math.exp(-h / (0.8 * DOC['signal_time_constant_s'])))
+        tau_f = DOC['signal_time_constant_s'] * (0.8 if self.menu['leak_rate_filter'] == 'i_cal' else 1.0)   # menu Leak rate filter: I-CAL or Fixed
+        self.sig += (raw - self.sig) * (1 - math.exp(-h / tau_f))
         if self.zero_on and self.sig - self.auto_zero < self.zero0:          # manual 4.2.2.4: the zero level follows a falling signal and then holds
             self.zero0 = max(self.sig - self.auto_zero, 0.0)
         if self.auto_zero > self.sig and self.state == 'measure':
@@ -663,6 +866,24 @@ class InficonUl1000fabRuntime:
                                  status=self._status(disp), alarms=sorted(self.warnings)))
             del self.log[:-MAX_LOG]
             self.next_log = self.t + h + self.settings['data_log_period_s']
+        # ---- menu functions: exhaust-filter hours, purge, maximum hold, contamination protection
+        if self.powered:
+            self.filter_h += h / 3600.0
+        if self.state != 'standby':
+            self.purge_due = None
+            self.purge_on, self.purge_end = (False, None) if self.purge_on else (self.purge_on, self.purge_end)
+        elif self.purge_due is not None and self.t + h >= self.purge_due - 1e-9:
+            self.purge_on, self.purge_end, self.purge_due = True, self.purge_due + PURGE_S, None
+        if self.purge_on and self.purge_end is not None and self.t + h >= self.purge_end - 1e-9:
+            self.purge_on, self.purge_end = False, None
+        if self.state == 'measure' and (self.hold_on or self.menu['contamination_protection']):
+            d = self._display_value_at(self.tick + 1)
+            if self.hold_on and d is not None and (self.hold_max is None or d > self.hold_max):
+                self.hold_max = d
+            if self.menu['contamination_protection'] and not self.sniffer and d is not None and d > self.menu['contamination_limit_pa_m3_s']:
+                self.state, self.range, self.standby_s = 'standby', None, 0.0    # manual 6.6.7: all inlet valves close (W15)
+                self.warnings_latch = 'W15'
+                self._event('alarm', 'W15', '漏率超过污染保护限值，检漏仪切到待机')
 
     def _capillary_factor(self):
         return 0.05 if 'sniffer_capillary_blocked' in self.faults else 5.0 if 'sniffer_capillary_broken' in self.faults else 1.0
@@ -680,6 +901,13 @@ class InficonUl1000fabRuntime:
                     q_out = lk['helium_leak_rate_pa_m3_s'] * fill / P_REF
                     cap_ += q_out * math.exp(-self.sniff_d / ENG['sniff_capture_length_m'])
         return bgr + min(cap_, flow)
+
+    def _sniff_mode(self):
+        return bool(self.sniffer) and self.settings['mode'] == 'sniff'
+
+    def _s_cal(self):
+        """Calibrated sensitivity in use: the sniff factor in sniff mode, the vacuum factor otherwise."""
+        return self.s_cal_sniff if self._sniff_mode() else self.s_cal
 
     def _s_true(self):
         drift = ENG['sensitivity_drift_per_k'] * (self.plant['ambient_k'] - self.plant['temperature_at_calibration_k'])
@@ -705,7 +933,7 @@ class InficonUl1000fabRuntime:
                     base1, t1 = self.sig, self.t + h                         # the baseline is interpolated between before and after (drifting background)
                     w = (C['t_open_end'] - C['t_base']) / max(t1 - C['t_base'], DT)
                     base_at_open = C['base'] + w * (base1 - C['base'])
-                    nominal = ENG['internal_test_leak_pa_m3_s'] * (1 + ENG['test_leak_tempco_per_k'] * (self.plant['ambient_k'] - 293.15))   # temperature-compensated
+                    nominal = self.menu['internal_test_leak_pa_m3_s'] * (1 + ENG['test_leak_tempco_per_k'] * (self.plant['ambient_k'] - 293.15))   # menu value, temperature-compensated
                     self._finish_cal((C['sig_open'] - base_at_open) / nominal if nominal > 0 else 0.0)
             elif C['stage'] == 'baseline' and C['t'] >= max(10.0, 5 * tau) and (self._stable_cal() or C['t'] >= 120.0):
                 C['base'] = self.sig                                         # baseline after the part's air helium has been pumped out
@@ -716,6 +944,13 @@ class InficonUl1000fabRuntime:
                 C['sig_open'], C['t_open_end'] = self.sig, self.t + h
                 C['t_recover'] = self._recover_time(max(self.sig - C['base'], 0.0), tau)
                 C['stage'], C['t'] = 'recover', 0.0
+        elif C.get('sniff'):                                                 # sniff mode: open leak signal, then (after OK) the closed-leak background
+            if C['stage'] == 'open' and C['t'] >= SNIFF_CAL_STEP_S:
+                C['sig_open'], C['stage'], C['t'] = self.sig, 'close', 0.0
+                self._event('operation', 'CAL_CLOSE_LEAK', '外部校准（吸枪）：关闭校准漏孔（把吸枪移开）后按OK')
+            elif C['stage'] == 'closed' and C['t'] >= SNIFF_CAL_STEP_S:
+                measured = C['sig_open'] - self.sig                              # open-leak signal minus the air-helium background
+                self._finish_cal(measured / C['nominal'] if C['nominal'] > 0 else 0.0)
         else:
             if C['t'] >= max(15.0, 5 * tau):
                 measured = self.sig - C.get('base', 0.0)
@@ -730,11 +965,20 @@ class InficonUl1000fabRuntime:
     def _finish_cal(self, ratio):
         """ratio = displayed / true for the reference leak; the new calibration factor scales the sensitivity accordingly."""
         lo, hi = DOC['cal_factor_limits']
-        new_factor = self.cal_factor * ratio if ratio > 0 else 0.0
+        sniff = bool(self.cal.get('sniff'))
+        old_factor = self.cal_factor_sniff if sniff else self.cal_factor
+        new_factor = old_factor * ratio if ratio > 0 else 0.0
+        self.cal_history.append(dict(time_s=round(self.t, 3), datetime=self._iso(), kind=self.cal['kind'], factor_old=old_factor, factor_new=new_factor,
+                                     accepted=bool(lo <= new_factor <= hi), **({'mode': 'sniff'} if sniff else {})))
+        del self.cal_history[:-50]
         if not (lo <= new_factor <= hi):
             code = 'W81' if new_factor < lo else 'W82'
             self.warnings_latch = code
             self._event('alarm', code, '校准因子超出范围，保留旧因子：' + ('过低' if code == 'W81' else '过高'))
+        elif sniff:
+            self.s_cal_sniff *= ratio
+            self.cal_factor_sniff = new_factor
+            self._event('operation', 'CALIBRATED', f'吸枪校准完成，因子{new_factor:.3f}')
         else:
             self.s_cal *= ratio
             self.cal_factor = new_factor
@@ -765,13 +1009,17 @@ class InficonUl1000fabRuntime:
     def _cal_remaining(self, fresh=False):
         C = self.cal
         tau = self._V() / max(S_HE['ULTRA'] if self.part is not None else S_HE['FINE'], 1e-6)
+        thr0 = self._thr()[0]
         base_d, open_d = max(10.0, 5 * tau), max(10.0, 5 * tau)
         rec_d = self._recover_time(ENG['internal_test_leak_pa_m3_s'], tau if self.part is not None else 0.0)   # tail of the test leak (blanked inlet: total about 25 s, manual)
+        if C['kind'] != 'internal' and C.get('sniff'):                      # sniff: open-leak step, operator's OK, closed-leak step
+            t = 0.0 if fresh else C['t']
+            return {'open': max(SNIFF_CAL_STEP_S - t, 0.0) + SNIFF_CAL_STEP_S, 'close': SNIFF_CAL_STEP_S}.get(C['stage'], max(SNIFF_CAL_STEP_S - t, 0.0))
         if C['kind'] != 'internal':
             return max(max(15.0, 5 * self._V() / S_HE['ULTRA']) - (0.0 if fresh else C['t']), 0.0)
         evac = 0.0
-        if self.range is None and self.p1 is not None and self.p1 > P_MAX_IN:   # pump-down estimate to 15 mbar (roughing speed), on the 0.5 s grid
-            evac = math.ceil(self._V() / S_ROUGH * math.log(self.p1 / P_MAX_IN) / DT - 1e-9) * DT
+        if self.range is None and self.p1 is not None and self.p1 > thr0:      # pump-down estimate to 15 mbar (roughing speed), on the 0.5 s grid
+            evac = math.ceil(self._V() / self._s_rough() * math.log(self.p1 / thr0) / DT - 1e-9) * DT
         t = 0.0 if fresh or self.range is None else C['t']
         order = [None, 'GROSS', 'FINE', 'ULTRA']                              # remaining autoranging steps (one dwell each) before the signal is stable
         dwell = max(order.index('ULTRA') - max(order.index(self.range), 1), 0) * ENG['range_dwell_s'] if self.part is not None else 0.0
@@ -799,7 +1047,7 @@ class InficonUl1000fabRuntime:
         v = (self.sig - self._zero_offset()) * mf
         floor_abs = ENG['detection_noise_floor_fraction'] * (DOC['min_leak_sniffer_pa_m3_s'] if self.sniffer else RANGES[rng]['limit_pa_m3_s'])
         v += ENG['signal_noise_rel'] * abs(v) * _gauss(self.seed, tick, 1) + floor_abs * _gauss(self.seed, tick, 2)
-        lim = DISPLAY_LIMIT[rng] if not self.sniffer else DOC['min_leak_sniffer_pa_m3_s']
+        lim = max(DISPLAY_LIMIT[rng], 10.0 ** self.menu['lower_display_limit_exp'] * MBAR_L) if not self.sniffer else DOC['min_leak_sniffer_pa_m3_s']   # menu View > Lower display limit
         return float(min(max(v, lim), MAX_DISPLAY))
 
     def _status(self, disp):
@@ -824,16 +1072,20 @@ class InficonUl1000fabRuntime:
         if 'turbo_failure' in self.faults:
             W['E52'] = '涡轮分子泵转速过低'
         if self.sniffer and self.state == 'measure' and self.measure_s >= 5.0:
-            lo, hi = DOC['sniff_inlet_window_pa']
+            lo, hi = self.menu['sniff_p_min_pa'], self.menu['sniff_p_max_pa']   # menu Pressure limits for sniff mode
             if self.p1 < lo:
                 W['W62'] = '吸枪毛细管流量过低（入口压力低于0.1 mbar）'
             elif self.p1 > hi:
                 W['W63'] = '吸枪毛细管断（入口压力高于1 mbar）'
         latch = getattr(self, 'warnings_latch', None)
         if latch:
-            W[latch] = {'W76': '超过最长抽空时间', 'W81': '校准因子过低', 'W82': '校准因子过高'}[latch]
+            W[latch] = {'W76': '超过最长抽空时间', 'W81': '校准因子过低', 'W82': '校准因子过高', 'W15': '漏率过高，已切到待机以防污染'}[latch]
+        if self.menu['filter_message'] and self.filter_h >= self.menu['filter_interval_h']:
+            W['W18'] = '排气过滤器维护间隔已到'
         if self.settings['calibration_request'] and abs(self.plant['ambient_k'] - self.t_cal_k) > 5.0:
             W['W80'] = '请校准（环境温度与上次校准相差超过5 K）'
+        for code in sorted(self.faults & set(MANUAL_CODES)):                 # injected codes of the manual's list (8.2)
+            W[code] = MANUAL_CODES[code]
         disp = self._display_value()
         if self._status(disp) == 'reject':
             if self.alarm_since is None:
@@ -843,13 +1095,20 @@ class InficonUl1000fabRuntime:
             if self._status(disp) == 'pass':
                 self.below_t1 = True
         self.warnings = W
+        self.ack &= set(W)                                                   # a cleared message shows again when it comes back
 
     def _audible(self):
         """Manual 6.4.5: after START the alarm sounds once the leak rate has dropped below trigger 1 or the alarm delay has elapsed."""
-        return bool(getattr(self, 'below_t1', False)) or self.t - getattr(self, 'start_t', self.t) >= self.settings['alarm_delay_s']
+        return bool(getattr(self, 'below_t1', False)) or (not self.menu['alarm_delay_infinite'] and
+                                                         self.t - getattr(self, 'start_t', self.t) >= self.settings['alarm_delay_s'])
 
     # ---- commands
     def invoke(self, capability_id, **args):
+        if capability_id in PANEL_CAPS:
+            out = self._panel_command(capability_id, args)
+            if capability_id in PANEL_GESTURES:
+                self.revision += 1
+            return out
         if capability_id in UNSUPPORTED:
             raise ActionRejected('UNSUPPORTED')
         fn = getattr(self, '_cmd_' + capability_id.replace('.', '_'))
@@ -881,12 +1140,16 @@ class InficonUl1000fabRuntime:
         if on and not self.powered:
             self.powered = True
             self.state, self.timer = 'run_up', DOC['run_up_s']
+            self.locked = self.pins['device'] != 0                           # manual 6.8.3: the Device-PIN is asked directly after power on
+            self.power_epoch += 1
             self.next_log = self.t
             self._event('system', 'POWER_ON', '通电，启动（约3 min）')
         elif not on and self.powered:
             self.powered = False
             self.state, self.range, self.cal, self.vent_on = 'off', None, None, False
             self.zero_on, self.auto_zero = False, 0.0
+            self.locked, self.hold_on, self.hold_max = False, False, None
+            self.purge_on, self.purge_end, self.purge_due = False, None, None
             self._event('system', 'POWER_OFF', '断电')
         return dict(on=self.powered)
 
@@ -982,7 +1245,10 @@ class InficonUl1000fabRuntime:
     def _cmd_measure_start(self):
         self._need_ready()
         if self.state in ('evacuation', 'measure'):
-            return dict(state=self.state)                                    # START again: maximum hold (display only; not modelled separately)
+            if self.state == 'measure':                                      # START again: maximum hold on / off (manual 4.2.2.2)
+                self.hold_on = not self.hold_on
+                self.hold_max = self._display_value() if self.hold_on else None
+            return dict(state=self.state)
         if self.state == 'calibration':
             raise ActionRejected('CALIBRATING')
         if self.settings['mode'] == 'sniff' and not self.sniffer:
@@ -990,7 +1256,7 @@ class InficonUl1000fabRuntime:
         if self.settings['mode'] == 'vacuum' and self.sniffer:
             raise ActionRejected('SNIFFER_IN_VACUUM_MODE')
         if self.settings['background_suppression'] and self.standby_s >= DOC['autozero_standby_s']:
-            self.auto_zero = self.bg * self._s_true() / self.s_cal          # internal background measured in standby, subtracted from now on
+            self.auto_zero = self.bg * self._s_true() / self._s_cal()       # internal background measured in standby, subtracted from now on
         else:
             self.auto_zero = 0.0
         if self.vent_on:                                                     # START while venting: the vent valve closes and the part is evacuated
@@ -1000,6 +1266,8 @@ class InficonUl1000fabRuntime:
         self.start_t, self.below_t1 = self.t, False
         self.downgrade_t = -1e9                                              # the anti-hunting hold belongs to one measurement
         self.warnings_latch = None
+        self.hold_on, self.hold_max = False, None
+        self.purge_on, self.purge_end, self.purge_due = False, None, None    # START ends purging (manual 5.3.1)
         if self.sniffer:
             self.state, self.range = 'measure', 'FINE'
         else:
@@ -1011,7 +1279,10 @@ class InficonUl1000fabRuntime:
         self._need_power()
         if self.state == 'run_up':
             raise ActionRejected('RUNNING_UP')
-        vent = (hold_s or 0.0) > self.settings['vent_delay_s']
+        vent = not self.menu['no_vent'] and (hold_s or 0.0) > self.settings['vent_delay_s']   # menu Vent delay: 'No vent'
+        if self.menu['auto_purge'] and self.state in ('evacuation', 'measure') and not vent:
+            self.purge_due = self.t + PURGE_S                                 # manual 5.3.1: purging starts 20 s after the change to stand-by
+        self.hold_on, self.hold_max = False, None
         if self.cal:
             self.cal = None
         self.state, self.range = 'standby', None
@@ -1054,8 +1325,10 @@ class InficonUl1000fabRuntime:
         self._need_ready()
         if self.state not in ('standby', 'measure'):
             raise ActionRejected('NOT_READY_FOR_CALIBRATION')
-        if self.sniffer:
+        if self.sniffer and not self._sniff_mode():
             raise ActionRejected('SNIFFER_IN_VACUUM_MODE')
+        if self._sniff_mode() and kind == 'internal':
+            raise ActionRejected('INTERNAL_CAL_NEEDS_VACUUM_MODE')                # the internal test leak sits in the vacuum system (assumption)
         if kind == 'external':
             if test_leak_pa_m3_s is None:
                 raise ActionRejected('MISSING_SETTING')
@@ -1065,17 +1338,27 @@ class InficonUl1000fabRuntime:
         self.evac_s = 0.0
         if getattr(self, 'warnings_latch', None) in ('W76', 'W81', 'W82'):
             self.warnings_latch = None                                       # a new calibration attempt replaces the previous evacuation / calibration warning
-        self.cal = dict(kind=kind, t=0.0, t0=self.t, stage='baseline' if kind == 'internal' else 'open', prev_state=prev, nominal=test_leak_pa_m3_s or 0.0, base=0.0)
+        self.cal = dict(kind=kind, t=0.0, t0=self.t, stage='baseline' if kind == 'internal' else 'open', prev_state=prev, nominal=test_leak_pa_m3_s or 0.0, base=0.0,
+                        sniff=self._sniff_mode())
         if kind == 'external':
             self.cal['base'] = 0.0
         if prev == 'standby':
             self.state, self.range = 'calibration', None
         else:
             self.state = 'calibration'
-        dur = self._cal_duration() if kind == 'internal' else max(15.0, 5 * self._V() / S_HE['ULTRA'])
+        dur = self._cal_duration() if kind == 'internal' or self.cal['sniff'] else max(15.0, 5 * self._V() / S_HE['ULTRA'])
         self.cal['duration'] = dur
         self._event('operation', 'CAL_START', f'开始{kind}校准')
         return dict(kind=kind, duration_s=dur)
+
+    def _cmd_calibration_proceed(self):
+        """External calibration in sniff mode, manual 7.2.2 step 6 (RS232: second *CAL): the operator has closed the test leak (moved the sniffer
+        away) and confirms with OK; the device then waits for the background to settle and computes the new sniff calibration factor."""
+        self._need_ready()
+        if not self.cal or self.cal['stage'] != 'close':
+            raise ActionRejected('NO_CAL_STEP')
+        self.cal['stage'], self.cal['t'] = 'closed', 0.0
+        return dict(stage='closed')
 
     def _cmd_spray_set(self, target, on):
         self._need_plant()
@@ -1141,18 +1424,375 @@ class InficonUl1000fabRuntime:
 
     def _cmd_fault_inject(self, fault, active):
         self._need_plant()
+        if active and fault in MANUAL_CODES and fault not in self.faults and len(self.faults & set(MANUAL_CODES)) >= MAX_INJECTED:
+            raise ActionRejected('INVALID_ARGUMENT')
         (self.faults.add if active else self.faults.discard)(fault)
+        if active and fault in MANUAL_CODES and fault[0] == 'E' and self.powered and self.state in ('evacuation', 'measure', 'calibration', 'vent'):
+            self.hold_on, self.hold_max, self.cal, self.zero_on = False, None, None, False   # manual 8.1: an error interrupts the measurement
+            self.state, self.range, self.vent_on, self.standby_s, self.alarm_since = 'standby', None, False, 0.0, None   # (stand-by, valves closed)
+            self._event('alarm', fault, MANUAL_CODES[fault])
+        self._update_warnings()
         self._event('fault', 'FAULT_' + fault.upper(), f'故障{fault}：{"注入" if active else "清除"}')
         return dict(faults=sorted(self.faults))
 
     def _cmd_sim_step(self, dt_s):
         return dict(time_s=self.step(dt_s))
 
+    # ---- front panel: host protocol of the engine (_panel_ui.py) and the panel.* commands
+    @property
+    def panel(self):
+        p = _PANELS.get(self)
+        if p is None:
+            p = _PANELS[self] = _panel_ui.PanelUI(PANEL_SPEC, self, hooks=PANEL_HOOKS)
+        return p
+
+    def panel_invoke(self, capability_id, arguments):
+        """A softkey action calls the same command a direct call would (each command checks before it changes anything)."""
+        try:
+            if capability_id in UNSUPPORTED:
+                raise ActionRejected('UNSUPPORTED')
+            return self.invoke(capability_id, **arguments)
+        except ActionRejected as exc:
+            raise _panel_ui.PanelRejected(str(exc)) from None
+
+    def panel_time(self):
+        return self.t
+
+    def _panel_command(self, capability_id, a):
+        if _panel_ui.check_arguments(PANEL_CAPS[capability_id]['input_schema'], a):
+            raise ActionRejected('INVALID_ARGUMENT')
+        try:
+            if capability_id == 'panel.press':
+                return dict(accepted=bool(self.panel.press(a['input_id'], float(a.get('duration_s', 0.1)))))
+            if capability_id == 'panel.capture':
+                return self._panel_capture(a['display_id'])
+            return dict(frame=self.panel.frame())
+        except _panel_ui.PanelError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+
+    def _panel_capture(self, display_id):
+        """Close-up camera of the LCD: a PNG file named by its content (large data is returned as a file reference)."""
+        import hashlib
+        import tempfile
+        data, w, h = self.panel.png_bytes(display_id)
+        sha = hashlib.sha256(data).hexdigest()
+        d = Path(self.panel_capture_dir) if self.panel_capture_dir else Path(tempfile.gettempdir()) / 'chemistry_sim_panel' / self.instance_id
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f'{display_id}_{sha[:16]}.png'
+        if not path.exists():
+            path.write_bytes(data)
+        return dict(display_id=display_id, time_s=self.t, image=dict(path=str(path), format='png', width=w, height=h, sha256=sha))
+
+    def _unit_text(self, v_pa_m3_s, sniff=None):
+        """A leak rate in the selected unit as (mantissa text, exponent, unit text); sniff-only units only in sniff mode (R134a equivalent, ppm of the
+        sniffer flow)."""
+        m = self.menu
+        sniff = self.settings['mode'] == 'sniff' if sniff is None else sniff
+        unit = m['leak_unit'] if (m['leak_unit'] in LEAK_UNITS or sniff) else 'mbar l/s'
+        if v_pa_m3_s is None or v_pa_m3_s <= 0:
+            return None
+        if unit == 'ppm':
+            v = v_pa_m3_s / ENG['sniff_flow_pa_m3_s'] * 1e6
+        elif unit in ('g/a eq', 'oz/yr eq'):
+            v = v_pa_m3_s * math.sqrt(M_HE / M_R134A) / (R_GAS * self.plant['ambient_k']) * M_R134A * 1e3 * 31557600.0
+            v = v / 28.349523125 if unit == 'oz/yr eq' else v
+        else:
+            v = v_pa_m3_s / LEAK_UNITS[unit]
+        dec = m['decimals']
+        e = math.floor(math.log10(v))
+        mant = round(v / 10 ** e, dec)
+        if mant >= 10.0:
+            mant, e = 1.0, e + 1
+        return dict(mant=f'{mant:.{dec}f}', exp=f'{e:+03d}'.replace('+', ''), unit=unit, text=f'{mant:.{dec}f}E{e:+03d} {unit}')
+
+    def _p_text(self, p_pa):
+        if p_pa is None:
+            return '---'
+        u = self.menu['pressure_unit']
+        v = p_pa / PRESSURE_UNITS[u]
+        e = math.floor(math.log10(v)) if v > 0 else 0
+        return f'{v / 10 ** e:.1f}E{e:+03d} {u}'
+
+    def _digits(self, v_pa_m3_s, unit_factor):
+        """Digit entry of a leak rate (mantissa d.d x 10^-ee in the entry unit)."""
+        v = max(v_pa_m3_s / unit_factor, 1e-99)
+        e = math.floor(math.log10(v))
+        mant = round(v / 10 ** e, 1)
+        if mant >= 10.0:
+            mant, e = 1.0, e + 1
+        e = min(max(-e, 0), 99)
+        return [int(mant), int(round(mant * 10)) % 10, e // 10, e % 10]
+
+    def _valves(self):
+        """Valve states of the vacuum diagram (manual 4.3.1, Figs. 4-6 / 4-7, 6.6.1.3)."""
+        st, rng, vr = self.state, self.range, self.menu['vacuum_ranges']
+        o = dict.fromkeys(['V1a', 'V1b', 'V2', 'V4a', 'V4b', 'V6', 'V7'], False)
+        if not self.powered or st == 'run_up':
+            return o
+        o['V2'] = True
+        if st == 'evacuation' or (st == 'calibration' and rng is None):
+            o.update(V1a=True, V1b=True, V2=False)
+        elif st in ('measure', 'calibration') and rng == 'GROSS':
+            o.update(V1a=True, V1b=True)
+        elif st in ('measure', 'calibration') and rng == 'FINE':
+            o.update(V1a=True, V4a=True)
+        elif st in ('measure', 'calibration') and rng == 'ULTRA':
+            o.update(V4b=True)
+        if vr in ('fine_only', 'softpump') and rng in ('GROSS', 'FINE'):
+            o['V1a'] = False
+        o['V6'] = bool(self.vent_on)
+        o['V7'] = bool(self.cal and self.cal['kind'] == 'internal' and self.cal['stage'] == 'open')
+        return o
+
+    def panel_read(self):
+        """What the LCD shows: the agent slots plus power, the working screen, the leak rate and pressure in the selected units, bar graph and trend,
+        run-up data, the digit-entry presets and the information pages (read-only views of the runtime state)."""
+        out = self.read('agent')
+        disp = out['leak.display_pa_m3_s']
+        work = 'off'
+        unack = out['alarms.unacknowledged']
+        if self.powered:
+            work = ('pin' if self.locked else 'runup' if self.state == 'run_up' else 'error' if any(c.startswith('E') for c in unack)
+                    else 'warning' if unack else {'standby': 'standby', 'vent': 'standby', 'evacuation': 'evac', 'measure': 'measure',
+                                                  'calibration': 'cal'}.get(self.state, 'standby'))
+        sniff = self.settings['mode'] == 'sniff'
+        ufac = LEAK_UNITS.get(self.menu['leak_unit'], 0.1)
+        uent = self.menu['leak_unit'] if self.menu['leak_unit'] in LEAK_UNITS else 'mbar l/s'
+        t1, t2 = self.settings['trigger_1_pa_m3_s'], self.settings['trigger_2_pa_m3_s']
+        prog = 1.0 - self.timer / DOC['run_up_s'] if self.state == 'run_up' else 1.0
+        up = self._bar_upper_exp(disp / MBAR_L if disp else None)
+        lo = up - self.menu['decades'] if self.menu['scale'] == 'log' else None
+        trend = []
+        if self.log:
+            span = self.menu['time_axis_s']
+            t_end = self.log[-1]['time_s']
+            for r in self.log:
+                if r['time_s'] >= t_end - span - 1e-9 and r['leak_pa_m3_s'] is not None:
+                    trend.append([r['time_s'], self._bar_fraction(r['leak_pa_m3_s'])])
+        dt = self._iso()
+        ext = self.menu['external_test_leak_sniff_pa_m3_s' if sniff else 'external_test_leak_vacuum_pa_m3_s']
+        num = {k: dict(d=self._digits(v, ufac), sign=-1) for k, v in (('trig1', t1), ('trig2', t2), ('intleak', self.menu['internal_test_leak_pa_m3_s']),
+                                                                      ('contam', self.menu['contamination_limit_pa_m3_s']), ('extleak', ext))}
+        mf = self.settings['machine_factor']
+        e = math.floor(math.log10(mf))
+        mm = round(mf / 10 ** e, 1)
+        if mm >= 10.0:
+            mm, e = 1.0, e + 1
+        num['mf'] = dict(d=[int(mm), int(round(mm * 10)) % 10, 0, abs(e) // 10, abs(e) % 10], sign=1 if e >= 0 else -1)
+        num['date'] = dict(d=[int(dt[8]), int(dt[9]), int(dt[5]), int(dt[6]), int(dt[2]), int(dt[3])], sign=1)
+        num['time'] = dict(d=[int(dt[11]), int(dt[12]), int(dt[14]), int(dt[15])], sign=1)
+        for k in ('pin_dev', 'pin_menu', 'login', 'unlock'):
+            num[k] = dict(d=[0, 0, 0, 0], sign=1)
+        sett = self.settings
+        lr = lambda v: (self._unit_text(v) or {}).get('text', '---')                                                    # noqa: E731
+        pages = {1: [f'Trigger 1   {lr(t1)}', f'Trigger 2   {lr(t2)}', f"Mode        {sett['mode']}", f"Zero        {sett['zero_mode']}",
+                     f"Units       {self.menu['pressure_unit']} / {self.menu['leak_unit']}"],
+                 2: [f"Vent delay  {'no vent' if self.menu['no_vent'] else str(sett['vent_delay_s']) + ' s'}", f"Alarm delay {'infinite' if self.menu['alarm_delay_infinite'] else str(sett['alarm_delay_s']) + ' s'}",
+                     f"Audio       {self.menu['audio_alarm']}  vol {self.menu['volume']}", f"Machine f.  {sett['machine_factor']:.2g}", f"Ranges      {self.menu['vacuum_ranges']}"],
+                 3: [f"Int. leak   {lr(self.menu['internal_test_leak_pa_m3_s'])}", f"Ext. leak   {lr(self.menu['external_test_leak_vacuum_pa_m3_s'])}",
+                     f"Sniff leak  {lr(self.menu['external_test_leak_sniff_pa_m3_s'])}", 'Mass        4 (helium)', f"Purge       {'on' if self.menu['auto_purge'] else 'off'}"],
+                 4: [f'Date        {dt[:10]}', f'Time        {dt[11:16]}', f"Language    {self.menu['language']}", f"Control     {self.menu['control_location']}",
+                     f"RS232       {self.menu['rs232_protocol']}"]}
+        rec = out['recorder.output_v']
+        tmp_hz = 1000.0 * prog if self.powered else 0.0
+        internal = {1: [f"p1          {self._p_text(out['pressure.inlet_pa'])}", f"p2          {self._p_text(out['pressure.foreline_pa'])}",
+                        f'TMP         {tmp_hz:.0f} Hz', f"Emission    {'on' if self.powered and self.state != 'run_up' else 'off'}",
+                        f"Filament    {2 if 'filament_1_failure' in self.faults else 1}"],
+                    2: [f"Zero offset {lr(out['zero.offset_pa_m3_s'])}", f"Cal factor  {out['calibration.factor']:.3f}", f"Range       {out['range.current'] or '-'}",
+                        f"State       {self.state}", f"Stable      {'yes' if out['signal.stable'] else 'no'}"],
+                    3: [f"Filter      {self.filter_h:.1f} h", f"Power on    {self.t / 3600.0:.2f} h", f"Mains       {self.menu['mains_hz']} Hz",
+                        f"Purge       {'on' if self.purge_on else 'off'}", f"Ambient     {self.plant['ambient_k'] - 273.15:.1f} C" if self.plant else 'Ambient     ---'],
+                    4: [f"Recorder 1  {self.menu['recorder_1']}  {rec[0]:.2f} V", f"Recorder 2  {self.menu['recorder_2']}  {rec[1]:.2f} V",
+                        f"Scaling     {self.menu['recorder_scale_v']} V/dec", f"Upper       1E{self.menu['recorder_upper_exp']:+03d}", f"Control     {self.menu['control_location']}"]}
+        valves = self._valves()
+        cal_rows = [f"{c['datetime'][5:16].replace('T', ' ')} {c['kind'][:3]} {c['factor_old']:.2f}>{c['factor_new']:.2f}{'' if c['accepted'] else ' W8x'}"
+                    for c in self.cal_history[-9:]][::-1]
+        err_rows = [f"{self._iso_at(e['time_s'])[5:16].replace('T', ' ')} {e['code']}" for e in self.events if e['kind'] == 'alarm'][-9:][::-1]
+        sets = {i + 1: ([f"Name   {x['name']}", f"Saved  {x['saved'][:16].replace('T', ' ')}", f"Mode   {x['settings']['mode']}",
+                         f"Trig 1 {lr(x['settings']['trigger_1_pa_m3_s'])}", f"Units  {x['menu']['leak_unit']}"] if x else ['(empty)'])
+                for i, x in enumerate(self.param_sets)}
+        cal = self.cal
+        out.update({
+            'host.powered': self.powered, 'host.power_epoch': self.power_epoch, 'host.work': work,
+            'host.runup': dict(progress=prog, tmp_hz=round(tmp_hz), p2_text=self._p_text(max(5.0, 1e5 * (1.0 - prog) ** 4)) if self.powered else '---',
+                               emission='on' if prog > 0.8 else 'off', filament=2 if 'filament_1_failure' in self.faults else 1),
+            'host.lr': self._unit_text(disp), 'host.hold': self._unit_text(out['leak.hold_pa_m3_s']), 'host.p1_text': self._p_text(out['pressure.inlet_pa']),
+            'host.bar': dict(fraction=self._bar_fraction(disp), t1=self._bar_fraction(t1), t2=self._bar_fraction(t2),
+                             lo_text='0' if lo is None else f'1E{lo:+03d}', hi_text=f'1E{up:+03d}'),
+            'host.trend': trend, 'host.trend_end': trend[-1][0] if trend else self.t,
+            'host.s1': disp is not None and disp > t1, 'host.s2': disp is not None and disp > t2,
+            'host.background_text': lr(self.bg * self._s_true() / self._s_cal()) if self.plant else '---',
+            'host.cal': dict(kind=cal['kind'], stage=cal['stage'], remaining=round(out['state.remaining_s'] or 0.0)) if cal else None,
+            'host.cal_last': dict(old=f"{self.cal_history[-1]['factor_old']:.2f}", new=f"{self.cal_history[-1]['factor_new']:.2f}",
+                                  accepted=self.cal_history[-1]['accepted']) if self.cal_history else None,
+            'host.cal_count': len(self.cal_history),
+            'host.warning': next((c for c in unack if c.startswith('W')), None), 'host.error': next((c for c in unack if c.startswith('E')), None),
+            'host.num': num, 'host.menu_pin': self.pins['menu'], 'host.unit_factor': ufac, 'host.entry_unit': uent,
+            'host.settings_pages': pages, 'host.internal_pages': internal,
+            'host.valve_lines': [' '.join(f"{k}:{'open' if valves[k] else 'shut'}" for k in ('V1a', 'V1b', 'V2', 'V4a')),
+                                 ' '.join(f"{k}:{'open' if valves[k] else 'shut'}" for k in ('V4b', 'V6', 'V7'))],
+            'host.cal_rows': cal_rows, 'host.error_rows': err_rows, 'host.set_pages': sets, 'host.ext_leak_text': lr(ext),
+            'host.datetime_text': dt[:16].replace('T', ' '), 'host.sniff': sniff, 'host.contam_text': lr(self.menu['contamination_limit_pa_m3_s'])})
+        return out
+
+    def _iso_at(self, t_s):
+        import datetime
+        return datetime.datetime.fromtimestamp(self.clock_offset + t_s, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
+    # ---- softkey menu functions (operating manual chapters 5-8)
+    def _iso(self):
+        import datetime
+        return datetime.datetime.fromtimestamp(self.clock_offset + self.t, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
+    def _cmd_menu_configure(self, **kw):
+        self._need_power()
+        for k, allowed in (('time_axis_s', TIME_AXIS_S), ('mains_hz', (50, 60)), ('recorder_scale_v', RECORDER_SCALES_V)):
+            if k in kw and kw[k] not in allowed:
+                raise ActionRejected('INVALID_ARGUMENT')
+        new = dict(self.menu, **kw)
+        if new['min_volume'] > new['volume']:
+            raise ActionRejected('VOLUME_ORDER')                             # manual 6.4.3: the volume cannot go below the minimum loudness
+        if new['sniff_p_min_pa'] >= new['sniff_p_max_pa'] or new['gross_fine_pa'] >= new['evac_gross_pa']:
+            raise ActionRejected('LIMIT_ORDER')
+        if kw.get('leak_unit') in SNIFF_UNITS and self.settings['mode'] != 'sniff':
+            raise ActionRejected('SNIFF_UNIT_IN_VACUUM_MODE')                # manual 6.4.4: ppm, g/a eq and oz/yr eq only in sniff mode
+        self.menu = new
+        return dict(menu=dict(self.menu))
+
+    def _cmd_clock_set(self, year, month, day, hour, minute):
+        import datetime
+        self._need_power()
+        try:
+            t = datetime.datetime(year, month, day, hour, minute, tzinfo=datetime.timezone.utc).timestamp()
+        except ValueError:
+            raise ActionRejected('INVALID_ARGUMENT') from None
+        self.clock_offset = t - self.t
+        return dict(datetime=self._iso())
+
+    def _cmd_access_set_pin(self, kind, pin):
+        self._need_power()
+        self.pins[kind] = pin
+        return dict(kind=kind, active=pin != 0)
+
+    def _cmd_device_unlock(self, pin):
+        self._need_power()
+        if not self.locked:
+            raise ActionRejected('NOT_LOCKED')
+        if pin != self.pins['device']:
+            raise ActionRejected('WRONG_PIN')
+        self.locked = False
+        self._event('system', 'UNLOCKED', 'Device-PIN正确，开始启动')
+        return dict(unlocked=True)
+
+    def _cmd_parameters_save(self, slot, name):
+        self._need_power()
+        self.param_sets[slot - 1] = dict(name=name, saved=self._iso(), settings=dict(self.settings), menu=dict(self.menu))
+        return dict(slot=slot, name=name)
+
+    def _apply_parameters(self, settings, menu):
+        if self.state in ('evacuation', 'measure', 'calibration') and settings['mode'] != self.settings['mode']:
+            raise ActionRejected('MEASURING')
+        self.settings, self.menu = dict(settings), dict(menu)
+        return dict(settings=dict(self.settings), menu=dict(self.menu))
+
+    def _cmd_parameters_load(self, slot):
+        self._need_power()
+        p = self.param_sets[slot - 1]
+        if p is None:
+            raise ActionRejected('EMPTY_SLOT')
+        return self._apply_parameters(p['settings'], p['menu'])
+
+    def _cmd_parameters_load_defaults(self):
+        self._need_power()
+        return self._apply_parameters(default_settings(), MENU_DEFAULTS)
+
+    def _cmd_purge_set(self, on):
+        self._need_ready()
+        if self.state != 'standby':
+            raise ActionRejected('NOT_STANDBY')
+        self.purge_on, self.purge_end, self.purge_due = bool(on), None, None
+        return dict(on=self.purge_on)
+
+    def _cmd_warning_acknowledge(self):
+        self._need_power()
+        new = sorted(set(self.warnings) - self.ack)
+        if not new:
+            raise ActionRejected('NO_WARNING')
+        self.ack |= set(self.warnings)
+        return dict(acknowledged=new)
+
+    def _cmd_system_restart(self):
+        self._need_power()
+        if self.state == 'run_up':
+            raise ActionRejected('RUNNING_UP')
+        self.state, self.timer, self.range, self.cal, self.vent_on = 'run_up', DOC['run_up_s'], None, None, False
+        self.zero_on, self.auto_zero, self.warnings_latch = False, 0.0, None
+        self.hold_on, self.hold_max = False, None
+        self.purge_on, self.purge_end, self.purge_due = False, None, None
+        self.ack = set()
+        self._event('system', 'RESTART', 'Restart：重新启动')
+        return dict(state=self.state)
+
+    def _bar_upper_exp(self, v_mbar):
+        """Upper decade of the bar graph / trend axis (mbar l/s): manual or the next decade above the reading (manual 6.2.2)."""
+        if not self.menu['range_auto']:
+            return self.menu['range_upper_exp']
+        return max(math.floor(math.log10(v_mbar)) + 1 if v_mbar and v_mbar > 0 else -8, -12 + self.menu['decades'])
+
+    def _bar_fraction(self, v_pa):
+        if v_pa is None or v_pa <= 0:
+            return None
+        v = v_pa / MBAR_L
+        up = self._bar_upper_exp(v)
+        if self.menu['scale'] == 'linear':
+            return min(max(v / 10.0 ** up, 0.0), 1.0)
+        return min(max((math.log10(v) - (up - self.menu['decades'])) / self.menu['decades'], 0.0), 1.0)
+
+    def _recorder_v(self, signal, disp, p1):
+        """Recorder output (manual 6.6.4.3-4, appendix TPR265 chart: 1.5 V at 1e-4 mbar to 8.5 V at 1e+3 mbar, 1 V per decade)."""
+        m = self.menu
+        if signal == 'off' or not self.powered:
+            return 0.0
+        if signal in ('p1', 'p2'):
+            p = p1 if signal == 'p1' else (ENG['foreline_pressure_measure_pa'] if self.state in ('measure', 'evacuation', 'calibration') else 5.0)
+            if p is None or p <= 0:
+                return 0.0
+            u = math.log10(p / 100.0) + 5.5
+        elif disp is None:
+            return 0.0
+        else:
+            v = disp / MBAR_L
+            mant, ex = mantissa_exponent(disp, 2)
+            u = {'lr_lin': 10.0 * v / 10.0 ** m['recorder_upper_exp'], 'lr_log': 10.0 - (m['recorder_upper_exp'] - math.log10(v)) * m['recorder_scale_v'],
+                 'lr_mantissa': mant, 'lr_exponent': 1.0 + 0.5 * (ex + 12)}[signal]
+        return round(min(max(u, 0.0), 10.0), 2)
+
+    def _tone(self, disp, status):
+        """Speaker (manual 6.4.6): trigger alarm multi-tone above trigger 1; setpoint 375-3000 Hz from trigger 1 to 1000 x trigger 1; pinpoint
+        491-2570 Hz in the window 0.1-10 x trigger 1; leak-rate proportional 300-330 Hz along the bar graph."""
+        m, t1 = self.menu, self.settings['trigger_1_pa_m3_s']
+        vol = m['volume']
+        off = dict(on=False, hz=None, volume=vol)
+        if not self.powered or self.state != 'measure' or disp is None or vol <= 0:
+            return off
+        kind = m['audio_alarm']
+        if kind == 'trigger_alarm':
+            return dict(on=bool(status == 'reject' and self._audible()), hz=None, volume=vol)
+        if kind == 'setpoint':
+            if status != 'reject' or not self._audible():
+                return off
+            x = min(math.log10(disp / t1) / 3.0, 1.0)
+            return dict(on=True, hz=round(375.0 + (3000.0 - 375.0) * x, 1), volume=vol)
+        if kind == 'pinpoint':
+            x = min(max((math.log10(disp / t1) + 1.0) / 2.0, 0.0), 1.0)
+            return dict(on=True, hz=round(491.0 * (2570.0 / 491.0) ** x, 1), volume=vol)
+        return dict(on=True, hz=round(300.0 + 30.0 * (self._bar_fraction(disp) or 0.0), 1), volume=vol)
+
     # ---- read
     def read(self, visibility='agent'):
         pw = self.powered and self.plant is not None
         disp = self._display_value() if self.plant else None
-        m, e = mantissa_exponent(disp)
+        m, e = mantissa_exponent(disp, self.menu['decimals'])
         out = {'clock.time_s': self.t, 'plant.configured': self.plant is not None, 'power.on': self.powered, 'state.current': self.state,
                'state.remaining_s': self.timer if self.state == 'run_up' else (self._cal_remaining() if self.cal else None)}
         out['range.current'] = self.range if (self.state == 'measure') else None
@@ -1169,19 +1809,32 @@ class InficonUl1000fabRuntime:
         out['zero.offset_pa_m3_s'] = self._zero_offset()
         out['signal.stable'] = self._stable() if self.state == 'measure' else False
         out['calibration.factor'] = self.cal_factor
+        out['calibration.factor_sniff'] = self.cal_factor_sniff
         out['display.angle_rad'] = self.angle
         out['settings.current'] = dict(self.settings)
         out['part.connected'] = 'sniffer' if self.sniffer else (self.part['part_id'] if self.part else None)
         out['alarms.active'] = sorted(self.warnings)
         out['indicator.reject'] = bool(pw and out['leak.status'] == 'reject')
         out['indicator.ready'] = bool(pw and self.state in ('standby', 'measure'))
+        out['menu.settings'] = dict(self.menu)
+        out['device.datetime'] = self._iso()
+        out['access.device_locked'] = bool(self.powered and self.locked)
+        out['access.pins_set'] = dict(device=self.pins['device'] != 0, menu=self.pins['menu'] != 0)
+        out['parameters.sets'] = [None if x is None else dict(slot=i + 1, name=x['name'], saved=x['saved']) for i, x in enumerate(self.param_sets)]
+        out['calibration.history'] = copy.deepcopy(self.cal_history)
+        out['leak.hold_pa_m3_s'] = self.hold_max if (self.hold_on and self.state == 'measure') else None
+        out['purge.active'] = bool(self.purge_on)
+        out['recorder.output_v'] = [self._recorder_v(self.menu['recorder_1'], disp, p1), self._recorder_v(self.menu['recorder_2'], disp, p1)] if self.plant else [0.0, 0.0]
+        out['audio.tone'] = self._tone(disp, out['leak.status']) if self.plant else dict(on=False, hz=None, volume=self.menu['volume'])
+        out['service.exhaust_filter_h'] = self.filter_h
+        out['alarms.unacknowledged'] = sorted(set(self.warnings) - self.ack)
         if visibility != 'agent':
             S_tot, S_he = self._pump_speeds() if self.plant else (0.0, 0.0)
             out['truth.gas'] = dict(total_pressure_pa=self.p1, helium_partial_pa=self.p_he, outgassing_pa_m3_s=self._outgas() if self.plant and self.p1 is not None else 0.0,
                                     pumping_speed_total_m3_s=S_tot, pumping_speed_helium_m3_s=S_he, pumping_time_s=self.pump_s, volume_m3=self._V(),
                                     response_time_s=(self._V() / S_he) if S_he > 0 else None, vent_open=self.vent_on)
             out['truth.detector'] = dict(helium_flow_to_ms_pa_m3_s=S_he * (self.p_he or 0.0), internal_background_pa_m3_s=self.bg, sensitivity_true=self._s_true() if self.plant else None,
-                                         sensitivity_calibrated=self.s_cal, raw_signal_pa_m3_s=self.sig, filament=2 if 'filament_1_failure' in self.faults else 1,
+                                         sensitivity_calibrated=self._s_cal(), raw_signal_pa_m3_s=self.sig, filament=2 if 'filament_1_failure' in self.faults else 1,
                                          calibration=None if not self.cal else dict(kind=self.cal['kind'], stage=self.cal['stage'], t_s=self.cal['t']))
             lks = {}
             if self.part and self.plant:
@@ -1209,6 +1862,13 @@ def _jsonable(o):
 
 
 # ---------------------------------------------------------------- session (agent / evaluator isolation, idempotency)
+_KEY_CAPS = ('measure.start', 'measure.stop', 'zero.set', 'zero.toggle')   # the START / STOP / ZERO key commands
+# the agent's direct commands stand for the RS232 interface: refused unless the control location accepts RS232 (reads, queries, the mains switch and
+# the physical handling of parts, sniffer, spray and display stay allowed); the panel keys are the local keyboard (locked under PLC / RS232 by the spec)
+_REMOTE_CAPS = frozenset(k for k, v in ALL_CAPS.items() if v['visibility'] == 'agent' and v['kind'] in ('device_command', 'configuration')
+                         and k not in ('power.set', 'power.toggle') and k not in UNSUPPORTED)
+
+
 class InficonUl1000fabSession:
     def __init__(self, host, principal_id):
         self._host = host
@@ -1241,7 +1901,7 @@ class InficonUl1000fabSession:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id)
@@ -1275,13 +1935,19 @@ class InficonUl1000fabSession:
                 if digest is None or old != digest or not isinstance(response, dict):
                     raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if not isinstance(capability_id, str) or capability_id not in CAPS:
+            table = PANEL_CAPS if capability_id in PANEL_CAPS else ALL_CAPS
+            if not isinstance(capability_id, str) or capability_id not in table:
                 raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role == 'agent' and CAPS[capability_id]['visibility'] != 'agent':
+            if self._role == 'agent' and table[capability_id]['visibility'] != 'agent':
                 raise ActionRejected('ACCESS_DENIED')
             if not isinstance(arguments, dict):
                 raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'], arguments)
+            if table is ALL_CAPS:
+                validate(table[capability_id]['input_schema'], arguments)
+            elif _panel_ui.check_arguments(table[capability_id]['input_schema'], arguments):
+                raise ActionRejected('INVALID_ARGUMENT')
+            if self._role == 'agent' and capability_id in _REMOTE_CAPS and h.menu['control_location'] not in RS232_CONTROL:
+                raise ActionRejected('REMOTE_DISABLED')      # the direct commands stand for RS232 control (interface description 1.1: control location RS232 / Local and RS232)
             h._caller = self._principal
             try:
                 result = _jsonable(h.invoke(capability_id, **arguments))
@@ -1318,11 +1984,16 @@ ERROR_ZH = {
     'INVALID_ARGUMENT': '参数不符合输入模式或取值范围', 'REQUEST_CONFLICT': '同一request_id对应不同的调用', 'UNKNOWN_INSTANCE': '实例不存在',
     'UNKNOWN_CAPABILITY': '能力不存在', 'UNSUPPORTED': '本配置不支持该能力', 'ACCESS_DENIED': '无权访问（真值或评测者能力）',
     'PLANT_REQUIRED': '尚未声明环境条件', 'SEED_FIXED': '噪声种子只能在首次声明时设定', 'POWER_OFF': '检漏仪未通电', 'RUNNING_UP': '启动中（约3 min）',
-    'DETECTOR_FAULT': '质谱或涡轮泵故障（E47/E52），不能测量', 'INLET_OCCUPIED': '入口上已有被测件或吸枪（吸枪模式下已声明检查对象）', 'INLET_NOT_VENTED': '入口未放气（先STOP并按住放气）',
+    'DETECTOR_FAULT': '错误信息（E码，如E47、E52或评测者注入的手册代码）的原因未撤销，不能测量',
+    'REMOTE_DISABLED': '控制位置不接受RS232命令（Local、PLC或Local & PLC；直接命令代表RS232接口，手册6.6.4.1与接口说明1.1）', 'INLET_OCCUPIED': '入口上已有被测件或吸枪（吸枪模式下已声明检查对象）', 'INLET_NOT_VENTED': '入口未放气（先STOP并按住放气）',
     'DUPLICATE_LEAK': '漏孔标识重复', 'NO_PART': '入口上没有被测件', 'CALIBRATING': '校准进行中', 'NO_SNIFFER': '吸枪模式但没有接吸枪管',
-    'SNIFFER_IN_VACUUM_MODE': '真空模式下接的是吸枪管（或吸枪模式下不能做真空校准）', 'ZERO_DISABLED': 'ZERO功能被禁用', 'NOT_MEASURING': '不在测量状态',
+    'SNIFFER_IN_VACUUM_MODE': '真空模式下接的是吸枪管', 'INTERNAL_CAL_NEEDS_VACUUM_MODE': '吸枪模式只能做外部校准（吸枪对准外部校准漏孔）；内部校准在真空模式',
+    'KEYS_LOCKED': '控制位置为PLC或RS232：START/STOP/ZERO键被锁（手册6.6.4.1）', 'NO_CAL_STEP': '没有等待确认的校准步骤（吸枪外部校准关闭漏孔后才可按OK）', 'ZERO_DISABLED': 'ZERO功能被禁用', 'NOT_MEASURING': '不在测量状态',
     'SIGNAL_NOT_STABLE': 'I·ZERO：信号不稳定（漂移大于0.5×触发阈值1），不能置零', 'NOT_READY_FOR_CALIBRATION': '只能在待机或测量状态校准',
     'MISSING_SETTING': '缺少必需参数（外部校准须给校准漏孔漏率）', 'MEASURING': '测量中不能切换真空/吸枪模式', 'TRIGGER_ORDER': '触发阈值2不能低于阈值1',
+    'VOLUME_ORDER': '音量不能低于最小音量', 'LIMIT_ORDER': '压力上限须高于下限（换档点EVAC-GROSS须高于GROSS-FINE）',
+    'SNIFF_UNIT_IN_VACUUM_MODE': 'ppm、g/a eq、oz/yr eq只在吸枪模式可选', 'NOT_LOCKED': '没有等待Device-PIN', 'WRONG_PIN': 'PIN不正确',
+    'EMPTY_SLOT': '该参数组未保存', 'NOT_STANDBY': '只能在待机中手动吹扫', 'NO_WARNING': '没有待确认的警告或错误',
 }
 _P = ['PLANT_REQUIRED']
 _PW = _P + ['POWER_OFF']
@@ -1332,10 +2003,15 @@ CAP_ERRORS = {
     'part.connect': _P + ['INLET_OCCUPIED', 'INLET_NOT_VENTED', 'DUPLICATE_LEAK'], 'part.disconnect': _P + ['NO_PART', 'INLET_NOT_VENTED'],
     'sniffer.connect': _P + ['INLET_OCCUPIED', 'INLET_NOT_VENTED'],
     'measure.start': _RD + ['CALIBRATING', 'NO_SNIFFER', 'SNIFFER_IN_VACUUM_MODE'], 'measure.stop': _PW + ['RUNNING_UP'],
-    'zero.set': _RD + ['ZERO_DISABLED', 'NOT_MEASURING', 'SIGNAL_NOT_STABLE'], 'zero.toggle': _RD + ['ZERO_DISABLED', 'NOT_MEASURING', 'SIGNAL_NOT_STABLE'],
-    'calibration.start': _RD + ['NOT_READY_FOR_CALIBRATION', 'SNIFFER_IN_VACUUM_MODE', 'MISSING_SETTING', 'NOT_MEASURING'],
+    'zero.set': _RD + ['ZERO_DISABLED', 'NOT_MEASURING', 'SIGNAL_NOT_STABLE'],
+    'zero.toggle': _RD + ['ZERO_DISABLED', 'NOT_MEASURING', 'SIGNAL_NOT_STABLE'],
+    'calibration.start': _RD + ['NOT_READY_FOR_CALIBRATION', 'SNIFFER_IN_VACUUM_MODE', 'INTERNAL_CAL_NEEDS_VACUUM_MODE', 'MISSING_SETTING', 'NOT_MEASURING'],
     'spray.set': _P + ['NO_PART'], 'sniffer.position': _P + ['NO_SNIFFER'], 'settings.configure': _PW + ['MEASURING', 'TRIGGER_ORDER'],
     'display.rotate': _P, 'leakrate.convert': [], 'datalog.read': _PW, 'events.read': [], 'truth.inspect': [], 'ledger.read': [], 'fault.inject': _P, 'sim.step': [],
+    'menu.configure': _PW + ['VOLUME_ORDER', 'LIMIT_ORDER', 'SNIFF_UNIT_IN_VACUUM_MODE'], 'clock.set': _PW, 'access.set_pin': _PW,
+    'device.unlock': _PW + ['NOT_LOCKED', 'WRONG_PIN'], 'parameters.save': _PW, 'parameters.load': _PW + ['EMPTY_SLOT', 'MEASURING'],
+    'parameters.load_defaults': _PW + ['MEASURING'], 'purge.set': _RD + ['NOT_STANDBY'], 'warning.acknowledge': _PW + ['NO_WARNING'],
+    'system.restart': _PW + ['RUNNING_UP'], 'calibration.proceed': _RD + ['NO_CAL_STEP'],
 }
 _COMMON_ERRORS = ['INVALID_ARGUMENT', 'REQUEST_CONFLICT', 'UNKNOWN_INSTANCE']
 PRECONDITIONS = {
@@ -1348,35 +2024,54 @@ PRECONDITIONS = {
     'measure.stop': ('已通电且不在启动中；按住超过放气延时则放气', ['power.on', 'state.current']),
     'zero.set': ('测量中；ZERO未被禁用；I·ZERO模式要求信号稳定', ['state.current', 'signal.stable', 'settings.current']),
     'zero.toggle': ('同zero.set', ['state.current', 'signal.stable']),
-    'calibration.start': ('待机或测量状态；真空模式；外部校准须在测量中并给出校准漏孔漏率', ['state.current', 'part.connected']),
+    'calibration.start': ('待机或测量状态；外部校准须在测量中并给出校准漏孔漏率；吸枪模式只能外部校准（吸枪校准因子），接吸枪的真空模式不能校准', ['state.current', 'part.connected']),
     'spray.set': ('入口上有被测件（真空模式）', ['part.connected']), 'sniffer.position': ('接了吸枪管', ['part.connected']),
     'settings.configure': ('已通电；测量中不能改模式；阈值2≥阈值1', ['power.on', 'state.current', 'settings.current']),
     'display.rotate': ('已声明环境条件', ['plant.configured']), 'datalog.read': ('已通电', ['power.on']), 'fault.inject': ('无', ['plant.configured']),
+    'menu.configure': ('已通电；音量≥最小音量；压力上限高于下限；吸枪专用单位只在吸枪模式', ['power.on', 'menu.settings', 'settings.current']),
+    'clock.set': ('已通电；日期有效', ['power.on']), 'access.set_pin': ('已通电', ['power.on']),
+    'device.unlock': ('已通电且在等待Device-PIN；PIN正确', ['power.on', 'access.device_locked']),
+    'parameters.save': ('已通电', ['power.on']), 'parameters.load': ('已通电；参数组已保存；测量中不能借此切换模式', ['power.on', 'parameters.sets', 'state.current']),
+    'parameters.load_defaults': ('已通电；测量中不能借此切换模式', ['power.on', 'state.current']),
+    'purge.set': ('启动完成且在待机', ['power.on', 'state.current']), 'warning.acknowledge': ('有未确认的警告或错误', ['alarms.unacknowledged']),
+    'system.restart': ('已通电且不在启动中', ['power.on', 'state.current']),
+    'calibration.proceed': ('吸枪模式外部校准等待关闭漏孔（打开漏孔的信号已测完）', ['state.current', 'state.remaining_s']),
 }
 _EVOLVE = ['state.current', 'state.remaining_s', 'range.current', 'zero.enabled', 'pressure.inlet_pa', 'pressure.foreline_pa', 'leak.display_pa_m3_s', 'display.leak_mantissa',
            'display.leak_exponent', 'leak.status', 'leak.trigger2_exceeded', 'alarm.audible', 'zero.offset_pa_m3_s', 'signal.stable', 'calibration.factor', 'alarms.active',
-           'indicator.reject', 'indicator.ready', 'truth.gas', 'truth.detector', 'truth.leaks']
+           'indicator.reject', 'indicator.ready', 'truth.gas', 'truth.detector', 'truth.leaks', 'leak.hold_pa_m3_s', 'purge.active', 'recorder.output_v',
+           'audio.tone', 'service.exhaust_filter_h', 'alarms.unacknowledged', 'calibration.history', 'device.datetime', 'calibration.factor_sniff']
 _DISP = ['leak.display_pa_m3_s', 'display.leak_mantissa', 'display.leak_exponent', 'leak.status', 'leak.trigger2_exceeded', 'alarm.audible', 'indicator.reject', 'indicator.ready',
-         'alarms.active']
+         'alarms.active', 'recorder.output_v', 'audio.tone', 'alarms.unacknowledged']
 EFFECTS = {
-    'plant.configure': ['plant.configured', 'truth.gas', 'truth.detector', 'truth.leaks', 'alarms.active'],
+    'plant.configure': ['plant.configured', 'truth.gas', 'truth.detector', 'truth.leaks', 'alarms.active', 'alarms.unacknowledged', 'recorder.output_v'],
     'power.set': ['power.on', 'state.current', 'state.remaining_s', 'range.current', 'pressure.inlet_pa', 'pressure.foreline_pa', 'zero.enabled', 'zero.offset_pa_m3_s',
-                  'truth.detector', 'truth.gas', 'signal.stable'] + _DISP,
-    'part.connect': ['part.connected', 'truth.gas', 'truth.leaks', 'pressure.inlet_pa'], 'part.disconnect': ['part.connected', 'truth.gas', 'truth.leaks', 'pressure.inlet_pa'],
-    'sniffer.connect': ['part.connected', 'truth.gas', 'truth.leaks'],
-    'measure.start': ['state.current', 'range.current', 'zero.offset_pa_m3_s', 'pressure.inlet_pa', 'pressure.foreline_pa', 'truth.gas', 'truth.detector', 'signal.stable'] + _DISP,
+                  'truth.detector', 'truth.gas', 'signal.stable', 'access.device_locked', 'purge.active', 'leak.hold_pa_m3_s'] + _DISP,
+    'part.connect': ['part.connected', 'truth.gas', 'truth.leaks', 'pressure.inlet_pa', 'recorder.output_v'],
+    'part.disconnect': ['part.connected', 'truth.gas', 'truth.leaks', 'pressure.inlet_pa', 'recorder.output_v'],
+    'sniffer.connect': ['part.connected', 'truth.gas', 'truth.leaks', 'recorder.output_v'],
+    'measure.start': ['state.current', 'range.current', 'zero.offset_pa_m3_s', 'pressure.inlet_pa', 'pressure.foreline_pa', 'truth.gas', 'truth.detector', 'signal.stable',
+                      'leak.hold_pa_m3_s', 'purge.active'] + _DISP,
     'measure.stop': ['state.current', 'range.current', 'zero.enabled', 'zero.offset_pa_m3_s', 'pressure.inlet_pa', 'pressure.foreline_pa', 'truth.gas', 'truth.detector',
-                     'signal.stable', 'state.remaining_s'] + _DISP,
+                     'signal.stable', 'state.remaining_s', 'leak.hold_pa_m3_s', 'purge.active'] + _DISP,
     'zero.set': ['zero.enabled', 'zero.offset_pa_m3_s'] + _DISP, 'zero.toggle': ['zero.enabled', 'zero.offset_pa_m3_s'] + _DISP,
     'calibration.start': ['state.current', 'state.remaining_s', 'range.current', 'pressure.foreline_pa', 'truth.detector', 'truth.gas', 'signal.stable'] + _DISP,
     'spray.set': ['truth.leaks'], 'sniffer.position': [], 'settings.configure': ['settings.current', 'signal.stable'] + _DISP, 'display.rotate': ['display.angle_rad'],
     'fault.inject': ['truth.faults', 'truth.detector', 'truth.gas', 'signal.stable'] + _DISP, 'sim.step': ['clock.time_s'],
+    'menu.configure': ['menu.settings', 'signal.stable'] + _DISP, 'clock.set': ['device.datetime'], 'access.set_pin': ['access.pins_set'],
+    'device.unlock': ['access.device_locked'], 'parameters.save': ['parameters.sets'], 'parameters.load': ['settings.current', 'menu.settings', 'signal.stable'] + _DISP,
+    'parameters.load_defaults': ['settings.current', 'menu.settings', 'signal.stable'] + _DISP, 'purge.set': ['purge.active'],
+    'warning.acknowledge': ['alarms.unacknowledged'], 'calibration.proceed': ['state.remaining_s', 'truth.detector'],
+    'system.restart': ['state.current', 'state.remaining_s', 'range.current', 'zero.enabled', 'zero.offset_pa_m3_s', 'pressure.foreline_pa', 'pressure.inlet_pa',
+                       'truth.detector', 'truth.gas', 'signal.stable', 'purge.active', 'leak.hold_pa_m3_s'] + _DISP,
 }
 EFFECTS['power.toggle'] = list(EFFECTS['power.set'])
 ON_STEP = {
-    'sim.step': _EVOLVE + ['clock.time_s'], 'power.set': _EVOLVE, 'power.toggle': _EVOLVE, 'measure.start': _EVOLVE, 'measure.stop': _EVOLVE, 'calibration.start': _EVOLVE,
+    'sim.step': _EVOLVE + ['clock.time_s'], 'power.set': _EVOLVE, 'power.toggle': _EVOLVE, 'measure.start': _EVOLVE, 'measure.stop': _EVOLVE, 'calibration.start': _EVOLVE, 'calibration.proceed': _EVOLVE,
     'zero.set': ['zero.offset_pa_m3_s'] + _DISP, 'zero.toggle': ['zero.offset_pa_m3_s'] + _DISP, 'spray.set': _EVOLVE, 'sniffer.position': _EVOLVE, 'part.connect': _EVOLVE,
     'fault.inject': _EVOLVE, 'plant.configure': ['truth.gas', 'truth.detector'], 'settings.configure': _DISP,
+    'menu.configure': _EVOLVE, 'parameters.load': _EVOLVE, 'parameters.load_defaults': _EVOLVE, 'device.unlock': _EVOLVE, 'system.restart': _EVOLVE,
+    'purge.set': ['purge.active'],
 }
 ON_STEP_ZH = {
     'sim.step': '按0.5 s网格（气体0.05 s子步）积分：启动计时、被测件总压与氦分压（漏孔、通道延迟、出气、抽速）、自动换档、检测器信号与内部背景、零点、校准、判定与报警、数据记录',
@@ -1387,18 +2082,19 @@ EXEC_TEXT = {
     'measure.start': ('state.current由evacuation变为measure，range.current按入口压力换档', '抽空超过最长抽空时间报W76并回到待机'),
     'calibration.start': ('state.current回到standby或measure，calibration.factor更新（或W81/W82保留旧因子）', 'STOP或断电中止校准，保留旧因子'),
 }
-RESOURCES = {k: ['host_clock'] for k in CAPS}
+RESOURCES = {k: ['host_clock'] for k in ALL_CAPS}
 for _k in ('part.connect', 'part.disconnect', 'sniffer.connect', 'spray.set', 'sniffer.position'):
     RESOURCES[_k] = ['host_clock', 'inlet_flange']
 OBSERVES = {'measure.start': ['state.current', 'range.current', 'pressure.inlet_pa'], 'calibration.start': ['state.current', 'calibration.factor'],
             'spray.set': ['leak.display_pa_m3_s'], 'zero.set': ['zero.offset_pa_m3_s']}
 _WB, _BR, _MN, _C14, _C26, _NI, _PC, _SIM = ('user_workbook', 'manufacturer_brochure', 'manufacturer_operating_manual', 'cas_vacuum_ion_sources_2014',
                                              'cas_vacuum_accelerators_2026', 'nist_webbook', 'pubchem', 'simulation_assumption')
-CAP_SOURCES = {k: [_SIM] for k in CAPS}
+CAP_SOURCES = {k: [_SIM] for k in ALL_CAPS}
 CAP_SOURCES.update({'power.set': [_MN], 'power.toggle': [_MN], 'part.connect': [_MN, _C14, _C26], 'measure.start': [_BR, _MN], 'measure.stop': [_MN], 'zero.set': [_BR, _MN],
                     'zero.toggle': [_MN], 'calibration.start': [_BR, _MN], 'spray.set': [_BR], 'sniffer.connect': [_MN], 'sniffer.position': [_BR, _MN],
                     'settings.configure': [_MN], 'display.rotate': [_BR], 'leakrate.convert': [_C14, _NI, _PC], 'datalog.read': [_MN], 'fault.inject': [_MN, _SIM]})
 CAP_SOURCES.update({k: [_BR, _MN] for k in UNSUPPORTED})
+CAP_SOURCES.update({k: [_MN, _SIM] for k in TERMINAL_CAPS})
 PARAM_ZH = {'ambient_k': '环境温度', 'pressure_pa': '大气压', 'temperature_at_calibration_k': '上次校准时的环境温度（灵敏度漂移基准）', 'noise_seed': '噪声随机数种子（只在首次声明时生效）'}
 _DEFAULT_LIMIT = '过程层实现；机器人与硬件层未实现；整体模型边界见mechanisms.helium_leak_detection.limitations。'
 CAP_LIMITS = {
@@ -1406,8 +2102,21 @@ CAP_LIMITS = {
     'spray.set': ['喷氦抽象为漏孔外侧的氦摩尔分数（工程值0.5）；喷枪覆盖范围与扩散到相邻漏孔不建模。'],
     'sniffer.position': ['吸枪捕集按距离指数衰减（工程长度5 mm）；空气中氦背景5.24 ppm决定吸枪检出限量级。'],
     'calibration.start': ['内置校准漏孔漏率为工程值（手册未给数值）；外部校准漏孔按给定的标称值，真实值假定等于标称。',
+                          '吸枪模式只做外部校准（吸枪对准外部校准漏孔，面板用菜单的吸枪校准漏孔值），结果写入独立的吸枪校准因子（calibration.factor_sniff，RS232手册'
+                          'calibration factor sniff）；漏孔打开15 s后屏上要求关闭漏孔并按OK（calibration.proceed），再测背景15 s；吸枪模式下的内部校准被拒（提示为假设）。',
                           '从待机开始的内部校准先把入口（及所接被测件）抽到15 mbar以下并自动换档，再测基线、打开校准漏孔，关闭后等其氦从信号中衰减才结束；返回的duration_s与state.remaining_s是按容积与抽速的估计。'],
+    'calibration.proceed': ['吸枪外部校准：打开漏孔与关闭漏孔两步各稳定15 s（假设）；新因子=（打开时信号−关闭后背景）/吸枪校准漏孔标称值，只改变吸枪校准因子；'
+                            '真空模式的外部校准仍为单步（漏孔打开时的信号/标称值，不减背景）。'],
     'zero.set': ['ZERO/I·ZERO/自动零点：扣除按下时的信号，信号继续下降时零点随之下降后保持（手册4.2.2.4）；I·ZERO只在信号稳定时允许；厂家具体算法未公开。'],
+    'menu.configure': ['显示类设置（刻度、范围、时间轴、对比度、反色、背景、单位）只改变屏幕；显示下限与小数位改变显示读数；音量与报警类型改变扬声器（audio.tone）；'
+                       '吹扫、不放气、档位方式（ULTRA ONLY/FINE ONLY/SOFTPUMP约半速）、内置漏孔标称值、颗粒保护（入口<1 mbar前不抽）、污染保护（超限切待机W15）、'
+                       '换档压力（FINE-ULTRA随GROSS-FINE按比例）、吸枪压力窗、无限抽空时间、电源60 Hz（涡旋泵约快20 %，假设）、漏率滤波（Fixed为1 s时间常数，I-CAL为0.8 s，假设）'
+                       '与排气过滤器提示（W18）按手册改变运行层；控制位置为PLC或RS232时锁START/STOP/ZERO键（面板与直接的按键命令，KEYS_LOCKED；RS232/PLC远程控制本身未建模）；RS232协议、记录仪输出只作设置与电压计算（无外接设备）。',
+                       'ppm按吸枪流量（工程值0.2 Pa·m³/s）换算；g/a eq与oz/yr eq按分子流把氦换算为R134a质量流量（手册只说明与R134a等效，换算式为假设）。'],
+    'clock.set': ['设备钟：日期时间只用于显示、参数组与校准历史的时间戳。'],
+    'parameters.save': ['参数组保存settings.current与menu.settings（不含PIN与校准因子）。'],
+    'device.unlock': ['Device-PIN只由面板输入；忘记PIN的复位（INFICON服务）不建模。'],
+    'purge.set': ['吹扫只作为状态（purge.active），涡旋泵吹扫气流不进入气体账。'],
 }
 LIMITATIONS = [
     '所选配置：UL1000 Fab（230 V 50 Hz，550-100A），真空模式与吸枪模式（SL200吸枪管）；TC1000测试室、遥控器、SMART-Spray喷枪的实际控制与H₂/³He示踪为不支持或抽象。',
@@ -1431,7 +2140,8 @@ def _sampling_text(k):
 def _errors_of(k):
     if k in UNSUPPORTED:
         return ['UNSUPPORTED'] + _COMMON_ERRORS
-    extra = ['ACCESS_DENIED'] if CAPS[k]['visibility'] != 'agent' else []
+    extra = ['ACCESS_DENIED'] if ALL_CAPS[k]['visibility'] != 'agent' else []
+    extra += ['REMOTE_DISABLED'] if k in _REMOTE_CAPS else []
     return list(dict.fromkeys(CAP_ERRORS.get(k, []) + _COMMON_ERRORS + extra))
 
 
@@ -1481,6 +2191,11 @@ SLOT_REFERENCE = {'pressure.inlet_pa': '绝压（入口/被测件侧）', 'press
                   'display.angle_rad': '控制面板绕竖直轴（+Z）自正前方的转角，自上向下看逆时针为正，0时面板朝−Y（操作者）'}
 
 
+PANEL_PRECONDITION_ZH = ('面板按当前屏幕与手册规则处理按键：断电时屏幕黑、只有主电源开关有效；开机约3 min启动（设了Device-PIN时先输PIN）；软键功能随屏幕而变（1多为'
+                         'Back/Cancel，8多为OK）；警告须按OK、错误须按Restart或Menu；控制位置不含Local时START/STOP/ZERO键被锁；被调用能力的前提同样适用（被拒时显示仪器信息）')
+PANEL_LIMITATION_ZH = '面板层按panel_ui.json（操作说明书PDF页码证据）解释按键并调用本运行层的同名能力；按键不推进仿真时钟；手册未写之处（屏幕分辨率、软键标签位置、步进表、提示文字）见panel_ui.json的assumptions。'
+
+
 def export_inficon_ul1000fab_contract_metadata():
     slots, caps = {}, {}
     for k, v in SLOTS.items():
@@ -1488,7 +2203,7 @@ def export_inficon_ul1000fab_contract_metadata():
                         reference_conditions=SLOT_REFERENCE.get(k), origin=v['origin'], visibility=v['visibility'], access='read_only',
                         read_binding=dict(backend='host', artifact_id='runtime', accessor=f'InficonUl1000fabSession.read(state_ids=[{k!r}])'), write_via=None,
                         sampling=dict(mode='instant', time_domain='simulation', window_description=_sampling_text(k)), source_ids=['simulation_assumption'])
-    for k, v in CAPS.items():
+    for k, v in ALL_CAPS.items():
         un = k in UNSUPPORTED
         c = {key: copy.deepcopy(v[key]) for key in ['input_schema', 'output_schema', 'component_ids', 'function_zh', 'kind', 'visibility', 'example_arguments']}
         c.update(availability='unsupported' if un else 'implemented',
@@ -1509,6 +2224,25 @@ def export_inficon_ul1000fab_contract_metadata():
             c['state_effects'] += [dict(state_id=s, timing='on_step', description_zh=ON_STEP_ZH.get(k, '随step演化')) for s in dict.fromkeys(ON_STEP[k])
                                    if not (k == 'sim.step' and s in EFFECTS.get(k, []))]
         caps[k] = c
+    fx = list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in EFFECTS.get(c, [])))
+    for k, d in PANEL_CAPS.items():
+        g = k in PANEL_GESTURES
+        caps[k] = dict(function_zh=d['function_zh'], kind=d['kind'], visibility=d['visibility'], component_ids=list(d['component_ids']),
+                       input_schema=copy.deepcopy(d['input_schema']), output_schema=copy.deepcopy(d['output_schema']), example_arguments=copy.deepcopy(d['example_arguments']),
+                       availability='implemented', implementation={layer: 'absent' if layer in ('scene', 'robot', 'hardware') else 'implemented'
+                                                                  for layer in ['process', 'scene', 'robot', 'hardware', 'host']},
+                       binding=dict(backend='host', artifact_id='runtime', entrypoint='asset_runtime.inficon_ul1000fab.InficonUl1000fabSession.invoke',
+                                    invocation=f'session.invoke(instance_id="inficon_ul1000fab_01",capability_id={k!r},arguments={d["example_arguments"]!r},request_id="unique")'),
+                       preconditions=[dict(description_zh=PANEL_PRECONDITION_ZH, state_ids=['power.on', 'state.current', 'alarms.unacknowledged', 'access.device_locked'],
+                                           enforced_by='runtime', check='panel_ui.json screens, gates and bindings')] if g else [],
+                       state_effects=[dict(state_id=x, timing='immediate', description_zh='软键调用的能力的效果（与直接调用同一能力相同）') for x in fx] if g else [],
+                       observes=[], model_effects=dict(mode='none', description_zh='液晶屏纹理与按键联动属于后续Matterix步骤，本版本只在过程层。', binding_ids=[]),
+                       execution=dict(mode='synchronous', time_domain='simulation',
+                                      completion_criterion='按键瞬时完成（不推进仿真时钟）；结果只说明是否被仪器接受，屏幕须用panel.capture查看' if g else '不推进物理时钟',
+                                      completion_state_ids=fx if g else [], timeout_s=None, cancellation='unsupported', retry='same_request_id',
+                                      resources=['host_clock'], partial_failure_zh='按键调用的每个能力各自先检查再修改；被拒绝时显示仪器自己的信息，按键返回accepted=false'),
+                       errors=[dict(code=e, meaning_zh=ERROR_ZH[e], side_effects='none') for e in _COMMON_ERRORS],
+                       verification=[], limitations=[PANEL_LIMITATION_ZH], source_ids=[_MN, _SIM])
     mechanism = dict(
         component_ids=['inlet_flange', 'scroll_pump', 'turbo_pump', 'mass_spectrometer', 'internal_test_leak', 'display_panel', 'start_key', 'stop_key', 'zero_key'],
         state_ids=list(slots), implementation='lumped',

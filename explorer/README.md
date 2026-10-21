@@ -7,7 +7,7 @@ sdk: static
 app_file: index.html
 pinned: false
 license: mit
-short_description: Browse 198 simulation-ready chemistry lab instruments in 3D
+short_description: Browse 203 simulation-ready chemistry lab instruments in 3D
 datasets:
   - MBZUAI/ChemLab-Assets
 tags:
@@ -23,7 +23,7 @@ tags:
 
 # ChemLab-Assets Explorer
 
-An interactive 3D viewer for [ChemLab-Assets](https://huggingface.co/datasets/MBZUAI/ChemLab-Assets), an open dataset of 198 simulation-ready chemistry laboratory instruments in 16 domains. Pick an instrument to see its model with working joints (sliders move doors, lids, knobs and stages), collision proxies, interface points, panel readouts and placement frames, and click any part to identify it. The side panel lists the instrument's components, joints, capabilities, state slots and physical mechanisms, shows its preview renders, and links to the GLB, URDF, asset contract and Python runtime. A sortable table compares all 198 instruments. Part and mechanism descriptions are kept in their original Chinese.
+An interactive 3D viewer for [ChemLab-Assets](https://huggingface.co/datasets/MBZUAI/ChemLab-Assets), an open dataset of 203 simulation-ready chemistry laboratory instruments in 16 domains. Pick an instrument to see its model with working joints (sliders move doors, lids, knobs and stages), collision proxies, interface points, panel readouts and placement frames, and click any part to identify it. The side panel lists the instrument's components, joints, capabilities, state slots and physical mechanisms, shows its preview renders (for the 106 instruments with a front-panel menu, these include screens drawn by the menu engine), and links to the GLB, URDF, asset contract and Python runtime. A sortable table compares all 203 instruments. Part and mechanism descriptions are kept in their original Chinese.
 
 Link straight to an instrument with `#instrument.<slug>`, for example [`#instrument.esco_efa5uduvw`](https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer#instrument.esco_efa5uduvw) for the fume hood; `?id=instrument.<slug>` works as well. The address follows your selection, so you can copy it to share a view.
 

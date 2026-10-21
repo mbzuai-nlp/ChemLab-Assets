@@ -38,6 +38,7 @@ class TestHachDR6000Runtime(_dr6000_test_unittest.TestCase):
 
     def ready(self, sample="synthetic_sample"):
         self.ok("power.set", enabled=True)
+        self.time_s += 165.0                          # startup (45 s) and self-check (120 s) of the instrument before a reading
         self.ok("lid.set_angle", angle_rad=HACH_DR6000_LID_MAX_RAD)
         self.ok("sample.load", sample_id=sample)
         self.ok("lid.set_angle", angle_rad=0.0)
@@ -100,6 +101,9 @@ class TestHachDR6000Runtime(_dr6000_test_unittest.TestCase):
     def test_measure_requires_power_closed_lid_and_sample(self):
         self.assert_rejected_unchanged("spectroscopy.measure", {})
         self.ok("power.set", enabled=True)
+        self.assertEqual(self.assert_rejected_unchanged("spectroscopy.measure", {})["error"]["code"], "NOT_READY")   # startup
+        self.time_s += 165.0
+        self.device.host_update()                     # the host brings the terminal to its clock: self-check done
         self.assert_rejected_unchanged("spectroscopy.measure", {})
         self.ok("lid.set_angle", angle_rad=HACH_DR6000_LID_MAX_RAD)
         self.ok("sample.load", sample_id="synthetic_sample")
@@ -218,7 +222,7 @@ class TestHachDR6000Runtime(_dr6000_test_unittest.TestCase):
         before = self.device.debug_snapshot()
         before_scene = _dr6000_test_copy.deepcopy(self.scene_calls)
         for _ in range(3):
-            self.assertEqual(self.device.read()["clock"]["time_s"], 17)
+            self.assertEqual(self.device.read()["clock"]["time_s"], 17 + 165)
             self.device.describe()
         self.assertEqual(before, self.device.debug_snapshot())
         self.assertEqual(before_scene, self.scene_calls)
@@ -1680,6 +1684,7 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
         self.api = self.host.session()
         self.counter = 0
         self.metadata = export_eppendorf_5910ri_contract_metadata()
+        self.t0 = 0.0                                 # host time when the software start ended (ready() boots the centrifuge)
 
     def make_host(self, instance_id, calls=None, process=True):
         callback = lambda iid, state: calls.append((iid, _dr6000_test_copy.deepcopy(state))) if calls is not None else None
@@ -1714,8 +1719,17 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
     def value(self, state_id):
         return self.api.read(state_ids=[state_id])["observations"][state_id]["value"]
 
-    def ready(self, *, second="sample_b", configuration="large_capacity", speed_rad_s=20.0):
+    def advance(self, time_s):
+        return self.host.host_advance(self.t0 + time_s)
+
+    def boot(self):
+        """Switch on and wait for the 90 s software start (p.27): a run cannot start before (BOOTING)."""
         self.success("power.set", enabled=True)
+        self.t0 = self.api.read()["clock"]["time_s"] + 90.0
+        self.host.host_advance(self.t0)
+
+    def ready(self, *, second="sample_b", configuration="large_capacity", speed_rad_s=20.0):
+        self.boot()
         self.success("lid.set_angle", angle_rad=EPPENDORF_5910RI_LID_MAX_RAD)
         self.success("rotor.select", configuration=configuration)
         self.success("sample.load", slot_id="slot_1", sample_id="sample_a")
@@ -1785,17 +1799,18 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
     def test_balanced_normal_run_exact_linear_motion_temperature_and_curve(self):
         self.ready()
         self.assertFalse(self.value("alarm.imbalance"))
+        start_k = self.value("display.temperature_k")       # after the software start the chamber has moved toward ambient
         start = self.success("centrifuge.measure")
         self.assertEqual(start["status"], "accepted")
         self.assertTrue(self.value("lid.locked"))
-        self.host.host_advance(2.0)
+        self.advance(2.0)
         self.assertAlmostEqual(self.value("display.speed_rad_s"), 8.0)
         self.assertAlmostEqual(self.value("rotor.angle_rad"), 8.0)
-        self.assertAlmostEqual(self.value("display.temperature_k"), 283.15 + 10 * _epp_test_math.exp(-0.1))
-        self.host.host_advance(10)
+        self.assertAlmostEqual(self.value("display.temperature_k"), 283.15 + (start_k - 283.15) * _epp_test_math.exp(-0.1))
+        self.advance(10)
         self.assertEqual(self.value("run.status"), "stopping")
         self.assertAlmostEqual(self.value("rotor.angle_rad"), 150.0)
-        self.host.host_advance(14)
+        self.advance(14)
         self.assertEqual(self.value("run.status"), "succeeded")
         self.assertEqual(self.value("display.speed_rad_s"), 0.0)
         self.assertFalse(self.value("lid.locked"))
@@ -1817,7 +1832,7 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
         for cap, args in (("lid.set_angle", {"angle_rad": 1}), ("sample.load", {"slot_id": "slot_3", "sample_id": "sample_unequal"}),
             ("sample.unload", {"slot_id": "slot_1"}), ("rotor.select", {"configuration": "fixed_angle"}), ("centrifuge.set_method", self.method()), ("centrifuge.measure", {})):
             self.rejected_unchanged(cap, args, "BUSY")
-        self.host.host_advance(2)
+        self.advance(2)
         self.rejected_unchanged("lid.set_angle", {"angle_rad": 1}, "BUSY")
 
     def test_imbalance_alarm_is_preexisting_and_rejected_run_has_no_side_effects(self):
@@ -1840,7 +1855,7 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
     def test_cancel_retains_partial_results_and_continues_braking_until_unlock(self):
         self.ready()
         op = self.success("centrifuge.measure")["operation_id"]
-        self.host.host_advance(2.5)
+        self.advance(2.5)
         before = self.value("measurement.curve")
         cancelled = self.api.cancel(operation_id=op, request_id="cancel_once")
         self.assertEqual(cancelled["status"], "succeeded")
@@ -1848,9 +1863,9 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
         self.assertTrue(self.value("lid.locked"))
         self.assertEqual(self.value("measurement.curve"), before)
         self.assertEqual(self.api.cancel(operation_id=op, request_id="cancel_once"), cancelled)
-        self.host.host_advance(4)
+        self.advance(4)
         self.assertTrue(self.value("lid.locked"))
-        self.host.host_advance(4.5)
+        self.advance(4.5)
         curve = self.value("measurement.curve")
         self.assertEqual(curve["time_s"][:len(before["time_s"])], before["time_s"])
         self.assertEqual(curve["speed_rad_s"][:len(before["speed_rad_s"])], before["speed_rad_s"])
@@ -1862,11 +1877,11 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
     def test_stop_direct_api_schema_and_partial_effects(self):
         self.ready()
         self.success("centrifuge.measure")
-        self.host.host_advance(3)
+        self.advance(3)
         result = self.success("centrifuge.stop")["result"]
         self.assertEqual(result["run_status"], "stopping")
         angle_before = self.value("rotor.angle_rad")
-        self.host.host_advance(5.4)
+        self.advance(5.4)
         self.assertEqual(self.value("run.status"), "cancelled")
         self.assertGreater(self.value("rotor.angle_rad"), angle_before)
         self.assertFalse(self.value("lid.locked"))
@@ -1874,17 +1889,17 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
     def test_power_off_cannot_release_rotating_lid_and_preserves_curve(self):
         self.ready()
         op = self.success("centrifuge.measure")["operation_id"]
-        self.host.host_advance(2)
+        self.advance(2)
         before = self.value("measurement.curve")
         self.success("power.set", enabled=False)
         self.assertFalse(self.value("power.enabled"))
         self.assertTrue(self.value("lid.locked"))
         self.assertEqual(self.value("display.speed_rad_s"), 8)
         self.rejected_unchanged("lid.set_angle", {"angle_rad": EPPENDORF_5910RI_LID_MAX_RAD}, "BUSY")
-        self.host.host_advance(5)
+        self.advance(5)
         self.assertAlmostEqual(self.value("display.speed_rad_s"), 2)
         self.assertTrue(self.value("lid.locked"))
-        self.host.host_advance(6)
+        self.advance(6)
         self.assertFalse(self.value("lid.locked"))
         self.assertEqual(self.api.poll(operation_id=op)["status"], "cancelled")
         self.assertEqual(self.value("measurement.curve")["speed_rad_s"][:3], before["speed_rad_s"])
@@ -1893,7 +1908,7 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
     def test_reads_polls_queries_no_clock_progress_and_defensive_copies(self):
         self.ready()
         op = self.success("centrifuge.measure")["operation_id"]
-        self.host.host_advance(2)
+        self.advance(2)
         before = self.host.debug_snapshot()
         for _ in range(3):
             read = self.api.read()
@@ -1946,15 +1961,17 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
         self.ready()
         self.success("centrifuge.measure")
         for time_s in (0.1, 0.7, 2.2, 7.25, 10, 13.5, 14, 30):
-            self.host.host_advance(time_s)
+            self.advance(time_s)
         curve, angle, temperature = self.value("measurement.curve"), self.value("rotor.angle_rad"), self.value("display.temperature_k")
         coarse = self.make_host("coarse")
-        for i, (cap, args) in enumerate((("power.set", {"enabled": True}), ("lid.set_angle", {"angle_rad": EPPENDORF_5910RI_LID_MAX_RAD}),
+        self.assertEqual(coarse.invoke(capability_id="power.set", arguments={"enabled": True}, request_id="on")["status"], "succeeded")
+        coarse.host_advance(self.t0)
+        for i, (cap, args) in enumerate((("lid.set_angle", {"angle_rad": EPPENDORF_5910RI_LID_MAX_RAD}),
             ("rotor.select", {"configuration": "large_capacity"}), ("sample.load", {"slot_id": "slot_1", "sample_id": "sample_a"}),
             ("sample.load", {"slot_id": "slot_2", "sample_id": "sample_b"}), ("lid.set_angle", {"angle_rad": 0}),
             ("centrifuge.set_method", self.method()), ("centrifuge.measure", {}))):
             self.assertIn(coarse.invoke(capability_id=cap, arguments=args, request_id=str(i))["status"], ("succeeded", "accepted"))
-        coarse.host_advance(30)
+        coarse.host_advance(self.t0 + 30)
         obs = coarse.read()["observations"]
         self.assertEqual(curve, obs["measurement.curve"]["value"])
         self.assertEqual(angle, obs["rotor.angle_rad"]["value"])
@@ -1965,7 +1982,7 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
                 self.host.host_advance(invalid)
             self.assertEqual(before, self.host.debug_snapshot())
         before = self.host.debug_snapshot()
-        self.host.host_advance(30)
+        self.advance(30)
         self.assertEqual(before, self.host.debug_snapshot())
 
     def test_scene_failure_atomicity_sanitization_and_same_request_no_retry(self):
@@ -1988,7 +2005,7 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
         self.host._scene_adapter = fail
         before = self.host.debug_snapshot()
         with self.assertRaisesRegex(RuntimeError, "Scene synchronization failed"):
-            self.host.host_advance(2)
+            self.advance(2)
         self.assertEqual(before, self.host.debug_snapshot())
 
     def test_unsupported_unbound_scene_strict_shapes_write_routing_and_loading_preconditions(self):

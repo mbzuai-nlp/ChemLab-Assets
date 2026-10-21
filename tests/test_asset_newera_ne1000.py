@@ -131,8 +131,10 @@ def _raised_codes():
     swallowed = {'keypad.press': {'ALARM_ACTIVE', 'NOT_APPLICABLE', 'OUT_OF_RANGE', 'DIAMETER_NOT_SET', 'PROGRAM_OPERATING', 'UNITS_WHILE_PUMPING', 'ALREADY_RUNNING'},
                  'serial.send': {'ALARM_ACTIVE', 'NOT_APPLICABLE', 'OUT_OF_RANGE', 'DIAMETER_NOT_SET', 'PROGRAM_OPERATING', 'UNITS_WHILE_PUMPING', 'ALREADY_RUNNING',
                                  'UNKNOWN_COMMAND'},
-                 'power.set': {'DIAMETER_NOT_SET'}, 'power.toggle': {'DIAMETER_NOT_SET'}, 'fault.inject': {'DIAMETER_NOT_SET'}}
-    # keypad and RS-232 errors become display messages / '?' replies; the power-failure restart is guarded by `if self.diameter`
+                 'power.set': {'DIAMETER_NOT_SET', 'ACCESS_DENIED'}, 'power.toggle': {'DIAMETER_NOT_SET', 'ACCESS_DENIED'}, 'fault.inject': {'DIAMETER_NOT_SET'}}
+    # keypad and RS-232 errors become display messages / '?' replies; the power-failure restart is guarded by `if self.diameter`; the program reset
+    # inside that restart carries the run-owner guard, which cannot fire there (the restarted program already belongs to the caller who switched on,
+    # 1.2.1: the power switch is physical and never refused)
     return {name[k]: v - swallowed.get(name[k], set()) for k, v in out.items() if k in name}
 
 
@@ -831,9 +833,10 @@ class RoundOneFixes(unittest.TestCase):
         self.assertEqual(g.read('setup.state')['direction_input'], 1)
         self.assertEqual(g.read('setup.state')['motor_output'], 1)
         self.assertEqual(g.serial('BUZ13'), '00S')
-        self.assertEqual(g.serial('DIRSTK'), '00S?NA')
-        for k in ('ttl.override_trigger', 'direction.sticky', 'program.entry_lockout'):              # R1-07
-            self.assertIn(k, rt.UNSUPPORTED)
+        self.assertEqual(g.serial('DIRSTK'), '00S')                                                # 1.1.0: sticky direction implemented
+        for k in ('ttl.override_trigger', 'direction.sticky', 'program.entry_lockout'):              # R1-07 (unsupported in 1.0.0)
+            self.assertIn(k, rt.KEYPAD_CAPS)                                                        # 1.1.0: front-panel firmware commands
+            self.assertNotIn(k, rt.UNSUPPORTED)
 
 
 class RoundTwoFixes(unittest.TestCase):

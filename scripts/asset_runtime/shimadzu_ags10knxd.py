@@ -113,6 +113,42 @@ for k,u in [('truth.force_n','N'),('truth.plastic_strain','1'),('truth.total_str
 for _private_drive in ['frame.deflection_m','sample.visual_extension_m','sample.fracture_gap_m']:
     SLOTS[_private_drive]['visibility']='evaluator'
 
+# ---------------------------------------------------------------- 1.1.0: operating-panel functions (USP lab guide, brochure p.7 / p.18)
+# Stroke zero, 20 test-method files kept in the tester, the RETURN origin and the peak / break values of the display; the panel layer
+# (panel_ui.json, approximate: the AGS-X instruction manual is login-gated) drives these and the 1.0.0 commands.  CAPS keep their meaning.
+ASSET_VERSION='1.1.2';METHOD_FILES=20;JOG_M_S=50e-3/60;JOG_HIGH_M_S=500e-3/60;RETURN_M_S=MAX_SPEED_M_S
+# 1.1.1 (sync fixes 2026-10-19): the method stop force and the START check act on the tester's own load-cell reading; ZERO FORCE is refused
+# only while the reading shows a load inside the guaranteed range (from 1/500 of the 10 kN cell, brochure: 20 N; the refusal itself is an
+# assumption, the VFD messages are login-gated); the run-owner guards (stop / result / power off while running) live in the runtime and use
+# the caller the session sets, so a panel STOP or power switch of another agent is refused as the direct call is.
+ZERO_LOAD_N=LOAD_CELL_MAX_N/500
+KEY_CAPS={}
+def kcap(k,s,o,example,components,meaning,effects):KEY_CAPS[k]=dict(input_schema=s,output_schema=o,example_arguments=example,component_ids=list(components),function_zh=meaning,visibility='agent',kind='device_command',effects=list(effects))
+FILE={'type':'integer','minimum':1,'maximum':METHOD_FILES,'x-unit':'1'}
+kcap('display.zero_stroke',obj({}),obj(dict(stroke_zero_m=number('m'))),{},['panel_keys','position_digits'],'操作面板ZERO STROKE：把行程显示置零（不移动横梁）',['display.stroke_zero_m','display.stroke_m'])
+kcap('method.save_file',obj(dict(file=FILE)),obj(dict(file=FILE)),dict(file=1),['panel_keys'],'把当前试验方法存入试验机内的方法文件01–20',['method.files'])
+kcap('method.load_file',obj(dict(file=FILE)),obj(dict(file=FILE)),dict(file=1),['panel_keys'],'从试验机内的方法文件01–20载入试验方法（须先配夹具；文件为空时拒绝）',['method.configured','method.files'])
+slot('display.stroke_zero_m',number('m'),'m','setpoint','position_digits','ZERO STROKE记下的行程零点（显示用）')
+slot('display.stroke_m',nullable(number('m')),'m','derived','position_digits','面板行程显示=横梁编码器读数−行程零点（断电为空）')
+slot('method.files',array(nullable(TEXT),METHOD_FILES,METHOD_FILES),'1','setpoint','controller','试验机内20个方法文件（空为null；内容为方法方式与速度的摘要）')
+slot('acquisition.peak_force_n',nullable(number('N')),'N','derived','load_cell','本次试验记录中的最大力（面板DISP. PEAK）')
+slot('acquisition.break_force_n',nullable(number('N')),'N','derived','load_cell','本次试验断裂前一刻的力（面板DISP. BREAK；未断为空）')
+import weakref
+def _panel_engine():
+    try:
+        from . import _panel_ui as engine                                   # imported as asset_runtime.shimadzu_ags10knxd (tests, Matterix bridge)
+        return engine
+    except ImportError:                                                      # loaded from its file path
+        import sys
+        if '_chemsim_panel_ui' not in sys.modules:
+            spec=importlib.util.spec_from_file_location('_chemsim_panel_ui',Path(__file__).with_name('_panel_ui.py'))
+            sys.modules['_chemsim_panel_ui']=importlib.util.module_from_spec(spec);spec.loader.exec_module(sys.modules['_chemsim_panel_ui'])
+        return sys.modules['_chemsim_panel_ui']
+_panel_ui=_panel_engine()
+PANEL_SPEC=_panel_ui.load_spec(ASSET/'panel_ui.json',capabilities=set(CAPS)|set(KEY_CAPS))
+PANEL_CAPS={k:dict(v,effects=[]) for k,v in _panel_ui.capability_definitions(PANEL_SPEC).items()}   # panel.press / switch / capture / frame (CAPS stay 1.0.0)
+_PANELS=weakref.WeakKeyDictionary()        # runtime -> its panel UI, kept out of the instance dict (state comparisons see only the runtime)
+
 def analyze_tensile(rows,area_prior_m2,gauge_prior_m,frame_compliance_prior_m_n,elastic_fit_min_strain,elastic_fit_max_strain):
     if len(rows)<3 or any(x['force_n'] is None for x in rows) or elastic_fit_max_strain<=elastic_fit_min_strain:raise ActionRejected('INVALID_OBSERVATIONS')
     points=[];fit=[];break_e=None;break_x=None
@@ -131,7 +167,8 @@ class ShimadzuAgs10knxdRuntime:
     def __init__(self,instance_id='ags_01'):
         self.instance_id=instance_id;self.time_ns=0;self._clock_remainder_ns=0.;self.revision=0;self.power=False;self.emergency=False;self.plant=None;self.fixture=None;self.method=None;self.sample=None;self.reference=None;self.source=None
         self.axes={k:dict(position=v,target=v,start=v,start_ns=0,arrival_ns=0) for k,v in [('crosshead',0.),('upper',.006),('lower',.006)]};self.drive_speed=MIN_SPEED_M_S;self.force=0.;self.plastic=0.;self.broken=False;self.defect_stored=0.;self.fracture_surface=0.;self.temperature=292.65;self.sensor_force=0.;self.force_gain=1.;self.force_zero=0.;self.last_stop_reason=None
-        self.phase='idle';self.operation_id=None;self.mode='none';self.elapsed=0.;self.rows=[];self.terminal_reason=None;self._counter=0;self._operation_source=None;self.records={};self._principals={};self._requests={};self._owners={};self._cancel_operations={};self._sample_ns=None;self._control_ns=None
+        self.stroke_zero=0.;self.method_files=[None]*METHOD_FILES;self.return_origin=0.;self.power_epoch=0
+        self.phase='idle';self.operation_id=None;self.mode='none';self.elapsed=0.;self.rows=[];self.terminal_reason=None;self._counter=0;self._operation_source=None;self.records={};self._principals={};self._requests={};self._owners={};self._cancel_operations={};self._sample_ns=None;self._control_ns=None;self._caller=None
         self.book={k:0. for k in ['loaded_mass_kg','removed_mass_kg','loaded_volume_m3','removed_volume_m3','actuator_work_j','plastic_work_j','plastic_heat_j','fracture_heat_j','machine_damping_export_j','sensible_loaded_j','sensible_removed_j','internal_removed_j','heat_export_j']}
     @property
     def time_s(self):return self.time_ns/1e9
@@ -175,6 +212,10 @@ class ShimadzuAgs10knxdRuntime:
         if not self.power:return None
         result=quant((self.sensor_force-self.force_zero)*self.force_gain,self.plant['force_resolution_n'])
         return result if abs(result)<=LOAD_CELL_MAX_N and self._temperature_valid() else None
+    def _true_force_at_reading(self,reading):
+        """1.1.1: the specimen force at which the tester's own static load-cell reading (plant gain/offset, user zero and calibration) equals
+        `reading`; the inverse of Fobs=(gain*F+offset-zero)*cal_gain.  The method stop force acts on the reading, as on the real tester."""
+        p=self.plant;return ((reading/self.force_gain+self.force_zero)-p['force_offset_n'])/p['force_gain']
     def _observed_extension(self):
         if not self.power or not self.fixture or not self.fixture['extensometer_enabled'] or not self.sample or self.broken:return None
         p=self.plant;return quant(self._strain()*self.fixture['extensometer_gauge_m']*p['extensometer_gain']+p['extensometer_offset_m'],p['extensometer_resolution_m'])
@@ -185,6 +226,7 @@ class ShimadzuAgs10knxdRuntime:
         extension=self._free_extension() if self.broken else self._strain()*self.sample['gauge_length_m'] if self.sample else 0.;frame=self.force/self.plant['frame_stiffness_n_m'] if self.plant else 0.;gap=max(0.,self._pos('crosshead')-extension) if self.sample and self.broken else 0.;ext=self._observed_extension()
         d={'clock.time_s':self.time_s,'plant.configured':self.plant is not None,'fixture.configured':self.fixture is not None,'fixture.extensometer_enabled':bool(self.fixture and self.fixture['extensometer_enabled']),'method.configured':self.method is not None,'sample.present':self.sample is not None,'sample.broken':self.broken,'power.enabled':self.power,'emergency.engaged':self.emergency,'crosshead.position_m':self._pos('crosshead'),'crosshead.target_m':self.axes['crosshead']['target'],'crosshead.indicated_m':quant(self._pos('crosshead'),POSITION_RESOLUTION_M) if self.power else None,'frame.deflection_m':frame,'sample.visual_extension_m':extension,'sample.fracture_gap_m':gap,'power.angle_rad':.28 if self.power else 0.,'emergency.position_m':.004 if self.emergency else 0.,'force.indicated_n':self._observed_force(),'extensometer.extension_m':ext,'extensometer.strain':None if ext is None else ext/self.fixture['extensometer_gauge_m'],'thermal.sample_k':self.temperature if self.plant else None,'calibration.force_gain':self.force_gain,'calibration.force_zero_n':self.force_zero,'acquisition.phase':self.phase,'acquisition.elapsed_s':self.elapsed,'acquisition.points':len(self.rows),'truth.force_n':self.force,'truth.plastic_strain':self.plastic,'truth.total_strain':self._strain(),'truth.mass_kg':self._mass(),'truth.sample_k':self.temperature}
         for side in ['upper','lower']:d['grip.'+side+'_opening_m']=self._pos(side);d['grip.target_'+side+'_opening_m']=self.axes[side]['target']
+        d.update(self._key_values())
         return {k:copy.deepcopy(v) for k,v in d.items() if visibility!='agent' or SLOTS[k]['visibility']=='agent'}
     def _propagate(self,ns):
         dt=ns/1e9
@@ -207,7 +249,9 @@ class ShimadzuAgs10knxdRuntime:
     def _next_material_event(self):
         rate=self._rate();x=self._pos('crosshead')
         if rate<=0 or not self._held() or self.broken:return None
-        A=self.sample['initial_area_m2'];yield_x=self._compliance()*A*(self.Y+self.sample['hardening_modulus_pa']*self.plastic)+self._free_extension();limit=min(FIXTURE_MAX_N,self.method['force_stop_n'] if self.phase=='running' else FIXTURE_MAX_N);positions=[(self._fracture_position(),'fracture'),(self._force_position(limit),'force_limit')]
+        A=self.sample['initial_area_m2'];yield_x=self._compliance()*A*(self.Y+self.sample['hardening_modulus_pa']*self.plastic)+self._free_extension()
+        limit=min(FIXTURE_MAX_N,max(self.force,self._true_force_at_reading(self.method['force_stop_n'])) if self.phase=='running' else FIXTURE_MAX_N)   # stop force on the reading
+        positions=[(self._fracture_position(),'fracture'),(max(x,self._force_position(limit)) if limit<=self.force else self._force_position(limit),'force_limit')]
         if yield_x>x+1e-12:positions.append((yield_x,'yield'))
         candidates=[]
         for target,kind in positions:
@@ -249,9 +293,20 @@ class ShimadzuAgs10knxdRuntime:
         if speed<MIN_SPEED_M_S:self._stop_drive()
         else:self._target('crosshead',target,speed)
     def invoke(self,capability_id,**arguments):
+        if capability_id in PANEL_CAPS:                                      # panel gestures: optional arguments, checked by the engine's validator
+            if _panel_ui.check_arguments(PANEL_CAPS[capability_id]['input_schema'],arguments):raise ActionRejected('INVALID_ARGUMENT')
+            if not self.plant:raise ActionRejected('PLANT_REQUIRED')
+            result=self._cmd_panel(capability_id,arguments)
+            if PANEL_CAPS[capability_id]['kind']!='query':self.revision+=1
+            return copy.deepcopy(result)
+        if capability_id in KEY_CAPS:
+            validate(KEY_CAPS[capability_id]['input_schema'],arguments)
+            if self.phase=='running':raise ActionRejected('BUSY')
+            result=self._key_fn(capability_id,copy.deepcopy(arguments));self.revision+=1;return copy.deepcopy(result)
         if capability_id not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
         validate(CAPS[capability_id]['input_schema'],arguments);k=capability_id;a=copy.deepcopy(arguments)
         if k in UNSUPPORTED:raise ActionRejected('UNSUPPORTED')
+        self._owner_guard(k,a)
         if k=='acquisition.result':return self._result()
         if k=='provenance.read':return dict(current_sample=self.source,operation_source=self._operation_source)
         if k=='ledger.read':return self.ledger()
@@ -293,6 +348,7 @@ class ShimadzuAgs10knxdRuntime:
             mass=self._mass();volume=self.sample['volume_m3'];self.book['removed_mass_kg']+=mass;self.book['removed_volume_m3']+=volume;self.book['sensible_removed_j']+=mass*self.sample['specific_heat_capacity_j_kg_k']*(self.temperature-self.plant['ambient_k']);self.book['internal_removed_j']+=sum(self._stored())+self.defect_stored+self.fracture_surface;self.sample=self.reference=self.source=None;self.plastic=0.;self.broken=False;self.force=0.;self.defect_stored=self.fracture_surface=0.;result=dict(removed_mass_kg=mass,removed_volume_m3=volume)
         elif k=='power.set':
             if not self.plant:raise ActionRejected('PLANT_REQUIRED')
+            if a['enabled'] and not self.power:self.power_epoch+=1
             if not a['enabled']:
                 if self.phase=='running':self._finish('cancelled','POWER_OFF')
                 for axis in self.axes:self._target(axis,self._pos(axis),MIN_SPEED_M_S if axis=='crosshead' else None)
@@ -316,7 +372,8 @@ class ShimadzuAgs10knxdRuntime:
         elif k=='emergency.reset':self.emergency=False;result=dict(engaged=False)
         elif k=='force.zero':
             if not self.power:raise ActionRejected('POWER_OFF')
-            if abs(self.force)>1e-6 or any(self._moving(x) for x in self.axes):raise ActionRejected('UNLOAD_REQUIRED')
+            reading=quant((self.sensor_force-self.force_zero)*self.force_gain,self.plant['force_resolution_n'])   # 1.1.1: judged on the tester's own reading
+            if abs(reading)>=ZERO_LOAD_N or any(self._moving(x) for x in self.axes):raise ActionRejected('UNLOAD_REQUIRED')
             self.force_zero=self.sensor_force;result=dict(zero_n=self.force_zero)
         elif k=='force.calibrate':
             if not self.power:raise ActionRejected('POWER_OFF')
@@ -336,9 +393,10 @@ class ShimadzuAgs10knxdRuntime:
             if not self._held():raise ActionRejected('GRIPS_NOT_CLOSED')
             if any(self._moving(x) for x in self.axes):raise ActionRejected('MOVING')
             if not self._temperature_valid():raise ActionRejected('REFERENCE_TEMPERATURE_RANGE')
-            if self.force>=self.method['force_stop_n']:raise ActionRejected('METHOD_FORCE_STOP')
+            if self._observed_force() is not None and self._observed_force()>=self.method['force_stop_n']:raise ActionRejected('METHOD_FORCE_STOP')   # the tester's own reading
             if self._observed_force() is None:raise ActionRejected('LOAD_CELL_OVERFLOW')
             if self.method['target_crosshead_m']<self._free_extension()-1e-12:raise ActionRejected('COMPRESSION_OR_SLACK_UNSUPPORTED')
+            self.return_origin=self._pos('crosshead')                          # RETURN brings the crosshead back here
             self._counter+=1;self.operation_id=f'{self.instance_id}:test:{self._counter}';self.phase='running';self.mode=self.method['mode'];self.elapsed=0.;self.rows=[];self.terminal_reason=None;self._operation_source=self.source;self._start_ns=self.time_ns;self._end_ns=self.time_ns+round(self.method['duration_s']*1e9);self._period_ns=1_000_000_000//self.method['sample_rate_hz'];self._sample_ns=self.time_ns+self._period_ns;self._control_ns=self.time_ns+CONTROL_PERIOD_NS if self.mode!='speed' else None
             self._record()
             if self.mode=='speed':self._target('crosshead',self.method['target_crosshead_m'],self.method['speed_m_s'])
@@ -349,6 +407,62 @@ class ShimadzuAgs10knxdRuntime:
             self._finish('cancelled','USER_CANCEL');result=dict(phase=self.phase,elapsed_s=self.elapsed)
         else:raise ActionRejected('UNKNOWN_CAPABILITY')
         self.revision+=1;return copy.deepcopy(result)
+    # ---- 1.1.0 operating-panel functions and the panel host protocol
+    @property
+    def panel(self):
+        p=_PANELS.get(self)
+        if p is None:p=_PANELS[self]=_panel_ui.PanelUI(PANEL_SPEC,self)
+        return p
+    def _key_values(self):
+        ind=self._observed_stroke();forces=[r['force_n'] for r in self.rows if r.get('force_n') is not None]
+        pre=[r['force_n'] for r in self.rows if r.get('kind')=='fracture_pre']
+        return {'display.stroke_zero_m':getattr(self,'stroke_zero',0.),'display.stroke_m':None if ind is None else ind-getattr(self,'stroke_zero',0.),
+                'method.files':[None if f is None else f"{f['mode']} {f['speed_m_s']*6e4:g} mm/min" for f in getattr(self,'method_files',[None]*METHOD_FILES)],
+                'acquisition.peak_force_n':max(forces) if forces else None,'acquisition.break_force_n':pre[-1] if pre else None}
+    def _observed_stroke(self):
+        return quant(self._pos('crosshead'),POSITION_RESOLUTION_M) if self.power and self.plant else None
+    def _owner_guard(self,k,a):
+        """Only the agent that owns the test may stop it or read its result; the session sets _caller (principal, role) around every call, so the
+        panel STOP key is checked exactly as the direct capability.  The power switch (and power.set, which models it) is a hard switch: never
+        refused, switching off acts as a power loss (the test ends POWER_OFF, the drive stops; sweep 2026-10-19)."""
+        c=getattr(self,'_caller',None)
+        if c is None or c[1]!='agent':return
+        if k in ('acquisition.stop','acquisition.result') and self.operation_id and self._owners.get(self.operation_id)!=c[0]:raise ActionRejected('ACCESS_DENIED')
+    def _key_fn(self,k,a):
+        if not hasattr(self,'method_files'):self.method_files=[None]*METHOD_FILES
+        if k=='display.zero_stroke':
+            if not self.power:raise ActionRejected('POWER_OFF')
+            self.stroke_zero=self._observed_stroke();return dict(stroke_zero_m=self.stroke_zero)
+        if k=='method.save_file':
+            if not self.method:raise ActionRejected('CONFIGURATION_REQUIRED')
+            files=list(self.method_files);files[a['file']-1]=copy.deepcopy(self.method);self.method_files=files;return dict(file=a['file'])
+        if k=='method.load_file':
+            m=self.method_files[a['file']-1]
+            if m is None:raise ActionRejected('CONFIGURATION_REQUIRED')
+            self.invoke('method.configure',**copy.deepcopy(m));return dict(file=a['file'])
+        raise ActionRejected('UNKNOWN_CAPABILITY')
+    def panel_read(self):
+        out=self.read('agent');m=self.method or METHOD_EXAMPLE
+        out.update({'host.powered':bool(self.power),'host.power_epoch':getattr(self,'power_epoch',0),'host.method':dict(m),'host.speed_mm_min':m['speed_m_s']*6e4,
+                    'host.origin_m':getattr(self,'return_origin',0.),'host.position_m':self._pos('crosshead')})
+        return out
+    def panel_invoke(self,capability_id,arguments):
+        try:return self.invoke(capability_id,**arguments)
+        except ActionRejected as exc:raise _panel_ui.PanelRejected(str(exc)) from None
+    def panel_time(self):return self.time_s
+    def _panel_gesture(self,gesture,*args):
+        try:return dict(accepted=bool(gesture(*args)))
+        except _panel_ui.PanelError:raise ActionRejected('INVALID_ARGUMENT') from None
+    def _cmd_panel(self,k,a):
+        if k=='panel.press':return self._panel_gesture(self.panel.press,a['input_id'],float(a.get('duration_s',.1)),tuple(a.get('held') or ()))
+        if k=='panel.switch':return self._panel_gesture(self.panel.switch,a['input_id'],a['position'],tuple(a.get('held') or ()))
+        if k=='panel.frame':return dict(frame=self.panel.frame())
+        import hashlib,tempfile
+        data,w,h=self.panel.png_bytes(a['display_id']);sha=hashlib.sha256(data).hexdigest()
+        d=Path(getattr(self,'panel_capture_dir',None) or Path(tempfile.gettempdir())/'chemistry_sim_panel'/self.instance_id)
+        d.mkdir(parents=True,exist_ok=True);path=d/f"{a['display_id']}_{sha[:16]}.png"
+        if not path.exists():path.write_bytes(data)
+        return dict(display_id=a['display_id'],time_s=self.time_s,image=dict(path=str(path),format='png',width=w,height=h,sha256=sha))
     def step(self,dt_s):
         validate(number('s',0,86400),dt_s)
         raw=float(dt_s)*1e9+self._clock_remainder_ns;nanos=round(raw);self._clock_remainder_ns=raw-nanos
@@ -387,7 +501,7 @@ class ShimadzuAgs10knxdSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta = export_shimadzu_ags10knxd_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id); h=self._host; values=h.read(self._role); ids=list(values) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids): raise ActionRejected('INVALID_ARGUMENT')
@@ -406,18 +520,23 @@ class ShimadzuAgs10knxdSession:
         h=self._host
         try:
             self._target(instance_id)
-            if not isinstance(capability_id,str) or capability_id not in CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
-            if self._role=='agent' and CAPS[capability_id]['visibility']!='agent': raise ActionRejected('ACCESS_DENIED')
+            if not isinstance(capability_id,str) or capability_id not in ALL_CAPS: raise ActionRejected('UNKNOWN_CAPABILITY')
+            if self._role=='agent' and ALL_CAPS[capability_id]['visibility']!='agent': raise ActionRejected('ACCESS_DENIED')
             if not isinstance(request_id,str) or not request_id: raise ActionRejected('INVALID_ARGUMENT')
-            validate(CAPS[capability_id]['input_schema'],arguments); key=(self._principal,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
+            if capability_id in PANEL_CAPS:
+                if _panel_ui.check_arguments(PANEL_CAPS[capability_id]['input_schema'],arguments): raise ActionRejected('INVALID_ARGUMENT')
+            else: validate(ALL_CAPS[capability_id]['input_schema'],arguments)
+            key=(self._principal,request_id); digest=json.dumps([capability_id,arguments],sort_keys=True,allow_nan=False)
             if key in h._requests:
                 old,response=h._requests[key]
                 if old!=digest: raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(response)
-            if capability_id in ('acquisition.stop','acquisition.result') and self._role=='agent' and h.operation_id and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-            if capability_id=='power.set' and not arguments['enabled'] and h.phase=='running' and self._role=='agent' and h._owners.get(h.operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-            result=self._filter_result(h.invoke(capability_id,**arguments)); operation=result.get('operation_id') if capability_id in ('acquisition.start',) else None
+            before=h.operation_id; caller=getattr(h,'_caller',None); h._caller=(self._principal,self._role)   # owner guards run in the runtime (direct and panel)
+            try: result=self._filter_result(h.invoke(capability_id,**arguments))
+            finally: h._caller=caller
+            operation=result.get('operation_id') if capability_id in ('acquisition.start',) else None
             if operation: h._owners[operation]=self._principal
+            if capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before: h._owners.setdefault(h.operation_id,self._principal)   # START on the panel: the presser owns the test
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
             h._requests[key]=(digest,copy.deepcopy(response)); return response
         except ActionRejected as exc:
@@ -464,6 +583,12 @@ EFFECTS={
  'acquisition.stop':['acquisition.phase','crosshead.target_m'],
  'sim.step':list(SLOTS)}
 for k,v in EFFECTS.items():CAPS[k]['effects']=v
+for _k in ('power.set','acquisition.start','acquisition.stop','emergency.engage'):CAPS[_k]['effects']+=['acquisition.peak_force_n','acquisition.break_force_n']
+CAPS['power.set']['effects']+=['display.stroke_m']
+CAPS['sample.remove']['effects']+=['acquisition.peak_force_n','acquisition.break_force_n']
+for _k in PANEL_CAPS:
+    if PANEL_CAPS[_k]['kind']!='query':PANEL_CAPS[_k]['effects']=list(dict.fromkeys(x for c in _panel_ui.spec_capabilities(PANEL_SPEC) for x in (CAPS.get(c) or KEY_CAPS[c])['effects']))
+ALL_CAPS=dict(CAPS,**KEY_CAPS,**PANEL_CAPS)
 ERRORS=sorted(set(__import__('re').findall(r"ActionRejected\('([A-Z_0-9]+)'",Path(__file__).read_text()))|{'USER_CANCEL','EMERGENCY_STOP','LOAD_CELL_OVERFLOW','METHOD_FORCE_STOP'})
 LIMITATIONS=[
  '配置AGS-10kNXD高精度10kN传感器、真实SCG5kN手动拉伸夹具、TRAPEZIUM X软件；5000N夹具限值独立于10000N传感器量程，不实现弯曲/剥离/压缩和温控附件。',
@@ -480,12 +605,20 @@ LIMITATIONS=[
  '固定3D示例自由标距25mm、2mm×1mm，两个15mm夹持tabs。过程可配置其它尺寸但当前视觉仍是固定示例，不声称自动匹配任意试样。sample.present=false须隐藏试样，卸样后q可非零。',
  '所有普通Session acquisition.result/poll跨角色统一隐藏选中材料身份，独立provenance.read仅evaluator；共享磁盘/Python不是操作系统隔离。实机驱动、机器人、经验噪声与OEM/ASTM/ISO认证均not_run。']
 
+NEW_ERRORS={**{k:['PLANT_REQUIRED','INVALID_ARGUMENT','UNKNOWN_CAPABILITY','ACCESS_DENIED','REQUEST_CONFLICT'] for k in PANEL_CAPS},
+ 'display.zero_stroke':['POWER_OFF','BUSY','INVALID_ARGUMENT','UNKNOWN_CAPABILITY','ACCESS_DENIED','REQUEST_CONFLICT'],
+ 'method.save_file':['CONFIGURATION_REQUIRED','BUSY','INVALID_ARGUMENT','UNKNOWN_CAPABILITY','ACCESS_DENIED','REQUEST_CONFLICT'],
+ 'method.load_file':['CONFIGURATION_REQUIRED','FIXTURE_REQUIRED','AUTOMATIC_CONTROL_MAX_100HZ','SOFTWARE_OPTION_REQUIRED','EXTENSOMETER_REQUIRED','FIXTURE_FORCE_LIMIT','BUSY','INVALID_ARGUMENT','UNKNOWN_CAPABILITY','ACCESS_DENIED','REQUEST_CONFLICT']}
+NEW_LIMITS={**{k:['面板层按panel_ui.json（近似：AGS-X说明书需登录，只按USP实验室操作指南与样本）解释按键手势并调用本运行层的同名能力；手势不推进仿真时钟。'] for k in PANEL_CAPS},
+ 'display.zero_stroke':['只改面板行程显示的零点，不移动横梁、不改公开状态crosshead.indicated_m。'],
+ 'method.save_file':['试验机内方法文件的最小模型（20个，存完整试验方法）；文件格式与TRAPEZIUM方法互通未建。'],
+ 'method.load_file':['载入即等同method.configure（同样的检查与拒绝）。']}
 def export_shimadzu_ags10knxd_contract_metadata():
     slots={};caps={}
     for k,v in SLOTS.items():slots[k]=dict(meaning_zh=v['meaning'],component_ids=[v['component']],value_schema=copy.deepcopy(v['schema']),unit=v['unit'],reference_conditions='SI; 10kN high-precision load cell / 5kN SCG tensile fixture / configured software and engineering extensometer.',origin=v['origin'],visibility=v['visibility'],access='read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'ShimadzuAgs10knxdSession.read(state_ids=[{k!r}])'),write_via=None,sampling=dict(mode='instant',time_domain='simulation',window_description='Pure read; sampling at configured fixed time grid with separately labelled fracture event observations.'),source_ids=['simulation_assumption'])
-    for k,v in CAPS.items():
-        un=k in UNSUPPORTED;async_=k=='acquisition.start';caps[k]={key:copy.deepcopy(v[key]) for key in ['input_schema','output_schema','component_ids','function_zh','kind','visibility','example_arguments']}
-        caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ('scene','robot','hardware') else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.shimadzu_ags10knxd.ShimadzuAgs10knxdSession.invoke',invocation=f'session.invoke(instance_id="ags_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),preconditions=[] if un or v['kind'] in ('query','analysis') else [dict(description_zh='入口原子核对夹具/软件、载荷、夹持和独立材料/热/断裂先验；采样与控制必须显式step。',state_ids=['power.enabled','sample.present','fixture.configured','emergency.engaged','acquisition.phase'],enforced_by='runtime',check='ShimadzuAgs10knxdRuntime.invoke')],state_effects=[dict(state_id=s,timing='on_step' if k=='sim.step' else 'immediate',description_zh='声明设置或观测变化，真实驱动/热/传感器过程由step推进') for s in v['effects']],observes=[],model_effects=dict(mode='none',description_zh='运行层输出绑定状态，实际几何、双片变形和读数联动由独立scene验证。',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='实际有限位移/时限/明确破断条件完成；力/应变控制为限时反馈，完成不等于误差为零' if async_ else '原子命令，step为唯一物理时钟',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','crosshead','tensile_fixture','load_cell','extensometer'],partial_failure_zh='保留已采样点、真实位移/力、塑性、断裂和全部热/弹性/缺陷能账。'),errors=[dict(code=e,meaning_zh=e,side_effects='partial' if async_ and e in ('USER_CANCEL','EMERGENCY_STOP','LOAD_CELL_OVERFLOW','REFERENCE_TEMPERATURE_RANGE','FIXTURE_FORCE_LIMIT','METHOD_FORCE_STOP') else 'none') for e in ERRORS],verification=[],limitations=LIMITATIONS,source_ids=['manufacturer_primary','simulation_assumption','template_library'])
+    for k,v in ALL_CAPS.items():
+        un=k in UNSUPPORTED;async_=k=='acquisition.start';new=k in KEY_CAPS or k in PANEL_CAPS;caps[k]={key:copy.deepcopy(v[key]) for key in ['input_schema','output_schema','component_ids','function_zh','kind','visibility','example_arguments']}
+        caps[k].update(availability='unsupported' if un else 'implemented',implementation={layer:'absent' if un or layer in ('scene','robot','hardware') else 'implemented' for layer in ['process','scene','robot','hardware','host']},binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.shimadzu_ags10knxd.ShimadzuAgs10knxdSession.invoke',invocation=f'session.invoke(instance_id="ags_01",capability_id={k!r},arguments={v["example_arguments"]!r},request_id="unique")'),preconditions=[] if un or v['kind'] in ('query','analysis') else [dict(description_zh='入口原子核对夹具/软件、载荷、夹持和独立材料/热/断裂先验；采样与控制必须显式step。',state_ids=['power.enabled','sample.present','fixture.configured','emergency.engaged','acquisition.phase'],enforced_by='runtime',check='ShimadzuAgs10knxdRuntime.invoke')],state_effects=[dict(state_id=s,timing='on_step' if k=='sim.step' else 'immediate',description_zh='声明设置或观测变化，真实驱动/热/传感器过程由step推进') for s in v['effects']],observes=[],model_effects=dict(mode='none',description_zh='运行层输出绑定状态，实际几何、双片变形和读数联动由独立scene验证。',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='实际有限位移/时限/明确破断条件完成；力/应变控制为限时反馈，完成不等于误差为零' if async_ else '原子命令，step为唯一物理时钟',completion_state_ids=['acquisition.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['host_clock','crosshead','tensile_fixture','load_cell','extensometer'],partial_failure_zh='保留已采样点、真实位移/力、塑性、断裂和全部热/弹性/缺陷能账。'),errors=[dict(code=e,meaning_zh=e,side_effects='partial' if async_ and e in ('USER_CANCEL','EMERGENCY_STOP','LOAD_CELL_OVERFLOW','REFERENCE_TEMPERATURE_RANGE','FIXTURE_FORCE_LIMIT','METHOD_FORCE_STOP') else 'none') for e in (NEW_ERRORS[k] if new else ERRORS)],verification=[],limitations=NEW_LIMITS[k] if new else LIMITATIONS,source_ids=['operating_guide_usp','manufacturer_primary','simulation_assumption'] if new else ['manufacturer_primary','simulation_assumption','template_library'])
         if k in ('acquisition.start','crosshead.move_to','grip.set_closed','power.set','emergency.engage'):
             caps[k]['state_effects'] += [dict(state_id=s,timing='on_step',description_zh='由统一宿主时钟推进准静态本构、被动热和实际传感器响应') for s in SLOTS if s not in v['effects'] and SLOTS[s]['origin'] in ('sensor','derived','scene','process_truth')]
     mechanism=dict(component_ids=['crosshead','compliance_carriage','load_cell','upper_grip','lower_grip','specimen_lower','specimen_upper','extensometer','controller'],state_ids=list(slots),meaning_zh='串联顺应的拉伸双线性塑性、明确破断与可核算热/储能；独立传感器、固定采样和10ms反馈时钟',implementation='lumped',equations=['q=L*(ep+F/(A*E))+F/K; engineering strain=ep+F/(A*E).','yield stress=Y+H*ep; tensile return mapping enforces irreversible ep and quasi-static series equilibrium.','Uelastic=F²/(2K)+0.5*(F/A)²/E*A*L; Uhardening=0.5*H*ep²*A*L.','dWactuator=d(Uelastic+Uhardening)+Y*A*L*d(ep); Qplastic=beta*Y*A*L*d(ep), remaining work stored as defect energy.','At host-assumed fracture strain, sample elastic energy partitions into heat/surface; frame elastic energy exports as damping. ep and hardening/defect/surface energy remain with fragments.','C*dT/dt=-G*(T-Tambient)+Pplastic; sample load/remove transfers physical mass, volume, sensible heat and internal inventory.','tau*dFdet/dt=gain*F+offset-Fdet; Fobs=round((Fdet-zero)*cal_gain/res)*res.','Calibration cal_gain=external_known_force/(actual_detector_observation-zero); no hidden truth is used.','External analysis: sigma=Fobs/Aprior; strain=extension_observed/Lprior or (qobs-Fobs*Cframe_prior)/Lprior; no joint inversion of unknown geometry.','Sampling grid up to1000Hz with selected software; automatic force/strain feedback and associated sampling max100Hz. Fractional-nanosecond carry and yield/fracture/axis events maintain partition invariance.'],parameters={},source_ids=['simulation_assumption','template_library'],limitations=LIMITATIONS)
