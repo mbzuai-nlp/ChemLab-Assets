@@ -183,4 +183,80 @@ class LfaTests(unittest.TestCase):
   self.assertAlmostEqual(r.source_alpha(lib['element_mo'],650.),(lib['element_mo']['values']['thermal_diffusivity_m2_s'][4]+lib['element_mo']['values']['thermal_diffusivity_m2_s'][5])/2,places=15)
   h=make(plant={'ambient_k':303.84053708439893},sample={'reference_id':'native_lfa467_an048','density_kg_m3':2600.,'heat_capacity_j_kg_k':800.,'thickness_m':.001},method={'temperature_k':303.84053708439893,'equilibrium_dwell_s':0.})
   out=run(h);self.assertEqual(out['phase'],'succeeded');self.assertIn('(plot-digitized)',out['evidence'])
+class LfaClockCostTests(unittest.TestCase):
+ """1.1.1 (2026-10-22): idle intervals (thermal control off) are one exact interval per step call and held set-points jump whole 10 ms control
+ periods (binary powers of the one-period closed loop).  Same results as 10 ms stepping (step(0.01) never takes either shortcut) within the
+ model's tolerances: nodes atol 1e-10 K + rtol 1e-9 (test_07), ledger rtol 1e-9 / budget residuals 2e-8 + 1e-9 x flow; in far fewer physics calls."""
+ def pair(self,thermal=None,settle=0.):
+  out=[]
+  for _ in range(2):
+   h=make();h.invoke('pulse.charge',energy_j=.5,accept_optical_budget=True)
+   if thermal:h.invoke('thermal.set_temperature',**thermal);h.step(settle)
+   out.append(h)
+  return out
+ def same(self,a,b):
+  np.testing.assert_allclose(a.theta,b.theta,atol=1e-10,rtol=1e-9);self.assertAlmostEqual(a.sensor_delta,b.sensor_delta,delta=1e-10+1e-9*abs(b.sensor_delta))
+  la,lb=a.invoke('ledger.read'),b.invoke('ledger.read');scale=max(abs(v) for v in lb.values())
+  for k in lb:self.assertLessEqual(abs(la[k]-lb[k]),(2e-8 if 'error' in k else 0.)+1e-9*(scale if 'error' in k else abs(lb[k]))+1e-15,k)
+  ra,rb=a.read(),b.read()
+  for k in rb:
+   if isinstance(rb[k],float) and k!='detector.indicated_k':self.assertAlmostEqual(ra[k],rb[k],delta=1e-10+1e-9*abs(rb[k]),msg=k)
+   elif k=='detector.indicated_k' and rb[k] is not None:self.assertLessEqual(abs(ra[k]-rb[k]),1e-7*1.000001,k)
+   else:self.assertEqual(ra[k],rb[k],k)
+  self.assertEqual(a.time_ns,b.time_ns)
+ def counted(self,h,dt):
+  calls=[0];physics=h._physics
+  def wrapped(ns,power):calls[0]+=1;return physics(ns,power)
+  h._physics=wrapped;h.step(dt);del h._physics;return calls[0]
+ def test_idle_interval_is_one_exact_step(self):
+  a,b=self.pair();n=self.counted(a,30.)
+  for _ in range(3000):b.step(.01)
+  self.same(a,b);self.assertLessEqual(n,3)
+ def test_held_set_point_jumps_control_periods(self):
+  for target in (298.15,310.15):
+   with self.subTest(target_k=target):
+    a,b=self.pair(dict(temperature_k=target,rate_k_s=50/60),settle=20.);n=self.counted(a,30.)
+    for _ in range(3000):b.step(.01)
+    self.same(a,b);self.assertLessEqual(n,3)
+ def test_ramp_and_acquisition_keep_the_control_grid(self):
+  a,b=self.pair(dict(temperature_k=310.15,rate_k_s=50/60));n=self.counted(a,1.)   # ramping: every 10 ms period stepped
+  for _ in range(100):b.step(.01)
+  self.same(a,b);self.assertGreaterEqual(n,100)
+
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): the proportional controller settled about 0.083 K below a 50 C set point (feed-forward of the
+ ambient loss now); the equilibration inside an acquisition was stepped per 10 ms period (now whole-period jumps, same results)."""
+ pair,same,counted=LfaClockCostTests.pair,LfaClockCostTests.same,LfaClockCostTests.counted
+ def test_held_set_point_has_no_offset(self):
+  h=make();h.invoke('thermal.set_temperature',temperature_k=323.15,rate_k_s=50/60);h.step(60.)
+  for _ in range(6):h.step(600.)
+  self.assertLess(abs(h._furnace()-323.15),1e-6);self.assertLess(abs(h._mean()-323.15),1e-3)
+ def test_held_set_point_jumps_with_feed_forward(self):
+  a,b=self.pair(dict(temperature_k=323.15,rate_k_s=50/60),settle=40.);n=self.counted(a,30.)
+  for _ in range(3000):b.step(.01)
+  self.same(a,b);self.assertLessEqual(n,3)
+ def acquisition(self,dt):
+  h=make(sample=dict(front_loss_w_m2_k=150.,rear_loss_w_m2_k=150.),method=dict(temperature_k=300.15,equilibrium_tolerance_k=.05,equilibrium_dwell_s=.25))
+  h.invoke('acquisition.start');calls=[0];physics=h._physics
+  def wrapped(ns,power):calls[0]+=1;return physics(ns,power)
+  h._physics=wrapped;eq_end=None
+  for _ in range(int(400/dt)):
+   h.step(dt)
+   if eq_end is None and h.stage!='equilibrating':eq_end=h.planned_pulse_ns;eq_calls=calls[0]   # the baseline begins one pretrigger before the pulse
+   if h.phase!='running':break
+  del h._physics
+  return h,eq_end,eq_calls
+ def test_acquisition_equilibration_jumps_with_the_same_result(self):
+  a,ta,na=self.acquisition(1.);b,tb,nb=self.acquisition(.01)
+  self.assertEqual((a.phase,b.phase),('succeeded','succeeded'))
+  self.assertEqual(ta,tb)                                                   # the equilibrium dwell ends at the same nanosecond
+  self.assertLess(na,nb/5)                                                  # whole-period jumps instead of every 10 ms period (the ramp and ~4 s after it stay stepped)
+  ra,rb=a.invoke('acquisition.result'),b.invoke('acquisition.result')
+  self.assertEqual(len(ra['rows']),len(rb['rows']))
+  for x,y in zip(ra['rows'],rb['rows']):
+   self.assertEqual(x['time_s'],y['time_s']);self.assertLessEqual(abs(x['temperature_k']-y['temperature_k']),1e-7*1.000001)
+  T=(max(a.time_ns,b.time_ns)//10000000+100)*10000000                       # both on to the same time after the shot
+  for h in (a,b):h.step((T-h.time_ns)/1e9)
+  self.same(a,b)
+
 if __name__=='__main__':unittest.main()

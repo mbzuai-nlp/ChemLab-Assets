@@ -6,12 +6,14 @@ from __future__ import annotations
 import copy,hashlib,importlib.util,json,math,os,tempfile,weakref
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='laboao_cvdltf12p50';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-063';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.2'
+SLUG='laboao_cvdltf12p50';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-063';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.3'
 TEMPLATE_REL='assets/reactions/laboao_cvdltf12p50_thermo_library/templates.json'
 R=8.31446261815324;STD_T=273.15;STD_P=101325.;SPECIES=['CH4','H2','N2','AR','O2'];ELEMENTS=['C','H','N','Ar','O']
 ATOMS={'CH4':[1,4,0,0,0],'H2':[0,2,0,0,0],'N2':[0,0,2,0,0],'AR':[0,0,0,1,0],'O2':[0,0,0,0,2]};CARBON_KG_MOL=.012011
 BOOL={'type':'boolean'};TEXT={'type':'string'}
 class ActionRejected(ValueError):pass
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.1.3: a refusal whose message names the cause
 def number(unit,low=None,high=None):
     s={'type':'number','x-unit':unit}
     if low is not None:s['minimum']=low
@@ -45,7 +47,13 @@ GASMAP=obj({s:number('mol',0) for s in SPECIES})
 PLANT=obj({'ambient_k':number('K',303.15,318.15),'ambient_pa':number('Pa',90000,110000),'oven_capacity_j_k':number('J/K',500,1e6),'body_capacity_j_k':number('J/K',500,1e6),'oven_body_w_k':number('W/K',.001,2),'body_ambient_w_k':number('W/K',.01,100),'fan_extra_w_k':number('W/K',0,100),'heated_fraction':number('1',.1,1),'effective_pump_m3_s':number('m^3/s',1e-5,.004),'vent_tau_s':number('s',.1,60),'mfc_tau_s':number('s',.05,4),'pi_kp_w_k':number('W/K',.1,1000),'pi_ki_w_ks':number('W/(K*s)',0,100),'high_band_limit_k_s':number('K/s',.001,20/60),'oxygen_limit_fraction':number('1',1e-8,.001),'pressure_hysteresis_pa':number('Pa',.1,5),'pump_timeout_s':number('s',10,3600),'rate_ref_s_1':number('1/s',1e-8,10),'activation_j_mol':number('J/mol',0,5e5),'rate_ref_k':number('K',573.15,1473.15),'capture_fraction':number('1',0,1),'film_density_kg_m3':number('kg/m^3',100,4000),'initial_oven_k':number('K',303.15,1473.15),'initial_body_k':number('K',303.15,573.15),'initial_pressure_pa':number('Pa',10,110000),'initial_warm_snapshot':BOOL,'accept_uncalibrated_model':BOOL})
 PLANT_EXAMPLE=dict(ambient_k=303.15,ambient_pa=101325.,oven_capacity_j_k=12000.,body_capacity_j_k=15000.,oven_body_w_k=.12,body_ambient_w_k=2.,fan_extra_w_k=8.,heated_fraction=.42,effective_pump_m3_s=.004,vent_tau_s=.5,mfc_tau_s=.7,pi_kp_w_k=80.,pi_ki_w_ks=2.,high_band_limit_k_s=2/60,oxygen_limit_fraction=1e-4,pressure_hysteresis_pa=1.,pump_timeout_s=600.,rate_ref_s_1=.01,activation_j_mol=8e4,rate_ref_k=1173.15,capture_fraction=.4,film_density_kg_m3=2000.,initial_oven_k=303.15,initial_body_k=303.15,initial_pressure_pa=101325.,initial_warm_snapshot=False,accept_uncalibrated_model=True)
 WARM_EXAMPLE=dict(PLANT_EXAMPLE,initial_oven_k=1173.15,initial_body_k=340.,initial_pressure_pa=30.,initial_warm_snapshot=True)
-GASES=obj({'species':arr(GAS,3),'initial_mol':arr(number('mol',1e-8,100),3),'inlet_gauge_pa':arr(number('Pa',50000,300000),3),'full_scale_std_m3_s':arr(number('m^3/s',1e-10,1e-3),3),'actual_gas_factor':arr(number('1',.01,10),3),'accept_host_supply':BOOL})
+# 1.1.3: one source channel holds at most one full 50 L water-capacity cylinder filled to 200 bar (gauge) at 15 C:
+# n = rho(T=288.15 K, p=201.01 bar abs) x 50 L with the densities of NIST Chemistry WebBook SRD 69 (Thermophysical Properties of Fluid
+# Systems; tables in outputs/expansion_batch04/t5_automation/laboao_cvdltf12p50/sources/nist_fluid_288K_201bar.json).  Was 100 mol.
+CYLINDER_WATER_CAPACITY_M3=.050
+CYLINDER_DENSITY_MOL_M3={'N2':8001.8,'AR':8954.5,'CH4':10502.,'H2':7444.2}
+CYLINDER_MOL={k:round(v*CYLINDER_WATER_CAPACITY_M3,1) for k,v in CYLINDER_DENSITY_MOL_M3.items()}   # N2 400.1, AR 447.7, CH4 525.1, H2 372.2
+GASES=obj({'species':arr(GAS,3),'initial_mol':arr(number('mol',1e-8,max(CYLINDER_MOL.values())),3),'inlet_gauge_pa':arr(number('Pa',50000,300000),3),'full_scale_std_m3_s':arr(number('m^3/s',1e-10,1e-3),3),'actual_gas_factor':arr(number('1',.01,10),3),'accept_host_supply':BOOL})
 GASES_EXAMPLE=dict(species=['N2','AR','CH4'],initial_mol=[.05,.05,.05],inlet_gauge_pa=[100000.]*3,full_scale_std_m3_s=[5e-6]*3,actual_gas_factor=[1.]*3,accept_host_supply=True)
 SAMPLE=obj({'sample_id':TEXT,'area_m2':number('m^2',1e-8,.043*.21),'heat_capacity_j_k':number('J/K',.001,10000),'accept_host_attachment':BOOL,'accept_initial_hot_snapshot':BOOL})
 SAMPLE_EXAMPLE=dict(sample_id='substrate_01',area_m2=1e-4,heat_capacity_j_k=1.,accept_host_attachment=True,accept_initial_hot_snapshot=False)
@@ -60,7 +68,7 @@ LEDGER=obj({'source_remaining_mol':arr(number('mol',0),3),'gas_initial_mol':GASM
 CAPS={}
 def cap(k,i,o,c,z,kind='device_command',vis='agent',ex=None):CAPS[k]=(i,o,c,z,kind,vis,ex or {},[])
 cap('plant.configure',PLANT,obj({'configured':BOOL}),['body'],'显式热/泵/沉积假设及一次性t0初始快照','configuration','evaluator',PLANT_EXAMPLE)
-cap('gas.install',GASES,obj({'installed':BOOL,'attachment_event':TEXT}),['gas_inlet_0','gas_inlet_1','gas_inlet_2'],'三路有限气源和未知满量程显式赋值','configuration','evaluator',GASES_EXAMPLE)
+cap('gas.install',GASES,obj({'installed':BOOL,'attachment_event':TEXT}),['gas_inlet_0','gas_inlet_1','gas_inlet_2'],'三路有限气源和未知满量程显式赋值；每路初始量不超过该气体一只满瓶（50 L水容积、200 bar表压、15 °C）的含量：N2 400.1、Ar 447.7、CH4 525.1、H2 372.2 mol（NIST WebBook SRD 69密度），超过则INVALID_ARGUMENT','configuration','evaluator',GASES_EXAMPLE)
 cap('sample.install',SAMPLE,obj({'loaded':BOOL,'attachment_event':TEXT}),['sample_boat'],'冷态法兰开口装样；热态仅t0显式宿主快照','configuration','evaluator',SAMPLE_EXAMPLE)
 cap('sample.collect',obj({'recipient_id':TEXT}),obj({'recipient_id':TEXT,'attachment_event':TEXT}),['sample_boat'],'冷却回常压卸样，膜和显热转移不消失','device_command','evaluator',{'recipient_id':'holder'})
 cap('method.configure',METHOD,obj({'configured':BOOL}),['control_panel'],'P型4曲线合计40段；3流量/压力/吹扫与分段升温','configuration','agent',METHOD_EXAMPLE)
@@ -240,6 +248,8 @@ class LaboaoCvdltf12p50Runtime:
         if k=='gas.install':
             if self.gases or self.time_s!=self.initialized_at_s or self.powered or not a['accept_host_supply']:raise ActionRejected('INITIALIZATION_ONLY')
             if not any(s in ['N2','AR'] for s in a['species']):raise ActionRejected('INERT_PURGE_REQUIRED')
+            for s,n in zip(a['species'],a['initial_mol']):   # 1.1.3: over the content of one full cylinder of that gas
+                if n>CYLINDER_MOL[s]+1e-9:raise _rejected('INVALID_ARGUMENT','%s channel: %.1f mol is more than one full 50 L / 200 bar cylinder holds (%.1f mol)'%(s,n,CYLINDER_MOL[s]))
             self.gases=copy.deepcopy(a);self.remaining=list(a['initial_mol']);return dict(installed=True,attachment_event='host_supply_attach')
         if k=='sample.install':
             self._idle()
@@ -500,7 +510,7 @@ class LaboaoCvdltf12p50Session:
             if op:h._owners[op]=self._principal
             elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a run started with R/S or the green button belongs to the caller
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
-        except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+        except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
     def write(self,*,instance_id,state_id,value,request_id):
         self._target(instance_id)
         if state_id not in SLOTS or not SLOTS[state_id][5]:raise ActionRejected('ACCESS_DENIED')

@@ -1,0 +1,979 @@
+{
+ "class": "titration",
+ "adapter": "chemlab.compile.classes.titration:TitrationAdapter",
+ "about": "Titrators (potentiometric, Karl Fischer coulometric, Kjeldahl distillation-titration): titrant, method KEY=VALUE, sample, stir, connect, start (job), stop, curve, result, status. Ranges and units come from each member's contract.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "metrohm_omnis",
+   "metrohm_899",
+   "velp_udk159"
+  ],
+  "secondary": {},
+  "secondary_not_mapped": {
+   "malvern_microcalpeaq": "isothermal titration calorimetry: injections into a calorimeter cell with heat as the signal; its primary class (bioassay) owns the instrument and can reuse these handlers"
+  },
+  "notes": "power comes from the shared layer; the UDK 159 door and fault acknowledge too (open / close door, ack)."
+ },
+ "members": {
+  "metrohm_omnis": {
+   "role": "primary",
+   "verbs": {
+    "titrant": {
+     "cap": "titration.configure_titrant",
+     "arg": "concentration_mol_m3",
+     "cylinder_cap": "dosing.configure_cylinder",
+     "cylinder_arg": "volume_m3"
+    },
+    "method": {
+     "calls": [
+      {
+       "cap": "titration.configure_method",
+       "passthrough": true,
+       "keys": {
+        "mode": {
+         "arg": "mode",
+         "values": {
+          "dynamic": "dynamic_equivalent",
+          "set": "endpoint"
+         }
+        },
+        "ep": "endpoint_potential_v",
+        "increment": "dose_increment_m3",
+        "max": "maximum_volume_m3"
+       },
+       "keep": {
+        "slots": {
+         "mode": "method.mode",
+         "dose_increment_m3": "method.dose_increment_m3",
+         "maximum_volume_m3": "method.maximum_volume_m3",
+         "endpoint_potential_v": "method.endpoint_potential_v"
+        },
+        "last": true,
+        "example": true
+       },
+       "null_when": {
+        "endpoint_potential_v": {
+         "mode": "dynamic_equivalent"
+        }
+       }
+      },
+      {
+       "cap": "titration.configure_stability",
+       "passthrough": true,
+       "keys": {
+        "hold": "hold_s",
+        "tolerance": "tolerance_v"
+       },
+       "keep": {
+        "slots": {
+         "hold_s": "stability.hold_s",
+         "tolerance_v": "stability.tolerance_v"
+        },
+        "last": true,
+        "example": true
+       }
+      },
+      {
+       "cap": "dosing.set_rate",
+       "passthrough": true,
+       "keys": {
+        "rate": "rate_m3_s"
+       }
+      }
+     ]
+    },
+    "stir": {
+     "cap": "stirring.set_speed",
+     "arg": "angular_speed_rad_s"
+    },
+    "connect": {
+     "cap": "slot.set_connection",
+     "port_arg": "port_id",
+     "id_arg": "connection_id",
+     "ports": {
+      "electrode": "electrode",
+      "cell": "titration_cell"
+     },
+     "slots": {
+      "electrode": "slot.electrode.connection_id",
+      "cell": "slot.titration_cell.connection_id"
+     }
+    },
+    "start": {
+     "cap": "titration.start",
+     "job": {
+      "slot": "titration.status",
+      "done": [
+       "completed"
+      ],
+      "failed": [
+       "stopped",
+       "out_of_range",
+       "limit_reached"
+      ],
+      "report": {
+       "phase": "titration.phase",
+       "dosed_m3": "dosing.delivered_volume_m3",
+       "endpoint_m3": "titration.endpoint_volume_m3"
+      },
+      "max_s": 7200
+     }
+    },
+    "stop": {
+     "cap": "titration.stop"
+    },
+    "curve": {
+     "cap": "titration.read_curve",
+     "show": [
+      "status",
+      "endpoint_volume_m3",
+      "samples",
+      "synthetic"
+     ]
+    },
+    "result": {
+     "cap": "titration.calculate_content",
+     "sample_arg": "sample_volume_m3",
+     "ratio_arg": "stoichiometric_ratio",
+     "endpoint_slot": "titration.endpoint_volume_m3",
+     "reads": [
+      "titration.status",
+      "titration.endpoint_volume_m3",
+      "titration.content_mol_m3"
+     ],
+     "show": [
+      "content_mol_m3",
+      "titration.status",
+      "titration.endpoint_volume_m3",
+      "titration.content_mol_m3",
+      "synthetic"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "titration.running",
+     "values": [
+      true
+     ]
+    }
+   },
+   "path": "titration",
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "status",
+     "titration.status"
+    ],
+    [
+     "phase",
+     "titration.phase"
+    ],
+    [
+     "titrant",
+     "titrant.concentration_mol_m3",
+     "concentration"
+    ],
+    [
+     "cylinder",
+     "dosing.cylinder_volume_m3",
+     "volume"
+    ],
+    [
+     "mode",
+     "method.mode"
+    ],
+    [
+     "dosed",
+     "dosing.delivered_volume_m3",
+     "volume"
+    ],
+    [
+     "pH",
+     "measurement.ph"
+    ],
+    [
+     "potential",
+     "measurement.potential_v",
+     "voltage"
+    ],
+    [
+     "end point",
+     "titration.endpoint_volume_m3",
+     "volume"
+    ],
+    [
+     "stirring",
+     "stirring.angular_speed_rad_s",
+     "rotation"
+    ],
+    [
+     "electrode",
+     "slot.electrode.connection_id"
+    ],
+    [
+     "cell",
+     "slot.titration_cell.connection_id"
+    ]
+   ],
+   "requires": {
+    "titrant": [
+     {
+      "slot": "titration.running",
+      "value": false,
+      "code": "BUSY",
+      "label": "no titration running",
+      "message": "{inst} is titrating; the titrant cannot change now.",
+      "fix": "wait for the titration (`chemlab run {inst} wait`) or stop it."
+     },
+     {
+      "slot": "dosing.delivered_volume_m3",
+      "max": 0.0,
+      "code": "ALREADY_DOSED",
+      "label": "nothing dosed yet",
+      "message": "{inst} has already dosed titrant into this sample; the titrant and the cylinder stay as they are until the next sample.",
+      "fix": "ask the lab operator for a new sample, then declare the titrant."
+     }
+    ],
+    "method": [
+     {
+      "slot": "titration.running",
+      "value": false,
+      "code": "BUSY",
+      "label": "no titration running",
+      "message": "{inst} is titrating; the method cannot change now.",
+      "fix": "wait for the titration (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "connect": [
+     {
+      "slot": "titration.running",
+      "value": false,
+      "code": "BUSY",
+      "label": "no titration running",
+      "message": "{inst} is titrating.",
+      "fix": "wait for the titration (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "stir-off": [
+     {
+      "slot": "titration.running",
+      "value": false,
+      "code": "BUSY",
+      "label": "no titration running",
+      "message": "{inst} is titrating; the stirrer must keep running.",
+      "fix": "wait for the titration (`chemlab run {inst} wait`) or stop it first."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "slot.electrode.connection_id",
+      "set": true,
+      "code": "NOT_CONNECTED",
+      "label": "electrode connected",
+      "message": "no electrode is connected to {inst}.",
+      "fix": "connect it: `chemlab run {inst} connect electrode=ELECTRODE_ID` (the id the lab gave you)."
+     },
+     {
+      "slot": "slot.titration_cell.connection_id",
+      "set": true,
+      "code": "NOT_CONNECTED",
+      "label": "titration cell connected",
+      "message": "no titration cell (beaker) is registered on {inst}.",
+      "fix": "connect it: `chemlab run {inst} connect cell=BEAKER_ID`."
+     },
+     {
+      "slot": "dosing.cylinder_volume_m3",
+      "set": true,
+      "code": "NO_TITRANT",
+      "label": "dosing cylinder chosen",
+      "message": "{inst} has no dosing cylinder chosen.",
+      "fix": "declare the titrant with its cylinder: `chemlab run {inst} titrant 0.1M --cylinder 20mL`."
+     },
+     {
+      "slot": "titrant.concentration_mol_m3",
+      "set": true,
+      "code": "NO_TITRANT",
+      "label": "titrant declared",
+      "message": "{inst} has no titrant concentration.",
+      "fix": "declare it: `chemlab run {inst} titrant 0.1M`."
+     },
+     {
+      "slot": "method.mode",
+      "set": true,
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no titration method.",
+      "fix": "set one: `chemlab run {inst} method mode=dynamic increment=0.1mL max=15mL`."
+     },
+     {
+      "slot": "stability.hold_s",
+      "set": true,
+      "code": "NO_METHOD",
+      "label": "stability rule set",
+      "message": "{inst} has no stability rule (hold time and tolerance).",
+      "fix": "set it: `chemlab run {inst} method hold=0.5s tolerance=1mV`."
+     },
+     {
+      "slot": "dosing.rate_m3_s",
+      "set": true,
+      "code": "NO_METHOD",
+      "label": "dosing rate set",
+      "message": "{inst} has no dosing rate.",
+      "fix": "set it: `chemlab run {inst} method rate=30mL/min`."
+     },
+     {
+      "slot": "stirring.angular_speed_rad_s",
+      "min": 1e-09,
+      "code": "NOT_STIRRING",
+      "label": "stirring",
+      "message": "the stirrer of {inst} is off; it titrates only while stirring.",
+      "fix": "stir: `chemlab run {inst} stir 300rpm`."
+     },
+     {
+      "slot": "dosing.delivered_volume_m3",
+      "max": 0.0,
+      "code": "ALREADY_DOSED",
+      "label": "fresh sample",
+      "message": "{inst} has already titrated this sample.",
+      "fix": "ask the lab operator for a new sample."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "titration.running",
+      "value": true,
+      "code": "NOT_RUNNING",
+      "label": "a titration running",
+      "message": "{inst} is not titrating.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "titration.start:PRECONDITION_FAILED": {
+     "code": "NO_SAMPLE",
+     "message": "{inst} has no sample in the titration cell (the lab places it), or a setting is missing.",
+     "fix": "ask the lab operator for the sample; check `chemlab run {inst} status`."
+    },
+    "titration.configure_method:PRECONDITION_FAILED": {
+     "code": "BAD_STEP",
+     "message": "{inst} takes the dose increment and the maximum volume only as whole steps of its dosing cylinder (choose the cylinder first), not more than the cylinder holds, and an end-point potential only in endpoint mode.",
+     "fix": "declare the cylinder (`chemlab run {inst} titrant 0.1M --cylinder 20mL`) and give volumes in whole cylinder steps."
+    },
+    "titration.calculate_content:PRECONDITION_FAILED": {
+     "code": "NO_ENDPOINT",
+     "message": "{inst} has no end point to compute a content from.",
+     "fix": "run the titration to its end first."
+    }
+   },
+   "unsupported": {
+    "sample": "the sample volume is given to the result calculation"
+   },
+   "alternatives": {
+    "sample": "`chemlab run INST result --sample 25mL` after the titration."
+   },
+   "notes": {
+    "titrant": [
+     "the titrant concentration is in mol/L (M); --cylinder is the exchange unit volume 5, 10, 20 or 50 mL"
+    ],
+    "method": [
+     "mode=endpoint titrates to ep (a potential); mode=dynamic finds the equivalence point (ep is then not used)",
+     "increment and max must be whole steps of the cylinder (20 mL cylinder: 0.2 µL steps)"
+    ],
+    "result": [
+     "with --sample V (and --ratio R) it computes the content = end-point volume x titrant concentration x R / V"
+    ]
+   },
+   "manual": "OMNIS titrator product manual (titration system p.17-35, stirrer and dosing unit p.36-38)",
+   "examples": {
+    "titrant": "chemlab run INST titrant 0.1M --cylinder 20mL",
+    "method": "chemlab run INST method mode=dynamic increment=0.1mL max=15mL hold=0.5s tolerance=0V rate=30mL/min",
+    "stir": "chemlab run INST stir 300rpm",
+    "connect": "chemlab run INST connect electrode=electrode_01 cell=beaker_01",
+    "result": "chemlab run INST result --sample 25mL"
+   }
+  },
+  "metrohm_899": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "coulometry.configure",
+       "passthrough": true,
+       "keys": {
+        "current": "current_a",
+        "drift-comp": "drift_compensation_kg_s",
+        "start-drift": "start_drift_threshold_kg_s",
+        "extraction": "extraction_time_s",
+        "stir": "stirring_level",
+        "hold": "endpoint_hold_s"
+       }
+      }
+     ]
+    },
+    "sample": {
+     "cap": "coulometry.configure",
+     "arg": "sample_mass_kg"
+    },
+    "stir": {
+     "cap": "stirrer.set",
+     "on_arg": "on",
+     "level_arg": "rate"
+    },
+    "start": {
+     "cap": "coulometry.start",
+     "job": {
+      "slot": "coulometry.status",
+      "done": [
+       "COMPLETED"
+      ],
+      "failed": [
+       "STOPPED",
+       "OFF"
+      ],
+      "report": {
+       "water_kg": "measurement.water_mass_kg",
+       "drift_kg_s": "measurement.drift_kg_s"
+      },
+      "max_s": 7200
+     }
+    },
+    "stop": {
+     "cap": "coulometry.stop"
+    },
+    "curve": {
+     "cap": "coulometry.curve",
+     "show": [
+      "records"
+     ]
+    },
+    "result": {
+     "cap": "coulometry.reading",
+     "show": [
+      "status",
+      "water_mass_kg",
+      "water_fraction",
+      "charge_c",
+      "elapsed_s",
+      "drift_kg_s",
+      "synthetic"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "coulometry.running",
+     "values": [
+      true
+     ]
+    }
+   },
+   "path": "coulometry",
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "status",
+     "coulometry.status"
+    ],
+    [
+     "sample",
+     "sample.present"
+    ],
+    [
+     "reagent ready",
+     "reagent.ready"
+    ],
+    [
+     "water",
+     "measurement.water_mass_kg",
+     "mass"
+    ],
+    [
+     "water fraction",
+     "measurement.water_fraction"
+    ],
+    [
+     "drift",
+     "measurement.drift_kg_s",
+     "ug/min"
+    ],
+    [
+     "current",
+     "settings.current_a",
+     "current"
+    ],
+    [
+     "sample size",
+     "settings.sample_mass_kg",
+     "mass"
+    ],
+    [
+     "stirring level",
+     "settings.stirring_level"
+    ],
+    [
+     "cell",
+     "slot.cell.installed"
+    ]
+   ],
+   "requires": {
+    "method": [
+     {
+      "slot": "coulometry.running",
+      "value": false,
+      "code": "BUSY",
+      "label": "no determination running",
+      "message": "{inst} is titrating; the method cannot change now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "sample": [
+     {
+      "slot": "coulometry.running",
+      "value": false,
+      "code": "BUSY",
+      "label": "no determination running",
+      "message": "{inst} is titrating; give the sample size before the start.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "stir": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "slot.cell.installed",
+      "value": true,
+      "code": "NOT_ASSEMBLED",
+      "label": "titration cell installed",
+      "message": "the titration cell of {inst} is not installed.",
+      "fix": "ask the lab operator to assemble the cell and electrodes."
+     },
+     {
+      "slot": "slot.generator.installed",
+      "value": true,
+      "code": "NOT_ASSEMBLED",
+      "label": "generator electrode installed",
+      "message": "the generator electrode of {inst} is not installed.",
+      "fix": "ask the lab operator to assemble the cell and electrodes."
+     },
+     {
+      "slot": "slot.indicator.installed",
+      "value": true,
+      "code": "NOT_ASSEMBLED",
+      "label": "indicator electrode installed",
+      "message": "the indicator electrode of {inst} is not installed.",
+      "fix": "ask the lab operator to assemble the cell and electrodes."
+     },
+     {
+      "slot": "reagent.ready",
+      "value": true,
+      "code": "NO_REAGENT",
+      "label": "reagent ready",
+      "message": "the KF reagent of {inst} is not ready.",
+      "fix": "ask the lab operator to fill fresh reagent."
+     },
+     {
+      "slot": "sample.present",
+      "value": true,
+      "code": "NO_SAMPLE",
+      "label": "a sample added",
+      "message": "no sample has been added to the cell of {inst}.",
+      "fix": "ask the lab operator to add the sample."
+     },
+     {
+      "slot": "settings.endpoint_hold_s",
+      "set": true,
+      "code": "NO_METHOD",
+      "label": "end-point hold set",
+      "message": "{inst} has no end-point hold time in its method.",
+      "fix": "set it: `chemlab run {inst} method hold=1s`."
+     },
+     {
+      "slot": "settings.drift_compensation_kg_s",
+      "set": true,
+      "code": "NO_METHOD",
+      "label": "drift compensation set",
+      "message": "{inst} has no drift compensation in its method.",
+      "fix": "set it: `chemlab run {inst} method drift-comp=0ug/min` (or the measured drift)."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "coulometry.running",
+      "value": true,
+      "code": "NOT_RUNNING",
+      "label": "a determination running",
+      "message": "{inst} is not titrating.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "coulometry.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: the drift is above the start-drift threshold, or this sample was already titrated.",
+     "fix": "check the drift (`chemlab run {inst} status`); raise `method start-drift=...` only if the method allows; a titrated sample needs a new one from the lab."
+    },
+    "coulometry.configure:PRECONDITION_FAILED": {
+     "code": "BUSY",
+     "message": "{inst} is titrating; the method cannot change now.",
+     "fix": "wait for it or stop it."
+    }
+   },
+   "unsupported": {
+    "titrant": "a coulometric KF titrator generates its iodine at the generator electrode (no titrant to declare)",
+    "connect": "the cell and the electrodes are installed by the lab operator with the power off"
+   },
+   "alternatives": {
+    "connect": "ask the lab operator, or `chemlab call INST slot.set_installed --slot cell --installed true` with the power off."
+   },
+   "notes": {
+    "method": [
+     "current 100mA | 200mA | 400mA; drift-comp and start-drift in µg/min (e.g. 20ug/min); stir is the level (-15..15) used during the determination"
+    ],
+    "stir": [
+     "the manual stirrer takes levels: `stir on --level 8`, `stir off`"
+    ],
+    "sample": [
+     "the sample mass turns the titrated water into a water fraction"
+    ]
+   },
+   "manual": "899 Coulometer manual (KF principle and drift p.38-44, operation and methods p.45-71)",
+   "examples": {
+    "method": "chemlab run INST method current=400mA drift-comp=0ug/min hold=1s",
+    "sample": "chemlab run INST sample 10mg",
+    "stir": "chemlab run INST stir on --level 8",
+    "result": "chemlab run INST result"
+   }
+  },
+  "velp_udk159": {
+   "role": "primary",
+   "verbs": {
+    "titrant": {
+     "key": "titrant",
+     "calls": [
+      {
+       "cap": "method.configure",
+       "passthrough": false,
+       "keys": {
+        "titrant": "titrant_equivalents_mol_m3"
+       },
+       "keep": {
+        "last": true,
+        "example": true
+       }
+      }
+     ]
+    },
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "passthrough": true,
+       "keep": {
+        "last": true,
+        "example": true
+       },
+       "keys": {
+        "steam": "steam_fraction",
+        "window": "distillation_window_s",
+        "water": "water_volume_m3",
+        "base": "base_volume_m3",
+        "boric": "boric_volume_m3",
+        "base-conc": "base_concentration_mol_m3",
+        "boric-capacity": "boric_capacity_mol_m3",
+        "titrant": "titrant_equivalents_mol_m3",
+        "blank": "blank_titrant_volume_m3",
+        "factor": "protein_factor"
+       }
+      }
+     ]
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "cancelled",
+       "failed"
+      ],
+      "report": {
+       "stage": "cycle.stage",
+       "titrant_ml": "panel.titrant_ml"
+      },
+      "max_s": 7200
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "curve": {
+     "cap": "curve.read",
+     "show": [
+      "points",
+      "evidence"
+     ]
+    },
+    "result": {
+     "cap": "analysis.measure",
+     "show": [
+      "phase",
+      "stage",
+      "nitrogen_kg",
+      "protein_mass_fraction",
+      "titrant_volume_m3",
+      "nominal_range",
+      "evidence"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "cycle.phase",
+     "values": [
+      "running"
+     ]
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "curve.read",
+    "analysis.measure"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "phase",
+     "cycle.phase"
+    ],
+    [
+     "stage",
+     "cycle.stage"
+    ],
+    [
+     "method",
+     "method.selected#name"
+    ],
+    [
+     "steam",
+     "panel.steam_percent"
+    ],
+    [
+     "titrant used (mL)",
+     "panel.titrant_ml"
+    ],
+    [
+     "nitrogen (mg)",
+     "panel.nitrogen_mg"
+    ],
+    [
+     "door",
+     "door.angle_rad",
+     "angle"
+    ],
+    [
+     "tube clamped",
+     "tube.clamped_target"
+    ],
+    [
+     "coolant ok",
+     "coolant.valid"
+    ],
+    [
+     "cooling down",
+     "cycle.cooldown_s",
+     "duration"
+    ]
+   ],
+   "requires": {
+    "titrant": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no analysis running",
+      "message": "{inst} is running an analysis.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no analysis running",
+      "message": "{inst} is running an analysis; the method cannot change now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method base=70mL boric=30mL` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "sample.configured",
+      "value": true,
+      "code": "NO_SAMPLE",
+      "label": "a digested sample tube",
+      "message": "there is no digested sample tube in {inst}.",
+      "fix": "ask the lab operator to put the digested tube in."
+     },
+     {
+      "slot": "door.open_target",
+      "value": false,
+      "code": "DOOR_OPEN",
+      "label": "door shut",
+      "message": "the safety door of {inst} is open (or still closing).",
+      "fix": "close it: `chemlab run {inst} close door`, then give it a few seconds."
+     },
+     {
+      "slot": "door.angle_rad",
+      "max": 0.0,
+      "code": "DOOR_MOVING",
+      "label": "door closed",
+      "message": "the safety door of {inst} is still moving shut.",
+      "fix": "wait a few seconds (`chemlab wait 10`), then start."
+     },
+     {
+      "slot": "tube.clamped_target",
+      "value": true,
+      "code": "TUBE_NOT_CLAMPED",
+      "label": "tube clamped",
+      "message": "the sample tube of {inst} is not clamped.",
+      "fix": "ask the lab operator to clamp the tube (the lever is reached through the open door)."
+     },
+     {
+      "slot": "coolant.valid",
+      "value": true,
+      "code": "NO_COOLANT",
+      "label": "cooling water",
+      "message": "{inst} has no valid cooling water flow.",
+      "fix": "ask the lab operator to open the cooling water."
+     },
+     {
+      "slot": "cycle.cooldown_s",
+      "max": 0.0,
+      "code": "COOLING",
+      "label": "not cooling down",
+      "message": "{inst} is still cooling down after the last analysis.",
+      "fix": "wait a few minutes (`chemlab run {inst} status`)."
+     },
+     {
+      "slot": "cycle.phase",
+      "value": "idle",
+      "code": "NOT_IDLE",
+      "label": "idle",
+      "message": "{inst} is not idle (the last analysis is over but its tube is still in place, or one is running).",
+      "fix": "the lab operator drains the residue and puts the next tube in; see `chemlab run {inst} status`."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "cycle.phase",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "an analysis running",
+      "message": "{inst} is not running an analysis.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:CAPACITY_LIMIT": {
+     "code": "CAPACITY_LIMIT",
+     "message": "the method needs more liquid than {inst} has (tube volume over 250 mL, or a reagent tank too low), or the base / boric acid cannot hold the sample's acid or nitrogen.",
+     "fix": "lower water / base volumes in the method, or ask the lab operator to refill the tanks."
+    },
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready to start (door, tube clamp, cooling water, sample tube or the last analysis).",
+     "fix": "see `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "sample": "the sample is the digested tube; its mass is part of the lab's sample record, not a setting",
+    "stir": "no stirrer (the receiver is mixed by the distillate)",
+    "connect": "no electrode or cell slots (colorimetric end point)"
+   },
+   "notes": {
+    "titrant": [
+     "the titrant concentration is a field of the method; the other method settings are kept"
+    ],
+    "method": [
+     "method.configure needs every setting; the ones you leave out stay as in the last accepted method, else the documented defaults (the reply lists them); steam takes a percentage (steam=80%)"
+    ]
+   },
+   "manual": "UDK 159 leaflet p.1-2 (operation, technical data); UDK series brochure rev.3 p.4-5",
+   "examples": {
+    "titrant": "chemlab run INST titrant 0.2M",
+    "method": "chemlab run INST method base=70mL boric=30mL steam=100%",
+    "result": "chemlab run INST result"
+   }
+  }
+ }
+}

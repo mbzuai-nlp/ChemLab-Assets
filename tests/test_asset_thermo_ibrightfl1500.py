@@ -14,6 +14,7 @@ import copy
 import json
 import math
 import sys
+import re
 import unittest
 from pathlib import Path
 
@@ -1310,6 +1311,21 @@ class SyncAuditFixes(unittest.TestCase):
         self.assertEqual(h.read('evaluator')['truth.hot_pixels']['uncorrected'], 0)
         self.assertLess(dark_capture(h).max(), ideal.max() + 20)             # mapped pixels read the normal dark value
         check('sync_pixel_mapping')
+
+
+class FixRoundB(unittest.TestCase):
+    """chemlab finding (2026-10-22): the agent describe named the evaluator capability sensor.configure_error (in the
+    service.pixel_mapping limitation); no id of a hidden capability or state slot may appear in what an agent session describes."""
+    def test_agent_describe_names_no_hidden_capability_or_slot(self):
+        h = powered(cool=False)
+        h.register_principal('fixb_agent', 'agent')
+        d = h.session('fixb_agent').describe(instance_id=INST)
+        meta = rt.export_thermo_ibrightfl1500_contract_metadata()
+        hidden = {k for k, v in meta['capabilities'].items() if v['visibility'] != 'agent'} | {k for k, v in meta['state_slots'].items() if v['visibility'] != 'agent'}
+        text = json.dumps(d, ensure_ascii=False)
+        leaked = sorted(x for x in hidden if re.search(re.escape(x) + r'(?![a-z0-9_])', text))
+        self.assertEqual(leaked, [])
+        self.assertIn('service.pixel_mapping', d['capabilities'])
 
 
 class ZDeclaredEffects(unittest.TestCase):

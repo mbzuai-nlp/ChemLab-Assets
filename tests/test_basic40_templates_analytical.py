@@ -437,6 +437,31 @@ class TestFTIR4700Templates(unittest.TestCase):
         self.ir, self.call = other, Caller(self, other, self.meta)
         self.assertTrue(self.measure("fixture")["result"]["spectrum"]["synthetic"])
 
+    def test_fix_round_c_polystyrene_film_standard(self):
+        # The polystyrene film wavenumber standard (brochure p.4) is a loadable template sample; its reference is the
+        # public-domain NIST WebBook / PNNL spectrum on a 1 cm^-1 grid, template.read lists the NIST SRM 1921b certified bands.
+        read = self.call("template.read", substance_id="polystyrene")["result"]
+        self.assertEqual((read["cas"], read["name"]), ("9003-53-6", "Polystyrene (film wavenumber standard)"))
+        minima = dict((round(nu), (nu, u)) for nu, u in read["certified_bands"]["band_minimum_m_inv"])
+        self.assertEqual(minima[160129], (160129.0, 10.0))                       # 1601.29 +- 0.10 cm^-1 (SRM 1921b Table 4)
+        self.assertEqual(len(read["certified_bands"]["centroid_m_inv"]), 13)
+        self.assertIsNone(self.call("template.read", substance_id="ethyl_acetate")["result"]["certified_bands"])
+        self.ir.register_template_sample("ps_film", substance_id="polystyrene", phase="solid")
+        spectrum = self.measure("ps_film", accessory="transmission", resolution=100.0, start=158000.0, stop=162000.0)["result"]["spectrum"]
+        assert_provenance(self, spectrum, "assets/reactions/ir_reference_standards.json")
+        self.assertTrue(spectrum["phase_matched"])
+        self.assertEqual((spectrum["effective_resolution_m_inv"], spectrum["point_spacing_m_inv"]), (100.0, 100.0))
+        t, x = spectrum["absorbance"], spectrum["wavenumber_m_inv"]
+        i = max(range(1, len(t) - 1), key=t.__getitem__)
+        a, b, c = t[i - 1], t[i], t[i + 1]
+        band = (x[i] + 0.5 * (a - c) / (a - 2 * b + c) * (x[1] - x[0])) / 100
+        self.assertLess(abs(band - 1601.29), 0.5, band)                           # certified band minimum, U = 0.10 cm^-1
+        self.call("lid.set_angle", angle_rad=HALF_PI)
+        self.call("sample.unload")
+        full = self.measure("ps_film", accessory="transmission", resolution=40.0)["result"]["spectrum"]
+        self.assertLessEqual(len(full["wavenumber_m_inv"]), 901)                  # 1 cm^-1 grid, at most 901 output points
+        self.assertEqual(self.meta["asset_version"], "1.1.2")
+
 
 class TestEppendorf5910RiTemplates(unittest.TestCase):
     def setUp(self):

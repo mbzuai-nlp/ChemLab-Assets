@@ -1,0 +1,69 @@
+{
+ "class": "balance",
+ "adapter": "chemlab.compile.classes.balance:BalanceAdapter",
+ "about": "Laboratory balances: zero, tare, weigh [--stable], unit, door, power, status. Capacities, readability and the zero range come from each contract's parameters; argument ranges and enums from its input schemas.",
+ "membership": {
+  "decided": "2026-10-22",
+  "members": ["mt_xpr204e", "ohaus_px224e", "ohaus_spx2201"],
+  "excluded": {
+   "mt_hx204": "halogen moisture analyzer: weighing is a step inside its drying measurement (measurement.tare only in an open measurement, balance.indicated_kg a live readout); no free-standing zero, display unit or draft-shield door. Primary class: drying / moisture analysis.",
+   "mt_quantos_q2_xpe206dr": "powder dosing system: its XPE206DR balance works only inside a dosing set-up (container position selected, observation model from the host); balance.tare records the dosing baseline and is refused in a plain lab. Primary class: dosing, which can offer zero/tare/weigh in the dosing context.",
+   "ch_chi440c": "quartz-crystal microbalance: measures mass change through the crystal frequency; electrochemistry class.",
+   "ta_tga5500": "thermogravimetric analyzer: mass is a measured signal of a thermal method; thermal-analysis class."
+  }
+ },
+ "members": {
+  "mt_xpr204e": {
+   "role": "primary",
+   "verbs": {
+    "power": {"cap": "power.set", "arg": "enabled"},
+    "zero": {"cap": "balance.zero"},
+    "tare": {"cap": "balance.tare"},
+    "weigh": {"cap": "balance.reading", "result": {"net": "net_kg", "gross": "gross_kg", "stable": "stable"}},
+    "unit": {"cap": "display.set_unit", "arg": "unit", "allowed_slot": "display.allowed_units", "slot": "display.unit"},
+    "door": {"cap": "door.operate", "style": "operate", "sides": ["left", "right", "both"], "default_side": "both", "side_arg": "side", "action_arg": "action"}
+   },
+   "slots": {"power": "power.enabled", "stable": "balance.stable", "net": "balance.net_kg", "gross": "balance.gross_kg", "tare": "balance.tare_kg",
+             "status": "balance.status", "unit": "display.unit", "doors": ["door.left.opening_m", "door.right.opening_m"]},
+   "notes": {
+    "tare": ["the terminal Tare key (balance.request) waits up to 40 s for stability by itself; chemlab sends balance.tare once the reading is stable and waits with --wait instead"],
+    "unit": ["the terminal display unit (display.set_unit); balance.set_display_unit only switches the weighing-cell label between g and kg"],
+    "door": ["the motorised side doors (door.operate); the top door has no motor"]
+   }
+  },
+  "ohaus_px224e": {
+   "role": "primary",
+   "verbs": {
+    "power": {"cap": "power.set", "arg": "on"},
+    "zero": {"cap": "weighing.zero"},
+    "tare": {"cap": "weighing.tare"},
+    "weigh": {"reads": ["weighing.net_kg", "weighing.gross_kg", "weighing.stable"]},
+    "unit": {"cap": "weighing.set_unit", "arg": "unit", "allowed_slot": "weighing.units_enabled", "slot": "weighing.unit"},
+    "door": {"cap": "doors.set", "style": "fraction", "arg": "open_fraction"}
+   },
+   "slots": {"power": "power.on", "stable": "weighing.stable", "net": "weighing.net_kg", "gross": "weighing.gross_kg", "tare": "weighing.tare_kg",
+             "status": "status", "unit": "weighing.unit", "doors": ["doors.open_fraction"]},
+   "notes": {
+    "door": ["the draft-shield doors are moved by hand (doors.set is a physical action); any open door makes the reading unstable"],
+    "weigh": ["the PX has no weight query capability: weigh reads its state (the remote SP / IP commands print the same values)"]
+   }
+  },
+  "ohaus_spx2201": {
+   "role": "primary",
+   "verbs": {
+    "power": {"cap": "power.set", "arg": "on"},
+    "zero": {"cap": "weighing.zero"},
+    "tare": {"cap": "weighing.tare"},
+    "weigh": {"reads": ["weighing.net_kg", "weighing.gross_kg", "weighing.stable"]},
+    "unit": {"cap": "weighing.set_unit", "arg": "unit", "allowed_slot": "weighing.units_enabled", "slot": "weighing.unit"}
+   },
+   "slots": {"power": "power.on", "stable": "weighing.stable", "net": "weighing.net_kg", "gross": "weighing.gross_kg", "tare": "weighing.tare_kg",
+             "status": "status", "unit": "weighing.unit"},
+   "unsupported": {"door": "it is a portable precision balance without a draft shield (no doors)"},
+   "alternatives": {"door": "nothing to do: an SPX has no doors; shield it from draughts by its position on the bench."},
+   "notes": {
+    "unit": ["the SPX offers no mg unit (readability 0.1 g); weigh reports mg values computed from grams"]
+   }
+  }
+ }
+}

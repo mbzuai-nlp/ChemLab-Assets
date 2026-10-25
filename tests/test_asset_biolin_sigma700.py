@@ -115,4 +115,17 @@ class Tests(unittest.TestCase):
    h=self.h();h.invoke('balance.calibrate',reference_forces_n=[0.,.1],observed_raw_forces_n=[0.,.1]);h.invoke('balance.tare');h.invoke('stage.move',position_m=.005);h.invoke('sim.step',dt_s=1.);h.invoke('stage.move',position_m=0.);h.invoke('sim.step',dt_s=1.);h.invoke('stirrer.set_speed',speed_rad_s=20.);h.invoke('thermal.set_temperature',temperature_k=295.15);h.invoke('acquisition.start');h.invoke('sim.step',dt_s=30.);h.invoke('door.set',angle_rad=2.35);h.invoke('probe.select',probe='ring');h.invoke('sample.remove');h.invoke('power.set',enabled=False);h.invoke('service.set',distance_m=.1)
    d=self.h(sid='apg_fig1_2',plant={'ambient_k':298.15},temp=298.15);d.invoke('stock.load',volume_m3=2e-5,concentration_kg_m3=1.);d.invoke('dose.start',volume_m3=1e-6,flow_m3_s=1e-7);d.invoke('sim.step',dt_s=3.);d.invoke('acquisition.stop');d.invoke('door.set',angle_rad=2.35);d.invoke('sample.remove')
   self.assertTrue(set(rt.IMMEDIATE_EFFECTS)<=observed)
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): a tare right after switching on took the unsettled zero (ethanol read 522 mN/m)."""
+ def test_tare_waits_for_a_settled_force_reading(self):
+  h=rt.BiolinSigma700Runtime();p=dict(rt.PLANT_EXAMPLE);h.invoke('plant.configure',**p);h.step(5.)
+  h.invoke('power.set',enabled=True);before=copy.deepcopy(h.__dict__)
+  with self.assertRaisesRegex(rt.ActionRejected,'FORCE_NOT_SETTLED'):h.invoke('balance.tare')
+  self.assertEqual(before,h.__dict__)
+  h.step(.3)
+  with self.assertRaisesRegex(rt.ActionRejected,'FORCE_NOT_SETTLED'):h.invoke('balance.tare')
+  h.step(1.5);h.invoke('balance.tare');h.step(.5);self.assertLess(abs(h.force),2e-7)
+  self.assertIn('FORCE_NOT_SETTLED',[e['code'] for e in rt.export_biolin_sigma700_contract_metadata()['capabilities']['balance.tare']['errors']])
+ def test_plate_tension_after_a_settled_tare(self):
+  h=ex.build();ex.call(h,'acquisition.start');h.step(30);r=ex.call(h,'acquisition.result');self.assertAlmostEqual(r['tension_n_m'],.022454,delta=3e-6)
 if __name__=='__main__':unittest.main()

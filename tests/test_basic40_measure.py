@@ -46,6 +46,19 @@ class FilteredAnalyticalBalanceTests(unittest.TestCase):
         balance.update(0.1 * 9.80665, 0.01)
         self.assertTrue(balance.stable)
 
+    def test_stable_only_once_the_reading_has_settled(self):
+        # 1.3.1 (2026-10-22): the N-division window alone let STABLE rise while the low-pass reading still approached the load
+        for level in XPR204E_FILTERS:
+            with self.subTest(level=level):
+                balance = FilteredAnalyticalBalance(filter_level=level)
+                balance.set_power(True)
+                self.settled(balance, 0.0, 30)
+                seen = [balance.update(0.0007531 * balance.g_cal, 0.01) for _ in range(9000)]
+                self.assertTrue(seen[-1]["stable"])
+                for r in seen:
+                    if r["stable"]:
+                        self.assertLessEqual(abs(r["net_kg"] - seen[-1]["net_kg"]), balance.readability_kg + 1e-12)
+
     def test_window_rejects_slow_drift_with_small_adjacent_changes(self):
         balance = FilteredAnalyticalBalance(filter_level="Low")
         balance.set_power(True)
@@ -509,6 +522,14 @@ class GamryReference620RuntimeTests(unittest.TestCase):
 
     def value(self, sid, instance_id="gamry_a"):
         return self.judge.read(instance_id=instance_id, state_ids=[sid])["observations"][sid]["value"]
+
+    def test_template_read_examples_resolve(self):
+        # 1.1.1 (2026-10-22): the example was redox_fe3_fe2, which the library does not have (INVALID_ARGUMENT on every state)
+        contract = json.loads((ROOT / "assets/basic40_batch02/t4_measure/gamry_ref620/asset.contract.json").read_text(encoding="utf-8"))
+        example = contract["capabilities"]["template.read"]["example_arguments"]
+        described = self.agent.describe(instance_id="gamry_a")["capabilities"]["template.read"]["example_arguments"]
+        for arguments in (example if isinstance(example, list) else [example]) + described:
+            self.assertEqual(self.ok("template.read", arguments)["result"]["record"]["substance_id"], arguments["substance_id"])
 
     def ready(self, mode="potential", values=None, interval=0.1):
         self.ok("power.set", {"enabled": True})
@@ -990,6 +1011,23 @@ class Metrohm914RuntimeTests(_m914_unittest.TestCase):
             before = self.host.debug_snapshot()
             self.assertEqual(self.invoke(cap, **args)["error"]["code"], code)
             self.assertEqual(before, self.host.debug_snapshot())
+
+    def test_calibration_standard_matches_within_buffer_recognition_tolerance(self):
+        # chemlab finding (2026-10-22): float equality with the standard in the cell was required (6.864 vs 6.865 refused)
+        self.prepare()
+        r = self.invoke("electrochemistry.calibrate", slot="ph", standard_value=6.865)
+        self.assertEqual(r["error"]["code"], "PRECONDITION_FAILED")
+        self.assertIn("No ph calibration standard", r["error"]["message"])
+        self.settle(self.sample(value=6.8, standard_slot="ph", standard_value=6.865))
+        before = self.host.debug_snapshot()
+        r = self.invoke("electrochemistry.calibrate", slot="ph", standard_value=6.80)       # another buffer: refused, nothing changed
+        self.assertEqual(r["error"]["code"], "PRECONDITION_FAILED")
+        self.assertIn("does not match", r["error"]["message"])
+        self.assertEqual(before, self.host.debug_snapshot())
+        self.ok("electrochemistry.calibrate", slot="ph", standard_value=6.864)             # the same buffer (table rounding)
+        self.assertTrue(self.value("probe.ph.calibrated"))
+        self.step(self.sample(value=6.8))
+        self.assertAlmostEqual(self.value("measurement.ph"), 6.864, places=6)
 
     def test_optional_conductance_temperature_compensation_no_cell_constant(self):
         self.prepare("conductance")
@@ -2315,6 +2353,30 @@ def _sp80_test_decimal_scan_boundary_and_host_effects(self):
 
 MagritekSpinsolve80RuntimeTests.test_every_api_input_output_state_schema_and_declared_effects = _sp80_test_every_api_input_output_state_schema_and_declared_effects
 MagritekSpinsolve80RuntimeTests.test_decimal_scan_boundary_and_host_effects = _sp80_test_decimal_scan_boundary_and_host_effects
+
+
+# 2026-10-22: PRECONDITION_FAILED keeps its code; the message names the cause; the state is unchanged.
+def _sp80_test_fix_round_b_precondition_refusals_name_the_cause(self):
+    def why(cap, **args):
+        before = self.state()
+        result = self.invoke(cap, **args)
+        self.assertEqual(result["error"]["code"], "PRECONDITION_FAILED", result)
+        self.assertEqual(self.state(), before)
+        return result["error"]["message"]
+    self.assertIn("switched off", why("acquisition.start"))
+    self.ok("power.set", enabled=True)
+    self.assertIn("No sample tube", why("acquisition.start"))
+    self.assertIn("No sample 'tube_99'", why("sample.insert", sample_id="tube_99"))
+    self.ok("sample.insert", sample_id="tube_01")
+    self.assertIn("already in the magnet", why("sample.insert", sample_id="tube_01"))
+    self.assertIn("No acquisition is configured", why("acquisition.start"))
+    self.assertIn("no spectrum yet", why("nmr.integrate", frequency_min_hz=-10, frequency_max_hz=10))
+    self.ok("acquisition.configure", **self.method(points=32, acquisition_time_s=2.0))  # window +-8 Hz, the proton signal sits at 8 Hz
+    self.assertIn("spectral window", why("acquisition.start"))
+    self.assertEqual(export_magritek_spinsolve80_contract_metadata()["asset_types"][SPINSOLVE80_TYPE]["asset_version"], "1.1.1")
+
+
+MagritekSpinsolve80RuntimeTests.test_fix_round_b_precondition_refusals_name_the_cause = _sp80_test_fix_round_b_precondition_refusals_name_the_cause
 
 # BEGIN CHEM-160 RIGAKU MINIFLEX600 APPEND-ONLY TESTS
 from basic40_runtime_measure import (RigakuMiniFlex600Runtime, RIGAKU_MINIFLEX600_TYPE,

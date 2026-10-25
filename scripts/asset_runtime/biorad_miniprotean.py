@@ -101,7 +101,7 @@ PANEL_KEYS = ['display_mode', 'up', 'down', 'stop', 'run_pause', 'constant']
 KEY_REPEAT_DELAY_S, KEY_REPEAT_HZ = 0.5, 5.0  # a held scroll key repeats after 0.5 s at 5 steps/s (engineering: the manual gives no timing)
 KEY_FAST_AFTER, KEY_FAST_STEP = 5, 10       # held for more than 5 units the scroll key steps by 10 (manual p.3-4)
 STOP_HOLD_S = 2.0                           # stop held ~2 s: Pfd on the time display, dE9 on the current display (manual p.5)
-ASSET_VERSION = '1.2.1'
+ASSET_VERSION = '1.2.2'   # 1.2.2 (2026-10-22): gel.inspect lanes[].sample_id
 
 
 class ActionRejected(ValueError):
@@ -1032,6 +1032,7 @@ class BioradMiniproteanRuntime:
                                  geo=(1.0e-3 / thick) * (0.086 / width) * lfac, rfac=gl.get('resistance_factor', 1.0),
                                  qfac=gl['run_charge_factor'] * (thick / 1.0e-3) * (width / 0.086) * lfac,
                                  lanes={n: [] for n in range(1, gl['wells'] + 1)}, well_ul={n: 0.0 for n in range(1, gl['wells'] + 1)},
+                                 lane_samples={n: [] for n in range(1, gl['wells'] + 1)},
                                  T=self._room(), T_max=self._room(), damaged=False, runs=[], smile=0.0, template_source=f'gel_buffer_library.json#{gel_type}')
         self._event('gel', 'GEL_READY', f'胶{gel_id}（{gel_type}）放在实验台上')
         return dict(gel_id=gel_id, location='bench')
@@ -1212,6 +1213,8 @@ class BioradMiniproteanRuntime:
                     self._add_band(g, n, sp, kda, part * v / volume_ul, s)
                 self.led['protein_spilled_kg'].add(part * lost / volume_ul * UG)
         g['well_ul'][lane] += into
+        if into > 0 and sample_id not in g['lane_samples'][lane]:
+            g['lane_samples'][lane].append(sample_id)                            # what was pipetted into this lane (spill-over into neighbours does not count)
         for n, v in give.items():
             g['well_ul'][n] += v
         s['ug'] = {k: v * (1 - frac_of_sample) for k, v in s['ug'].items()}
@@ -1314,7 +1317,8 @@ class BioradMiniproteanRuntime:
                     prof += b['ug'] * UG * w / w.sum() if w.sum() > 0 else 0.0
                 out.append(dict(species=b['species'], apparent_molar_mass_kg_mol=b['kda'], amount_kg=b['ug'] * UG, distance_m=dist, sigma_m=sig, state=b['state'],
                                 template_source=b['template_source']))
-            lanes.append(dict(lane=lane, sample_id=None, bands=out, profile=[float(v) for v in prof]))
+            loaded = g.get('lane_samples', {}).get(lane) or []
+            lanes.append(dict(lane=lane, sample_id='+'.join(loaded) if loaded else None, bands=out, profile=[float(v) for v in prof]))
         return dict(gel_id=gel_id, gel_type=g['gel_type'], lanes=lanes, dye_front_m=self._front_m(g), resolving_height_m=res, smile_fraction=g['smile'],
                     heat_damaged=bool(g['damaged']), max_temperature_k=float(g['T_max']))
 

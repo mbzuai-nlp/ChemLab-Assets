@@ -1,0 +1,2905 @@
+{
+ "class": "spectroscopy",
+ "adapter": "chemlab.compile.classes.spectroscopy:SpectroscopyAdapter",
+ "about": "Molecular spectroscopy and magnetic resonance: power, open/close, source, purge, method, load/unload, blank, measure, stop, spectrum, set-temp, analyze, status. Ranges, enums and units come from each member's contract; the method baseline is the contract's example method.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "hach_dr6000",
+   "jasco_j1500",
+   "jasco_fp8350",
+   "jasco_ftir4700",
+   "jasco_nrs5500",
+   "applied_sx20",
+   "edinburgh_fls1000tcspc",
+   "ultrafast_helios",
+   "jasco_fvs6000",
+   "jasco_cpl300",
+   "magritek_spinsolve80",
+   "bruker_magnettechesr5000",
+   "bruker_minispecmq20"
+  ],
+  "secondary": {},
+  "not_here": {
+   "jasco_p4200": "polarimeter: property_meter primary (optical rotation is one value, not a spectrum)",
+   "bmg_clariostarplus": "plate reader: bioassay primary (plate spectra are a secondary use)",
+   "ja_alphase": "spectroscopic ellipsometry: structure primary",
+   "camag_tlcscanner": "TLC scanner: chromatography primary"
+  },
+  "note": {
+   "bruker_minispecmq20": "no runtime/contract change was needed; set-temp works only with the VT accessory (contract), the runtime answers UNSUPPORTED without it -> NO_ACCESSORY"
+  }
+ },
+ "members": {
+  "hach_dr6000": {
+   "role": "primary",
+   "path": "reading",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0.0
+      }
+     }
+    },
+    "source": {
+     "cap": "lamp.set",
+     "arg": "on",
+     "lamp_arg": "lamp"
+    },
+    "method": {
+     "program_cap": "program.start",
+     "options_cap": "program.options",
+     "passthrough": true,
+     "modes": {
+      "scan": {
+       "keys": {
+        "from": {
+         "arg": "start_m",
+         "kind": "wavelength"
+        },
+        "to": {
+         "arg": "stop_m",
+         "kind": "wavelength"
+        },
+        "step": {
+         "arg": "step_m",
+         "kind": "wavelength"
+        }
+       }
+      },
+      "single": {
+       "keys": {
+        "wavelength": {
+         "arg": "wavelength_m",
+         "kind": "wavelength"
+        }
+       }
+      }
+     }
+    },
+    "load": {
+     "cap": "sample.load",
+     "arg": "sample_id"
+    },
+    "unload": {
+     "cap": "sample.unload"
+    },
+    "blank": {
+     "cap": "reading.zero"
+    },
+    "measure": {
+     "cap": "reading.read"
+    },
+    "spectrum": {
+     "reads": [
+      "dr.scan",
+      "dr.result"
+     ],
+     "x": "dr.scan/wavelength_m",
+     "y": "dr.scan/absorbance",
+     "x_kind": "wavelength",
+     "x_name": "wavelength",
+     "y_name": "absorbance",
+     "x_unit": "m",
+     "y_unit": "1",
+     "alternatives": [
+      {
+       "x": "dr.result/wavelengths_m",
+       "y": "dr.result/abs"
+      }
+     ],
+     "fields": [
+      "dr.result/conc",
+      "dr.result/unit"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "closed": "lid.closed",
+    "sample": "sample.loaded",
+    "sample_id": "sample.id",
+    "method": "dr.mode",
+    "blank": "dr.zero"
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is closed; open it to reach the sample holder.",
+      "fix": "`chemlab run {inst} open lid`.",
+      "value": false,
+      "label": "lid open"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "OCCUPIED",
+      "message": "a cuvette is already in {inst}.",
+      "fix": "`chemlab run {inst} unload` first.",
+      "value": false,
+      "label": "holder empty"
+     }
+    ],
+    "unload": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is closed; open it to reach the sample holder.",
+      "fix": "`chemlab run {inst} open lid`.",
+      "value": false,
+      "label": "lid open"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cuvette in {inst}.",
+      "fix": "nothing to take out.",
+      "value": true,
+      "label": "a cuvette in"
+     }
+    ],
+    "blank": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": true,
+      "label": "lid closed"
+     },
+     {
+      "slot": "dr.mode",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null
+      ],
+      "label": "method set"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": true,
+      "label": "lid closed"
+     },
+     {
+      "slot": "dr.mode",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null
+      ],
+      "label": "method set"
+     },
+     {
+      "slot": "dr.zero",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no zero (blank reading) for this program or range.",
+      "fix": "put the blank cuvette in and `chemlab run {inst} blank`, then the sample and `measure`.",
+      "not": [
+       null
+      ],
+      "label": "zeroed"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cuvette in {inst}.",
+      "fix": "`chemlab run {inst} load SAMPLE`.",
+      "value": true,
+      "label": "cuvette in"
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ]
+   },
+   "unsupported": {
+    "purge": "no nitrogen purge control on this instrument",
+    "stop": "readings take no time on the DR6000 (zero and read are instant)",
+    "set-temp": "no sample temperature control in this twin",
+    "analyze": "concentrations come from the running program itself (`method program=N`, then `measure`)"
+   },
+   "alternatives": {
+    "stop": "to leave the running program: `chemlab call hach_dr6000 program.exit`.",
+    "analyze": "start the stored program (`chemlab run hach_dr6000 method program=N`), zero, read; standard additions: `chemlab call hach_dr6000 standard_addition.control`."
+   },
+   "params": {
+    "source_word": "lamp",
+    "blank_word": "zero",
+    "manual": "DR6000 user manual DOC022.53.90367: pp. 21-22 (start-up), 60 (zero / read), 98-112 (single wavelength, wavelength scan, time course), 55-76 (stored programs)",
+    "method_example": "from=400nm to=700nm step=2nm"
+   },
+   "notes": {
+    "method": [
+     "from/to/step start a wavelength scan; wavelength=... the single-wavelength mode; program=N a stored Hach program. Each new program or range needs a new zero (`blank`)."
+    ],
+    "source": [
+     "the DR6000 has a UV and a VIS lamp: give --lamp uv or --lamp vis"
+    ]
+   }
+  },
+  "jasco_j1500": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "spectrum.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "source": {
+     "cap": "lamp.set",
+     "arg": "enabled"
+    },
+    "purge": {
+     "cap": "purge.set",
+     "arg": "flow_std_m3_s"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "from": {
+       "arg": "start_m",
+       "kind": "wavelength"
+      },
+      "to": {
+       "arg": "stop_m",
+       "kind": "wavelength"
+      },
+      "step": {
+       "arg": "interval_m",
+       "kind": "wavelength"
+      },
+      "mode": {
+       "arg": "scan_mode"
+      },
+      "speed": {
+       "arg": "speed_m_s",
+       "kind": "scan_speed"
+      },
+      "bw": {
+       "arg": "bandwidth_m",
+       "kind": "wavelength"
+      },
+      "time": {
+       "arg": "integration_s",
+       "kind": "duration"
+      },
+      "scans": {
+       "arg": "accumulations"
+      }
+     }
+    },
+    "blank": {
+     "cap": "acquisition.start",
+     "args": {
+      "kind": "blank"
+     },
+     "job": true
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "args": {
+      "kind": "sample"
+     },
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "spectrum.read",
+     "x": "points/*/wavelength_m",
+     "y": "points/*/ellipticity_rad",
+     "x_kind": "wavelength",
+     "x_name": "wavelength",
+     "y_name": "ellipticity",
+     "y_label": "CD (mdeg)",
+     "y_factor": 57295.77951308232,
+     "x_unit": "m",
+     "y_unit": "rad",
+     "fields": [
+      "phase",
+      "kind",
+      "complete"
+     ]
+    },
+    "analyze": {
+     "models": {
+      "structure": {
+       "cap": "structure.fit",
+       "about": "secondary structure (helix / sheet / turn / disorder) from the sample CD spectrum (needs 190..230 nm, 20+ points)",
+       "keys": {
+        "conc": {
+         "arg": "residue_concentration_mol_m3",
+         "kind": "concentration",
+         "required": true
+        },
+        "path": {
+         "arg": "path_length_m",
+         "kind": "length",
+         "required": true
+        }
+       },
+       "example": "analyze structure conc=0.2mM path=1mm",
+       "show": [
+        "fractions",
+        "rms_delta_epsilon_m2_mol",
+        "converged"
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "lid.opened",
+    "source": "lamp.enabled",
+    "source_ready": "lamp.ready",
+    "purge_ready": "purge.ready",
+    "purge_flow": "purge.flow_std_m3_s",
+    "sample": "sample.loaded",
+    "method": "method.configured",
+    "blank": "blank.ready",
+    "phase": "scan.phase",
+    "points": "scan.completed_points",
+    "warning": "safety.warning"
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "purge.ready",
+      "code": "PURGE_NOT_READY",
+      "message": "{inst} needs the nitrogen purge flowing and the air flushed out before the xenon lamp is lit (ozone).",
+      "fix": "`chemlab run {inst} purge 5L/min --wait`, then `source on --wait`.",
+      "value": true,
+      "label": "purge flushed"
+     }
+    ],
+    "blank": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": false,
+      "label": "lid closed"
+     },
+     {
+      "slot": "lamp.ready",
+      "code": "SOURCE_NOT_READY",
+      "message": "the lamp of {inst} is off or still warming up.",
+      "fix": "`chemlab run {inst} source on --wait`.",
+      "value": true,
+      "label": "lamp on and warm"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cell.",
+      "value": true,
+      "label": "cell in place"
+     },
+     {
+      "slot": "purge.ready",
+      "code": "PURGE_NOT_READY",
+      "message": "the optics of {inst} are not flushed with nitrogen.",
+      "fix": "`chemlab run {inst} purge 5L/min --wait`.",
+      "value": true,
+      "label": "purge flushed"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": false,
+      "label": "lid closed"
+     },
+     {
+      "slot": "lamp.ready",
+      "code": "SOURCE_NOT_READY",
+      "message": "the lamp of {inst} is off or still warming up.",
+      "fix": "`chemlab run {inst} source on --wait`.",
+      "value": true,
+      "label": "lamp on and warm"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cell.",
+      "value": true,
+      "label": "cell in place"
+     },
+     {
+      "slot": "purge.ready",
+      "code": "PURGE_NOT_READY",
+      "message": "the optics of {inst} are not flushed with nitrogen.",
+      "fix": "`chemlab run {inst} purge 5L/min --wait`.",
+      "value": true,
+      "label": "purge flushed"
+     },
+     {
+      "slot": "blank.ready",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no blank recorded with the current method (a new method, temperature or cell type needs a new one).",
+      "fix": "record it first: `chemlab run {inst} blank --wait` with the blank reference in place, then measure.",
+      "value": true,
+      "label": "blank recorded"
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "set-temp": "the standard cell holder has no temperature control (the Peltier accessory is not supported in this twin)"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run jasco_j1500 status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run jasco_j1500 status`."
+   },
+   "params": {
+    "source_word": "xenon lamp",
+    "manual": "J-1100/1500 hardware function manual pp. 14-21, 36-41; Spectra Manager v2.5 CFR software manual pp. 48-79 (spectra measurement), 112-136 (parameters)",
+    "method_example": "from=235nm to=190nm step=1nm scans=2"
+   },
+   "codes": {
+    "acquisition.start:TEMPLATE_RANGE": {
+     "code": "OUT_OF_RANGE",
+     "message": "this twin has CD data for 175..240 nm only; with the band width the method must stay inside it.",
+     "fix": "keep from / to within about 177..238 nm (e.g. from=235nm to=190nm)."
+    },
+    "acquisition.start:SAMPLE_METHOD_REQUIRED": {
+     "code": "WRONG_CELL",
+     "message": "the cell in jasco_j1500 is not the right kind for this step (a blank cell for `blank`, a sample cell for `measure`), or no method is set.",
+     "fix": "ask the lab operator to change the cell; then wait for the purge again (`purge 5L/min --wait`), since opening the lid lets air in."
+    }
+   },
+   "notes": {
+    "purge": [
+     "the J-1500 lamp may only be lit with nitrogen flowing and the air flushed out; opening the lid lets air in, so wait for the purge again after the cell is changed"
+    ],
+    "measure": [
+     "the sample needs a blank recorded with the same method, cell path and solvent"
+    ]
+   }
+  },
+  "jasco_fp8350": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "spectrum.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "source": {
+     "cap": "lamp.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "ex": {
+       "arg": "excitation_m",
+       "kind": "wavelength"
+      },
+      "em": {
+       "arg": "emission_m",
+       "kind": "wavelength"
+      },
+      "from": {
+       "arg": "start_m",
+       "kind": "wavelength"
+      },
+      "to": {
+       "arg": "stop_m",
+       "kind": "wavelength"
+      },
+      "step": {
+       "arg": "interval_m",
+       "kind": "wavelength"
+      },
+      "ex-bw": {
+       "arg": "excitation_bandwidth_m",
+       "kind": "wavelength"
+      },
+      "em-bw": {
+       "arg": "emission_bandwidth_m",
+       "kind": "wavelength"
+      },
+      "time": {
+       "arg": "integration_s",
+       "kind": "duration"
+      },
+      "gain": {
+       "arg": "gain"
+      }
+     }
+    },
+    "blank": {
+     "cap": "acquisition.start",
+     "args": {
+      "kind": "blank"
+     },
+     "job": true
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "args": {
+      "kind": "sample"
+     },
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "spectrum.read",
+     "x": "points/*/emission_m",
+     "y": "points/*/intensity",
+     "x_kind": "wavelength",
+     "x_name": "emission wavelength",
+     "y_name": "intensity",
+     "x_unit": "m",
+     "y_unit": "1",
+     "fields": [
+      "phase",
+      "kind",
+      "mode",
+      "complete"
+     ]
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "analyze": {
+     "models": {
+      "quantify": {
+       "cap": "quantify.fit",
+       "about": "calibration line from standards and the concentration of an unknown (you give the standards' intensities)",
+       "keys": {
+        "conc": {
+         "arg": "concentrations_mol_m3",
+         "kind": "concentration",
+         "required": true
+        },
+        "signal": {
+         "arg": "intensities",
+         "required": true
+        },
+        "unknown": {
+         "arg": "unknown_intensity",
+         "required": true
+        },
+        "same-method": {
+         "arg": "accept_same_method",
+         "required": true
+        }
+       },
+       "example": "analyze quantify conc=0.1uM,0.2uM,0.4uM signal=1200,2350,4800 unknown=3000 same-method=yes"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "lid.opened",
+    "source": "lamp.enabled",
+    "source_ready": "lamp.ready",
+    "sample": "sample.loaded",
+    "method": "method.configured",
+    "blank": "blank.ready",
+    "phase": "scan.phase",
+    "points": "scan.completed_points",
+    "warning": "safety.warning",
+    "temp": "thermal.temperature_k",
+    "set": "thermal.setpoint_k"
+   },
+   "requires": {
+    "blank": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": false,
+      "label": "lid closed"
+     },
+     {
+      "slot": "lamp.ready",
+      "code": "SOURCE_NOT_READY",
+      "message": "the xenon lamp of {inst} is off or still warming up.",
+      "fix": "`chemlab run {inst} source on --wait`.",
+      "value": true,
+      "label": "xenon lamp on and warm"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cell.",
+      "value": true,
+      "label": "cell in place"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": false,
+      "label": "lid closed"
+     },
+     {
+      "slot": "lamp.ready",
+      "code": "SOURCE_NOT_READY",
+      "message": "the xenon lamp of {inst} is off or still warming up.",
+      "fix": "`chemlab run {inst} source on --wait`.",
+      "value": true,
+      "label": "xenon lamp on and warm"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cell.",
+      "value": true,
+      "label": "cell in place"
+     },
+     {
+      "slot": "blank.ready",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no blank recorded with the current method (a new method, temperature or cell type needs a new one).",
+      "fix": "record it first: `chemlab run {inst} blank --wait` with the blank reference in place, then measure.",
+      "value": true,
+      "label": "blank recorded"
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "thermal.installed",
+      "code": "NO_ACCESSORY",
+      "message": "{inst} has no Peltier cell holder installed in this lab, so it cannot set a sample temperature.",
+      "fix": "measure at room temperature, or ask the lab operator to fit the temperature accessory.",
+      "value": true,
+      "label": "temperature accessory installed"
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "purge": "no nitrogen purge control on this instrument"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run jasco_fp8350 status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run jasco_fp8350 status`."
+   },
+   "params": {
+    "source_word": "xenon lamp",
+    "temp_tolerance_k": 0.2,
+    "manual": "FP-8000 series brochure p. 27 (specifications); YNU FP-8500 procedure pp. 4 (lamp warm-up), 6-11 (parameters, excitation / emission spectra)",
+    "method_example": "mode=emission ex=480nm from=500nm to=620nm step=2nm"
+   }
+  },
+  "jasco_ftir4700": {
+   "role": "primary",
+   "path": "measure",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0.0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "from": {
+       "arg": "start_wavenumber_m_inv",
+       "kind": "wavenumber"
+      },
+      "to": {
+       "arg": "stop_wavenumber_m_inv",
+       "kind": "wavenumber"
+      },
+      "resolution": {
+       "arg": "resolution_m_inv",
+       "kind": "wavenumber"
+      },
+      "scans": {
+       "arg": "scan_count"
+      },
+      "mode": {
+       "arg": "output_mode"
+      }
+     },
+     "current": {
+      "start_wavenumber_m_inv": "method.start_wavenumber_m_inv",
+      "stop_wavenumber_m_inv": "method.stop_wavenumber_m_inv",
+      "resolution_m_inv": "method.resolution_m_inv",
+      "scan_count": "method.scan_count",
+      "output_mode": "method.output_mode"
+     }
+    },
+    "load": {
+     "cap": "sample.load",
+     "arg": "sample_id"
+    },
+    "unload": {
+     "cap": "sample.unload"
+    },
+    "blank": {
+     "cap": "background.acquire"
+    },
+    "measure": {
+     "cap": "measure"
+    },
+    "spectrum": {
+     "reads": [
+      "measurement.spectrum"
+     ],
+     "x": "measurement.spectrum/wavenumber_m_inv",
+     "y": "measurement.spectrum/absorbance",
+     "x_kind": "wavenumber",
+     "x_name": "wavenumber",
+     "y_name": "absorbance",
+     "x_unit": "m^-1",
+     "y_unit": "1",
+     "fields": [
+      "measurement.spectrum/reported_mode",
+      "measurement.spectrum/resolution_m_inv"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "closed": "lid.closed",
+    "sample": "sample.loaded",
+    "sample_id": "sample.id",
+    "blank": "background.ready"
+   },
+   "extra_status": {
+    "accessory.mode": "accessory"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "load": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is closed; open it to reach the sample holder.",
+      "fix": "`chemlab run {inst} open lid`.",
+      "value": false,
+      "label": "lid open"
+     },
+     {
+      "slot": "accessory.mode",
+      "code": "NO_ACCESSORY",
+      "message": "{inst} has no sampling accessory installed (ATR or transmission).",
+      "fix": "with the lid open and no sample: `chemlab call {inst} accessory.install --mode atr`.",
+      "not": [
+       "none"
+      ],
+      "label": "accessory installed"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "OCCUPIED",
+      "message": "a sample is already on {inst}.",
+      "fix": "`chemlab run {inst} unload` first.",
+      "value": false,
+      "label": "no sample"
+     }
+    ],
+    "unload": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is closed; open it to reach the sample holder.",
+      "fix": "`chemlab run {inst} open lid`.",
+      "value": false,
+      "label": "lid open"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample on {inst}.",
+      "fix": "nothing to take out.",
+      "value": true,
+      "label": "a sample in"
+     }
+    ],
+    "blank": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": true,
+      "label": "lid closed"
+     },
+     {
+      "slot": "accessory.mode",
+      "code": "NO_ACCESSORY",
+      "message": "{inst} has no sampling accessory installed.",
+      "fix": "open the lid and `chemlab call {inst} accessory.install --mode atr`, close it.",
+      "not": [
+       "none"
+      ],
+      "label": "accessory installed"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "SAMPLE_IN",
+      "message": "the background of {inst} is measured with the empty accessory, but a sample is on it.",
+      "fix": "`chemlab run {inst} open lid`, `unload`, `close lid`, then `blank`.",
+      "value": false,
+      "label": "accessory empty"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": true,
+      "label": "lid closed"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample on {inst}.",
+      "fix": "`chemlab run {inst} open lid`, `load SAMPLE`, `close lid`.",
+      "value": true,
+      "label": "sample in"
+     },
+     {
+      "slot": "background.ready",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no background with the current method and accessory.",
+      "fix": "take the sample out, record the background (`chemlab run {inst} blank`), put the sample back, measure.",
+      "value": true,
+      "label": "background recorded"
+     }
+    ]
+   },
+   "unsupported": {
+    "source": "the IR source is not separately switchable",
+    "purge": "no nitrogen purge control on this instrument",
+    "stop": "a measurement is a single synchronous call",
+    "set-temp": "no sample temperature control in this twin",
+    "analyze": "no analysis capability on this instrument"
+   },
+   "alternatives": {
+    "analyze": "save the spectrum (`chemlab run jasco_ftir4700 spectrum --save-to ir.json`) and compare it with `chemlab call jasco_ftir4700 template.read --substance_id ID`."
+   },
+   "params": {
+    "blank_word": "background",
+    "manual": "FT/IR-4000/6000 operation manual (2004) pp. 17-33 (parameters, background + sample measurement); UCI FT/IR-4700 instructions pp. 2-11",
+    "method_example": "from=400cm-1 to=4000cm-1 resolution=4cm-1"
+   },
+   "notes": {
+    "blank": [
+     "the background is measured with the accessory empty and the lid closed; power, accessory or method changes discard it"
+    ],
+    "spectrum": [
+     "opening the lid or any other call discards the last spectrum: read (or save) it right after `measure`"
+    ]
+   }
+  },
+  "jasco_nrs5500": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "source": {
+     "cap": "laser.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "laser": {
+       "arg": "laser_wavelength_m",
+       "kind": "wavelength"
+      },
+      "power": {
+       "arg": "power_w",
+       "kind": "power"
+      },
+      "from": {
+       "arg": "start_m_inv",
+       "kind": "wavenumber"
+      },
+      "to": {
+       "arg": "stop_m_inv",
+       "kind": "wavenumber"
+      },
+      "time": {
+       "arg": "integration_s",
+       "kind": "duration"
+      },
+      "grating": {
+       "arg": "grating_lines_m_inv",
+       "kind": "wavenumber"
+      }
+     }
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "result.read",
+     "x": "spectra/-1/raman_shift_m_inv",
+     "y": "spectra/-1/count_rate_s_inv",
+     "x_kind": "wavenumber",
+     "x_name": "Raman shift",
+     "y_name": "count rate",
+     "y_label": "count rate (1/s)",
+     "x_unit": "m^-1",
+     "y_unit": "1/s",
+     "fields": [
+      "phase",
+      "complete"
+     ]
+    },
+    "analyze": {
+     "models": {
+      "peaks": {
+       "cap": "spectrum.peaks",
+       "about": "Raman peak positions of the last spectrum",
+       "result_cap": "result.read",
+       "keys": {
+        "prominence": {
+         "arg": "minimum_prominence_s_inv",
+         "kind": "rate"
+        }
+       },
+       "args": {
+        "minimum_prominence_s_inv": 1.0
+       },
+       "fill": {
+        "raman_shift_m_inv": {
+         "path": "spectra/-1/raman_shift_m_inv"
+        },
+        "count_rate_s_inv": {
+         "path": "spectra/-1/count_rate_s_inv"
+        }
+       },
+       "show": [
+        "peak_shift_m_inv",
+        "peak_rate_s_inv"
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "door.opened",
+    "source": "laser.enabled",
+    "sample": "sample.loaded",
+    "method": "method.configured",
+    "phase": "scan.phase",
+    "points": "scan.completed_points",
+    "warning": "safety.warning"
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "door.opened",
+      "code": "LID_OPEN",
+      "message": "the door of {inst} is open; it measures only with the door closed.",
+      "fix": "`chemlab run {inst} close door`.",
+      "value": false,
+      "label": "door closed"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "door.opened",
+      "code": "LID_OPEN",
+      "message": "the door of {inst} is open; it measures only with the door closed.",
+      "fix": "`chemlab run {inst} close door`.",
+      "value": false,
+      "label": "door closed"
+     },
+     {
+      "slot": "laser.enabled",
+      "code": "SOURCE_OFF",
+      "message": "the laser of {inst} is off.",
+      "fix": "`chemlab run {inst} source on`.",
+      "value": true,
+      "label": "laser on"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the sample.",
+      "value": true,
+      "label": "sample in place"
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "purge": "no nitrogen purge control on this instrument",
+    "set-temp": "no sample temperature control in this twin",
+    "blank": "Raman needs no blank (the axis calibration is `chemlab call jasco_nrs5500 calibration.axis`)"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run jasco_nrs5500 status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run jasco_nrs5500 status`."
+   },
+   "params": {
+    "source_word": "laser",
+    "manual": "NRS-5500 specification pages (spectrograph, lasers, ranges)",
+    "method_example": "from=200cm-1 to=1100cm-1 time=0.5s"
+   },
+   "codes": {
+    "acquisition.start:SOURCE_COVERAGE": {
+     "code": "OUT_OF_RANGE",
+     "message": "the Raman shift range is outside the reference data of the sample on jasco_nrs5500.",
+     "fix": "narrow the range (the standard method is 250..1200 cm-1)."
+    }
+   }
+  },
+  "applied_sx20": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "wavelength": {
+       "arg": "wavelength_m",
+       "kind": "wavelength"
+      },
+      "path": {
+       "arg": "path_m",
+       "kind": "length"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "points": {
+       "arg": "points"
+      },
+      "timebase": {
+       "arg": "timebase"
+      },
+      "volume": {
+       "arg": "stop_volume_m3",
+       "kind": "volume"
+      },
+      "delay": {
+       "arg": "delay_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "result.read",
+     "x": "points/*/trigger_time_s",
+     "y": "points/*/signal",
+     "x_kind": "duration",
+     "x_name": "time",
+     "y_name": "signal",
+     "x_unit": "s",
+     "fields": [
+      "phase",
+      "complete"
+     ]
+    },
+    "analyze": {
+     "models": {
+      "kinetics": {
+       "cap": "kinetics.fit",
+       "about": "single-exponential rate constant of the last trace",
+       "result_cap": "result.read",
+       "fill": {
+        "time_s": {
+         "path": "points/*/trigger_time_s"
+        },
+        "signal": {
+         "path": "points/*/signal"
+        }
+       },
+       "show": [
+        "k_s_inv",
+        "k_std_s_inv",
+        "amplitude",
+        "offset",
+        "rmse"
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "cover.opened",
+    "sample": "sample.loaded",
+    "method": "method.wavelength_m",
+    "phase": "scan.phase",
+    "points": "scan.completed_points",
+    "warning": "safety.warning"
+   },
+   "extra_status": {
+    "fluid.needs_flush": "flow circuit needs flushing"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "cover.opened",
+      "code": "LID_OPEN",
+      "message": "the bath cover of {inst} is open (it is opened and closed by the lab operator).",
+      "fix": "ask the lab operator to close it.",
+      "value": false,
+      "label": "bath cover closed"
+     },
+     {
+      "slot": "method.wavelength_m",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null
+      ],
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no loaded drive syringes in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the loaded drive syringes.",
+      "value": true,
+      "label": "loaded drive syringes in place"
+     },
+     {
+      "slot": "gas.enabled",
+      "code": "NOT_SET_UP",
+      "message": "the drive gas of {inst} is off (set up by the lab operator).",
+      "fix": "ask the lab operator.",
+      "value": true,
+      "label": "drive gas on"
+     },
+     {
+      "slot": "fluid.needs_flush",
+      "code": "NEEDS_FLUSH",
+      "message": "the flow circuit of {inst} must be flushed before the next shot (by the lab operator).",
+      "fix": "ask the lab operator to flush it.",
+      "value": false,
+      "label": "flushed"
+     }
+    ]
+   },
+   "unsupported": {
+    "open": "the bath cover is handled by the lab operator",
+    "close": "the bath cover is handled by the lab operator",
+    "source": "the lamp is not separately switchable",
+    "purge": "no nitrogen purge control on this instrument",
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "set-temp": "the circulating bath is not controllable in this twin",
+    "blank": "the zero correction needs a blank reading you take yourself"
+   },
+   "alternatives": {
+    "blank": "shoot buffer, read the signal, then `chemlab call applied_sx20 calibration.zero --observed_blank X --mode absorbance`."
+   },
+   "params": {
+    "source_word": "lamp",
+    "manual": "SX20 user manual 4140Q001 pp. 24-62 (quick start), 76-89 (sample handling, cells, drive), 122-149 (Pro-Data SX control)",
+    "method_example": "wavelength=480nm time=0.5s points=101"
+   },
+   "notes": {
+    "method": [
+     "change the mode or cell path only with the power off (the optics are re-aligned at power-on)"
+    ]
+   }
+  },
+  "edinburgh_fls1000tcspc": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "ex": {
+       "arg": "excitation_wavelength_m",
+       "kind": "wavelength"
+      },
+      "em": {
+       "arg": "emission_wavelength_m",
+       "kind": "wavelength"
+      },
+      "rate": {
+       "arg": "repetition_hz",
+       "kind": "frequency"
+      },
+      "window": {
+       "arg": "time_window_s",
+       "kind": "duration"
+      },
+      "bins": {
+       "arg": "bins"
+      },
+      "slit": {
+       "arg": "slit_width_m",
+       "kind": "length"
+      },
+      "stop": {
+       "arg": "stop_kind"
+      },
+      "counts": {
+       "arg": "target_count"
+      },
+      "time": {
+       "arg": "max_acquisition_s",
+       "kind": "duration"
+      },
+      "fit": {
+       "arg": "fit_model"
+      }
+     }
+    },
+    "blank": {
+     "cap": "irf.start",
+     "job": true
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "result.read",
+     "x": "histograms/-1/edges_s",
+     "y": "histograms/-1/counts",
+     "x_kind": "duration",
+     "x_name": "time",
+     "y_name": "counts",
+     "x_unit": "s",
+     "fields": [
+      "phase",
+      "complete",
+      "histograms/-1/response_kind",
+      "histograms/-1/stop_reason"
+     ]
+    },
+    "analyze": {
+     "models": {
+      "lifetime": {
+       "cap": "lifetime.fit",
+       "about": "fluorescence lifetime(s) by reconvolution with the IRF you saved (`spectrum --save-to irf.json` after `blank`)",
+       "result_cap": "result.read",
+       "keys": {
+        "tau": {
+         "arg": "initial_lifetimes_s",
+         "kind": "duration",
+         "required": true
+        },
+        "irf": {
+         "arg": "irf_histogram",
+         "file": "record/histograms/-1",
+         "required": true
+        }
+       },
+       "fill": {
+        "histogram": {
+         "path": "histograms/-1"
+        }
+       },
+       "example": "analyze lifetime irf=irf.json tau=4ns",
+       "show": [
+        "lifetimes_s",
+        "photon_amplitudes_per_pulse",
+        "relative_rmse",
+        "warning"
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "cover.opened",
+    "source": "source.armed",
+    "sample": "sample.loaded",
+    "method": "method.excitation_m",
+    "phase": "scan.phase",
+    "points": "scan.total_counts",
+    "warning": "safety.warning"
+   },
+   "requires": {
+    "blank": [
+     {
+      "slot": "cover.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment cover of {inst} is open (it is opened and closed by the lab operator).",
+      "fix": "ask the lab operator to close it.",
+      "value": false,
+      "label": "sample compartment cover closed"
+     },
+     {
+      "slot": "source.armed",
+      "code": "SOURCE_OFF",
+      "message": "the pulsed laser of {inst} is not armed (the lab operator arms it).",
+      "fix": "ask the lab operator to arm it.",
+      "value": true,
+      "label": "pulsed laser armed"
+     },
+     {
+      "slot": "method.excitation_m",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null
+      ],
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cuvette in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cuvette.",
+      "value": true,
+      "label": "cuvette in place"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "cover.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment cover of {inst} is open (it is opened and closed by the lab operator).",
+      "fix": "ask the lab operator to close it.",
+      "value": false,
+      "label": "sample compartment cover closed"
+     },
+     {
+      "slot": "source.armed",
+      "code": "SOURCE_OFF",
+      "message": "the pulsed laser of {inst} is not armed (the lab operator arms it).",
+      "fix": "ask the lab operator to arm it.",
+      "value": true,
+      "label": "pulsed laser armed"
+     },
+     {
+      "slot": "method.excitation_m",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null
+      ],
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cuvette in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cuvette.",
+      "value": true,
+      "label": "cuvette in place"
+     }
+    ]
+   },
+   "unsupported": {
+    "open": "the sample compartment cover is handled by the lab operator",
+    "close": "the sample compartment cover is handled by the lab operator",
+    "source": "the pulsed laser is armed by the lab operator",
+    "purge": "no nitrogen purge control on this instrument",
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "set-temp": "no sample temperature control in this twin"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run edinburgh_fls1000tcspc status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run edinburgh_fls1000tcspc status`."
+   },
+   "params": {
+    "source_word": "pulsed laser (armed)",
+    "blank_word": "IRF",
+    "points_word": "counts",
+    "manual": "FLS1000 user guide pp. 57-62 (start-up), 79-97 (TCSPC, IRF, decays), 109-122 (reconvolution fit)",
+    "method_example": "em=519nm counts=10000"
+   },
+   "notes": {
+    "blank": [
+     "the IRF is measured with the scatterer in the holder and em = ex; save it (`spectrum --save-to irf.json`) for `analyze lifetime irf=irf.json`"
+    ]
+   }
+  },
+  "ultrafast_helios": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "laser": {
+       "arg": "pump_wavelength_m",
+       "kind": "wavelength"
+      },
+      "power": {
+       "arg": "pump_average_power_W",
+       "kind": "power"
+      },
+      "from": {
+       "arg": "wavelength_start_m",
+       "kind": "wavelength"
+      },
+      "to": {
+       "arg": "wavelength_stop_m",
+       "kind": "wavelength"
+      },
+      "step": {
+       "arg": "wavelength_step_m",
+       "kind": "wavelength"
+      },
+      "delays": {
+       "arg": "delay_sequence_s",
+       "kind": "duration"
+      },
+      "averages": {
+       "arg": "averages"
+      },
+      "scans": {
+       "arg": "scans"
+      }
+     }
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "result.read",
+     "x": "wavelength_m",
+     "y": "points/-1/delta_absorbance",
+     "x_kind": "wavelength",
+     "x_name": "probe wavelength",
+     "y_name": "delta A (last delay)",
+     "x_unit": "m",
+     "fields": [
+      "phase",
+      "complete",
+      "points/-1/actual_delay_s"
+     ]
+    },
+    "analyze": {
+     "models": {
+      "kinetics": {
+       "cap": "kinetics.fit",
+       "about": "lifetimes from the delta-A decay at one probe wavelength",
+       "result_cap": "result.read",
+       "keys": {
+        "at": {
+         "local": true,
+         "kind": "wavelength",
+         "required": true
+        },
+        "irf": {
+         "arg": "irf_fwhm_s",
+         "kind": "duration"
+        },
+        "t0": {
+         "arg": "time_zero_s",
+         "kind": "duration"
+        },
+        "tau": {
+         "arg": "initial_lifetimes_s",
+         "kind": "duration",
+         "required": true
+        }
+       },
+       "fill": {
+        "delay_s": {
+         "path": "points/*/actual_delay_s"
+        },
+        "delta_absorbance": {
+         "path": "points/*/delta_absorbance",
+         "pick": {
+          "axis": "wavelength_m",
+          "key": "at"
+         }
+        }
+       },
+       "args": {
+        "irf_fwhm_s": 1e-13,
+        "time_zero_s": 0.0
+       },
+       "example": "analyze kinetics at=600nm tau=150ps",
+       "hint": "the fit needs at least 12 delays: set them first, e.g. `method delays=-1ps,0ps,1ps,2ps,5ps,10ps,20ps,50ps,100ps,200ps,500ps,1000ps`, measure again.",
+       "show": [
+        "lifetimes_s",
+        "amplitudes",
+        "baseline",
+        "relative_rmse"
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "cover.opened",
+    "source": "laser.armed",
+    "sample": "sample.loaded",
+    "phase": "scan.phase",
+    "points": "scan.completed_points",
+    "warning": "safety.warning"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "cover.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment cover of {inst} is open (it is opened and closed by the lab operator).",
+      "fix": "ask the lab operator to close it.",
+      "value": false,
+      "label": "sample compartment cover closed"
+     },
+     {
+      "slot": "laser.armed",
+      "code": "SOURCE_OFF",
+      "message": "the pump/probe laser of {inst} is not armed (the lab operator arms it).",
+      "fix": "ask the lab operator to arm it.",
+      "value": true,
+      "label": "pump/probe laser armed"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the sample cell.",
+      "value": true,
+      "label": "sample cell in place"
+     }
+    ]
+   },
+   "unsupported": {
+    "open": "the sample cover is handled by the lab operator",
+    "close": "the sample cover is handled by the lab operator",
+    "source": "the external laser is armed by the lab operator",
+    "purge": "no nitrogen purge control on this instrument",
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "set-temp": "no sample temperature control in this twin",
+    "blank": "transient absorption is a pump-on / pump-off difference: no blank"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run ultrafast_helios status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run ultrafast_helios status`."
+   },
+   "params": {
+    "source_word": "laser (armed)",
+    "points_word": "delays",
+    "manual": "HELIOS datasheet pp. 1-2; Surface Xplorer manual pp. 37-53 (kinetics fitting)",
+    "method_example": "from=480nm to=660nm step=2nm delays=-1ps,0ps,1ps,2ps,5ps,10ps,20ps,50ps,100ps,200ps,500ps,1000ps"
+   }
+  },
+  "jasco_fvs6000": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "from": {
+       "arg": "wavenumber_start_m_inv",
+       "kind": "wavenumber"
+      },
+      "to": {
+       "arg": "wavenumber_stop_m_inv",
+       "kind": "wavenumber"
+      },
+      "step": {
+       "arg": "spacing_m_inv",
+       "kind": "wavenumber"
+      },
+      "resolution": {
+       "arg": "resolution_m_inv",
+       "kind": "wavenumber"
+      },
+      "time": {
+       "arg": "accumulation_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "blank": {
+     "cap": "blank.start",
+     "job": true
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "result.read",
+     "x": "wavenumber_m_inv",
+     "y": "vcd_delta_absorbance",
+     "x_kind": "wavenumber",
+     "x_name": "wavenumber",
+     "y_name": "VCD delta A",
+     "x_unit": "m^-1",
+     "fields": [
+      "phase",
+      "kind",
+      "complete"
+     ]
+    },
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "target_k"
+    },
+    "analyze": {
+     "models": {
+      "compare": {
+       "cap": "reference.compare",
+       "about": "similarity of the measured VCD with a reference spectrum you give on the same grid",
+       "result_cap": "result.read",
+       "keys": {
+        "reference": {
+         "arg": "reference",
+         "required": true
+        }
+       },
+       "fill": {
+        "observed": {
+         "path": "vcd_delta_absorbance"
+        }
+       },
+       "example": "analyze compare reference=[...] (same length as the spectrum)"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "cover.opened",
+    "sample": "sample.loaded",
+    "method": "method.resolution_m_inv",
+    "blank": "blank.valid",
+    "phase": "scan.phase",
+    "points": "scan.frames",
+    "warning": "safety.warning",
+    "temp": "temperature.actual_k",
+    "set": "temperature.target_k"
+   },
+   "requires": {
+    "blank": [
+     {
+      "slot": "cover.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment cover of {inst} is open (it is opened and closed by the lab operator).",
+      "fix": "ask the lab operator to close it.",
+      "value": false,
+      "label": "sample compartment cover closed"
+     },
+     {
+      "slot": "method.resolution_m_inv",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null
+      ],
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cell.",
+      "value": true,
+      "label": "cell in place"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "cover.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment cover of {inst} is open (it is opened and closed by the lab operator).",
+      "fix": "ask the lab operator to close it.",
+      "value": false,
+      "label": "sample compartment cover closed"
+     },
+     {
+      "slot": "method.resolution_m_inv",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null
+      ],
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cell.",
+      "value": true,
+      "label": "cell in place"
+     },
+     {
+      "slot": "blank.valid",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no blank recorded with the current method (a new method, temperature or cell type needs a new one).",
+      "fix": "record it first: `chemlab run {inst} blank --wait` with the blank reference in place, then measure.",
+      "value": true,
+      "label": "blank recorded"
+     }
+    ]
+   },
+   "unsupported": {
+    "open": "the sample cover is handled by the lab operator",
+    "close": "the sample cover is handled by the lab operator",
+    "source": "the IR source is not separately switchable",
+    "purge": "the purge is part of the lab set-up (not controllable)",
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run jasco_fvs6000 status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run jasco_fvs6000 status`."
+   },
+   "params": {
+    "temp_tolerance_k": 0.1,
+    "points_word": "frames",
+    "manual": "FVS-6000 spec sheet pp. 1-2; FVS brochure p. 6",
+    "method_example": "from=1500cm-1 to=1800cm-1 time=10s"
+   }
+  },
+  "jasco_cpl300": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "shutter": {
+       "cap": "shutter.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "source": {
+     "cap": "lamp.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "axis": {
+       "arg": "scan_axis"
+      },
+      "mode": {
+       "arg": "scan_mode"
+      },
+      "ex": {
+       "arg": "excitation_m",
+       "kind": "wavelength"
+      },
+      "em": {
+       "arg": "emission_m",
+       "kind": "wavelength"
+      },
+      "from": {
+       "arg": "start_m",
+       "kind": "wavelength"
+      },
+      "to": {
+       "arg": "stop_m",
+       "kind": "wavelength"
+      },
+      "step": {
+       "arg": "interval_m",
+       "kind": "wavelength"
+      },
+      "time": {
+       "arg": "response_s",
+       "kind": "duration"
+      },
+      "speed": {
+       "arg": "scan_speed_m_s",
+       "kind": "scan_speed"
+      },
+      "ex-bw": {
+       "arg": "ex_bandwidth_m",
+       "kind": "wavelength"
+      },
+      "em-bw": {
+       "arg": "em_bandwidth_m",
+       "kind": "wavelength"
+      },
+      "detector": {
+       "arg": "detector_band"
+      }
+     }
+    },
+    "blank": {
+     "cap": "blank.start",
+     "job": true
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "result.read",
+     "x": "points/*/requested_wavelength_m",
+     "y": "points/*/glum",
+     "x_kind": "wavelength",
+     "x_name": "wavelength",
+     "y_name": "g_lum",
+     "x_unit": "m",
+     "fields": [
+      "phase",
+      "kind",
+      "complete"
+     ]
+    },
+    "analyze": {
+     "models": {
+      "glum": {
+       "cap": "glum.compute",
+       "about": "luminescence dissymmetry g_lum from left / right intensities you give",
+       "passthrough": true,
+       "keys": {
+        "left": {
+         "arg": "left_relative",
+         "required": true
+        },
+        "right": {
+         "arg": "right_relative",
+         "required": true
+        },
+        "counts": {
+         "arg": "net_counts",
+         "required": true
+        },
+        "min-counts": {
+         "arg": "minimum_net_counts"
+        }
+       },
+       "args": {
+        "minimum_net_counts": 25
+       },
+       "example": "analyze glum left=1.02 right=0.98 counts=50000"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "cover.opened",
+    "source": "lamp.enabled",
+    "source_ready": "lamp.ready",
+    "sample": "sample.loaded",
+    "method": "method.scan_mode",
+    "blank": "blank.valid",
+    "phase": "scan.phase",
+    "points": "scan.completed_points",
+    "warning": "safety.warning"
+   },
+   "requires": {
+    "blank": [
+     {
+      "slot": "cover.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment cover of {inst} is open (it is opened and closed by the lab operator).",
+      "fix": "ask the lab operator to close it.",
+      "value": false,
+      "label": "sample compartment cover closed"
+     },
+     {
+      "slot": "lamp.ready",
+      "code": "SOURCE_NOT_READY",
+      "message": "the xenon lamp of {inst} is off or still warming up.",
+      "fix": "`chemlab run {inst} source on --wait`.",
+      "value": true,
+      "label": "xenon lamp on and warm"
+     },
+     {
+      "slot": "method.scan_mode",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null,
+       ""
+      ],
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cell.",
+      "value": true,
+      "label": "cell in place"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "cover.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment cover of {inst} is open (it is opened and closed by the lab operator).",
+      "fix": "ask the lab operator to close it.",
+      "value": false,
+      "label": "sample compartment cover closed"
+     },
+     {
+      "slot": "lamp.ready",
+      "code": "SOURCE_NOT_READY",
+      "message": "the xenon lamp of {inst} is off or still warming up.",
+      "fix": "`chemlab run {inst} source on --wait`.",
+      "value": true,
+      "label": "xenon lamp on and warm"
+     },
+     {
+      "slot": "method.scan_mode",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null,
+       ""
+      ],
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no cell in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the cell.",
+      "value": true,
+      "label": "cell in place"
+     },
+     {
+      "slot": "blank.valid",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no blank recorded with the current method (a new method, temperature or cell type needs a new one).",
+      "fix": "record it first: `chemlab run {inst} blank --wait` with the blank reference in place, then measure.",
+      "value": true,
+      "label": "blank recorded"
+     }
+    ]
+   },
+   "unsupported": {
+    "purge": "no nitrogen purge control on this instrument",
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "set-temp": "no sample temperature control in this twin"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run jasco_cpl300 status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run jasco_cpl300 status`."
+   },
+   "params": {
+    "source_word": "xenon lamp",
+    "compartment_word": "sample cover",
+    "manual": "CPL-300 catalog pp. 2-3; Westlake CPL-300 SOP pp. 12-19 (power on, sample loading, measurement parameters, g_lum)",
+    "method_example": "em=520nm from=500nm to=560nm step=5nm"
+   },
+   "notes": {
+    "open": [
+     "only the shutter: the sample cover is opened and closed by the lab operator"
+    ]
+   }
+  },
+  "magritek_spinsolve80": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "nmr.read_spectrum"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "acquisition.configure",
+     "passthrough": true,
+     "keys": {
+      "nucleus": {
+       "arg": "nucleus"
+      },
+      "scans": {
+       "arg": "scans"
+      },
+      "delay": {
+       "arg": "relaxation_delay_s",
+       "kind": "duration"
+      },
+      "time": {
+       "arg": "acquisition_time_s",
+       "kind": "duration"
+      },
+      "points": {
+       "arg": "points"
+      },
+      "sequence": {
+       "arg": "pulse_sequence"
+      }
+     },
+     "current": {
+      "nucleus": "method.nucleus",
+      "pulse_sequence": "method.pulse_sequence",
+      "scans": "method.scans",
+      "relaxation_delay_s": "method.relaxation_delay_s",
+      "acquisition_time_s": "method.acquisition_time_s",
+      "points": "method.points",
+      "decoupling": "method.decoupling",
+      "gradient_enabled": "method.gradient_enabled"
+     }
+    },
+    "load": {
+     "cap": "sample.insert",
+     "arg": "sample_id"
+    },
+    "unload": {
+     "cap": "sample.remove"
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "nmr.read_spectrum",
+     "x": "samples/*/frequency_offset_hz",
+     "y": "samples/*/amplitude",
+     "x_kind": "offset",
+     "x_name": "frequency offset",
+     "y_name": "amplitude",
+     "x_unit": "Hz",
+     "fields": [
+      "nucleus",
+      "status",
+      "carrier_frequency_hz"
+     ]
+    },
+    "analyze": {
+     "models": {
+      "integrate": {
+       "cap": "nmr.integrate",
+       "about": "integral of the spectrum between two frequency offsets",
+       "keys": {
+        "from": {
+         "arg": "frequency_min_hz",
+         "kind": "offset",
+         "required": true
+        },
+        "to": {
+         "arg": "frequency_max_hz",
+         "kind": "offset",
+         "required": true
+        }
+       },
+       "example": "analyze integrate from=-50Hz to=50Hz",
+       "show": [
+        "integral_hz"
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "sample": "slot.sample_tube.connection_id",
+    "sample_id": "slot.sample_tube.connection_id",
+    "method": "method.nucleus",
+    "phase": "acquisition.status",
+    "points": "acquisition.completed_scans"
+   },
+   "job": {
+    "done": [
+     "completed"
+    ],
+    "failed": [
+     "stopped",
+     "failed"
+    ]
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "slot.sample_tube.connection_id",
+      "code": "OCCUPIED",
+      "message": "a tube is already in {inst}.",
+      "fix": "`chemlab run {inst} unload` first.",
+      "value": null,
+      "label": "magnet bore empty"
+     }
+    ],
+    "unload": [
+     {
+      "slot": "slot.sample_tube.connection_id",
+      "code": "NO_SAMPLE",
+      "message": "there is no tube in {inst}.",
+      "fix": "nothing to take out.",
+      "not": [
+       null
+      ],
+      "label": "a tube in"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "slot.sample_tube.connection_id",
+      "code": "NO_SAMPLE",
+      "message": "there is no tube in {inst}.",
+      "fix": "`chemlab run {inst} load SAMPLE`.",
+      "not": [
+       null
+      ],
+      "label": "a tube in"
+     },
+     {
+      "slot": "method.nucleus",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "not": [
+       null,
+       ""
+      ],
+      "label": "method set"
+     }
+    ]
+   },
+   "unsupported": {
+    "open": "no lid: tubes go straight into the magnet bore (`load`)",
+    "close": "no lid",
+    "source": "no separately switchable source",
+    "purge": "no nitrogen purge control on this instrument",
+    "set-temp": "no sample temperature control in this twin",
+    "blank": "NMR needs no blank (lock and shim are internal)"
+   },
+   "params": {
+    "blank_word": "blank",
+    "points_word": "scans",
+    "manual": "Spinsolve 80 datasheet p. 4 (sequences); Spinsolve remote-control protocol options; CEITEC quick guide pp. 1-2",
+    "method_example": "nucleus=1H scans=8 points=512"
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "magritek_spinsolve80 cannot start: it needs power, a tube in, a method, and every signal inside the spectral window (+- points / acquisition time / 2).",
+     "fix": "widen the window: more points or a shorter acquisition time (e.g. `method points=512 time=0.5s`), then measure again."
+    },
+    "sample.insert:PRECONDITION_FAILED": {
+     "code": "UNKNOWN_SAMPLE",
+     "message": "magritek_spinsolve80 has no tube with that id, or a tube is already in.",
+     "fix": "check the id the lab gave you and `status`."
+    },
+    "nmr.integrate:PRECONDITION_FAILED": {
+     "code": "OUT_OF_RANGE",
+     "message": "there is no spectrum, or the range is outside it.",
+     "fix": "measure first; give from < to inside the spectrum (see `spectrum`)."
+    }
+   },
+   "alternatives": {}
+  },
+  "bruker_magnettechesr5000": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "spectrum.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "source": {
+     "cap": "microwave.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "center": {
+       "arg": "field_center_t",
+       "kind": "field"
+      },
+      "width": {
+       "arg": "sweep_width_t",
+       "kind": "field"
+      },
+      "freq": {
+       "arg": "microwave_frequency_hz",
+       "kind": "frequency"
+      },
+      "power": {
+       "arg": "microwave_power_w",
+       "kind": "power"
+      },
+      "mod": {
+       "arg": "modulation_pp_t",
+       "kind": "field"
+      },
+      "mod-freq": {
+       "arg": "modulation_frequency_hz",
+       "kind": "frequency"
+      },
+      "points": {
+       "arg": "points"
+      },
+      "time": {
+       "arg": "dwell_s",
+       "kind": "duration"
+      },
+      "tc": {
+       "arg": "lockin_time_constant_s",
+       "kind": "duration"
+      },
+      "gain": {
+       "arg": "gain"
+      }
+     }
+    },
+    "blank": {
+     "cap": "acquisition.start",
+     "args": {
+      "kind": "blank"
+     },
+     "job": true
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "args": {
+      "kind": "sample"
+     },
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "spectrum.read",
+     "x": "points/*/field_t",
+     "y": "points/*/intensity",
+     "x_kind": "field",
+     "x_name": "field",
+     "y_name": "first-derivative intensity",
+     "x_unit": "T",
+     "fields": [
+      "phase",
+      "kind",
+      "complete"
+     ]
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "analyze": {
+     "models": {
+      "g-factor": {
+       "cap": "spectrum.analyze",
+       "about": "apparent g value, centre field, peak-to-peak width and double integral of an isolated line",
+       "result_cap": "spectrum.read",
+       "keys": {
+        "isolated": {
+         "arg": "isolated_line_assertion"
+        }
+       },
+       "args": {
+        "isolated_line_assertion": true
+       },
+       "fill": {
+        "trace": {
+         "object": {
+          "field_t": "points/*/field_t",
+          "intensity": "points/*/intensity"
+         },
+         "path": "points"
+        },
+        "microwave_frequency_hz": {
+         "slot": "method.frequency_hz"
+        }
+       },
+       "show": [
+        "g_apparent",
+        "center_field_t",
+        "linewidth_pp_t",
+        "double_integral_t2"
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "lid.opened",
+    "source": "microwave.enabled",
+    "sample": "sample.loaded",
+    "method": "method.configured",
+    "blank": "blank.ready",
+    "phase": "scan.phase",
+    "points": "scan.completed_points",
+    "warning": "safety.warning",
+    "temp": "thermal.temperature_k",
+    "set": "thermal.setpoint_k"
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": false,
+      "label": "lid closed"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     }
+    ],
+    "blank": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": false,
+      "label": "lid closed"
+     },
+     {
+      "slot": "microwave.enabled",
+      "code": "SOURCE_OFF",
+      "message": "the microwave bridge of {inst} is off.",
+      "fix": "`chemlab run {inst} source on`.",
+      "value": true,
+      "label": "microwave bridge on"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample tube in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the sample tube.",
+      "value": true,
+      "label": "sample tube in place"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": false,
+      "label": "lid closed"
+     },
+     {
+      "slot": "microwave.enabled",
+      "code": "SOURCE_OFF",
+      "message": "the microwave bridge of {inst} is off.",
+      "fix": "`chemlab run {inst} source on`.",
+      "value": true,
+      "label": "microwave bridge on"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample tube in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the sample tube.",
+      "value": true,
+      "label": "sample tube in place"
+     },
+     {
+      "slot": "blank.ready",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no blank recorded with the current method (a new method, temperature or cell type needs a new one).",
+      "fix": "record it first: `chemlab run {inst} blank --wait` with the blank reference in place, then measure.",
+      "value": true,
+      "label": "blank recorded"
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "thermal.installed",
+      "code": "NO_ACCESSORY",
+      "message": "{inst} has no temperature accessory installed in this lab.",
+      "fix": "measure at room temperature, or ask the lab operator.",
+      "value": true,
+      "label": "temperature accessory installed"
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "purge": "no nitrogen purge control on this instrument"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run bruker_magnettechesr5000 status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run bruker_magnettechesr5000 status`."
+   },
+   "params": {
+    "source_word": "microwave bridge",
+    "temp_tolerance_k": 0.2,
+    "manual": "Magnettech ESR5000 brochure T177515 pp. 4 (ESRStudio), 6-8 (accessories, specifications)",
+    "method_example": "center=338.4mT width=16mT power=1mW"
+   },
+   "notes": {
+    "source": [
+     "the microwave bridge needs the lid closed and a method set; this twin switches it off at the end of every scan, so switch it on again before the next blank or measurement"
+    ],
+    "measure": [
+     "the sample tube needs a blank (empty tube / solvent) recorded with the same method and temperature"
+    ]
+   }
+  },
+  "bruker_minispecmq20": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "signal.read"
+   ],
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "sequence": {
+       "arg": "sequence"
+      },
+      "power": {
+       "arg": "rf_power_w",
+       "kind": "power"
+      },
+      "p90": {
+       "arg": "pulse90_s",
+       "kind": "duration"
+      },
+      "p180": {
+       "arg": "pulse180_s",
+       "kind": "duration"
+      },
+      "delay": {
+       "arg": "recycle_s",
+       "kind": "duration"
+      },
+      "delays": {
+       "arg": "delays_s",
+       "kind": "duration"
+      },
+      "echo": {
+       "arg": "echo_spacing_s",
+       "kind": "duration"
+      },
+      "points": {
+       "arg": "points"
+      },
+      "scans": {
+       "arg": "averages"
+      }
+     }
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "job": true
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "spectrum": {
+     "cap": "signal.read",
+     "x": "points/*/delay_s",
+     "y": "points/*/signal",
+     "x_kind": "duration",
+     "x_name": "delay",
+     "y_name": "signal",
+     "x_unit": "s",
+     "fields": [
+      "phase",
+      "complete",
+      "sequence"
+     ]
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "analyze": {
+     "models": {
+      "relaxation": {
+       "cap": "relaxation.fit",
+       "about": "T1 (inversion recovery) or T2 (CPMG) from the last run",
+       "show": [
+        "quantity",
+        "time_s",
+        "rate_s_inv",
+        "r_squared",
+        "points"
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "opened": "lid.opened",
+    "sample": "sample.loaded",
+    "method": "method.configured",
+    "phase": "scan.phase",
+    "points": "scan.completed_points",
+    "warning": "safety.warning",
+    "temp": "thermal.temperature_k",
+    "set": "thermal.target_k"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open; it measures only with the lid closed.",
+      "fix": "`chemlab run {inst} close lid`.",
+      "value": false,
+      "label": "lid closed"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true,
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample tube in {inst}.",
+      "fix": "cells are placed by the lab operator; ask for the sample tube.",
+      "value": true,
+      "label": "sample tube in place"
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "probe.vt_installed",
+      "code": "NO_ACCESSORY",
+      "message": "bruker_minispecmq20 has no VT (variable temperature) accessory installed, so it cannot set a sample temperature.",
+      "fix": "measure at the magnet temperature, or ask the lab operator to install the VT accessory.",
+      "value": true,
+      "label": "VT accessory installed"
+     }
+    ]
+   },
+   "codes": {
+    "thermal.set_temperature:UNSUPPORTED": {
+     "code": "NO_ACCESSORY",
+     "message": "bruker_minispecmq20 sets a sample temperature only with the VT accessory installed, and it is not.",
+     "fix": "measure at the magnet temperature, or ask the lab operator to install the VT accessory."
+    },
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "bruker_minispecmq20 cannot start: it needs power, a method, a tube in and the lid closed.",
+     "fix": "see `chemlab run bruker_minispecmq20 status`."
+    },
+    "TEMPLATE_TEMPERATURE_MISMATCH": {
+     "code": "TEMPERATURE",
+     "message": "the sample of bruker_minispecmq20 must be at its reference temperature (within 0.1 K) to measure.",
+     "fix": "set it (`set-temp T --wait`) - the sample's temperature is in the lab's sample sheet."
+    },
+    "TIMING_GRID": {
+     "code": "BAD_TIMING",
+     "message": "pulse and delay times of bruker_minispecmq20 must be multiples of the 20 ns timing resolution.",
+     "fix": "round the times (e.g. p90=50us)."
+    },
+    "DELAY_GRID": {
+     "code": "BAD_TIMING",
+     "message": "for inversion recovery the delay list must have `points` increasing values.",
+     "fix": "give delays=... with as many increasing values as points=."
+    },
+    "ECHO_OVERLAP": {
+     "code": "BAD_TIMING",
+     "message": "the echo spacing is too short for the 180-degree pulse and receiver dead time.",
+     "fix": "make echo= longer."
+    }
+   },
+   "unsupported": {
+    "source": "the RF transmitter is part of the pulse sequence (not separately switchable)",
+    "purge": "no nitrogen purge control on this instrument",
+    "load": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "unload": "the cell is placed by the lab operator (no agent capability on this instrument)",
+    "blank": "time-domain NMR needs no blank"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to change the cell; then `chemlab run bruker_minispecmq20 status`.",
+    "unload": "ask the lab operator to change the cell; then `chemlab run bruker_minispecmq20 status`."
+   },
+   "params": {
+    "temp_tolerance_k": 0.1,
+    "manual": "minispec mq series user manual E1400011 pp. 33-37 (getting started), 41-60 (measurement and parameter menus); ExpSpel applications manual pp. 33-42 (FID, CPMG examples)",
+    "method_example": "sequence=cpmg echo=2ms points=100 delays=1ms"
+   },
+   "notes": {
+    "set-temp": [
+     "needs the VT accessory (probe.vt_installed); without it the instrument answers UNSUPPORTED"
+    ]
+   }
+  }
+ }
+}

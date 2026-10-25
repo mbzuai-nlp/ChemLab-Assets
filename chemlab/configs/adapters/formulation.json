@@ -1,0 +1,1533 @@
+{
+ "class": "formulation",
+ "adapter": "chemlab.compile.classes.formulation:FormulationAdapter",
+ "about": "Formulation and particle / fibre processing: set-temp (per zone / channel), heat, temp, wait-temp, speed, vibration, feed, air, hv, humidity, prime, clean, method, start / stop / result with jobs.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "thermo_process11",
+   "linari_rtadvanced",
+   "buchi_encapsulatorb",
+   "cytiva_nanoassemblrignite",
+   "glatt_miniglatt"
+  ],
+  "secondary": {},
+  "excluded": {},
+  "not_here": {
+   "buchi_minispray": "spray dryer: evaporation class; its spray drying is drying, not particle formulation here"
+  }
+ },
+ "members": {
+  "thermo_process11": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "thermal.set_zone",
+       "arg": "temperature_k",
+       "target": true
+      }
+     ],
+     "by_target": {
+      "die": [
+       {
+        "cap": "die.set_temperature",
+        "arg": "temperature_k"
+       }
+      ]
+     }
+    },
+    "heat": {
+     "on": [
+      {
+       "cap": "thermal.set_enabled",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "thermal.set_enabled",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "thermal.enabled",
+     "word": "barrel heating"
+    },
+    "temp": {
+     "reads": [
+      "thermal.zone_0_k",
+      "die.temperature_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "thermal.zone_0_k",
+      "die.temperature_k"
+     ]
+    },
+    "speed": {
+     "set": [
+      {
+       "cap": "drive.set_speed",
+       "arg": "speed_rad_s"
+      }
+     ],
+     "on": [
+      {
+       "cap": "drive.set_enabled",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "drive.set_enabled",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "drive.enabled",
+     "word": "screws"
+    },
+    "feed": {
+     "kind": "mass_flow",
+     "set": [
+      {
+       "cap": "feed.set_rate",
+       "arg": "mass_rate_kg_s"
+      }
+     ],
+     "on": [
+      {
+       "cap": "feeder.set_running",
+       "args": {
+        "running": true,
+        "test": false
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "feeder.set_running",
+       "args": {
+        "running": false,
+        "test": false
+       }
+      }
+     ],
+     "state": "feeder.state#running",
+     "word": "feeder"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "speed": {
+       "arg": "speed_rad_s",
+       "kind": "rotation"
+      },
+      "feed": {
+       "arg": "feed_kg_s",
+       "kind": "mass_flow"
+      },
+      "die-radius": {
+       "arg": "die_radius_m",
+       "kind": "length"
+      },
+      "die-length": {
+       "arg": "die_length_m",
+       "kind": "length"
+      },
+      "mixing": {
+       "arg": "mixing_factor"
+      }
+     },
+     "keep": {
+      "speed_rad_s": "drive.target_rad_s",
+      "feed_kg_s": "feed.target_kg_s"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "extrusion run"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "extrusion.measure"
+    }
+   },
+   "targets": {
+    "zone": {
+     "arg": "zone",
+     "values": {
+      "1": 0,
+      "2": 1,
+      "3": 2,
+      "4": 3,
+      "5": 4,
+      "6": 5,
+      "7": 6,
+      "die": "die"
+     },
+     "required": true,
+     "verbs": [
+      "set-temp",
+      "temp",
+      "wait-temp"
+     ],
+     "optional_for": [
+      "temp",
+      "wait-temp"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": {
+     "slot": "thermal.zone_0_k",
+     "per": "thermal.zone_{native}_k",
+     "per_map": {
+      "die": "die.temperature_k"
+     }
+    },
+    "set": {
+     "slot": "thermal.targets_k",
+     "per": "thermal.targets_k",
+     "per_map": {
+      "die": "die.target_k"
+     },
+     "index": true
+    },
+    "heat": "thermal.enabled",
+    "speed": "drive.speed_rad_s",
+    "drive": "drive.enabled",
+    "torque": "extrusion.torque_per_shaft_nm",
+    "die_pressure": "extrusion.die_pressure_gauge_pa",
+    "feed_mass": "feed.actual_kg_s",
+    "phase": "cycle.phase",
+    "fault": "safety.fault"
+   },
+   "requires": {
+    "heat": [
+     {
+      "slot": "coolant.connected",
+      "code": "NO_COOLANT",
+      "message": "the feed-throat cooling water of {inst} is not connected.",
+      "fix": "ask the lab operator to connect it.",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "coolant.connected",
+      "code": "NO_COOLANT",
+      "message": "the feed-throat cooling water of {inst} is not connected.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "barrel.position_m",
+      "code": "BARREL_OPEN",
+      "message": "the barrel of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close barrel`.",
+      "max": 0.0
+     },
+     {
+      "slot": "safety.latched",
+      "code": "SAFETY_LATCHED",
+      "message": "the emergency stop of {inst} is latched.",
+      "fix": "release and reset it (see `chemlab describe {inst}`).",
+      "falsy": true
+     },
+     {
+      "slot": "drive.enabled",
+      "code": "DRIVE_OFF",
+      "message": "the screws of {inst} are not running.",
+      "fix": "start them: `chemlab run {inst} speed on`.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "speed": [
+     {
+      "slot": "safety.latched",
+      "code": "SAFETY_LATCHED",
+      "message": "the emergency stop of {inst} is latched.",
+      "fix": "release and reset it first.",
+      "falsy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "drive.enabled",
+      "code": "DRIVE_ON",
+      "message": "{inst} takes a new method only with the screws stopped.",
+      "fix": "stop them first: `chemlab run {inst} speed off`.",
+      "falsy": true
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs the screws running, a method, material in the hopper, the barrel closed and the cooling water on.",
+     "fix": "check `chemlab run {inst} status`; `chemlab run {inst} speed on` starts the screws."
+    },
+    "thermal.set_enabled:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot heat: it needs power, the cooling water and the barrel closed.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "drive.set_enabled:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start the screws: the barrel must be closed and hot enough for the material, and no emergency stop latched.",
+     "fix": "heat the barrel first (`wait-temp`)."
+    }
+   },
+   "unsupported": {
+    "vibration": "no vibrating nozzle",
+    "air": "no fluidising air",
+    "hv": "no high voltage",
+    "humidity": "no climate chamber",
+    "prime": "no priming step (purge by running the screws)",
+    "clean": "the screws are cleaned by hand with the barrel open"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "extrusion.measure"
+   ],
+   "params": {
+    "tolerance_k": 2.0,
+    "wait_all": true
+   },
+   "notes": {
+    "set-temp": [
+     "--zone 1..7 are the barrel zones (feed to die), --zone die the die"
+    ],
+    "wait-temp": [
+     "without --zone it waits until every zone and the die are at their set points"
+    ],
+    "speed": [
+     "speed sets the screw speed; `speed on` runs the screws (the run itself uses the method speed)"
+    ],
+    "start": [
+     "start runs the method: the screws at the method speed, the feeder at the method rate, for the method time"
+    ]
+   }
+  },
+  "linari_rtadvanced": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "climate.set_targets",
+       "arg": "temperature_k",
+       "keep": {
+        "humidity": "climate.target_rh"
+       }
+      }
+     ]
+    },
+    "heat": {
+     "on": [
+      {
+       "cap": "climate.set",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "climate.set",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "climate.enabled",
+     "word": "climate control"
+    },
+    "temp": {
+     "reads": [
+      "thermal.temperature_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "thermal.temperature_k"
+     ]
+    },
+    "humidity": {
+     "set": [
+      {
+       "cap": "climate.set_targets",
+       "arg": "humidity",
+       "keep": {
+        "temperature_k": "thermal.target_k"
+       }
+      }
+     ],
+     "on": [
+      {
+       "cap": "climate.set",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "climate.set",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "climate.enabled",
+     "word": "chamber humidity"
+    },
+    "hv": {
+     "on": [
+      {
+       "cap": "hv.set",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "hv.set",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "hv.enabled",
+     "word": "high voltage",
+     "value_fix": "the spinning voltage is part of the method: `chemlab run INST method voltage=15kV,15kV ...`; `chemlab run INST hv on|off` switches it."
+    },
+    "clean": {
+     "cap": "needle.clean",
+     "target": true,
+     "what": "clean the needle",
+     "done": "needles cleaned"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "voltage": {
+       "arg": "voltage_v",
+       "kind": "voltage"
+      },
+      "flows": {
+       "arg": "flows_m3_s",
+       "kind": "flow"
+      },
+      "rpm": {
+       "arg": "rpm",
+       "kind": "rotation",
+       "unit": "rpm"
+      },
+      "needle-low": {
+       "arg": "needle_low_m",
+       "kind": "length"
+      },
+      "needle-high": {
+       "arg": "needle_high_m",
+       "kind": "length"
+      },
+      "gap": {
+       "arg": "gap_m",
+       "kind": "length"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "electrospinning run"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "spinning.measure"
+    }
+   },
+   "targets": {
+    "head": {
+     "arg": "group",
+     "values": {
+      "1": 0,
+      "2": 1
+     },
+     "required": true,
+     "verbs": [
+      "clean"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.temperature_k",
+    "set": "thermal.target_k",
+    "heat": "climate.enabled",
+    "humidity": "climate.humidity",
+    "hv": "hv.enabled",
+    "voltage": "hv.group_0_v",
+    "phase": "cycle.phase",
+    "fault": "safety.fault"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no spinning method yet.",
+      "fix": "set one: `chemlab run {inst} method voltage=... flows=... rpm=... needle-low=... needle-high=... gap=... time=...`.",
+      "truthy": true
+     },
+     {
+      "slot": "hv.enabled",
+      "code": "HV_OFF",
+      "message": "the high voltage of {inst} is off; spinning needs it switched on.",
+      "fix": "switch it on: `chemlab run {inst} hv on`.",
+      "truthy": true
+     },
+     {
+      "slot": "door.opened",
+      "code": "DOOR_OPEN",
+      "message": "the chamber door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close door`.",
+      "falsy": true
+     },
+     {
+      "slot": "vent.enabled",
+      "code": "NO_EXHAUST",
+      "message": "the exhaust of {inst} is off.",
+      "fix": "ask the lab operator to switch the exhaust on.",
+      "truthy": true
+     },
+     {
+      "slot": "collector.present",
+      "code": "NO_COLLECTOR",
+      "message": "no collector is fitted in {inst}.",
+      "fix": "ask the lab operator to fit one.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "clean": [
+     {
+      "slot": "hv.enabled",
+      "code": "HV_ON",
+      "message": "the high voltage of {inst} is on; the needles may be cleaned only with it off.",
+      "fix": "switch it off: `chemlab run {inst} hv off`.",
+      "falsy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs a method, the high voltage on, the door closed, the exhaust on and a collector.",
+     "fix": "check `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "speed": "the collector speed is the method key rpm",
+    "vibration": "no vibrating nozzle",
+    "feed": "the pump flows are the method key flows",
+    "air": "no fluidising air",
+    "prime": "no priming step (use clean for the needle tips)"
+   },
+   "alternatives": {
+    "speed": "`chemlab run INST method rpm=600rpm ...`.",
+    "feed": "`chemlab run INST method flows=0.2mL/h,0,0,0,0,0,0,0 ...`."
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "spinning.measure"
+   ],
+   "params": {
+    "tolerance_k": 1.0
+   },
+   "notes": {
+    "method": [
+     "every setting is needed each time (the instrument does not show the stored ones): voltage (2 groups), flows (8 pumps), rpm, needle-low, needle-high, gap (2 groups each), time"
+    ],
+    "hv": [
+     "after a run the needles stay charged while hv is on; switch it off before opening the door or cleaning"
+    ],
+    "set-temp": [
+     "the chamber climate: temperature and humidity are set together; the other stays as it is"
+    ]
+   }
+  },
+  "buchi_encapsulatorb": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "thermal.set_temperature",
+       "arg": "temperature_k"
+      }
+     ]
+    },
+    "heat": {
+     "on": [
+      {
+       "cap": "thermal.toggle",
+       "toggle": true,
+       "state": "thermal.enabled",
+       "want": true
+      }
+     ],
+     "off": [
+      {
+       "cap": "thermal.toggle",
+       "toggle": true,
+       "state": "thermal.enabled",
+       "want": false
+      }
+     ],
+     "state": "thermal.enabled",
+     "word": "nozzle heating"
+    },
+    "vibration": {
+     "set": [
+      {
+       "cap": "vibration.set_frequency",
+       "arg": "frequency_hz"
+      }
+     ],
+     "on": [
+      {
+       "cap": "vibration.toggle",
+       "toggle": true,
+       "state": "vibration.enabled",
+       "want": true
+      }
+     ],
+     "off": [
+      {
+       "cap": "vibration.toggle",
+       "toggle": true,
+       "state": "vibration.enabled",
+       "want": false
+      }
+     ],
+     "state": "vibration.enabled",
+     "word": "vibration"
+    },
+    "hv": {
+     "set": [
+      {
+       "cap": "electrostatic.set_voltage",
+       "arg": "voltage_v"
+      }
+     ],
+     "on": [
+      {
+       "cap": "electrostatic.toggle",
+       "toggle": true,
+       "state": "electrostatic.enabled",
+       "want": true
+      }
+     ],
+     "off": [
+      {
+       "cap": "electrostatic.toggle",
+       "toggle": true,
+       "state": "electrostatic.enabled",
+       "want": false
+      }
+     ],
+     "state": "electrostatic.enabled",
+     "word": "electrostatic dispersion"
+    },
+    "feed": {
+     "kind": "pressure",
+     "set": [
+      {
+       "cap": "air.set_pressure",
+       "arg": "gauge_pa"
+      },
+      {
+       "cap": "valve.set_opening",
+       "args": {
+        "fraction": 1.0
+       },
+       "skip_if": {
+        "slot": "valve.target_fraction",
+        "value": 1.0
+       },
+       "step": "open the feed valve"
+      }
+     ],
+     "on": [
+      {
+       "cap": "valve.set_opening",
+       "args": {
+        "fraction": 1.0
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "valve.set_opening",
+       "args": {
+        "fraction": 0.0
+       },
+       "step": "close the feed valve"
+      },
+      {
+       "cap": "air.set_pressure",
+       "args": {
+        "gauge_pa": 0.0
+       },
+       "step": "release the feed pressure"
+      }
+     ],
+     "state": "valve.target_fraction",
+     "word": "feed pressure"
+    },
+    "method": {
+     "cap": "method.configure",
+     "args": {
+      "accept_host_observer_only": true
+     },
+     "keys": {
+      "volume": {
+       "arg": "target_volume_m3",
+       "kind": "volume"
+      },
+      "flow": {
+       "arg": "target_flow_m3_s",
+       "kind": "flow"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "encapsulation run"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "encapsulation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "set": "thermal.target_k",
+    "heat": "thermal.enabled",
+    "vibration": "vibration.target_hz",
+    "vib_on": "vibration.enabled",
+    "hv": "electrostatic.enabled",
+    "voltage": "electrostatic.target_v",
+    "feed_pressure": "air.target_pa",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage"
+   },
+   "requires": {
+    "feed": [
+     {
+      "slot": "air.configured",
+      "code": "NO_AIR",
+      "message": "the compressed-air supply of {inst} is not connected in this lab.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no polymer solution is in the feed bottle of {inst}.",
+      "fix": "ask the lab operator to fill it.",
+      "truthy": true
+     },
+     {
+      "slot": "bath.configured",
+      "code": "NO_BATH",
+      "message": "no gelling bath is under the nozzle of {inst}.",
+      "fix": "ask the lab operator to place it.",
+      "truthy": true
+     }
+    ],
+    "feed:on": [],
+    "hv": [
+     {
+      "slot": "bath.configured",
+      "code": "NO_BATH",
+      "message": "no grounded gelling bath is under the electrode of {inst}.",
+      "fix": "ask the lab operator to place it.",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no target volume yet.",
+      "fix": "set it: `chemlab run {inst} method volume=5mL flow=6mL/min`.",
+      "truthy": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no polymer solution is in the feed bottle of {inst}.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "bath.configured",
+      "code": "NO_BATH",
+      "message": "no gelling bath is under the nozzle of {inst}.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "air.configured",
+      "code": "NO_AIR",
+      "message": "the compressed-air supply of {inst} is not connected.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, a target volume the feed bottle holds and the bath can take, the solution, the bath and the air supply.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "electrostatic.toggle:PRECONDITION_FAILED": {
+     "code": "NOT_GROUNDED",
+     "message": "the electrostatic dispersion of {inst} needs a grounded bath.",
+     "fix": "ask the lab operator to ground the bath."
+    }
+   },
+   "unsupported": {
+    "speed": "no screws or rotor",
+    "air": "no fluidising air (the air drives the feed: `feed`)",
+    "humidity": "no climate chamber",
+    "prime": "no priming step",
+    "clean": "the nozzle is cleaned by hand",
+    "temp": "no nozzle temperature reading (the heater set point is in `status`)",
+    "wait-temp": "no nozzle temperature reading (the heater set point only)"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "encapsulation.measure"
+   ],
+   "notes": {
+    "feed": [
+     "feed P sets the feed pressure (gauge) and opens the feed valve; feed off closes the valve and releases the pressure"
+    ],
+    "start": [
+     "the run ends when the target volume has gone through the nozzle; it does not close the feed: `feed off` afterwards"
+    ],
+    "method": [
+     "volume = target volume to process, flow = expected flow (the instrument observes the volume; the class accepts this observer-only completion for you)"
+    ]
+   }
+  },
+  "cytiva_nanoassemblrignite": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "array": {
+        "arg": "targets_k",
+        "slots": [
+         "thermal.target_center_k",
+         "thermal.target_right_k"
+        ],
+        "by": "channel"
+       },
+       "cap": "heating.set",
+       "keep": {
+        "enabled": "heating.enabled"
+       }
+      }
+     ]
+    },
+    "heat": {
+     "on": [
+      {
+       "cap": "heating.set",
+       "args": {
+        "enabled": true
+       },
+       "keep": {
+        "targets_k": [
+         "thermal.target_center_k",
+         "thermal.target_right_k"
+        ]
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "heating.set",
+       "args": {
+        "enabled": false
+       },
+       "keep": {
+        "targets_k": [
+         "thermal.target_center_k",
+         "thermal.target_right_k"
+        ]
+       }
+      }
+     ],
+     "state": "heating.enabled",
+     "word": "syringe heating"
+    },
+    "temp": {
+     "reads": [
+      "thermal.center_k",
+      "thermal.right_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "thermal.center_k",
+      "thermal.right_k"
+     ]
+    },
+    "prime": {
+     "cap": "cartridge.prime",
+     "job": "operation",
+     "what": "cartridge priming"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "flow": {
+       "arg": "flow_m3_s",
+       "kind": "flow"
+      },
+      "ratio": {
+       "arg": "flow_ratio_c_r"
+      },
+      "volume": {
+       "arg": "volume_m3",
+       "kind": "volume"
+      },
+      "dilution": {
+       "arg": "dilution_ratio"
+      },
+      "waste-start": {
+       "arg": "start_waste_equiv_m3",
+       "kind": "volume"
+      },
+      "waste-end": {
+       "arg": "end_waste_equiv_m3",
+       "kind": "volume"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "formulation run"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "formulation.measure"
+    }
+   },
+   "targets": {
+    "channel": {
+     "arg": null,
+     "values": {
+      "center": 0,
+      "right": 1
+     },
+     "verbs": [
+      "set-temp",
+      "temp",
+      "wait-temp"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": {
+     "slot": "thermal.center_k",
+     "per": "thermal.{channel}_k"
+    },
+    "set": {
+     "slot": "thermal.target_center_k",
+     "per": "thermal.target_{channel}_k"
+    },
+    "heat": "heating.enabled",
+    "flow": "flow.total_m3_s",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "cartridge": "cartridge.state",
+    "warning": "safety.warning"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "heating.installed",
+      "code": "NO_HEATER",
+      "message": "the syringe heater of {inst} is not fitted in this lab.",
+      "fix": "ask the lab operator to fit it.",
+      "truthy": true
+     }
+    ],
+    "heat": [
+     {
+      "slot": "heating.installed",
+      "code": "NO_HEATER",
+      "message": "the syringe heater of {inst} is not fitted in this lab.",
+      "fix": "ask the lab operator to fit it.",
+      "truthy": true
+     },
+     {
+      "slot": "block.opened",
+      "code": "BLOCK_OPEN",
+      "message": "the loading block of {inst} is open; it heats only closed.",
+      "fix": "close it: `chemlab run {inst} close block`.",
+      "falsy": true
+     }
+    ],
+    "prime": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "falsy": true
+     },
+     {
+      "slot": "block.opened",
+      "code": "BLOCK_OPEN",
+      "message": "the loading block of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close block`.",
+      "falsy": true
+     },
+     {
+      "slot": "cartridge.present",
+      "code": "NO_CARTRIDGE",
+      "message": "no cartridge is fitted in {inst}.",
+      "fix": "ask the lab operator to fit one.",
+      "truthy": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet (priming uses its syringes).",
+      "fix": "set one with `chemlab run {inst} method ...`.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one: `chemlab run {inst} method flow=4mL/min ratio=3 volume=2mL dilution=1 waste-start=0.2mL waste-end=0.05mL`.",
+      "truthy": true
+     },
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "falsy": true
+     },
+     {
+      "slot": "block.opened",
+      "code": "BLOCK_OPEN",
+      "message": "the loading block of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close block`.",
+      "falsy": true
+     },
+     {
+      "slot": "cartridge.present",
+      "code": "NO_CARTRIDGE",
+      "message": "no cartridge is fitted in {inst}.",
+      "fix": "ask the lab operator to fit a new one.",
+      "truthy": true
+     },
+     {
+      "slot": "cartridge.used",
+      "code": "CARTRIDGE_USED",
+      "message": "the cartridge of {inst} has been used already (one run per cartridge).",
+      "fix": "ask the lab operator for a new one.",
+      "falsy": true
+     },
+     {
+      "slot": "tubes.present",
+      "code": "NO_TUBES",
+      "message": "no collection tubes are in {inst}.",
+      "fix": "ask the lab operator to place them.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the lid and block closed, an unused cartridge, tubes, a method and a loaded syringe on every channel the method uses.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "heating.set:PRECONDITION_FAILED": {
+     "code": "NOT_POSSIBLE_NOW",
+     "message": "{inst} refused the heating: it needs the heater fitted, power, the block closed, and set points at or above room temperature.",
+     "fix": "check `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "speed": "no screws or rotor",
+    "vibration": "no vibrating nozzle",
+    "feed": "the flows are the method keys flow and ratio",
+    "air": "no fluidising air",
+    "hv": "no high voltage",
+    "humidity": "no climate chamber",
+    "clean": "the cartridge is single-use (no cleaning)"
+   },
+   "alternatives": {
+    "feed": "`chemlab run INST method flow=12mL/min ratio=3 ...`."
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "formulation.measure"
+   ],
+   "params": {
+    "tolerance_k": 1.0,
+    "wait_all": true
+   },
+   "notes": {
+    "set-temp": [
+     "--channel center or right heats one syringe channel; without --channel both get the set point"
+    ],
+    "method": [
+     "every setting is needed each time: flow, ratio, volume, dilution, waste-start, waste-end"
+    ]
+   }
+  },
+  "glatt_miniglatt": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "thermal.set_temperature",
+       "arg": "temperature_k"
+      }
+     ]
+    },
+    "heat": {
+     "on": [
+      {
+       "cap": "heating.set",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "heating.set",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "heating.enabled",
+     "word": "air heater"
+    },
+    "temp": {
+     "reads": [
+      "thermal.inlet_k",
+      "thermal.bed_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "thermal.inlet_k"
+     ]
+    },
+    "air": {
+     "set": [
+      {
+       "cap": "fluidization.set_flow",
+       "arg": "flow_normal_m3_s"
+      }
+     ],
+     "on": [
+      {
+       "cap": "air.set",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "air.set",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "air.enabled",
+     "word": "fluidising air"
+    },
+    "feed": {
+     "kind": "flow",
+     "set": [
+      {
+       "cap": "spray.set_rate",
+       "arg": "flow_m3_s"
+      }
+     ],
+     "off": [
+      {
+       "cap": "spray.set_rate",
+       "arg": "flow_m3_s",
+       "value": 0.0
+      }
+     ],
+     "word": "spray rate"
+    },
+    "clean": {
+     "cap": "filter.clean",
+     "what": "blow back the filter",
+     "done": "filter blow-back scheduled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "operation": {
+       "arg": "operation"
+      },
+      "spray-position": {
+       "arg": "spray_position"
+      },
+      "air": {
+       "arg": "air_normal_m3_s",
+       "kind": "flow"
+      },
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "spray": {
+       "arg": "spray_m3_s",
+       "kind": "flow"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "spray-time": {
+       "arg": "spray_duration_s",
+       "kind": "duration"
+      }
+     },
+     "keep": {
+      "operation": "method.operation",
+      "spray_position": "method.spray_position",
+      "air_normal_m3_s": "flow.target_normal_m3_s",
+      "temperature_k": "thermal.target_k",
+      "spray_m3_s": "spray.target_m3_s"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "fluid-bed run"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "granulation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.inlet_k",
+    "temp2": "thermal.bed_k",
+    "set": "thermal.target_k",
+    "heat": "heating.enabled",
+    "air": "flow.actual_normal_m3_s",
+    "air_on": "air.enabled",
+    "feed_flow": "spray.actual_m3_s",
+    "fluidized": "bed.fluidized",
+    "phase": "cycle.phase",
+    "warning": "safety.warning"
+   },
+   "requires": {
+    "heat": [
+     {
+      "slot": "air.enabled",
+      "code": "AIR_OFF",
+      "message": "the air heater of {inst} heats only with the fluidising air on.",
+      "fix": "switch the air on: `chemlab run {inst} air on`.",
+      "truthy": true
+     }
+    ],
+    "air": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} takes air, temperature and spray settings only after a process method is set (they edit the method).",
+      "fix": "set one first: `chemlab run {inst} method operation=granulation air=200L/min temp=60C spray=3.5mL/min time=10min spray-time=8min`.",
+      "truthy": true
+     },
+     {
+      "slot": "tower.opened",
+      "code": "TOWER_OPEN",
+      "message": "the product container (tower) of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close tower`.",
+      "falsy": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} takes air, temperature and spray settings only after a process method is set (they edit the method).",
+      "fix": "set one first: `chemlab run {inst} method operation=granulation air=200L/min temp=60C spray=3.5mL/min time=10min spray-time=8min`.",
+      "truthy": true
+     }
+    ],
+    "feed": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} takes air, temperature and spray settings only after a process method is set (they edit the method).",
+      "fix": "set one first: `chemlab run {inst} method operation=granulation air=200L/min temp=60C spray=3.5mL/min time=10min spray-time=8min`.",
+      "truthy": true
+     }
+    ],
+    "clean": [
+     {
+      "slot": "air.enabled",
+      "code": "AIR_ON",
+      "message": "{inst} blows the filter back only with the fluidising air off.",
+      "fix": "switch the air off: `chemlab run {inst} air off`.",
+      "falsy": true
+     },
+     {
+      "slot": "filter.pulse_remaining_s",
+      "code": "BLOWBACK_RUNNING",
+      "message": "a filter blow-back of {inst} is still going ({value} s left).",
+      "fix": "wait a few seconds and retry.",
+      "max": 0.0
+     },
+     {
+      "slot": "tower.opened",
+      "code": "TOWER_OPEN",
+      "message": "the tower of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close tower`.",
+      "falsy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "tower.opened",
+      "code": "TOWER_OPEN",
+      "message": "the product container (tower) of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close tower`.",
+      "falsy": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no process method yet.",
+      "fix": "set one: `chemlab run {inst} method operation=granulation air=200L/min temp=60C spray=3.5mL/min time=10min spray-time=8min`.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the tower closed, powder (and binder for granulation) loaded, a method, and air and power within its supply.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "air.set:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot switch the air on: it needs power and the tower closed.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "heating.set:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} heats only with power and the air on.",
+     "fix": "`chemlab run {inst} air on` first."
+    }
+   },
+   "unsupported": {
+    "speed": "no screws or rotor",
+    "vibration": "no vibrating nozzle",
+    "hv": "no high voltage",
+    "humidity": "no climate chamber",
+    "prime": "no priming step"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "granulation.measure"
+   ],
+   "params": {
+    "tolerance_k": 2.0,
+    "temp2_word": "bed"
+   },
+   "notes": {
+    "set-temp": [
+     "the inlet air temperature; the bed temperature follows (shown as bed); set a method first (the set points edit it)"
+    ],
+    "method": [
+     "duration and spray time are needed each time; operation, spray position, air, temperature and spray rate are kept when left out"
+    ]
+   }
+  }
+ }
+}

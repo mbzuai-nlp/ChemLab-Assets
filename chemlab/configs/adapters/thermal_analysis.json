@@ -1,0 +1,3068 @@
+{
+ "class": "thermal_analysis",
+ "adapter": "chemlab.compile.classes.thermal_analysis:ThermalAnalysisAdapter",
+ "about": "Thermal analysis and calorimetry: load, unload, method (class keys with units), set-temp, temp, wait-temp, gas, start (job-N), stop, result, zero, calibrate, status. power / open / close / estop / ack / wait come from the shared layer. Ranges come from each member's contract (in the unit the argument declares); temperatures are shown in °C.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "ta_dsc2500",
+   "ta_tga5500",
+   "ta_dma850",
+   "ta_tma450",
+   "netzsch_lfa467",
+   "hot_tps2500",
+   "ta_tamiv",
+   "netzsch_mmc315",
+   "ika_c6000"
+  ],
+  "secondary": {},
+  "not_here": {
+   "mt_mp70": "melting point apparatus: primary in property_meter; its temperature programme is that class's method",
+   "malvern_microcalpeaq": "ITC: primary in bioassay; titration injections are not a thermal programme",
+   "mt_rc1mxhfcal": "reaction calorimeter: primary in reactor",
+   "novocontrol_alphat": "temperature-dependent dielectric: primary in electrical (this package)",
+   "micromeritics_autochemiii": "TPR/TPD: primary in particle_surface"
+  }
+ },
+ "members": {
+  "ta_dsc2500": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "kind": "transfer",
+     "cap": "autosampler.load",
+     "arg": "position",
+     "tray_slot": "autosampler.tray_occupied",
+     "loaded_slot": "sample.present",
+     "busy": [
+      "autosampler.transfer",
+      "sampler.moving"
+     ],
+     "max_s": 300
+    },
+    "unload": {
+     "kind": "transfer",
+     "cap": "autosampler.unload",
+     "arg": "position",
+     "loaded_slot": "sample.present",
+     "origin_slot": "autosampler.cell_origin",
+     "busy": [
+      "autosampler.transfer",
+      "sampler.moving"
+     ],
+     "max_s": 300
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "start": {
+       "arg": "start_temperature_k",
+       "kind": "temperature"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      },
+      "tolerance": {
+       "arg": "start_tolerance_k",
+       "kind": "temperature_delta"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      },
+      "modulation": {
+       "arg": "modulation_amplitude_k",
+       "kind": "temperature_delta"
+      },
+      "period": {
+       "arg": "modulation_period_s",
+       "kind": "duration"
+      }
+     },
+     "program": {
+      "arg": "segments",
+      "key": "ramp",
+      "style": "ramp",
+      "iso": "iso",
+      "hold_key": "hold",
+      "start_arg": "start_temperature_k",
+      "fields": {
+       "target": {
+        "field": "target_k",
+        "kind": "temperature"
+       },
+       "rate": {
+        "field": "rate_k_s",
+        "kind": "heating_rate"
+       },
+       "hold": {
+        "field": "hold_s",
+        "kind": "duration"
+       }
+      },
+      "item_defaults": {
+       "hold_s": 0.0
+      }
+     },
+     "need": [
+      "start",
+      "ramp"
+     ],
+     "defaults": {
+      "sample_interval_s": "example",
+      "modulation_amplitude_k": "example",
+      "modulation_period_s": "example",
+      "start_tolerance_k": "example",
+      "timeout_s": "auto_timeout"
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "rate_arg": "rate_k_s",
+     "off_cap": "thermal.disable"
+    },
+    "temp": {
+     "reads": [
+      "sample.indicated_k",
+      "furnace.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "sample.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "gas": {
+     "flow_cap": "gas.set_flow",
+     "flow_arg": "flow_m3_s",
+     "open_cap": "gas.set_open",
+     "open_arg": "opened",
+     "open_slot": "gas.opened"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "columns": {
+      "sample_k": [
+       "sample temperature",
+       "temperature"
+      ],
+      "heatflow_w": [
+       "heat flow (W)",
+       null
+      ]
+     }
+    },
+    "zero": {
+     "cap": "sensor.zero"
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate",
+     "keys": {
+      "temperature_zero_k": {
+       "arg": "temperature_zero_k",
+       "kind": "temperature_delta"
+      }
+     }
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "lid.opened",
+       "moving": [
+        "lid.moving"
+       ],
+       "main": true,
+       "max_s": 180
+      },
+      "gas": {
+       "cap": "gas.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "gas.opened"
+      }
+     }
+    },
+    "analyze": {
+     "default": "integrate",
+     "models": {
+      "integrate": {
+       "cap": "analysis.integrate",
+       "arrays": {
+        "time_s": "elapsed_s",
+        "heatflow_w": "heatflow_w",
+        "temperature_k": "sample_k"
+       },
+       "window": {
+        "col": "sample_k"
+       },
+       "baseline": {
+        "arg": "baseline_w",
+        "of": "heatflow_w",
+        "default": "linear"
+       },
+       "keys": {
+        "from": {
+         "ctl": "from",
+         "kind": "temperature"
+        },
+        "to": {
+         "ctl": "to",
+         "kind": "temperature"
+        },
+        "mass": {
+         "arg": "sample_mass_kg",
+         "kind": "mass"
+        },
+        "baseline": {
+         "ctl": "baseline",
+         "kind": "number",
+         "choices": [
+          "linear",
+          "zero"
+         ]
+        }
+       },
+       "need": [
+        "mass"
+       ]
+      }
+     },
+     "example": "integrate mass=2mg from=150C to=170C"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "sample.indicated_k",
+    "furnace": "furnace.indicated_k",
+    "set": "thermal.final_target_k",
+    "ramp": "thermal.target_k",
+    "control": "thermal.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "open": "lid.opened",
+    "gas": "gas.opened",
+    "flow": "gas.flow_m3_s"
+   },
+   "diagnose": {
+    "*": [
+     {
+      "slot": "lid.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (lid.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "sampler.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (sampler.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "emergency.latched",
+      "code": "ESTOP",
+      "message": "the emergency stop of {inst} is latched.",
+      "fix": "clear it (`chemlab call {inst} emergency.reset`) once it is safe.",
+      "falsy": true
+     },
+     {
+      "slot": "lid.lift_m",
+      "code": "LID_OPEN",
+      "message": "the cell lid of {inst} is not closed (lift {value} m).",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "max": 1e-09
+     }
+    ]
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "lid.opened",
+      "code": "LID_CLOSED",
+      "message": "the cell lid of {inst} is closed; the autosampler needs it open.",
+      "fix": "open it: `chemlab run {inst} open lid`.",
+      "label": "lid open",
+      "truthy": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "lid.opened",
+      "code": "LID_CLOSED",
+      "message": "the cell lid of {inst} is closed; the autosampler needs it open.",
+      "fix": "open it: `chemlab run {inst} open lid`.",
+      "label": "lid open",
+      "truthy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "gas": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "lid.lift_m",
+      "code": "LID_OPEN",
+      "message": "the cell lid of {inst} is open; the cell heats only closed.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "label": "lid closed",
+      "max": 1e-09
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no pan is in the DSC cell of {inst}.",
+      "fix": "load one: `chemlab run {inst} load N` (N = tray position).",
+      "label": "pan in the cell",
+      "truthy": true
+     },
+     {
+      "slot": "lid.lift_m",
+      "code": "LID_OPEN",
+      "message": "the cell lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "label": "lid closed",
+      "max": 1e-09
+     },
+     {
+      "slot": "gas.opened",
+      "code": "NO_PURGE",
+      "message": "the purge gas of {inst} is off.",
+      "fix": "switch it on: `chemlab run {inst} gas 50mL/min`.",
+      "label": "purge on",
+      "truthy": true
+     }
+    ],
+    "zero": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NOT_EMPTY",
+      "message": "a pan is in the cell of {inst}; it zeroes only empty.",
+      "fix": "unload it first: `chemlab run {inst} unload`.",
+      "label": "empty cell",
+      "falsy": true
+     },
+     {
+      "slot": "thermal.enabled",
+      "code": "CONTROL_ON",
+      "message": "the temperature control of {inst} is on; it zeroes only with the control off.",
+      "fix": "switch it off: `chemlab run {inst} set-temp off`.",
+      "label": "control off",
+      "falsy": true
+     },
+     {
+      "slot": "furnace.indicated_k",
+      "code": "NOT_AMBIENT",
+      "message": "the empty cell of {inst} is at {value} K, not yet at the room temperature of the lab (25 °C); it zeroes only in equilibrium with the room.",
+      "fix": "wait: `chemlab run {inst} wait-temp --to 25C --within 0.001K --max 1h`, then zero.",
+      "label": "cell at room temperature",
+      "min": 298.149,
+      "max": 298.151
+     }
+    ]
+   },
+   "params": {
+    "tolerance_k": 0.25,
+    "manual": "DSC 2500 TRIOS guide (UCSB MRL) pp. 2-13; DSC 2500 quick start (UCSB MRL) pp. 1-3; Discovery DSC brochure pp. 7-12"
+   },
+   "notes": {
+    "method": [
+     "the run starts only when the cell is at start= (within tolerance=): `set-temp START` and `wait-temp` first",
+     "ramps: ramp=TARGET@RATE[:HOLD]; iso=TIME holds at the last temperature; timeout defaults to the programme time x 1.5 + 30 min"
+    ],
+    "load": [
+     "the autosampler moves the pan from the tray into the cell (about a minute of lab time); the lid must be open (`open lid`)"
+    ]
+   }
+  },
+  "ta_tga5500": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "kind": "transfer",
+     "cap": "autosampler.load",
+     "arg": "position",
+     "tray_slot": "autosampler.tray_occupied",
+     "loaded_slot": "sample.present",
+     "busy": [
+      "autosampler.transfer",
+      "carousel.moving",
+      "furnace.moving"
+     ],
+     "max_s": 400
+    },
+    "unload": {
+     "kind": "transfer",
+     "cap": "autosampler.unload",
+     "arg": "position",
+     "loaded_slot": "sample.present",
+     "origin_slot": "autosampler.balance_origin",
+     "busy": [
+      "autosampler.transfer",
+      "carousel.moving",
+      "furnace.moving"
+     ],
+     "max_s": 400
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "start": {
+       "arg": "start_temperature_k",
+       "kind": "temperature"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      },
+      "tolerance": {
+       "arg": "start_tolerance_k",
+       "kind": "temperature_delta"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      }
+     },
+     "program": {
+      "arg": "segments",
+      "key": "ramp",
+      "style": "ramp",
+      "iso": "iso",
+      "hold_key": "hold",
+      "start_arg": "start_temperature_k",
+      "fields": {
+       "target": {
+        "field": "target_k",
+        "kind": "temperature"
+       },
+       "rate": {
+        "field": "rate_k_s",
+        "kind": "heating_rate"
+       },
+       "hold": {
+        "field": "hold_s",
+        "kind": "duration"
+       }
+      },
+      "sticky": {
+       "gas": {
+        "field": "gas"
+       }
+      },
+      "item_defaults": {
+       "hold_s": 0.0,
+       "gas": {
+        "slot": "gas.selected"
+       }
+      }
+     },
+     "need": [
+      "start",
+      "ramp"
+     ],
+     "defaults": {
+      "sample_interval_s": "example",
+      "start_tolerance_k": "example",
+      "timeout_s": "auto_timeout"
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "rate_arg": "rate_k_s",
+     "off_cap": "thermal.disable"
+    },
+    "temp": {
+     "reads": [
+      "sample.indicated_k",
+      "furnace.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "sample.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "gas": {
+     "select_cap": "gas.select",
+     "select_arg": "gas",
+     "flow_cap": "gas.set_flow",
+     "flow_arg": "sample_flow_m3_s",
+     "balance_arg": "balance_flow_m3_s",
+     "balance_slot": "gas.balance_flow_m3_s",
+     "open_cap": "gas.set_open",
+     "open_arg": "opened",
+     "open_slot": "gas.opened",
+     "selected_slot": "gas.selected",
+     "open_needs_flow": true,
+     "flow_slot": "gas.sample_flow_m3_s"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "columns": {
+      "sample_k": [
+       "sample temperature",
+       "temperature"
+      ],
+      "mass_kg": [
+       "mass",
+       "mass"
+      ]
+     }
+    },
+    "zero": {
+     "cap": "balance.tare"
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate",
+     "keys": {
+      "temperature_zero_k": {
+       "arg": "temperature_zero_k",
+       "kind": "temperature_delta"
+      }
+     }
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "furnace.opened",
+       "moving": [
+        "furnace.moving"
+       ],
+       "main": true,
+       "max_s": 180
+      },
+      "gas": {
+       "cap": "gas.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "gas.opened"
+      }
+     }
+    },
+    "analyze": {
+     "default": "stages",
+     "models": {
+      "stages": {
+       "cap": "analysis.mass_stages",
+       "arrays": {
+        "time_s": "elapsed_s",
+        "temperature_k": "sample_k",
+        "mass_kg": "mass_kg"
+       },
+       "zeros": [
+        "baseline_kg"
+       ],
+       "scalars": {
+        "initial_mass_kg": "first:mass_kg"
+       },
+       "indices": {
+        "arg": "stage_boundaries",
+        "key": "split",
+        "col": "sample_k",
+        "ends": true
+       },
+       "keys": {
+        "split": {
+         "ctl": "split",
+         "kind": "temperature",
+         "list": true,
+         "example": "380C,450C"
+        },
+        "initial": {
+         "arg": "initial_mass_kg",
+         "kind": "mass"
+        }
+       }
+      }
+     },
+     "example": "stages split=380C,450C"
+    }
+   },
+   "diagnose": {
+    "*": [
+     {
+      "slot": "furnace.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (furnace.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "carousel.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (carousel.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "punch.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (punch.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "emergency.latched",
+      "code": "ESTOP",
+      "message": "the emergency stop of {inst} is latched.",
+      "fix": "clear it (`chemlab call {inst} emergency.reset`) once it is safe.",
+      "falsy": true
+     }
+    ]
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "sample.indicated_k",
+    "furnace": "furnace.indicated_k",
+    "set": "thermal.final_target_k",
+    "ramp": "thermal.target_k",
+    "control": "thermal.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "open": "furnace.opened",
+    "gas": "gas.opened",
+    "flow": "gas.sample_flow_m3_s",
+    "gas_name": "gas.selected",
+    "mass": "mass.indicated_kg"
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_CLOSED",
+      "message": "the furnace of {inst} is closed; the autosampler reaches the balance only with it open.",
+      "fix": "open it: `chemlab run {inst} open furnace`.",
+      "label": "furnace open",
+      "truthy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "gas": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_CLOSED",
+      "message": "the furnace of {inst} is closed; the autosampler reaches the balance only with it open.",
+      "fix": "open it: `chemlab run {inst} open furnace` (once the furnace is below about 40 °C).",
+      "label": "furnace open",
+      "truthy": true
+     },
+     {
+      "slot": "thermal.enabled",
+      "code": "CONTROL_ON",
+      "message": "the furnace temperature control of {inst} is on.",
+      "fix": "switch it off and let it cool: `chemlab run {inst} set-temp off`, then `chemlab run {inst} wait-temp --to 40C --within 15K`.",
+      "label": "control off",
+      "falsy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no pan hangs on the balance of {inst}.",
+      "fix": "load one: `chemlab run {inst} load N` (N = tray position).",
+      "label": "pan on the balance",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_OPEN",
+      "message": "the furnace of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close furnace`.",
+      "label": "furnace closed",
+      "falsy": true
+     },
+     {
+      "slot": "gas.opened",
+      "code": "NO_PURGE",
+      "message": "the purge gas of {inst} is off.",
+      "fix": "switch it on: `chemlab run {inst} gas N2 25mL/min`.",
+      "label": "purge on",
+      "truthy": true
+     }
+    ],
+    "zero": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NOT_EMPTY",
+      "message": "a pan hangs on the balance of {inst}; it tares only empty.",
+      "fix": "unload it first: `chemlab run {inst} unload`.",
+      "label": "balance empty",
+      "falsy": true
+     }
+    ]
+   },
+   "params": {
+    "tolerance_k": 0.4,
+    "manual": "TGA 5500 SOPs (WWU) pp. 3-9; Discovery TGA brochure pp. 10-14"
+   },
+   "notes": {
+    "zero": [
+     "tare the empty balance before loading a pan (TGA SOP p. 3)"
+    ],
+    "method": [
+     "each ramp uses the gas given before it with gas=N2|O2 (default: the gas selected now)"
+    ],
+    "gas": [
+     "gas N2 25mL/min sets the sample purge; --balance 10mL/min the balance purge (default: unchanged)"
+    ]
+   }
+  },
+  "ta_dma850": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "kind": "set",
+     "cap": "clamp.set",
+     "arg": "locked",
+     "value": true,
+     "done_slot": "clamp.locked",
+     "busy": [
+      "clamp.moving"
+     ],
+     "word": "specimen clamped",
+     "max_s": 120,
+     "preload": {
+      "cap": "drive.preload",
+      "force_arg": "force_n",
+      "ramp_arg": "ramp_s",
+      "busy": [
+       "drive.moving"
+      ]
+     }
+    },
+    "unload": {
+     "kind": "set",
+     "cap": "clamp.set",
+     "arg": "locked",
+     "value": false,
+     "done_slot": "clamp.locked",
+     "busy": [
+      "clamp.moving"
+     ],
+     "word": "clamp released",
+     "max_s": 120,
+     "release": {
+      "cap": "drive.unload",
+      "ramp_arg": "ramp_s",
+      "slot": "drive.preload_n",
+      "busy": [
+       "drive.moving"
+      ]
+     }
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "rate": {
+       "arg": "heating_rate_k_s",
+       "kind": "heating_rate"
+      },
+      "cool": {
+       "arg": "cooling_rate_k_s",
+       "kind": "heating_rate"
+      },
+      "tolerance": {
+       "arg": "temperature_tolerance_k",
+       "kind": "temperature_delta"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      },
+      "samples": {
+       "arg": "samples_per_cycle"
+      }
+     },
+     "program": {
+      "arg": "blocks",
+      "key": "step",
+      "style": "step",
+      "range_key": "steps",
+      "fields": {
+       "target": {
+        "field": "temperature_k",
+        "kind": "temperature"
+       }
+      },
+      "sticky": {
+       "freq": {
+        "field": "frequency_hz",
+        "kind": "frequency"
+       },
+       "control": {
+        "field": "control"
+       },
+       "strain": {
+        "field": "strain_amplitude",
+        "kind": "fraction"
+       },
+       "amplitude": {
+        "field": "force_amplitude_n",
+        "kind": "force"
+       },
+       "settle": {
+        "field": "settle_cycles"
+       },
+       "cycles": {
+        "field": "measure_cycles"
+       }
+      },
+      "item_defaults": {
+       "*": "example"
+      }
+     },
+     "need": [
+      "step"
+     ],
+     "defaults": {
+      "heating_rate_k_s": "example",
+      "cooling_rate_k_s": "example",
+      "temperature_tolerance_k": "example",
+      "timeout_s": "example",
+      "samples_per_cycle": "example"
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "rate_arg": "rate_k_s",
+     "off_cap": "thermal.disable"
+    },
+    "temp": {
+     "reads": [
+      "sample.indicated_k",
+      "furnace.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "sample.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "gas": {
+     "open_cap": "gas.set_open",
+     "open_arg": "opened",
+     "open_slot": "gas.opened"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "columns": {
+      "sample_temperature_k": [
+       "sample temperature",
+       "temperature"
+      ],
+      "force_n": [
+       "force",
+       "force"
+      ],
+      "displacement_m": [
+       "displacement",
+       "length"
+      ]
+     },
+     "per_item": {
+      "path": "blocks",
+      "label": "block",
+      "fields": {
+       "mean_temperature_k": [
+        "at",
+        "temperature"
+       ],
+       "frequency_hz": [
+        "f",
+        "frequency"
+       ],
+       "analysis.storage_modulus_pa": [
+        "E' (Pa)",
+        null
+       ],
+       "analysis.loss_modulus_pa": [
+        "E'' (Pa)",
+        null
+       ],
+       "analysis.tan_delta": [
+        "tan delta",
+        null
+       ],
+       "analysis_error": [
+        "error",
+        null
+       ]
+      }
+     }
+    },
+    "zero": {
+     "cap": "sensor.zero"
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate",
+     "keys": {
+      "temperature_zero_k": {
+       "arg": "temperature_zero_k",
+       "kind": "temperature_delta"
+      }
+     }
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "furnace.opened",
+       "moving": [
+        "furnace.moving"
+       ],
+       "main": true,
+       "max_s": 180
+      },
+      "gas": {
+       "cap": "gas.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "gas.opened"
+      }
+     }
+    },
+    "analyze": {
+     "default": "modulus",
+     "models": {
+      "modulus": {
+       "cap": "analysis.modulus",
+       "pick": {
+        "key": "block",
+        "path": "blocks",
+        "rows_match": "block_index"
+       },
+       "filter": {
+        "stage": "measure"
+       },
+       "arrays": {
+        "time_s": "elapsed_s",
+        "force_n": "force_n",
+        "displacement_m": "displacement_m"
+       },
+       "scalars": {
+        "frequency_hz": "it:frequency_hz"
+       },
+       "keys": {
+        "block": {
+         "ctl": "block",
+         "kind": "number"
+        },
+        "length": {
+         "arg": "length_m",
+         "kind": "length"
+        },
+        "area": {
+         "arg": "area_m2",
+         "kind": "area"
+        }
+       },
+       "need": [
+        "length",
+        "area"
+       ]
+      },
+      "transition": {
+       "cap": "analysis.transition",
+       "rows": "blocks",
+       "arrays": {
+        "temperature_k": "mean_temperature_k",
+        "tan_delta": "analysis.tan_delta",
+        "frequency_hz": "frequency_hz"
+       },
+       "fix": "the transition needs at least 3 temperature blocks: `chemlab run INST method steps=FROM..TO/STEP`"
+      }
+     },
+     "example": "modulus length=10mm area=0.8mm2"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "sample.indicated_k",
+    "furnace": "furnace.indicated_k",
+    "set": "thermal.final_target_k",
+    "ramp": "thermal.target_k",
+    "control": "thermal.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "open": "furnace.opened",
+    "gas": "gas.opened",
+    "clamp": "clamp.locked",
+    "force": "force.indicated_n"
+   },
+   "diagnose": {
+    "*": [
+     {
+      "slot": "furnace.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (furnace.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "clamp.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (clamp.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "drive.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (drive.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "emergency.latched",
+      "code": "ESTOP",
+      "message": "the emergency stop of {inst} is latched.",
+      "fix": "clear it (`chemlab call {inst} emergency.reset`) once it is safe.",
+      "falsy": true
+     }
+    ]
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no specimen is mounted in the clamp of {inst}.",
+      "fix": "the lab operator mounts the specimen (it is not an agent action); ask for it.",
+      "label": "specimen mounted",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_CLOSED",
+      "message": "the furnace of {inst} is closed; the clamp moves only with it fully open.",
+      "fix": "open it: `chemlab run {inst} open furnace`.",
+      "label": "furnace open",
+      "truthy": true
+     }
+    ],
+    "load-preload": [
+     {
+      "slot": "gas.opened",
+      "code": "NO_AIR",
+      "message": "the purge / air bearing of {inst} is off; the drive applies a preload only with it on.",
+      "fix": "switch it on: `chemlab run {inst} gas on`.",
+      "label": "purge on",
+      "truthy": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_CLOSED",
+      "message": "the furnace of {inst} is closed; the clamp moves only with it fully open.",
+      "fix": "open it: `chemlab run {inst} open furnace`.",
+      "label": "furnace open",
+      "truthy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "gas": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "clamp.locked",
+      "code": "NOT_CLAMPED",
+      "message": "the specimen of {inst} is not clamped.",
+      "fix": "clamp it with a preload: `chemlab run {inst} load --preload 0.01N`.",
+      "label": "clamped",
+      "truthy": true
+     },
+     {
+      "slot": "drive.preload_n",
+      "code": "NO_PRELOAD",
+      "message": "the specimen of {inst} has no static preload.",
+      "fix": "apply one: `chemlab run {inst} load --preload 0.01N`.",
+      "label": "preload applied",
+      "min": 1e-09
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_OPEN",
+      "message": "the furnace of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close furnace`.",
+      "label": "furnace closed",
+      "falsy": true
+     }
+    ],
+    "zero": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NOT_EMPTY",
+      "message": "a specimen is mounted in {inst}; it zeroes only without one.",
+      "fix": "zero before the specimen is mounted.",
+      "label": "no specimen",
+      "falsy": true
+     }
+    ]
+   },
+   "params": {
+    "tolerance_k": 0.5,
+    "manual": "DMA 850 quick start (UCSB MRL) pp. 1-3; Discovery DMA 850 brochure pp. 9-28"
+   },
+   "notes": {
+    "load": [
+     "the specimen is mounted by the lab operator; load clamps it, --preload applies the static force the run needs"
+    ],
+    "method": [
+     "steps: step=TEMP (one isothermal block) or steps=FROM..TO/STEP; freq=, strain= (e.g. 0.01%), control=strain|force, amplitude=, settle=, cycles= apply to the blocks that follow (default: the contract's example block)"
+    ]
+   }
+  },
+  "ta_tma450": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "kind": "set",
+     "cap": "probe.contact",
+     "arg": "engaged",
+     "value": true,
+     "done_slot": "probe.engaged",
+     "busy": [
+      "probe.moving"
+     ],
+     "word": "probe on the specimen",
+     "max_s": 180
+    },
+    "unload": {
+     "kind": "set",
+     "cap": "probe.contact",
+     "arg": "engaged",
+     "value": false,
+     "done_slot": "probe.engaged",
+     "busy": [
+      "probe.moving"
+     ],
+     "word": "probe lifted",
+     "max_s": 180
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "start": {
+       "arg": "start_temperature_k",
+       "kind": "temperature"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      },
+      "tolerance": {
+       "arg": "start_tolerance_k",
+       "kind": "temperature_delta"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      }
+     },
+     "program": {
+      "arg": "segments",
+      "key": "ramp",
+      "style": "ramp",
+      "iso": "iso",
+      "hold_key": "hold",
+      "start_arg": "start_temperature_k",
+      "fields": {
+       "target": {
+        "field": "target_temperature_k",
+        "kind": "temperature"
+       },
+       "rate": {
+        "field": "temperature_rate_k_s",
+        "kind": "heating_rate"
+       },
+       "hold": {
+        "field": "hold_s",
+        "kind": "duration"
+       }
+      },
+      "sticky": {
+       "force": {
+        "field": "motor_force_n",
+        "kind": "force"
+       },
+       "force-rate": {
+        "field": "force_rate_n_s",
+        "kind": "force_rate"
+       }
+      },
+      "item_defaults": {
+       "hold_s": 0.0,
+       "motor_force_n": {
+        "slot": "load.motor_target_n"
+       },
+       "force_rate_n_s": "example"
+      }
+     },
+     "need": [
+      "start",
+      "ramp"
+     ],
+     "defaults": {
+      "sample_interval_s": "example",
+      "start_tolerance_k": "example",
+      "timeout_s": "auto_timeout",
+      "accept_condition_transfer": "example"
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "rate_arg": "rate_k_s",
+     "off_cap": "thermal.disable"
+    },
+    "temp": {
+     "reads": [
+      "sample.indicated_k",
+      "furnace.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "sample.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "gas": {
+     "select_cap": "gas.select",
+     "select_arg": "port",
+     "flow_cap": "gas.set_flow",
+     "flow_arg": "flow_m3_s",
+     "open_cap": "gas.set_open",
+     "open_arg": "opened",
+     "open_slot": "gas.opened",
+     "selected_slot": "gas.selected_port",
+     "close_to_select": true
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "columns": {
+      "temperature_k": [
+       "sample temperature",
+       "temperature"
+      ],
+      "displacement_m": [
+       "displacement",
+       "length"
+      ],
+      "force_n": [
+       "force",
+       "force"
+      ]
+     }
+    },
+    "zero": {
+     "cap": "displacement.zero"
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate",
+     "keys": {
+      "temperature_zero_k": {
+       "arg": "temperature_zero_k",
+       "kind": "temperature_delta"
+      }
+     }
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "furnace.opened",
+       "moving": [
+        "furnace.moving"
+       ],
+       "main": true,
+       "max_s": 180
+      },
+      "gas": {
+       "cap": "gas.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "gas.opened"
+      }
+     }
+    },
+    "analyze": {
+     "default": "cte",
+     "models": {
+      "cte": {
+       "cap": "analysis.cte",
+       "arrays": {
+        "temperature_k": "temperature_k",
+        "displacement_m": "displacement_m"
+       },
+       "zeros": [
+        "blank_m"
+       ],
+       "window": {
+        "col": "temperature_k"
+       },
+       "window_index": {
+        "start_index": [
+         "from",
+         "first"
+        ],
+        "end_index": [
+         "to",
+         "last"
+        ]
+       },
+       "keys": {
+        "from": {
+         "ctl": "from",
+         "kind": "temperature"
+        },
+        "to": {
+         "ctl": "to",
+         "kind": "temperature"
+        },
+        "length": {
+         "arg": "initial_length_m",
+         "kind": "length"
+        }
+       },
+       "need": [
+        "length"
+       ]
+      }
+     },
+     "example": "cte length=1.6mm from=35C to=75C"
+    }
+   },
+   "diagnose": {
+    "*": [
+     {
+      "slot": "furnace.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (furnace.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "probe.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (probe.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "emergency.latched",
+      "code": "ESTOP",
+      "message": "the emergency stop of {inst} is latched.",
+      "fix": "clear it (`chemlab call {inst} emergency.reset`) once it is safe.",
+      "falsy": true
+     }
+    ]
+   },
+   "targets": {
+    "channel": {
+     "arg": "port",
+     "values": {
+      "1": 1,
+      "2": 2
+     },
+     "verbs": [
+      "gas"
+     ]
+    }
+   },
+   "codes": {
+    "PURGE_NOT_READY": {
+     "code": "NO_PURGE",
+     "message": "the purge of {inst} is off or too weak to heat (it needs at least 100 mL/min; 200 mL/min below -100 °C).",
+     "fix": "set it: `chemlab run {inst} gas 100mL/min`."
+    },
+    "PURGE_FLOW_TOO_LOW": {
+     "code": "NO_PURGE",
+     "message": "the purge flow of {inst} is too low (at least 100 mL/min).",
+     "fix": "`chemlab run {inst} gas 100mL/min`."
+    },
+    "GAS_VALVE_OPEN": {
+     "code": "VALVE_OPEN",
+     "message": "{inst} switches the gas port only with the purge valve closed.",
+     "fix": "`chemlab run {inst} gas off`, then select."
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "sample.indicated_k",
+    "furnace": "furnace.indicated_k",
+    "set": "thermal.final_target_k",
+    "ramp": "thermal.target_k",
+    "control": "thermal.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "open": "furnace.opened",
+    "gas": "gas.opened",
+    "flow": "gas.flow_m3_s",
+    "probe": "probe.engaged",
+    "force": "force.indicated_n"
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no specimen sits on the stage of {inst}.",
+      "fix": "the lab operator places the specimen; ask for it.",
+      "label": "specimen on the stage",
+      "truthy": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_CLOSED",
+      "message": "the furnace of {inst} is closed; the probe lifts only with it open.",
+      "fix": "open it: `chemlab run {inst} open furnace`.",
+      "label": "furnace open",
+      "truthy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "gas": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "probe.engaged",
+      "code": "NO_CONTACT",
+      "message": "the probe of {inst} does not touch the specimen.",
+      "fix": "bring it down: `chemlab run {inst} load`.",
+      "label": "probe on the specimen",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_OPEN",
+      "message": "the furnace of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close furnace`.",
+      "label": "furnace closed",
+      "falsy": true
+     }
+    ],
+    "zero": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "probe.engaged",
+      "code": "NO_CONTACT",
+      "message": "the probe of {inst} does not touch the specimen; it zeroes the displacement in contact.",
+      "fix": "bring it down first: `chemlab run {inst} load`.",
+      "label": "probe in contact",
+      "truthy": true
+     }
+    ]
+   },
+   "params": {
+    "tolerance_k": 0.5,
+    "manual": "Discovery TMA 450 brochure pp. 5-8, 16-18, 21-30; TMA Q400 SOP (TXST) pp. 3-8"
+   },
+   "notes": {
+    "method": [
+     "ramps take the probe force given before them with force=0.05N (default: the force set now) and force-rate=0.1N/s"
+    ],
+    "gas": [
+     "--channel 1|2 selects the gas inlet port"
+    ]
+   }
+  },
+  "netzsch_lfa467": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "kind": "select",
+     "cap": "sampler.select",
+     "arg": "position",
+     "busy": [
+      "sampler.moving"
+     ],
+     "max_s": 120,
+     "position_slot": "sample.position"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "rate": {
+       "arg": "rate_k_s",
+       "kind": "heating_rate"
+      },
+      "tolerance": {
+       "arg": "equilibrium_tolerance_k",
+       "kind": "temperature_delta"
+      },
+      "dwell": {
+       "arg": "equilibrium_dwell_s",
+       "kind": "duration"
+      },
+      "pretrigger": {
+       "arg": "pretrigger_s",
+       "kind": "duration"
+      },
+      "energy": {
+       "arg": "pulse_energy_j",
+       "kind": "energy"
+      },
+      "width": {
+       "arg": "pulse_width_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      },
+      "record": {
+       "arg": "record_duration_s",
+       "kind": "duration"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      }
+     },
+     "need": [
+      "temp"
+     ],
+     "defaults": {
+      "rate_k_s": "example",
+      "equilibrium_dwell_s": "example",
+      "pretrigger_s": "example",
+      "pulse_energy_j": "example",
+      "pulse_width_s": "example",
+      "sample_interval_s": "example",
+      "record_duration_s": "example",
+      "equilibrium_tolerance_k": {
+       "value": 0.2,
+       "why": "class default: the furnace settles about 0.08 K off its set point, so the example 0.05 K is not reached above room temperature"
+      },
+      "timeout_s": {
+       "value": 3600.0,
+       "why": "class default: 1 h for heating and equilibration"
+      },
+      "accept_condition_transfer": "example"
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "rate_arg": "rate_k_s",
+     "off_cap": "thermal.disable"
+    },
+    "temp": {
+     "reads": [
+      "furnace.indicated_k",
+      "detector.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "furnace.indicated_k",
+      "thermal.final_target_k"
+     ]
+    },
+    "gas": {
+     "flow_cap": "gas.set_flow",
+     "flow_arg": "flow_m3_s",
+     "open_cap": "gas.set_open",
+     "open_arg": "opened",
+     "channel_arg": "channel",
+     "open_slot": {
+      "purge1": "gas.purge1.opened",
+      "purge2": "gas.purge2.opened",
+      "protective": "gas.protective.opened"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "show": {
+      "pulse_time_s": [
+       "pulse at (s)",
+       null
+      ],
+      "stage": [
+       "stage",
+       null
+      ]
+     },
+     "columns": {
+      "temperature_k": [
+       "rear-face temperature",
+       "temperature"
+      ]
+     }
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate",
+     "keys": {
+      "temperature_zero_k": {
+       "arg": "temperature_zero_k",
+       "kind": "temperature_delta"
+      }
+     }
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false,
+       "state_slot": "furnace.opened",
+       "moving": [
+        "furnace.moving"
+       ],
+       "main": true,
+       "max_s": 180
+      }
+     }
+    },
+    "analyze": {
+     "default": "parker",
+     "models": {
+      "parker": {
+       "cap": "analysis.parker",
+       "arrays": {
+        "time_s": "time_s",
+        "temperature_k": "temperature_k"
+       },
+       "scalars": {
+        "pulse_time_s": "result:pulse_time_s",
+        "baseline_k": "mean_before:temperature_k<time_s@pulse_time_s",
+        "plateau_k": "max:temperature_k"
+       },
+       "keys": {
+        "thickness": {
+         "arg": "thickness_m",
+         "kind": "length"
+        }
+       },
+       "need": [
+        "thickness"
+       ],
+       "defaults": {
+        "accept_adiabatic_instant_pulse": "example"
+       }
+      }
+     },
+     "example": "parker thickness=2mm"
+    }
+   },
+   "diagnose": {
+    "*": [
+     {
+      "slot": "furnace.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (furnace.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "sampler.moving",
+      "code": "MOVING",
+      "message": "{inst} is still moving (sampler.moving).",
+      "fix": "wait until it has stopped (`chemlab wait 30`), then retry.",
+      "falsy": true
+     },
+     {
+      "slot": "emergency.latched",
+      "code": "ESTOP",
+      "message": "the emergency stop of {inst} is latched.",
+      "fix": "clear it (`chemlab call {inst} emergency.reset`) once it is safe.",
+      "falsy": true
+     }
+    ]
+   },
+   "targets": {
+    "channel": {
+     "arg": "channel",
+     "values": {
+      "purge1": "purge1",
+      "purge2": "purge2",
+      "protective": "protective"
+     },
+     "required": true,
+     "verbs": [
+      "gas"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "furnace.indicated_k",
+    "rear": "detector.indicated_k",
+    "set": "thermal.final_target_k",
+    "ramp": "thermal.target_k",
+    "control": "thermal.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "open": "furnace.opened",
+    "detector": "detector.enabled"
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "gas.protective.opened",
+      "code": "NO_PURGE",
+      "message": "the protective gas of {inst} is off (it heats only with the protective gas and a purge line).",
+      "fix": "open them: `chemlab run {inst} gas 50mL/min --channel protective` and `... --channel purge1`.",
+      "label": "protective gas on",
+      "truthy": true
+     }
+    ],
+    "gas": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "the sample changer of {inst} holds no specimen.",
+      "fix": "the lab operator inserts the specimen; ask for it.",
+      "label": "specimen in the changer",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.opened",
+      "code": "FURNACE_OPEN",
+      "message": "the furnace of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close furnace`.",
+      "label": "furnace closed",
+      "falsy": true
+     },
+     {
+      "slot": "detector.ready",
+      "code": "DETECTOR_OFF",
+      "message": "the IR detector of {inst} is not ready (off or still cooling down).",
+      "fix": "switch it on: `chemlab call {inst} detector.set_enabled --enabled true`, then wait about a minute (`chemlab wait 60`).",
+      "label": "detector ready",
+      "truthy": true
+     },
+     {
+      "slot": "gas.protective.opened",
+      "code": "NO_PURGE",
+      "message": "the protective gas of {inst} is off (it needs the protective gas and a purge line to heat).",
+      "fix": "open them: `chemlab run {inst} gas 50mL/min --channel protective` and `chemlab run {inst} gas 50mL/min --channel purge1`.",
+      "label": "protective gas on",
+      "truthy": true
+     }
+    ]
+   },
+   "unsupported": {
+    "unload": "the 16-position sample changer keeps the specimens in the furnace; removing one is done by the lab operator (select another with `load N`)",
+    "zero": "no zero capability: the detector signal is evaluated against its own pre-pulse baseline"
+   },
+   "alternatives": {
+    "unload": "select another position: `chemlab run INST load N`."
+   },
+   "params": {
+    "tolerance_k": 0.3,
+    "labels": {
+     "temp": "furnace"
+    },
+    "manual": "LFA 467 HyperFlash brochure pp. 3-5, 9-20; LFA 467 key technical data p. 1"
+   },
+   "notes": {
+    "start": [
+     "the run heats to temp=, waits for equilibrium (tolerance=, dwell=), fires the pulse and records the rear face"
+    ],
+    "gas": [
+     "--channel purge1|purge2|protective is required; heating needs the protective gas and one purge line"
+    ]
+   }
+  },
+  "hot_tps2500": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "power": {
+       "arg": "power_w",
+       "kind": "power"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      },
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "model": {
+       "arg": "geometry_model"
+      }
+     },
+     "defaults": {
+      "power_w": {
+       "slot": "method.power_w"
+      },
+      "duration_s": {
+       "slot": "method.duration_s"
+      },
+      "sample_interval_s": "example",
+      "temperature_k": {
+       "slot": "method.temperature_k"
+      },
+      "geometry_model": "example",
+      "accept_gaussian_plane_approximation": "example"
+     }
+    },
+    "temp": {
+     "reads": [
+      "measurement.indicated_k"
+     ]
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "show": {
+      "fit.conductivity_w_m_k": [
+       "conductivity (W/m/K)",
+       null
+      ],
+      "fit.diffusivity_m2_s": [
+       "diffusivity (m2/s)",
+       null
+      ],
+      "fit.volumetric_heat_capacity_j_m3_k": [
+       "heat capacity (J/m3/K)",
+       null
+      ]
+     },
+     "columns": {
+      "temperature_rise_k": [
+       "temperature rise",
+       "temperature_delta"
+      ]
+     }
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate",
+     "keys": {
+      "offset_correction_k": {
+       "arg": "offset_correction_k",
+       "kind": "temperature_delta"
+      }
+     }
+    },
+    "analyze": {
+     "default": "fit",
+     "models": {
+      "fit": {
+       "cap": "analysis.fit",
+       "arrays": {
+        "time_s": "time_s",
+        "temperature_rise_k": "temperature_rise_k"
+       },
+       "scalars": {
+        "power_w": "first:power_w"
+       },
+       "keys": {
+        "radius": {
+         "arg": "radius_m",
+         "kind": "length"
+        }
+       },
+       "defaults": {
+        "radius_m": "example",
+        "minimum_diffusivity_m2_s": "example",
+        "maximum_diffusivity_m2_s": "example",
+        "accept_gaussian_plane_approximation": "example"
+       }
+      }
+     },
+     "example": "fit"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "measurement.indicated_k",
+    "phase": "acquisition.phase",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "sensor": "probe.connected"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "probe.connected",
+      "code": "NO_SENSOR",
+      "message": "no sensor is connected to {inst}.",
+      "fix": "the lab operator connects the Kapton sensor; ask for it.",
+      "label": "sensor connected",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no specimen halves are in the holder of {inst}.",
+      "fix": "the lab operator mounts the specimen; ask for it.",
+      "label": "specimen mounted",
+      "truthy": true
+     },
+     {
+      "slot": "fixture.closed",
+      "code": "NOT_CLAMPED",
+      "message": "the specimen holder of {inst} is not clamped.",
+      "fix": "the lab operator clamps the sensor between the halves; ask for it.",
+      "label": "holder clamped",
+      "truthy": true
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the specimen halves, the sensor clamp and the hood are set by the lab operator (no agent capability)",
+    "unload": "the specimen is removed by the lab operator (no agent capability)",
+    "set-temp": "no temperature control: the transient plane source measures at the room temperature of the lab",
+    "wait-temp": "no set point to wait for (room temperature measurement)",
+    "gas": "no purge gas",
+    "zero": "no zero capability",
+    "open": "the hood and the specimen clamp are moved by the lab operator (no agent capability)",
+    "close": "the hood and the specimen clamp are moved by the lab operator (no agent capability)"
+   },
+   "notes": {
+    "method": [
+     "temp= is the room-temperature boundary and must equal it: leave it out to keep the current one"
+    ]
+   },
+   "params": {
+    "manual": "TPS 2500 S brochure (2026) pp. 2-7, 10-11; Hot Disk Desktop App page"
+   }
+  },
+  "ta_tamiv": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      },
+      "tolerance": {
+       "arg": "equilibrium_tolerance_k",
+       "kind": "temperature_delta"
+      }
+     },
+     "need": [
+      "time"
+     ],
+     "defaults": {
+      "sample_interval_s": "example",
+      "equilibrium_tolerance_k": "example"
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "off_cap": "thermal.disable"
+    },
+    "temp": {
+     "reads": [
+      "bath.indicated_k",
+      "bath.target_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "bath.indicated_k",
+      "bath.target_k"
+     ]
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "show": {
+      "recorded_heat_j": [
+       "recorded heat (J)",
+       null
+      ]
+     },
+     "columns": {
+      "heat_flow_w": [
+       "heat flow (W)",
+       null
+      ],
+      "bath_temperature_k": [
+       "bath",
+       "temperature"
+      ]
+     }
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate"
+    },
+    "analyze": {
+     "default": "baseline",
+     "models": {
+      "baseline": {
+       "cap": "analysis.baseline",
+       "arrays": {
+        "time_s": "time_s",
+        "heat_flow_w": "heat_flow_w"
+       }
+      }
+     },
+     "example": "baseline"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "bath.indicated_k",
+    "set": "bath.target_k",
+    "control": "thermal.enabled",
+    "phase": "acquisition.phase",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "ref": "reference.present"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no sample ampoule is in {inst}.",
+      "fix": "the lab operator inserts the ampoules; ask for it.",
+      "label": "sample ampoule",
+      "truthy": true
+     },
+     {
+      "slot": "reference.present",
+      "code": "NO_REFERENCE",
+      "message": "no reference ampoule is in {inst}.",
+      "fix": "the lab operator inserts the reference ampoule; ask for it.",
+      "label": "reference ampoule",
+      "truthy": true
+     },
+     {
+      "slot": "sample.lift_m",
+      "code": "NOT_LOWERED",
+      "message": "the sample ampoule of {inst} is not lowered into the measuring position (lift {value} m).",
+      "fix": "the lab operator lowers it (in steps, to avoid a heat shock); ask for it.",
+      "label": "ampoule lowered",
+      "max": 1e-06
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the ampoules are inserted and lowered by the lab operator (no agent capability)",
+    "unload": "the ampoules are lifted and removed by the lab operator (no agent capability)",
+    "gas": "no purge gas (closed ampoules in a liquid thermostat)",
+    "zero": "no zero capability: the baseline is set with calibrate",
+    "open": "no lid or door with an agent capability",
+    "close": "no lid or door with an agent capability"
+   },
+   "params": {
+    "tolerance_k": 0.1,
+    "poll_s": 10.0,
+    "manual": "TAM IV brochure pp. 4-13, 45-46; TAM basic theory and applications pp. 15, 50-62"
+   },
+   "notes": {
+    "set-temp": [
+     "the thermostat scans slowly (manual: at most about 2 °C/h); wait-temp waits for the bath"
+    ]
+   }
+  },
+  "netzsch_mmc315": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "start": {
+       "arg": "start_temperature_k",
+       "kind": "temperature"
+      },
+      "end": {
+       "arg": "end_temperature_k",
+       "kind": "temperature"
+      },
+      "step": {
+       "arg": "step_k",
+       "kind": "temperature_delta"
+      },
+      "rate": {
+       "arg": "heat_rate_k_min",
+       "kind": "heating_rate"
+      },
+      "wait": {
+       "arg": "wait_min",
+       "kind": "duration"
+      },
+      "search": {
+       "arg": "search_min",
+       "kind": "duration"
+      },
+      "threshold": {
+       "arg": "threshold_k_min",
+       "kind": "heating_rate"
+      },
+      "max-pressure": {
+       "arg": "max_pressure_pa",
+       "kind": "pressure"
+      },
+      "max-rate": {
+       "arg": "max_rate_k_min",
+       "kind": "heating_rate"
+      },
+      "iso": {
+       "arg": "iso_temperature_k",
+       "kind": "temperature"
+      },
+      "iso-time": {
+       "arg": "iso_hours",
+       "kind": "duration"
+      },
+      "cool-to": {
+       "arg": "cool_to_k",
+       "kind": "temperature"
+      },
+      "interval": {
+       "arg": "data_interval_s",
+       "kind": "duration"
+      }
+     },
+     "need": [
+      "start",
+      "end"
+     ],
+     "defaults": {
+      "mode": "example",
+      "step_k": "example",
+      "heat_rate_k_min": "example",
+      "wait_min": "example",
+      "search_min": "example",
+      "threshold_k_min": "example",
+      "max_pressure_pa": "example",
+      "max_rate_k_min": "example",
+      "iso_temperature_k": "example",
+      "iso_hours": "example",
+      "cool_to_k": "example",
+      "data_interval_s": "example"
+     }
+    },
+    "temp": {
+     "reads": [
+      "sample.indicated_k",
+      "jacket.indicated_k"
+     ]
+    },
+    "start": {
+     "cap": "test.start"
+    },
+    "stop": {
+     "cap": "test.stop"
+    },
+    "result": {
+     "cap": "test.result",
+     "rows": "points",
+     "show": {
+      "exotherm_count": [
+       "exotherms",
+       null
+      ],
+      "max_temperature_k": [
+       "max temperature",
+       "temperature"
+      ],
+      "max_pressure_pa": [
+       "max pressure",
+       "pressure"
+      ],
+      "phi": [
+       "phi factor",
+       null
+      ],
+      "validity": [
+       "validity",
+       null
+      ]
+     },
+     "columns": {
+      "sample_k": [
+       "sample temperature",
+       "temperature"
+      ],
+      "pressure_pa": [
+       "pressure",
+       "pressure"
+      ],
+      "self_heat_rate_k_min": [
+       "self-heat rate (K/min)",
+       null
+      ]
+     }
+    },
+    "analyze": {
+     "default": "kinetics",
+     "models": {
+      "kinetics": {
+       "cap": "analysis.kinetics",
+       "rows": "points",
+       "filter": {
+        "stage": "exotherm"
+       },
+       "positive": "self_heat_rate_k_min",
+       "arrays": {
+        "temperatures_k": "sample_k",
+        "self_heat_rates_k_min": "self_heat_rate_k_min"
+       },
+       "scalars": {
+        "onset_temperature_k": "result:exotherms.0.onset_temperature_k",
+        "final_temperature_k": "result:exotherms.0.max_temperature_k",
+        "phi": "result:phi"
+       },
+       "keys": {
+        "n": {
+         "arg": "n"
+        }
+       },
+       "defaults": {
+        "n": "example"
+       },
+       "fix": "the kinetics need a test with an exotherm (`chemlab run INST result` shows exotherms)"
+      }
+     },
+     "example": "kinetics"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "sample.indicated_k",
+    "jacket": "jacket.indicated_k",
+    "phase": "test.running",
+    "stage": "test.stage",
+    "sample": "sample.loaded",
+    "pressure": "pressure.indicated_pa"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one: `chemlab run {inst} method start=50C end=220C`.",
+      "label": "method set",
+      "truthy": true
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no sample bomb is in the calorimeter of {inst}.",
+      "fix": "the lab operator loads the bomb; ask for it.",
+      "label": "bomb loaded",
+      "truthy": true
+     },
+     {
+      "slot": "lid.closed",
+      "code": "LID_OPEN",
+      "message": "the calorimeter lid of {inst} is open.",
+      "fix": "the lab operator closes it; ask for it.",
+      "label": "lid closed",
+      "truthy": true
+     },
+     {
+      "slot": "tray.docked",
+      "code": "TRAY_OUT",
+      "message": "the sample tray of {inst} is not docked.",
+      "fix": "the lab operator docks it; ask for it.",
+      "label": "tray docked",
+      "truthy": true
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the bomb, lid and tray are handled by the lab operator (no agent capability)",
+    "unload": "the bomb is removed by the lab operator (no agent capability)",
+    "set-temp": "no separate set point: the jacket follows the method (heat-wait-search, ramp or isothermal)",
+    "wait-temp": "no set point to wait for (the method drives the temperature)",
+    "gas": "no purge gas",
+    "zero": "no zero capability",
+    "calibrate": "no calibration capability",
+    "open": "the calorimeter lid is moved by the lab operator (no agent capability)",
+    "close": "the calorimeter lid is moved by the lab operator (no agent capability)"
+   },
+   "params": {
+    "job_poll_s": 60.0,
+    "manual": "MMC 274 Nexus brochure pp. 3, 5-9; NETZSCH advanced materials testing overview p. 24 (MMC 315)"
+   },
+   "notes": {
+    "method": [
+     "mode=hws|iso_fixed|iso_track|ramp (default: hws); start= and end= are needed; the other settings default to the contract's heat-wait-search example"
+    ]
+   }
+  },
+  "ika_c6000": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "kind": "vessel",
+     "cap": "vessel.hang",
+     "scan_cap": "vessel.scan",
+     "confirm_cap": "measurement.confirm",
+     "phase_slot": "measurement.phase",
+     "await_phase": "awaiting_vessel",
+     "auto_slot": "settings.auto_vessel_detection"
+    },
+    "unload": {
+     "kind": "vessel",
+     "cap": "vessel.remove",
+     "hung_slot": "vessel.hung_rfid"
+    },
+    "method": {
+     "calls": [
+      {
+       "cap": "mode.set",
+       "keys": {
+        "mode": {
+         "arg": "mode"
+        }
+       },
+       "passthrough": false
+      },
+      {
+       "cap": "measurement.create",
+       "keys": {
+        "name": {
+         "arg": "name"
+        },
+        "mass": {
+         "arg": "sample_mass_kg",
+         "kind": "mass"
+        },
+        "kind": {
+         "arg": "kind"
+        },
+        "vessel": {
+         "arg": "vessel_name"
+        },
+        "aid": {
+         "arg": "aids",
+         "record": [
+          [
+           "aid_name",
+           null
+          ],
+          [
+           "mass_kg",
+           "mass"
+          ]
+         ],
+         "sep": ":",
+         "example": "IKA cotton wool thread"
+        }
+       },
+       "need": [
+        "name",
+        "mass"
+       ],
+       "defaults": {
+        "kind": {
+         "value": "measurement",
+         "why": "a measurement (kind=calibration for a benzoic acid calibration)"
+        },
+        "vessel_name": {
+         "value": null,
+         "why": "automatic vessel detection (RFID)"
+        },
+        "aids": {
+         "value": [],
+         "why": "no combustion aids"
+        }
+       }
+      }
+     ]
+    },
+    "temp": {
+     "reads": [
+      "inner.indicated_k",
+      "outer.indicated_k"
+     ]
+    },
+    "start": {
+     "cap": "measurement.start",
+     "id_arg": "measurement_id",
+     "list_slot": "measurements.list",
+     "id_field": "measurement_id",
+     "status": "created"
+    },
+    "stop": {
+     "cap": "measurement.cancel"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "id_arg": "measurement_id",
+     "list_slot": "measurements.list",
+     "id_field": "measurement_id",
+     "current_slot": "measurement.id",
+     "rows": "points",
+     "show": {
+      "name": [
+       "name",
+       null
+      ],
+      "delta_t_k": [
+       "corrected temperature rise",
+       "temperature_delta"
+      ],
+      "gross_calorific_value_j_kg": [
+       "gross calorific value (J/kg)",
+       null
+      ],
+      "c_value_j_k": [
+       "C value (J/K)",
+       null
+      ],
+      "total_heat_j": [
+       "total heat",
+       "energy"
+      ]
+     }
+    },
+    "calibrate": {
+     "cap": "vessel.set_c_value",
+     "keys": {
+      "c": {
+       "arg": "c_value_j_k",
+       "kind": "heat_capacity"
+      },
+      "vessel": {
+       "arg": "vessel_name"
+      },
+      "mode": {
+       "arg": "mode"
+      }
+     },
+     "need": [
+      "c"
+     ],
+     "defaults": {
+      "vessel_name": {
+       "slot": "vessels.registered",
+       "only_key": true
+      },
+      "mode": {
+       "slot": "mode.working"
+      }
+     }
+    },
+    "open": {
+     "parts": {
+      "cover": {
+       "open_cap": "cover.open",
+       "close_cap": "cover.close",
+       "state_slot": "cover.state",
+       "open_state": "open",
+       "close_state": "closed",
+       "main": true,
+       "max_s": 120
+      }
+     }
+    },
+    "analyze": {
+     "default": "evaluate",
+     "models": {
+      "evaluate": {
+       "cap": "measurement.evaluate",
+       "id_arg": "measurement_id",
+       "keys": {
+        "sulfur": {
+         "arg": "sulfur_mass_fraction",
+         "kind": "fraction"
+        },
+        "acid": {
+         "arg": "total_acid_mol"
+        },
+        "hydrogen": {
+         "arg": "hydrogen_mass_fraction",
+         "kind": "fraction"
+        },
+        "moisture": {
+         "arg": "moisture_mass_fraction",
+         "kind": "fraction"
+        }
+       },
+       "defaults": {
+        "sulfur_mass_fraction": {
+         "value": 0.0,
+         "why": "no sulfur given"
+        },
+        "total_acid_mol": {
+         "value": null,
+         "why": "no titration"
+        },
+        "hydrogen_mass_fraction": {
+         "value": null,
+         "why": "no net calorific value"
+        },
+        "moisture_mass_fraction": {
+         "value": 0.0,
+         "why": "dry sample"
+        }
+       }
+      }
+     },
+     "example": "evaluate sulfur=0.1% hydrogen=4.95%"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "inner.indicated_k",
+    "jacket": "outer.indicated_k",
+    "busy": "measurement.id",
+    "system": "system.state",
+    "mode": "mode.working",
+    "cover": "cover.state",
+    "record": "measurement.id",
+    "record_phase": "measurement.phase",
+    "vessel": "vessel.hung_rfid",
+    "result": "result.gross_calorific_value_j_kg"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "mode.working",
+      "code": "MODE_MISMATCH",
+      "message": "the working mode {value} of {inst} does not match the cooling water (the offered modes are in mode.available).",
+      "fix": "choose an offered mode: `chemlab run {inst} method mode=MODE` (see `chemlab read {inst} mode.available`), then wait for the system test (`chemlab wait 7min`).",
+      "label": "working mode offered",
+      "in_slot": "mode.available"
+     },
+     {
+      "slot": "system.state",
+      "code": "NOT_READY",
+      "message": "{inst} is not ready to measure (system state {value}).",
+      "fix": "wait until the system test has finished (`chemlab wait 7min`, then `chemlab run {inst} status`).",
+      "label": "system waiting",
+      "value": "wait"
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ]
+   },
+   "codes": {
+    "RUN_MODE_NOT_POSSIBLE": {
+     "code": "MODE_MISMATCH",
+     "message": "the working mode of {inst} does not match the cooling water temperature (E26).",
+     "fix": "choose an offered mode: `chemlab run {inst} method mode=MODE`, then wait for the system test (about 7 min: `chemlab wait 7min`).",
+     "show": [
+      "mode.working",
+      "mode.available"
+     ]
+    }
+   },
+   "params": {
+    "labels": {
+     "temp": "inner vessel",
+     "jacket": "outer jacket"
+    },
+    "manual": "C 6000 operating instructions pp. 2-3, 6-11"
+   },
+   "diagnose": {
+    "start": [
+     {
+      "slot": "cover.state",
+      "code": "COVER_CLOSED",
+      "message": "the cover of {inst} is {value}; a measurement starts with it open.",
+      "fix": "open it: `chemlab run {inst} open cover`.",
+      "value": "open"
+     }
+    ]
+   },
+   "unsupported": {
+    "set-temp": "no free set point: the jacket start temperature (22, 25 or 30 °C) is part of the working mode, matched to the cooling water",
+    "wait-temp": "no set point to wait for (the measurement controls the temperatures)",
+    "gas": "no purge gas: oxygen filling is a step of every measurement",
+    "zero": "no zero capability: drift is corrected from the fore and after periods"
+   },
+   "alternatives": {
+    "set-temp": "choose the working mode: `chemlab run INST method mode=isoperibol_25` (only modes that match the cooling water are offered)."
+   },
+   "notes": {
+    "start": [
+     "after start the C 6000 waits for the vessel: `chemlab run INST load RFID` scans, hangs and confirms it"
+    ],
+    "start-after": [
+     "the C 6000 now waits for the vessel: hang it with `chemlab run ika_c6000 load RFID` (the bomb's RFID)"
+    ],
+    "method": [
+     "method name=... mass=1g creates a measurement record (kind=calibration for a calibration); mode= changes the working mode first",
+     "aid=NAME[:MASS] adds a combustion aid (repeatable)"
+    ],
+    "calibrate": [
+     "calibrate c=8700J/K sets the C value of the vessel (default: the only registered vessel) in the working mode"
+    ]
+   }
+  }
+ }
+}

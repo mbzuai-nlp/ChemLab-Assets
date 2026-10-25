@@ -1,0 +1,454 @@
+{
+ "class": "wash_sterilize",
+ "adapter": "chemlab.compile.classes.wash_sterilize:WashSterilizeAdapter",
+ "about": "Washing and sterilization cycles: program, configure, load, unload, start (job), stop, pause, open/close (door / lid), status. power, ack, estop come from the shared layer.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "miele_plw6111",
+   "tuttnauer_3870elvd"
+  ],
+  "secondary": {},
+  "not_mapped": {
+   "elma_elmasonics60h": "ultrasonic cleaning bath: its cleaning is sonication with heat (agitation primary, thermal secondary); no programme object",
+   "biotek_405ts": "plate washer: its wash programmes belong to the bioassay class (primary) with plate handling"
+  }
+ },
+ "members": {
+  "miele_plw6111": {
+   "role": "primary",
+   "verbs": {
+    "program": {
+     "cap": "programme.select",
+     "arg": "programme_id"
+    },
+    "configure": {
+     "cap": "programme.set_drying",
+     "keys": {
+      "drying": {
+       "cap": "programme.set_drying",
+       "arg": "enabled"
+      }
+     },
+     "not_here": {
+      "temp": "the temperatures are fixed in the programme blocks (customer programmes: `chemlab call INST programmes.set_block`)",
+      "time": "the hold times are fixed in the programme blocks (customer programmes: `chemlab call INST programmes.set_block`)"
+     }
+    },
+    "start": {
+     "cap": "programme.start",
+     "job": "state",
+     "max_s": 14400,
+     "state": {
+      "slot": "programme.status",
+      "done": [
+       "end"
+      ],
+      "failed": [
+       "cancelled",
+       "malfunction",
+       "power_fail"
+      ],
+      "paused": [
+       "interrupted"
+      ]
+     }
+    },
+    "stop": {
+     "cap": "programme.cancel"
+    },
+    "pause": {
+     "on_cap": "programme.interrupt",
+     "off_cap": "programme.resume"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "open_cap": "door.open",
+       "close_cap": "door.close",
+       "closed_slot": "door.closed"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "program": "programme.selected",
+    "state": "programme.status",
+    "phase": "program.phase",
+    "remaining": "programme.remaining_s",
+    "door": "door.closed",
+    "locked": "door.locked",
+    "temp": "water.indicated_temperature_k"
+   },
+   "requires": {
+    "program": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "programme.status",
+      "code": "BUSY",
+      "message": "a programme is {value} on {inst}.",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "in": [
+       "ready",
+       "end",
+       "cancelled"
+      ],
+      "label": "no programme running"
+     }
+    ],
+    "configure": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "programme.status",
+      "code": "BUSY",
+      "message": "a programme is {value} on {inst}.",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "in": [
+       "ready",
+       "end",
+       "cancelled"
+      ],
+      "label": "no programme running"
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "programme.status",
+      "code": "BUSY",
+      "message": "a programme is {value} on {inst}.",
+      "fix": "wait for it (`chemlab status`) or stop it: `chemlab run {inst} stop`.",
+      "in": [
+       "ready",
+       "end",
+       "cancelled"
+      ],
+      "label": "no programme running"
+     },
+     {
+      "slot": "door.closed",
+      "code": "DOOR_OPEN",
+      "message": "the door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close door`.",
+      "value": true,
+      "label": "door closed"
+     },
+     {
+      "slot": "basket.lower.extension_m",
+      "code": "BASKET_OUT",
+      "message": "the lower basket of {inst} is pulled out.",
+      "fix": "push it in: `chemlab call {inst} basket.set_position --slot lower --extension_m 0`.",
+      "value": 0.0,
+      "label": "lower basket in"
+     },
+     {
+      "slot": "basket.middle.extension_m",
+      "code": "BASKET_OUT",
+      "message": "the middle basket of {inst} is pulled out.",
+      "fix": "push it in: `chemlab call {inst} basket.set_position --slot middle --extension_m 0`.",
+      "value": 0.0,
+      "label": "middle basket in"
+     },
+     {
+      "slot": "basket.upper.extension_m",
+      "code": "BASKET_OUT",
+      "message": "the upper basket of {inst} is pulled out.",
+      "fix": "push it in: `chemlab call {inst} basket.set_position --slot upper --extension_m 0`.",
+      "value": 0.0,
+      "label": "upper basket in"
+     },
+     {
+      "slot": "water.model_configured",
+      "code": "NOT_SET_UP",
+      "message": "{inst} has no water supply / heater declared by the lab.",
+      "fix": "ask the lab operator.",
+      "value": true,
+      "label": "water declared"
+     }
+    ],
+    "stop": [
+     {
+      "slot": "programme.status",
+      "code": "NO_CYCLE",
+      "message": "no programme is running on {inst} (it is {value}).",
+      "fix": "nothing to stop.",
+      "in": [
+       "running",
+       "interrupted",
+       "power_fail"
+      ],
+      "label": "a programme running"
+     }
+    ],
+    "pause:on": [
+     {
+      "slot": "programme.status",
+      "code": "NOT_RUNNING",
+      "message": "no programme is running on {inst} (it is {value}).",
+      "fix": "start one first: `chemlab run {inst} start`.",
+      "value": "running",
+      "label": "a programme running"
+     }
+    ],
+    "pause:off": [
+     {
+      "slot": "programme.status",
+      "code": "NOT_PAUSED",
+      "message": "the programme of {inst} is not interrupted (it is {value}).",
+      "fix": "nothing to resume.",
+      "value": "interrupted",
+      "label": "a programme interrupted"
+     }
+    ],
+    "open:door": [
+     {
+      "slot": "programme.status",
+      "code": "DOOR_LOCKED",
+      "message": "the door of {inst} stays locked while a programme is {value} (also when interrupted).",
+      "fix": "wait until it has ended (`chemlab run {inst} status`), or cancel it first: `chemlab run {inst} stop`.",
+      "in": [
+       "ready",
+       "end",
+       "cancelled"
+      ],
+      "label": "no programme active"
+     }
+    ],
+    "close:door": [
+     {
+      "slot": "basket.lower.extension_m",
+      "code": "BASKET_OUT",
+      "message": "the lower basket of {inst} is pulled out; the door does not close over it.",
+      "fix": "push it in: `chemlab call {inst} basket.set_position --slot lower --extension_m 0`.",
+      "value": 0.0,
+      "label": "lower basket in"
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "glassware goes into its baskets by hand (the operator); the twin has no item ledger (baskets: `chemlab call INST basket.set_position`)",
+    "unload": "glassware is taken out of its baskets by hand (the operator)"
+   },
+   "notes": {
+    "start": [
+     "start returns job-N; the door locks until the programme has ended; `chemlab wait job-N` or --wait blocks (a programme takes about 30-90 min)"
+    ],
+    "configure": [
+     "only drying=on|off can be changed from the computer for the standard programmes"
+    ],
+    "pause": [
+     "pause on interrupts (the current wash block is repeated on resume); pause off resumes"
+    ]
+   }
+  },
+  "tuttnauer_3870elvd": {
+   "role": "primary",
+   "verbs": {
+    "program": {
+     "cap": "program.select",
+     "arg": "program"
+    },
+    "configure": {
+     "cap": "program.configure",
+     "program_arg": "program",
+     "keys": {
+      "temp": {
+       "arg": "temperature_k"
+      },
+      "time": {
+       "arg": "time_s"
+      },
+      "exhaust": {
+       "arg": "exhaust"
+      },
+      "end_temp": {
+       "arg": "end_temperature_k"
+      }
+     },
+     "not_here": {
+      "drying": "drying times are custom-program parameters (`chemlab call INST program.set_parameters`)"
+     }
+    },
+    "load": {
+     "cap": "load.add"
+    },
+    "unload": {
+     "cap": "load.remove",
+     "arg": "load_id"
+    },
+    "start": {
+     "cap": "cycle.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "cycle.stop"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "open",
+       "open": true,
+       "close": false,
+       "angle_slot": "lid.angle_rad",
+       "open_angle": 0.875,
+       "settle_s": 5.0
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "program": "program.current#program",
+    "program_params": "program.current",
+    "state": "cycle.status#stage",
+    "phase": "cycle.phase",
+    "remaining": "cycle.status#remaining_hold_s",
+    "locked": "lid.locked",
+    "temp": "chamber.temperature_k",
+    "temp2": "chamber.temperature2_k",
+    "pressure": "chamber.pressure_pa",
+    "loads": "loads.present"
+   },
+   "requires": {
+    "program": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "lid.locked",
+      "code": "BUSY",
+      "message": "a cycle is running on {inst} (the lid is locked).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "value": false,
+      "label": "no cycle running"
+     }
+    ],
+    "configure": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "load": [
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is closed.",
+      "fix": "open it first: `chemlab run {inst} open lid`.",
+      "not": [
+       0.0
+      ],
+      "label": "lid open"
+     }
+    ],
+    "unload": [
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is closed.",
+      "fix": "open it first: `chemlab run {inst} open lid`.",
+      "not": [
+       0.0
+      ],
+      "label": "lid open"
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is not closed.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "value": 0.0,
+      "label": "lid closed"
+     },
+     {
+      "slot": "lid.locked",
+      "code": "BUSY",
+      "message": "a cycle is already running on {inst}.",
+      "fix": "wait for it (`chemlab status`).",
+      "value": false,
+      "label": "no cycle running"
+     }
+    ],
+    "stop": [
+     {
+      "slot": "lid.locked",
+      "code": "NO_CYCLE",
+      "message": "no cycle is running on {inst}.",
+      "fix": "nothing to stop.",
+      "value": true,
+      "label": "a cycle running"
+     }
+    ],
+    "open:lid": [
+     {
+      "slot": "lid.locked",
+      "code": "LID_LOCKED",
+      "message": "the pressure lock of {inst} is engaged: a cycle runs, or the chamber is under pressure or above its end temperature.",
+      "fix": "wait until the cycle has ended and the chamber has cooled (`chemlab run {inst} status`), then open.",
+      "value": false,
+      "label": "lid not locked"
+     }
+    ]
+   },
+   "unsupported": {
+    "pause": "no pause: the start/stop key aborts a running cycle (`stop`)"
+   },
+   "alternatives": {
+    "pause": "stop it with `chemlab run INST stop` (the cycle ends as failed) and start a new one later."
+   },
+   "notes": {
+    "configure": [
+     "only custom_1, custom_2 and extended_time can be edited: temp=121C..138C, time=, exhaust=fast|slow_liquids|slow_waste|cooling, end_temp="
+    ],
+    "load": [
+     "loads go in with the lid open; liquids need --liquid and --volume (container); biological indicators: --organism and --log10"
+    ],
+    "start": [
+     "start returns job-N (a cycle takes about 20-60 min of lab time); the lid stays locked until the chamber is depressurised and cooled"
+    ]
+   }
+  }
+ }
+}

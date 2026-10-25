@@ -80,4 +80,12 @@ class PilodistTests(unittest.TestCase):
   a.step(10.)
   for _ in range(100):b.step(.1)
   np.testing.assert_allclose(a.inventory,b.inventory,rtol=0,atol=1e-12)
+class FixRoundB(unittest.TestCase):
+ def test_fraction_select_without_charge_is_a_precondition(self):
+  """fraction.select before a charge was RECEIVER_FULL (misleading); it is PRECONDITION_FAILED with a message."""
+  r=PilodistPilodist104Runtime('p')
+  for cap,arg in [('plant.configure',PLANT_EXAMPLE),('column.configure',COLUMN_EXAMPLE),('method.configure',METHOD_EXAMPLE)]:r.invoke(cap,**arg)
+  before=r.debug_snapshot();x=r.session().invoke(instance_id='p',capability_id='fraction.select',arguments={'index':1},request_id='ev4')
+  self.assertEqual(x['error']['code'],'PRECONDITION_FAILED');self.assertIn('no charge',x['error']['message']);self.assertEqual(before,r.debug_snapshot())
+  r=prepared();self.assertEqual(r.invoke('fraction.select',index=1),{'index':1});self.assertEqual(ASSET_VERSION,'1.0.1')
 if __name__=='__main__':unittest.main()

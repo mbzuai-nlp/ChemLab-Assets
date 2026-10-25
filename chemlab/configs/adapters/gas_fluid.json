@@ -1,0 +1,1308 @@
+{
+ "class": "gas_fluid",
+ "adapter": "chemlab.compile.classes.gas_fluid:GasFluidAdapter",
+ "about": "Gas and fluid supply, control and monitoring: setpoint (unit decides flow / mass flow / pressure / temperature), start, stop, select, dispense, read, zero, calibrate, vent, status. power, open/close, ack, estop come from the shared layer.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "alicat_mc_1slpm_rev6",
+   "bronkhorst_p702cv_5bar_gauge_n2",
+   "bronkhorst_cemw",
+   "vici_euta_2sd6mwe",
+   "vacuubrand_pc3001_vario_select",
+   "peak_precisionhydrogen",
+   "elga_purelab_flex3",
+   "eco_ncld822",
+   "inficon_ul1000fab"
+  ],
+  "secondary": {
+   "inert_purelab_he_2gb": "glovebox: box pressure set point and gas purification on/off (enclosure primary)"
+  },
+  "not_mapped": {
+   "inert_puresolvmd": "thin class: manual valves per column, no set point or measurement",
+   "vaisala_dmt152": "thin class: a transmitter with one measurement query (its result is the shared `result`)"
+  }
+ },
+ "members": {
+  "alicat_mc_1slpm_rev6": {
+   "role": "primary",
+   "verbs": {
+    "setpoint": {
+     "flow": {
+      "cap": "flow.set_setpoint",
+      "arg": "flow_rate_m3_s",
+      "reading": "measurement.standard_flow_m3_s",
+      "set": "flow.setpoint_m3_s",
+      "label": "mass flow (standard)",
+      "tol_rel": 0.01,
+      "tol_abs": 1e-09,
+      "notes": [
+       "flows are standard flows (sccm, slpm) at the controller's reference conditions (25 C, 1 atm by default)"
+      ]
+     }
+    },
+    "select": {
+     "cap": "gas.select",
+     "arg": "gas_id",
+     "what": "gas",
+     "slot": "gas.selected_id",
+     "id_prefix": "gas_"
+    },
+    "read": {
+     "reads": [
+      "measurement.standard_flow_m3_s",
+      "measurement.actual_flow_m3_s",
+      "measurement.pressure_pa",
+      "measurement.temperature_k",
+      "gas.selected_id",
+      "flow.zeroed"
+     ]
+    },
+    "zero": {
+     "cap": "flow.zero"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "requires": {
+    "setpoint": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "gas.selected_id",
+      "code": "NO_GAS",
+      "message": "no gas is selected on {inst}, so it cannot meter a flow.",
+      "fix": "select the gas in the line first: `chemlab run {inst} select nitrogen`.",
+      "not": [
+       null
+      ],
+      "label": "a gas selected"
+     }
+    ],
+    "select": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "flow.setpoint_m3_s",
+      "code": "FLOWING",
+      "message": "gas is flowing through {inst}; it changes the gas only at zero flow.",
+      "fix": "set the flow to 0 first: `chemlab run {inst} setpoint 0sccm`.",
+      "value": 0.0,
+      "label": "set point 0"
+     }
+    ],
+    "zero": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "gas.selected_id",
+      "code": "NO_GAS",
+      "message": "no gas is selected on {inst}.",
+      "fix": "select the gas first: `chemlab run {inst} select nitrogen`.",
+      "not": [
+       null
+      ],
+      "label": "a gas selected"
+     },
+     {
+      "slot": "flow.setpoint_m3_s",
+      "code": "FLOWING",
+      "message": "{inst} tares only at zero flow (its set point is not 0).",
+      "fix": "set the flow to 0 first: `chemlab run {inst} setpoint 0sccm`, then zero.",
+      "value": 0.0,
+      "label": "set point 0"
+     }
+    ]
+   },
+   "codes": {
+    "gas.select:PRECONDITION_FAILED": {
+     "code": "GAS_NOT_AVAILABLE",
+     "message": "{inst} cannot use that gas: it is not in its gas table (or the lab has not approved it).",
+     "fix": "pick a gas from `chemlab call {inst} template.list` (e.g. nitrogen, argon, helium, air)."
+    }
+   },
+   "unsupported": {
+    "start": "a continuous controller: it acts whenever it has a set point (`setpoint`; a set point of 0 stops the flow)",
+    "stop": "a continuous controller: it acts whenever it has a set point (`setpoint`; a set point of 0 stops the flow)",
+    "dispense": "a gas device: it does not dispense liquid volumes",
+    "calibrate": "factory calibrated; no user calibration from the computer",
+    "vent": "no vent: set the flow to 0 to close its valve"
+   },
+   "notes": {
+    "select": [
+     "gas names are those of its gas table: `select nitrogen` means gas_nitrogen (see `chemlab call INST template.list`)"
+    ],
+    "zero": [
+     "zero (tare) needs zero flow: set point 0 and the line at rest"
+    ]
+   }
+  },
+  "bronkhorst_p702cv_5bar_gauge_n2": {
+   "role": "primary",
+   "verbs": {
+    "setpoint": {
+     "pressure": {
+      "cap": "pressure.set_setpoint",
+      "arg": "pressure_Pa",
+      "reading": "pressure.reading_pa",
+      "set": "pressure.setpoint_pa",
+      "pressure_ref": "(gauge)",
+      "label": "pressure (gauge)",
+      "tol_rel": 0.01,
+      "tol_abs": 1000.0,
+      "then": [
+       {
+        "cap": "control.set_mode",
+        "args": {
+         "mode": "automatic"
+        },
+        "unless": {
+         "slot": "control.mode",
+         "value": "automatic"
+        },
+        "step": "switch the controller to automatic pressure control"
+       }
+      ],
+      "notes": [
+       "the controller regulates the gauge pressure upstream of it (back-pressure); setpoint switches it to automatic control"
+      ]
+     }
+    },
+    "read": {
+     "reads": [
+      "pressure.reading_pa",
+      "pressure.active_setpoint_pa",
+      "control.status",
+      "valve.opening"
+     ]
+    },
+    "zero": {
+     "cap": "sensor.calibrate_zero"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "running": "control.status"
+   },
+   "requires": {
+    "setpoint": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "zero": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "device.flash_mode",
+      "code": "FLASH_MODE",
+      "message": "{inst} is in FLASH (firmware) mode.",
+      "fix": "reset it: `chemlab call {inst} device.reset`.",
+      "value": false,
+      "label": "not in FLASH mode"
+     }
+    ]
+   },
+   "unsupported": {
+    "start": "a continuous controller: it acts whenever it has a set point (`setpoint`; a set point of 0 stops the flow)",
+    "stop": "a continuous controller: it acts whenever it has a set point (`setpoint`; a set point of 0 stops the flow); switch to manual valve control with `chemlab call INST control.set_mode --mode manual`",
+    "select": "a single gas line (no gas table or valve positions)",
+    "dispense": "a gas device: it does not dispense liquid volumes",
+    "calibrate": "no span / reference calibration from the computer (the sensor zero is `zero`)",
+    "vent": "no vent valve: lower the set point to let the upstream pressure down"
+   },
+   "alternatives": {
+    "start": "give a set point: `chemlab run INST setpoint 3bar` (it then regulates in automatic mode)."
+   },
+   "params": {
+    "running_word": "control"
+   },
+   "notes": {
+    "setpoint": [
+     "pressure set points are gauge pressure (1 to 5 bar g on this controller)",
+     "when the controller is in manual / valve-steering mode, setpoint also switches it to automatic control (control.set_mode)"
+    ]
+   }
+  },
+  "bronkhorst_cemw": {
+   "role": "primary",
+   "verbs": {
+    "setpoint": {
+     "flow": {
+      "cap": "gas.set_flow",
+      "arg": "setpoint_m3_s",
+      "reading": "measured.gas_m3_s",
+      "set": "setpoint.gas_m3_s",
+      "label": "carrier gas flow",
+      "full_scale": "controllers.full_scale#gas_m3_s",
+      "tol_rel": 0.02,
+      "tol_abs": 1e-08
+     },
+     "mass_flow": {
+      "cap": "liquid.set_flow",
+      "arg": "setpoint_kg_s",
+      "reading": "measured.liquid_kg_s",
+      "set": "setpoint.liquid_kg_s",
+      "label": "liquid flow",
+      "full_scale": "controllers.full_scale#liquid_kg_s",
+      "tol_rel": 0.03,
+      "tol_abs": 1e-09
+     },
+     "temperature": {
+      "cap": "heater.set_temperature",
+      "arg": "setpoint_k",
+      "reading": "measured.temperature_k",
+      "set": "setpoint.temperature_k",
+      "label": "mixer temperature",
+      "tol_abs": 1.0,
+      "tol_rel": 0.0
+     }
+    },
+    "read": {
+     "reads": [
+      "measured.gas_m3_s",
+      "measured.liquid_kg_s",
+      "measured.temperature_k",
+      "alarms.active"
+     ]
+    },
+    "vent": {
+     "on": {
+      "cap": "bleed.set",
+      "args": {
+       "open": true
+      },
+      "already": true,
+      "step": "open the bleed",
+      "say": "bleed open"
+     },
+     "off": {
+      "cap": "bleed.set",
+      "args": {
+       "open": false
+      },
+      "already": false,
+      "step": "close the bleed",
+      "say": "bleed closed"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "vent": "bleed.open"
+   },
+   "requires": {
+    "setpoint": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "setpoint:flow": [
+     {
+      "slot": "supply.gas",
+      "code": "NO_GAS_SUPPLY",
+      "message": "no carrier gas is connected to {inst}.",
+      "fix": "ask the lab operator to connect the gas supply (supply.connect_gas).",
+      "not": [
+       null
+      ],
+      "label": "carrier gas connected"
+     }
+    ],
+    "setpoint:mass_flow": [
+     {
+      "slot": "supply.liquid",
+      "code": "NO_LIQUID_SUPPLY",
+      "message": "no liquid is connected to {inst}.",
+      "fix": "ask the lab operator to connect the liquid supply (supply.connect_liquid).",
+      "not": [
+       null
+      ],
+      "label": "liquid connected"
+     },
+     {
+      "slot": "bleed.open",
+      "code": "BLEED_OPEN",
+      "message": "the bleed of {inst} is open, so it takes no liquid flow.",
+      "fix": "close it first: `chemlab run {inst} vent off`.",
+      "value": false,
+      "label": "bleed closed"
+     }
+    ],
+    "vent": [
+     {
+      "slot": "setpoint.liquid_kg_s",
+      "code": "LIQUID_FLOWING",
+      "message": "the liquid set point of {inst} is not zero; the bleed is opened only without liquid flow.",
+      "fix": "set the liquid flow to 0 first: `chemlab run {inst} setpoint 0g/h`.",
+      "value": 0.0,
+      "label": "liquid set point 0"
+     }
+    ]
+   },
+   "unsupported": {
+    "start": "a continuous controller: it acts whenever it has a set point (`setpoint`; a set point of 0 stops the flow)",
+    "stop": "a continuous controller: it acts whenever it has a set point (`setpoint`; a set point of 0 stops the flow)",
+    "dispense": "it evaporates a liquid flow into the gas (`setpoint 12g/h`); it does not dispense volumes",
+    "select": "the carrier gas is the one plumbed to its inlet (declared by the lab operator)",
+    "zero": "no zero command from the computer",
+    "calibrate": "no calibration from the computer"
+   },
+   "alternatives": {
+    "select": "an operator declares the connected gas with `chemlab call INST supply.connect_gas --gas nitrogen --pressure_pa 400000`."
+   },
+   "notes": {
+    "setpoint": [
+     "a flow (500sccm, 1slpm) sets the carrier gas, a mass flow (12g/h) the liquid, a temperature (140C) the mixer",
+     "set points above the controller's full scale (`status`) are refused"
+    ],
+    "vent": [
+     "vent opens the bleed screw; it needs the liquid set point at 0 first"
+    ]
+   }
+  },
+  "vici_euta_2sd6mwe": {
+   "role": "primary",
+   "verbs": {
+    "select": {
+     "cap": "valve.select_position",
+     "arg": "position",
+     "what": "position",
+     "slot": "valve.position",
+     "in_position": "valve.in_position",
+     "busy": {
+      "pending": "valve.target_position",
+      "done": "valve.in_position"
+     },
+     "max_wait_s": 10.0
+    },
+    "read": {
+     "reads": [
+      "valve.position",
+      "valve.in_position",
+      "route.connected_port_id",
+      "valve.target_position"
+     ]
+    }
+   },
+   "slots": {
+    "positions": "actuator.positions",
+    "offset": "actuator.offset"
+   },
+   "unsupported": {
+    "setpoint": "a selection valve: no set point",
+    "start": "a selection valve: it only switches position (`select N`)",
+    "stop": "a selection valve: it only switches position (`select N`)",
+    "dispense": "a gas device: it does not dispense liquid volumes",
+    "zero": "no sensor to zero",
+    "calibrate": "no calibration (the actuator learns its stops: `chemlab call INST actuator.learn_stops`)",
+    "vent": "no vent"
+   },
+   "notes": {
+    "select": [
+     "the valve reports \"in position\" when the drive has arrived; --wait waits for that (a few seconds of lab time at most)"
+    ]
+   }
+  },
+  "vacuubrand_pc3001_vario_select": {
+   "role": "primary",
+   "verbs": {
+    "setpoint": {
+     "pressure": {
+      "cap": "vacuum.set_pressure",
+      "arg": "pressure_pa",
+      "reading": "vacuum.indicated_pressure_pa",
+      "set": "vacuum.target_pressure_pa",
+      "pressure_ref": "(absolute)",
+      "label": "vacuum (absolute)",
+      "tol_rel": 0.03,
+      "tol_abs": 100.0,
+      "needs_running": true,
+      "then": [
+       {
+        "cap": "vacuum.set_mode",
+        "args": {
+         "mode": "pressure_control"
+        },
+        "unless": {
+         "slot": "vacuum.mode",
+         "value": "pressure_control"
+        },
+        "step": "switch to pressure control"
+       }
+      ]
+     }
+    },
+    "start": {
+     "cap": "vacuum.start",
+     "step": "start pumping",
+     "running_values": [
+      true
+     ],
+     "ready": {
+      "slot": "vacuum.running",
+      "values": [
+       true
+      ]
+     }
+    },
+    "stop": {
+     "cap": "vacuum.stop",
+     "step": "stop pumping"
+    },
+    "read": {
+     "reads": [
+      "vacuum.indicated_pressure_pa",
+      "vacuum.target_pressure_pa",
+      "vacuum.mode",
+      "vacuum.running",
+      "vent.state"
+     ]
+    },
+    "calibrate": {
+     "cap": "sensor.adjust",
+     "keys": {
+      "reference": {
+       "arg": "reference_pa",
+       "kind": "pressure",
+       "required": true,
+       "example": "1013mbar"
+      }
+     },
+     "near_reading": {
+      "arg": "reference_pa",
+      "slot": "vacuum.indicated_pressure_pa",
+      "max_rel": 0.1,
+      "floor": 1000.0
+     }
+    },
+    "vent": {
+     "on": {
+      "cap": "vent.control",
+      "args": {
+       "action": "atmosphere"
+      },
+      "already": "atmosphere",
+      "step": "vent to atmosphere (stops the pump)",
+      "say": "venting to atmosphere (the pump stops)"
+     },
+     "off": {
+      "cap": "vent.control",
+      "args": {
+       "action": "stop"
+      },
+      "already": "closed",
+      "step": "close the vent valve",
+      "say": "vent valve closed"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "running": "vacuum.running",
+    "vent": "vent.state#mode"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "vacuum.indicated_pressure_pa",
+      "code": "NOT_CONNECTED",
+      "message": "no vessel is connected to {inst} (it shows no pressure).",
+      "fix": "ask the lab operator to connect the apparatus to the pump.",
+      "not": [
+       null
+      ],
+      "label": "a vessel connected"
+     }
+    ]
+   },
+   "unsupported": {
+    "select": "one pumping line",
+    "dispense": "a gas device: it does not dispense liquid volumes",
+    "zero": "no zero: the gauge is adjusted with `calibrate reference=...`"
+   },
+   "params": {
+    "running_word": "pumping"
+   },
+   "notes": {
+    "setpoint": [
+     "vacuum set points are absolute pressure (2 to 1100 mbar); setpoint also selects pressure control mode"
+    ],
+    "calibrate": [
+     "calibrate reference=P adjusts the gauge to a known pressure P: vent fully first and give the room pressure from a barometer"
+    ],
+    "vent": [
+     "vent stops the pump and opens the vent valve to atmosphere; vent off closes it"
+    ]
+   }
+  },
+  "peak_precisionhydrogen": {
+   "role": "primary",
+   "verbs": {
+    "setpoint": {
+     "pressure": {
+      "cap": "settings.configure",
+      "arg": "pressure_set_pa",
+      "reading": "pressure.delivery_pa",
+      "set": "pressure.set_pa",
+      "pressure_ref": "(gauge, outlet)",
+      "label": "outlet pressure (gauge)",
+      "tol_rel": 0.02,
+      "tol_abs": 5000.0
+     }
+    },
+    "start": {
+     "cap": "cycle.start",
+     "step": "start hydrogen generation",
+     "running_values": [
+      "running"
+     ],
+     "ready": {
+      "slot": "state.current",
+      "values": [
+       "running"
+      ]
+     }
+    },
+    "stop": {
+     "cap": "cycle.stop",
+     "step": "stop generation (standby)"
+    },
+    "read": {
+     "reads": [
+      "pressure.delivery_pa",
+      "flow.percent",
+      "state.current",
+      "water.level_ok",
+      "alarms.active"
+     ]
+    },
+    "vent": {
+     "on": {
+      "cap": "output.depressurise",
+      "step": "depressurise the outlet",
+      "say": "depressurising the outlet"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "running": "state.current"
+   },
+   "requires": {
+    "setpoint": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "water.level_ok",
+      "code": "LOW_WATER",
+      "message": "the water reservoir of {inst} is low.",
+      "fix": "ask the lab operator to refill it with deionised water.",
+      "value": true,
+      "label": "water level ok"
+     }
+    ],
+    "vent": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "state.current",
+      "code": "RUNNING",
+      "message": "{inst} is generating; it depressurises only in standby.",
+      "fix": "stop it first: `chemlab run {inst} stop`.",
+      "not": [
+       "running"
+      ],
+      "label": "in standby"
+     }
+    ]
+   },
+   "unsupported": {
+    "select": "it makes one gas (hydrogen)",
+    "dispense": "a gas device: it does not dispense liquid volumes",
+    "zero": "no sensor zero from the computer",
+    "calibrate": "no calibration from the computer"
+   },
+   "params": {
+    "running_word": "state"
+   },
+   "notes": {
+    "setpoint": [
+     "the outlet pressure set point is gauge pressure (0 to 100 psi g)"
+    ]
+   }
+  },
+  "elga_purelab_flex3": {
+   "role": "primary",
+   "verbs": {
+    "setpoint": {
+     "flow": {
+      "cap": "water.set_flow_rate",
+      "arg": "flow_m3_s",
+      "set": "water.flow_rate_m3_s",
+      "label": "dispense flow rate"
+     }
+    },
+    "start": {
+     "cap": "water.start",
+     "step": "start dispensing (the volume and rate set before)",
+     "running_values": [
+      "running"
+     ]
+    },
+    "stop": {
+     "cap": "water.stop",
+     "step": "stop dispensing"
+    },
+    "dispense": {
+     "volume_cap": "water.set_volume",
+     "volume_arg": "volume_m3",
+     "rate_cap": "water.set_flow_rate",
+     "rate_arg": "flow_m3_s",
+     "rate_slot": "water.flow_rate_m3_s",
+     "start_cap": "water.start",
+     "stop_cap": "water.stop",
+     "delivered": "water.indicated_dispensed_volume_m3",
+     "state": {
+      "slot": "water.dispense_status",
+      "done": [
+       "completed"
+      ],
+      "failed": [
+       "stopped",
+       "supply_empty",
+       "receiver_full",
+       "power_off"
+      ]
+     }
+    },
+    "read": {
+     "reads": [
+      "water.indicated_dispensed_volume_m3",
+      "water.dispense_status",
+      "water.resistivity_ohm_m",
+      "water.temperature_k",
+      "water.toc_mass_fraction"
+     ]
+    },
+    "calibrate": {
+     "cap": "calibration.control",
+     "action_arg": "action",
+     "actions": [
+      "start",
+      "enter",
+      "cancel"
+     ],
+     "default_action": "start",
+     "keys": {
+      "measured": {
+       "arg": "measured_m3",
+       "kind": "volume",
+       "required_for": [
+        "enter"
+       ],
+       "example": "0.98L"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "running": "water.dispense_status"
+   },
+   "requires": {
+    "setpoint": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "water.dispensing",
+      "code": "BUSY",
+      "message": "{inst} is dispensing; the rate changes only between dispenses.",
+      "fix": "wait until it has finished, or `chemlab run {inst} stop`.",
+      "value": false,
+      "label": "not dispensing"
+     }
+    ],
+    "dispense": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "water.dispensing",
+      "code": "BUSY",
+      "message": "{inst} is already dispensing.",
+      "fix": "wait for it (`chemlab status`) or `chemlab run {inst} stop`.",
+      "value": false,
+      "label": "not dispensing"
+     },
+     {
+      "slot": "water.source_connected",
+      "code": "NO_SUPPLY",
+      "message": "no feed water is connected to {inst}.",
+      "fix": "ask the lab operator to connect the feed.",
+      "value": true,
+      "label": "feed connected"
+     },
+     {
+      "slot": "water.receiver_connected",
+      "code": "NO_RECEIVER",
+      "message": "no receiving vessel is under the dispenser of {inst}.",
+      "fix": "ask the lab operator to place a vessel.",
+      "value": true,
+      "label": "a receiving vessel in place"
+     },
+     {
+      "slot": "consumables.installed",
+      "code": "NO_CARTRIDGE",
+      "message": "no purification pack is installed in {inst}.",
+      "fix": "ask the lab operator to install the pack.",
+      "value": true,
+      "label": "purification pack installed"
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "water.target_volume_m3",
+      "code": "NO_VOLUME",
+      "message": "no dispense volume is set on {inst}.",
+      "fix": "use `chemlab run {inst} dispense VOLUME --rate FLOW`.",
+      "not": [
+       null
+      ],
+      "label": "a volume set"
+     },
+     {
+      "slot": "water.flow_rate_m3_s",
+      "code": "NO_RATE",
+      "message": "no dispense flow rate is set on {inst}.",
+      "fix": "set one: `chemlab run {inst} setpoint 1L/min`.",
+      "not": [
+       null
+      ],
+      "label": "a flow rate set"
+     }
+    ]
+   },
+   "unsupported": {
+    "select": "one water outlet",
+    "zero": "no sensor zero from the computer",
+    "vent": "no vent"
+   },
+   "params": {
+    "running_word": "dispense",
+    "gas": false
+   },
+   "notes": {
+    "dispense": [
+     "dispense sets the volume (and --rate), starts and returns job-N; `chemlab wait job-N` or --wait blocks until it is delivered"
+    ],
+    "calibrate": [
+     "`calibrate start` dispenses the nominal calibration volume; weigh it, then `calibrate enter measured=0.98L`; `calibrate cancel` aborts"
+    ]
+   }
+  },
+  "eco_ncld822": {
+   "role": "primary",
+   "verbs": {
+    "start": {
+     "cap": "measurement.start",
+     "step": "start measuring",
+     "running_values": [
+      "measuring"
+     ],
+     "ready": {
+      "slot": "measurement.phase",
+      "values": [
+       "measuring"
+      ]
+     }
+    },
+    "stop": {
+     "cap": "measurement.stop",
+     "step": "stop measuring"
+    },
+    "select": {
+     "cap": "inlet.connect_standard",
+     "arg": "standard_id",
+     "what": "inlet gas (calibration standard)",
+     "slot": "inlet.source",
+     "slot_is_value": false,
+     "off": {
+      "cap": "inlet.disconnect",
+      "words": [
+       "sample",
+       "ambient"
+      ]
+     }
+    },
+    "read": {
+     "reads": [
+      "display.no_mol_mol",
+      "display.no2_mol_mol",
+      "display.nox_mol_mol",
+      "range.active_full_scale_mol_mol",
+      "inlet.source",
+      "status.flags"
+     ]
+    },
+    "zero": {
+     "cap": "calibration.zero"
+    },
+    "calibrate": {
+     "cap": "calibration.span",
+     "pre_cap": "calibration.configure",
+     "pre_keep": {
+      "span_no_mol_mol": "calibration.span_no_mol_mol",
+      "span_nox_mol_mol": "calibration.span_nox_mol_mol",
+      "window_s": "calibration.window_s"
+     },
+     "keys": {
+      "span": {
+       "cap": "calibration.configure",
+       "arg": [
+        "span_no_mol_mol",
+        "span_nox_mol_mol"
+       ],
+       "kind": "fraction",
+       "example": "2954ppm"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "running": "measurement.phase"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "status.phase",
+      "code": "WARMING_UP",
+      "message": "{inst} is still warming up (converter and detector).",
+      "fix": "wait until it is ready (`chemlab run {inst} status`; about 15 min after switching on).",
+      "value": "ready",
+      "label": "warmed up"
+     }
+    ],
+    "zero": [
+     {
+      "slot": "status.phase",
+      "code": "WARMING_UP",
+      "message": "{inst} is still warming up.",
+      "fix": "wait until it is ready.",
+      "value": "ready",
+      "label": "warmed up"
+     },
+     {
+      "slot": "calibration.phase",
+      "code": "BUSY",
+      "message": "{inst} is already calibrating.",
+      "fix": "wait until it has finished.",
+      "value": "idle",
+      "label": "no calibration running"
+     },
+     {
+      "slot": "inlet.source",
+      "code": "NO_ZERO_GAS",
+      "message": "the inlet of {inst} is on {value}, not on zero gas.",
+      "fix": "connect zero gas first: `chemlab run {inst} select zero_air`, wait until the reading is steady, then zero.",
+      "in": [
+       "standard:zero_air",
+       "standard:zero_nitrogen"
+      ],
+      "label": "zero gas on the inlet"
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "status.phase",
+      "code": "WARMING_UP",
+      "message": "{inst} is still warming up.",
+      "fix": "wait until it is ready.",
+      "value": "ready",
+      "label": "warmed up"
+     },
+     {
+      "slot": "calibration.phase",
+      "code": "BUSY",
+      "message": "{inst} is already calibrating.",
+      "fix": "wait until it has finished.",
+      "value": "idle",
+      "label": "no calibration running"
+     },
+     {
+      "slot": "inlet.source",
+      "code": "NO_SPAN_GAS",
+      "message": "the inlet of {inst} is on {value}, not on a span gas standard.",
+      "fix": "connect the span standard first (`chemlab run {inst} select srm_2631a`), wait until the reading is steady, then calibrate.",
+      "prefix": [
+       "standard:srm"
+      ],
+      "label": "span gas on the inlet"
+     },
+     {
+      "slot": "status.flags",
+      "code": "OVER_RANGE",
+      "message": "the reading of {inst} is over its measuring range, so the span would be wrong.",
+      "fix": "select a higher range first (`chemlab call {inst} range.select --index 3`), wait until the reading is steady, then calibrate.",
+      "contains_not": "over_range",
+      "label": "reading within the range"
+     }
+    ]
+   },
+   "unsupported": {
+    "setpoint": "an analyzer: no set point (its range is `chemlab call INST range.select`)",
+    "dispense": "a gas device: it does not dispense liquid volumes",
+    "vent": "no vent"
+   },
+   "params": {
+    "running_word": "measurement"
+   },
+   "notes": {
+    "select": [
+     "select connects a calibration gas standard to the inlet (zero_air, zero_nitrogen, srm_...); `select sample` goes back to the sample inlet"
+    ],
+    "zero": [
+     "zero needs zero gas on the inlet (select zero_air) and a steady reading; it returns job-N"
+    ],
+    "calibrate": [
+     "calibrate runs the span with the standard on the inlet; span=VALUE (e.g. span=2954ppm, the certificate value) is set first; returns job-N"
+    ]
+   }
+  },
+  "inficon_ul1000fab": {
+   "role": "primary",
+   "verbs": {
+    "start": {
+     "cap": "measure.start",
+     "step": "start: evacuate the inlet and measure",
+     "running_values": [
+      "evacuation",
+      "measure"
+     ],
+     "ready": {
+      "slot": "state.current",
+      "values": [
+       "measure"
+      ]
+     }
+    },
+    "stop": {
+     "cap": "measure.stop",
+     "step": "stop measuring (standby)"
+    },
+    "read": {
+     "reads": [
+      "leak.display_pa_m3_s",
+      "leak.status",
+      "state.current",
+      "pressure.inlet_pa",
+      "range.current",
+      "zero.enabled"
+     ]
+    },
+    "zero": {
+     "cap": "zero.set",
+     "arg": "enabled"
+    },
+    "calibrate": {
+     "cap": "calibration.start",
+     "action_arg": "kind",
+     "actions": [
+      "internal",
+      "external"
+     ],
+     "default_action": "internal",
+     "keys": {
+      "leak": {
+       "arg": "test_leak_pa_m3_s",
+       "required_for": [
+        "external"
+       ],
+       "example": "2e-8"
+      }
+     },
+     "duration_slot": "state.remaining_s"
+    },
+    "vent": {
+     "on": {
+      "cap": "measure.stop",
+      "hold_from": {
+       "slot": "settings.current",
+       "key": "vent_delay_s",
+       "plus": 1.0,
+       "arg": "hold_s",
+       "default": 2.0
+      },
+      "step": "stop and hold STOP until the inlet vents",
+      "say": "stopped; the inlet is vented"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "running": "state.current"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "state.current",
+      "code": "RUNNING_UP",
+      "message": "{inst} is still running up.",
+      "fix": "wait about 3 min after switching on (`chemlab wait 180`).",
+      "not": [
+       "run_up",
+       "off"
+      ],
+      "label": "run-up finished"
+     },
+     {
+      "slot": "part.connected",
+      "code": "NO_PART",
+      "message": "nothing is connected to the inlet of {inst} (no test part or blank flange).",
+      "fix": "ask the lab operator to connect the part to the inlet.",
+      "not": [
+       null
+      ],
+      "label": "a part on the inlet"
+     }
+    ],
+    "zero": [
+     {
+      "slot": "state.current",
+      "code": "NOT_MEASURING",
+      "message": "{inst} is not measuring.",
+      "fix": "start it first: `chemlab run {inst} start --wait`.",
+      "value": "measure",
+      "label": "measuring"
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "state.current",
+      "code": "NOT_READY",
+      "message": "{inst} calibrates only in standby or while measuring (now {value}).",
+      "fix": "wait for the run-up, or `chemlab run {inst} stop` first.",
+      "in": [
+       "standby",
+       "measure"
+      ],
+      "label": "standby or measuring"
+     }
+    ],
+    "vent": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ]
+   },
+   "unsupported": {
+    "setpoint": "a leak detector: no set point (trigger levels are settings: `chemlab call INST settings.configure`)",
+    "select": "one inlet",
+    "dispense": "a gas device: it does not dispense liquid volumes"
+   },
+   "params": {
+    "running_word": "state"
+   },
+   "notes": {
+    "start": [
+     "start evacuates the inlet and switches to measuring; --wait waits until it measures"
+    ],
+    "zero": [
+     "zero (on) subtracts the present helium background; zero off removes it"
+    ],
+    "calibrate": [
+     "calibrate internal (default) uses the built-in test leak; calibrate external leak=2e-8 (Pa·m³/s) uses an external one while measuring"
+    ]
+   }
+  },
+  "inert_purelab_he_2gb": {
+   "role": "secondary",
+   "verbs": {
+    "setpoint": {
+     "pressure": {
+      "cap": "pressure.set",
+      "arg": "pressure_pa",
+      "reading": "pressure.indicated_gauge_pa",
+      "set": "pressure.target_gauge_pa",
+      "pressure_ref": "(gauge, box)",
+      "label": "box pressure (gauge)",
+      "tol_abs": 50.0,
+      "tol_rel": 0.0
+     }
+    },
+    "start": {
+     "cap": "purification.set",
+     "args": {
+      "enabled": true
+     },
+     "step": "start gas purification",
+     "running_values": [
+      true
+     ]
+    },
+    "stop": {
+     "cap": "purification.set",
+     "args": {
+      "enabled": false
+     },
+     "step": "stop gas purification"
+    },
+    "read": {
+     "reads": [
+      "atmosphere.oxygen_mole_fraction",
+      "atmosphere.water_mole_fraction",
+      "pressure.indicated_gauge_pa"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "running": "purification.enabled"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ]
+   },
+   "unsupported": {
+    "select": "the box gas is chosen in its configuration (`chemlab call INST config.set --gas argon`)",
+    "dispense": "a gas device: it does not dispense liquid volumes",
+    "zero": "no sensor zero from the computer",
+    "calibrate": "no sensor calibration from the computer",
+    "vent": "no vent: lower the box pressure set point instead"
+   },
+   "params": {
+    "running_word": "purification"
+   },
+   "notes": {
+    "setpoint": [
+     "the box pressure set point is gauge pressure (-15 to +15 mbar)"
+    ],
+    "start": [
+     "start / stop switch the gas purification (circulation through the purifier)"
+    ]
+   }
+  }
+ }
+}

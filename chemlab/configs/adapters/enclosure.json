@@ -1,0 +1,484 @@
+{
+ "class": "enclosure",
+ "adapter": "chemlab.compile.classes.enclosure:EnclosureAdapter",
+ "about": "Enclosures: sash, fan, light, uv, mode, cycle (antechamber), read, open/close (antechamber doors), status. power, ack, estop come from the shared layer.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "inert_purelab_he_2gb",
+   "esco_ac24s8",
+   "esco_efa5uduvw"
+  ],
+  "secondary": {}
+ },
+ "members": {
+  "inert_purelab_he_2gb": {
+   "role": "primary",
+   "verbs": {
+    "fan": {
+     "speed_cap": "blower.configure",
+     "speed_arg": "speed_pct",
+     "values": {},
+     "hint": "the blower runs with the gas purification (`chemlab run INST start` / `stop`); give a speed, e.g. `fan 60%`.",
+     "notes": [
+      "the speed applies while the gas purification runs (`start`); with high O2 the blower may run at 100 % (O2 speed)"
+     ]
+    },
+    "light": {
+     "cap": "light.set",
+     "arg": "on",
+     "slot": "light.on"
+    },
+    "cycle": {
+     "start_cap": "antechamber.cycle.start",
+     "stop_cap": "antechamber.cycle.stop",
+     "cycles_cap": "antechamber.set_cycles",
+     "cycles_arg": "cycles",
+     "target_slot": "antechamber.target_cycles",
+     "progress_slot": "antechamber.completed_cycles",
+     "active_slot": "antechamber.cycle_active",
+     "state": {
+      "slot": "antechamber.phase",
+      "done": [
+       "completed"
+      ],
+      "failed": [
+       "stopped"
+      ]
+     }
+    },
+    "read": {
+     "reads": [
+      "atmosphere.oxygen_mole_fraction",
+      "atmosphere.water_mole_fraction",
+      "pressure.indicated_gauge_pa",
+      "antechamber.indicated_pressure_pa",
+      "antechamber.phase",
+      "antechamber.outer_door_open",
+      "antechamber.inner_door_open"
+     ]
+    },
+    "open": {
+     "parts": {
+      "outer": {
+       "cap": "antechamber.outer_door.set",
+       "arg": "open",
+       "open": true,
+       "close": false,
+       "slot": "antechamber.outer_door_open",
+       "other_slot": "antechamber.inner_door_open",
+       "other": "inner",
+       "cycle_slot": "antechamber.cycle_active",
+       "opens_to_air": true
+      },
+      "inner": {
+       "cap": "antechamber.inner_door.set",
+       "arg": "open",
+       "open": true,
+       "close": false,
+       "slot": "antechamber.inner_door_open",
+       "other_slot": "antechamber.outer_door_open",
+       "other": "outer",
+       "cycle_slot": "antechamber.cycle_active",
+       "needs_purge": true,
+       "phase_slot": "antechamber.phase"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "requires": {
+    "cycle": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "antechamber.outer_door_open",
+      "code": "DOOR_OPEN",
+      "message": "the outer antechamber door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close outer`.",
+      "value": false,
+      "label": "outer door closed"
+     },
+     {
+      "slot": "antechamber.inner_door_open",
+      "code": "DOOR_OPEN",
+      "message": "the inner antechamber door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close inner`.",
+      "value": false,
+      "label": "inner door closed"
+     },
+     {
+      "slot": "antechamber.cycle_active",
+      "code": "BUSY",
+      "message": "an antechamber cycle is already running on {inst}.",
+      "fix": "wait for it (`chemlab run {inst} status`).",
+      "value": false,
+      "label": "no cycle running"
+     }
+    ],
+    "open": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "fan:speed": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ]
+   },
+   "unsupported": {
+    "sash": "a closed glovebox: no sash (items go in through the antechamber: `open outer`, `cycle`, `open inner`)",
+    "uv": "no UV lamp",
+    "mode": "no operating modes; the gas purification is `start` / `stop` (gas_fluid)"
+   },
+   "notes": {
+    "open": [
+     "doors: outer (to the room) and inner (to the box); the inner door opens only after the antechamber was cycled since the outer door was opened"
+    ],
+    "cycle": [
+     "each cycle evacuates the antechamber and refills it with inert gas; `cycle --cycles 3 --wait` runs three and waits; without --wait you get job-N"
+    ]
+   }
+  },
+  "esco_ac24s8": {
+   "role": "primary",
+   "verbs": {
+    "sash": {
+     "style": "stops",
+     "cap": "sash.move",
+     "dir_arg": "direction",
+     "slot": "sash.opening_m",
+     "status_slot": "sash.status",
+     "stops": {
+      "close": 0.0,
+      "safe": 0.175,
+      "open": 0.47
+     },
+     "tolerance_m": 0.005,
+     "max_move_s": 60.0
+    },
+    "fan": {
+     "cap": "fan.set",
+     "arg": "state",
+     "values": {
+      "on": "on",
+      "off": "off",
+      "standby": "standby"
+     },
+     "already": {
+      "on": [
+       "on",
+       "warm_up"
+      ],
+      "off": [
+       "off"
+      ],
+      "standby": [
+       "standby"
+      ]
+     },
+     "ready": {
+      "slot": "airflow.status",
+      "values": [
+       "ok"
+      ]
+     }
+    },
+    "light": {
+     "toggle_cap": "lamp.toggle",
+     "slot": "lamp.on"
+    },
+    "uv": {
+     "toggle_cap": "uv.toggle",
+     "slot": "uv.on",
+     "timer_slot": "uv.remaining_s"
+    },
+    "mode": {
+     "cap": "settings.configure",
+     "arg": "mode",
+     "values": {
+      "normal": "normal",
+      "quickstart": "quickstart"
+     },
+     "slot": "settings.current#mode",
+     "other": {
+      "maintenance": "maintenance mode needs the admin PIN in the menu (`chemlab call INST menu.enter --pin ...`, then mode.set)"
+     }
+    },
+    "read": {
+     "reads": [
+      "display.inflow_m_s",
+      "display.downflow_m_s",
+      "airflow.status",
+      "fan.state",
+      "sash.status",
+      "sash.opening_m",
+      "lamp.on",
+      "uv.on"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "fan": "fan.state"
+   },
+   "requires": {
+    "sash": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "fan.state",
+      "code": "STANDBY",
+      "message": "{inst} is in standby: the sash does not move.",
+      "fix": "switch the fan on: `chemlab run {inst} fan on`.",
+      "not": [
+       "standby"
+      ],
+      "label": "not in standby"
+     }
+    ],
+    "fan:on": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "sash.status",
+      "code": "SASH_CLOSED",
+      "message": "the sash of {inst} is closed; the blower runs only with the sash at a working height.",
+      "fix": "raise it first: `chemlab run {inst} sash safe`.",
+      "not": [
+       "closed"
+      ],
+      "label": "sash open"
+     }
+    ],
+    "fan:off": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "fan:standby": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "light:on": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "sash.status",
+      "code": "SASH_CLOSED",
+      "message": "the sash of {inst} is closed; the light works only with the sash open.",
+      "fix": "raise it: `chemlab run {inst} sash safe`.",
+      "not": [
+       "closed"
+      ],
+      "label": "sash open"
+     }
+    ],
+    "light:off": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "uv:on": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "sash.status",
+      "code": "SASH_NOT_CLOSED",
+      "message": "the UV lamp of {inst} works only with the sash fully closed (now {value}).",
+      "fix": "close it: `chemlab run {inst} sash close`.",
+      "value": "closed",
+      "label": "sash closed"
+     },
+     {
+      "slot": "fan.state",
+      "code": "FAN_RUNNING",
+      "message": "the blower of {inst} is {value}; the UV lamp works only with the blower off.",
+      "fix": "switch it off and let the post-purge end: `chemlab run {inst} fan off`.",
+      "value": "off",
+      "label": "blower off"
+     }
+    ],
+    "uv:off": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     }
+    ],
+    "mode": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true,
+      "label": "power on"
+     },
+     {
+      "slot": "fan.state",
+      "code": "NOT_RUNNING",
+      "message": "the mode of {inst} is changed only while it runs normally (fan {value}).",
+      "fix": "switch the fan on and wait for the warm-up: `chemlab run {inst} fan on --wait`.",
+      "value": "on",
+      "label": "fan on"
+     }
+    ]
+   },
+   "unsupported": {
+    "cycle": "no antechamber or decontamination cycle from the computer",
+    "open": "no doors (the sash is `sash`)",
+    "close": "no doors (the sash is `sash`)"
+   },
+   "notes": {
+    "sash": [
+     "positions: close (UV mode), safe (175 mm working height), open (470 mm, cleaning; alarms while the blower runs); the motor moves stop by stop and the verb waits"
+    ],
+    "fan": [
+     "fan on starts the warm-up (about 3 min); --wait waits until the airflow is OK"
+    ],
+    "uv": [
+     "UV only with the sash closed and the blower off; lifting the sash switches it off"
+    ]
+   }
+  },
+  "esco_efa5uduvw": {
+   "role": "primary",
+   "verbs": {
+    "sash": {
+     "style": "height",
+     "cap": "sash.set",
+     "arg": "height_m",
+     "hold_arg": "hold",
+     "slot": "sash.height_m",
+     "stops": {
+      "close": 0.0,
+      "safe": 0.457,
+      "open": 0.67
+     },
+     "stop_m": 0.457
+    },
+    "fan": {
+     "cap": "fan.set",
+     "arg": "on",
+     "values": {
+      "on": true,
+      "off": false
+     },
+     "already": {
+      "on": [
+       true
+      ],
+      "off": [
+       false
+      ]
+     }
+    },
+    "light": {
+     "cap": "light.set",
+     "arg": "on",
+     "slot": "light.on"
+    },
+    "mode": {
+     "cap": "monitor.night_setback",
+     "arg": "closed",
+     "values": {
+      "night": true,
+      "normal": false
+     },
+     "slot": "night_setback.closed"
+    },
+    "read": {
+     "reads": [
+      "monitor.reading_m_s",
+      "monitor.alarm",
+      "display.text",
+      "sash.height_m",
+      "fan.on",
+      "light.on"
+     ]
+    }
+   },
+   "slots": {
+    "fan": "fan.on",
+    "keylock": "keylock.mode"
+   },
+   "unsupported": {
+    "uv": "no UV lamp",
+    "cycle": "no cycles",
+    "open": "no doors (the sash is `sash`)",
+    "close": "no doors (the sash is `sash`)"
+   },
+   "notes": {
+    "sash": [
+     "positions: close, safe (457 mm, the sash stop and working height), open (670 mm; above the stop only with --hold)"
+    ],
+    "mode": [
+     "mode night tells the airflow monitor that the sash is closed for the night (night setback); mode normal ends it"
+    ]
+   }
+  }
+ }
+}

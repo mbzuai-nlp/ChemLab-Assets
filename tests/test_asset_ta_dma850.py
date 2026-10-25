@@ -166,6 +166,16 @@ class TestDMA850(unittest.TestCase):
    for g in ['air','N2']:call(h,'gas.load',**dict(rt.GAS_EXAMPLE,gas=g,amount_mol=100.))
    call(h,'gas.set_open',opened=True);call(h,'sensor.calibrate',**dict(rt.CALIBRATION_EXAMPLE,**cal));call(h,'drive.move',position_m=.005);wait(h,lambda:not h.read()['drive.moving']);step(h,.1)
    p=h.panel_read();self.assertAlmostEqual(h.drive,true,places=12);self.assertAlmostEqual(p['host.position_m'],.005,places=9);self.assertAlmostEqual(p['host.position_set_m'],.005,places=12)
+class FixRoundB(unittest.TestCase):
+ def test_clamp_refusals_use_the_right_code(self):
+  """clamp.set with the furnace not fully open was CLAMP_UNDER_LOAD; it is NOT_READY (declared) with the cause."""
+  h=rt.TaDma850Runtime('ta5');call(h,'plant.configure',**rt.PLANT_EXAMPLE);ag=h.session();n=[0]
+  def refused(**a):
+   n[0]+=1;before=state(h);x=ag.invoke(instance_id='ta5',capability_id='clamp.set',arguments=a,request_id='ta5_%d'%n[0]);self.assertEqual(before,state(h));return x['error']
+  e=refused(locked=False);self.assertEqual((e['code'],e['message']),('NOT_READY','the instrument is switched off'))
+  call(h,'power.set',enabled=True);call(h,'furnace.set',opened=False);wait(h,lambda:not h._moving())
+  e=refused(locked=True);self.assertEqual(e['code'],'NOT_READY');self.assertIn('open the furnace fully',e['message'])
+  call(h,'furnace.set',opened=True);wait(h,lambda:not h._moving());self.assertEqual(call(h,'clamp.set',locked=True),{'locked':True});self.assertEqual(rt.ASSET_VERSION,'1.2.2')
 # ---- 2026-10-15 real-data library: every runtime-usable record must drive an actual observed run ----
 def source_rows(ref,f):
  v=ref['values'];return sorted((T,E,D) for T,F,E,D in zip(v['temperature_k'],v['frequency_hz'],v['storage_modulus_pa'],v['loss_modulus_pa']) if math.isclose(F,f,rel_tol=1e-7,abs_tol=1e-9))

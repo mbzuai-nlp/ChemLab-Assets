@@ -997,6 +997,28 @@ class TestJascoFTIR4700Runtime(_ftir_test_unittest.TestCase):
         self.assertEqual(parameters["scan_count_limit"]["evidence"], "assumption")
         self.assertEqual(parameters["synthetic_gaussian_peaks"]["evidence"], "assumption")
 
+    def test_fix_round_b_precondition_refusals_name_the_cause(self):
+        # the code stays PRECONDITION_FAILED, the message says which precondition failed.
+        def why(capability, **arguments):
+            return self.assert_unchanged(capability, arguments, code="PRECONDITION_FAILED")["error"]["message"]
+        self.assertIn("switched off", why("background.acquire"))
+        self.ok("power.set", enabled=True)
+        self.assertIn("lid", why("accessory.install", mode="atr"))
+        self.ok("lid.set_angle", angle_rad=JASCO_FTIR4700_LID_MAX_RAD)
+        self.assertIn("No sampling accessory", why("sample.load", sample_id="synthetic_sample"))
+        self.assertIn("Close the sample-compartment lid", why("background.acquire"))
+        self.ok("accessory.install", mode="atr")
+        self.assertIn("transmission", why("sample.load", sample_id="synthetic_gas"))
+        self.assertIn("Unknown sample_id", why("sample.load", sample_id="not_here"))
+        self.assertIn("No sample is loaded", why("sample.unload"))
+        self.ok("sample.load", sample_id="synthetic_sample")
+        self.assertIn("already loaded", why("sample.load", sample_id="synthetic_liquid"))
+        self.assertIn("Unload the sample", why("accessory.install", mode="transmission"))
+        self.ok("lid.set_angle", angle_rad=0.0)
+        self.assertIn("No valid background", why("measure"))
+        self.assertIn("no sample loaded", why("background.acquire"))
+        self.assertGreaterEqual(tuple(map(int, export_jasco_ftir4700_contract_metadata()["asset_version"].split("."))), (1, 1, 1))
+
 # CHEM-108 Agilent 8697: append-only verification of synthetic runtime.
 import copy as _hs8697_test_copy
 import json as _hs8697_test_json
@@ -2047,6 +2069,33 @@ class TestEppendorf5910RiRuntime(_dr6000_test_unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.host.register_sample("sample_a", mass_kg=0.1)
         self.assertEqual(before, self.host.debug_snapshot())
+
+    def test_fix_round_b_refusals_name_the_cause_and_the_rotor_speed_limit(self):
+        # PRECONDITION_FAILED keeps its code (centrifuge.measure declares no finer one); the message names the cause.
+        def why(capability, arguments=None):
+            return self.rejected_unchanged(capability, arguments or {}, "PRECONDITION_FAILED")["error"]["message"]
+        self.assertIn("switched off", why("centrifuge.set_method", self.method()))
+        self.boot()
+        self.assertIn("No run is in progress", why("centrifuge.stop"))
+        self.assertIn("No run curve", why("centrifuge.get_curve"))
+        self.assertIn("Open the lid", why("rotor.select", {"configuration": "fixed_angle"}))
+        self.success("lid.set_angle", angle_rad=EPPENDORF_5910RI_LID_MAX_RAD)
+        self.assertIn("No rotor is installed", why("sample.load", {"slot_id": "slot_1", "sample_id": "sample_a"}))
+        self.success("rotor.select", configuration="fixed_angle")
+        self.assertIn("Unknown sample_id", why("sample.load", {"slot_id": "slot_1", "sample_id": "nope"}))
+        self.success("sample.load", slot_id="slot_1", sample_id="sample_a")
+        self.assertIn("Slot 'slot_1' is occupied", why("sample.load", {"slot_id": "slot_1", "sample_id": "sample_b"}))
+        self.assertIn("already loaded", why("sample.load", {"slot_id": "slot_2", "sample_id": "sample_a"}))
+        self.assertIn("Slot 'slot_3' is empty", why("sample.unload", {"slot_id": "slot_3"}))
+        self.assertIn("Unload every tube", why("rotor.select", {"configuration": "large_capacity"}))
+        self.assertIn("Close the lid", why("centrifuge.measure"))
+        self.success("sample.load", slot_id="slot_2", sample_id="sample_b")
+        self.success("lid.set_angle", angle_rad=0.0)
+        self.assertIn("No method is set", why("centrifuge.measure"))
+        self.success("centrifuge.set_method", self.method(speed_rad_s=75))
+        message = why("centrifuge.measure")
+        self.assertIn("75.0 rad/s exceeds the operating speed limit of the fixed_angle rotor, 50.0 rad/s (477 rpm)", message)
+        self.assertEqual(self.metadata["asset_version"], "1.2.3")
 
 
 class TestEppendorf5910RiTerminalPrecision(_dr6000_test_unittest.TestCase):

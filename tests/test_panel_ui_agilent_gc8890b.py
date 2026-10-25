@@ -1037,7 +1037,7 @@ class Equivalence(unittest.TestCase):
         order = ['sensor.configure_error', 'settings.configure', 'clock.set', 'status.configure', 'plot.configure', 'method.configure',
                  'method.event_save', 'method.event_delete', 'scheduler.clock_add', 'scheduler.clock_delete', 'calibration.zero', 'display.preview',
                  'emf.configure', 'emf.reset', 'run.prep', 'run.stop', 'diagnostics.start_test', 'diagnostics.cancel_test', 'maintenance.start',
-                 'maintenance.abort', 'tools.column_compensation', 'run.stop', 'run.start', 'run.stop', 'system.restart']
+                 'maintenance.abort', 'tools.column_compensation', 'run.stop', 'chromatography.set_oven_program', 'run.start', 'run.stop', 'system.restart']
         done = set()
         for cap in order:
             m = meta['capabilities'][cap]
@@ -1129,6 +1129,52 @@ class ContractEntries(unittest.TestCase):
         for comp in ('display', 'status_indicator', 'oven_door_button', 'power_switch'):
             self.assertIn(comp, c['components'])
         self.assertEqual(c['asset_version'], rt.GC8890B_ASSET_VERSION)
+
+
+
+class FixRoundD2(unittest.TestCase):
+    """2026-10-23, 1.6.0: chromatography.set_oven_program writes the Active Method oven program that the touchscreen
+    shows and edits (manual p.90-91), and the run at Start follows it."""
+
+    def test_set_oven_program_shows_on_the_method_screen(self):
+        r = Rig()
+        out = r.call(r.A, 'chromatography.set_oven_program', initial_temperature_K=313.15, initial_hold_s=60.0,
+                     ramps=[{'rate_K_s': 10 / 60, 'final_temperature_K': 573.15, 'final_hold_s': 300.0}])
+        self.assertEqual(out, {'initial_temperature_K': 313.15, 'ramps': 1, 'run_length_s': 1920.0})
+        r.tab('method')
+        r.tap('side_method_oven')
+        c = r.cells('method_oven_form')
+        self.assertEqual((c['Oven temperature'], c['Initial time'], c['Rate 1'], c['Final temperature 1'], c['Final time 1'], c['Rate 2'],
+                          c['Run time']), ('40.00 °C', '1.00 min', '10.00 °C/min', '300.00 °C', '5.00 min', '0.00 °C/min', '32.00 min'))
+        self.assertNotIn('Final temperature 2', c)                                 # the program ends at the first zero rate (p.91)
+        r.tab('home')
+        self.assertEqual(r.text('fp_oven_t'), '40.00 °C')
+        r.tab('method')                                                            # the touchscreen edits the same program
+        r.tap('side_method_oven')
+        r.enter('method_oven_form', 'Rate 1', '20')
+        self.assertEqual(r.cells('method_oven_form')['Run time'], '19.00 min')     # 1 + 260 / 20 + 5
+        self.assertAlmostEqual(rt._g8_active_oven_program(r.h._device)['ramps'][0]['rate_K_s'], 20 / 60, places=9)
+        r.ready()
+        r.tap('start')
+        r.step(60 + 60)
+        self.assertAlmostEqual(r.val('thermal.oven.setpoint_k'), 313.15 + 20 / 60 * 60, delta=0.6)   # ramping at 20 C/min after 1 min
+        self.assertAlmostEqual(r.val('gc.run')['length_s'], 1140.0, places=3)
+        refused = r.call(r.A, 'chromatography.set_oven_program', expect='rejected', initial_temperature_K=313.15, initial_hold_s=0.0,
+                         ramps=[{'rate_K_s': 2.5, 'final_temperature_K': 573.15, 'final_hold_s': 0.0}])          # > 120 C/min (p.91)
+        self.assertEqual(refused['error']['code'], 'INVALID_ARGUMENT')
+        self.assertAlmostEqual(rt._g8_active_oven_program(r.h._device)['ramps'][0]['rate_K_s'], 20 / 60, places=9)              # nothing committed
+
+    def test_isothermal_method_stays_isothermal(self):
+        r = Rig()
+        self.assertIsNone(rt._g8_active_oven_program(r.h._device))                # default method: Rate 1 = 0
+        out = r.call(r.A, 'chromatography.set_oven_program', initial_temperature_K=373.15, initial_hold_s=600.0, ramps=[])
+        self.assertEqual(out['run_length_s'], 600.0)
+        self.assertIsNone(rt._g8_active_oven_program(r.h._device))
+        r.tab('method')
+        r.tap('side_method_oven')
+        c = r.cells('method_oven_form')
+        self.assertEqual((c['Oven temperature'], c['Initial time'], c['Rate 1'], c['Run time']), ('100.00 °C', '10.00 min', '0.00 °C/min', '10.00 min'))
+        self.assertNotIn('Final temperature 1', c)
 
 
 if __name__ == '__main__':

@@ -1236,6 +1236,31 @@ class DeviceModel(unittest.TestCase):
             self.assertEqual({x['weight_g'] for x in p['readings'] if x['label'] == 'Tare'}, {10.0})
 
 
+class StableMeansSettled(unittest.TestCase):
+    """1.3.1 (2026-10-22): balance.stable rose about 1.5-13 s after a load change while the low-pass reading was still short of the settled value
+    (Standard: 0.7463 g shown for 0.7531 g).  Whenever the twin reports stable, the reading is within one readability step of the settled value."""
+
+    def test_stable_reading_is_within_readability_of_settled_value(self):
+        for env in rt.XPR_ENVIRONMENTS:
+            for mode in ('Universal', 'Sensor mode'):
+                with self.subTest(environment=env, weighing_mode=mode):
+                    r = Rig()
+                    pid = r.call(r.A, 'profile.save', profile_id=None, settings={'name': 'P', 'environment': env, 'weighing_mode': mode,
+                                                                                    'zero_drift': False})['profile_id']
+                    r.call(r.A, 'profile.set_default', profile_id=pid)
+                    r.step(30, 0.0)
+                    seen = []
+                    for _ in range(900):                                         # 0.7531 g placed, read every 0.1 s for 90 s
+                        r.step(0.1, 0.0007531)
+                        seen.append((r.val('balance.stable'), r.val('balance.net_kg')))
+                    final = seen[-1][1]
+                    self.assertTrue(seen[-1][0])
+                    self.assertAlmostEqual(final, 0.0007531, delta=1e-7)
+                    for stable, net in seen:
+                        if stable:
+                            self.assertLessEqual(abs(net - final), rt.XPR204E_READABILITY_KG + 1e-12, (env, mode, net, final))
+
+
 class SyncAudit(unittest.TestCase):
     """Sync audit 2026-10-19: Start after temperature change, the time zone, panel commands as the gesturing session."""
 

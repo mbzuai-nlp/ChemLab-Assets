@@ -98,4 +98,18 @@ class ThinkyTest(unittest.TestCase):
   a.step(9)
   for _ in range(90):b.step(.1)
   for k in ['temperature','mixed','gas','heat','angle','cup_angle']:self.assertAlmostEqual(getattr(a,k),getattr(b,k),7)
+class FixRoundB(unittest.TestCase):
+ def test_wrong_counterbalance_names_the_cause(self):
+  """no IMBALANCE code is declared, so a start with a wrong rotation balance keeps PRECONDITION_FAILED but says why."""
+  r=prepared(closed=False);ag=r.session();n=[0]
+  def why(cap='acquisition.start',**args):
+   n[0]+=1;old=r.debug_snapshot();x=ag.invoke(instance_id=r.instance_id,capability_id=cap,arguments=args,request_id='ag2_%d'%n[0])
+   self.assertEqual(x['error']['code'],'PRECONDITION_FAILED',x);self.assertEqual(old['phase'],r.phase);return x['error']['message']
+  self.assertIn('lid is not closed',why());r.invoke('balance.set',gross_mass_kg=r.gross()+.01)
+  r.invoke('lid.set_open',open=False);r.step(1.1)
+  m=why();self.assertIn('rotation balance does not match',m);self.assertNotIn(repr(r.gross())[:6],m)   # the message gives no masses
+  self.assertIn('open the lid fully',why('balance.set',gross_mass_kg=r.gross()));self.assertIn('no run is in progress',why('acquisition.stop'))
+  r.invoke('lid.set_open',open=True);r.step(1.6);r.invoke('balance.set',gross_mass_kg=r.gross());r.invoke('lid.set_open',open=False);r.step(1.6)
+  self.assertEqual(ag.invoke(instance_id=r.instance_id,capability_id='acquisition.start',arguments={},request_id='ag2_ok')['status'],'accepted')
+  r.invoke('power.set',enabled=False);self.assertIn('switched off',why());self.assertEqual(ASSET_VERSION,'1.2.1')
 if __name__=='__main__':unittest.main()

@@ -1,0 +1,87 @@
+{
+ "class": "thin",
+ "adapter": "chemlab.compile.classes.thin:ThinAdapter",
+ "about": "Thin class: shared verbs only, reviewed by hand; the rest stays on chemlab call.",
+ "membership": {
+  "decided": "2026-10-22",
+  "members": ["wtw_oxitopi", "inert_puresolvmd", "vaisala_dmt152", "cem_libertyblue", "cytiva_ktaoligosynt"],
+  "why_thin": {
+   "wtw_oxitopi": "the BOD workflow is manual bottle preparation on six independent measuring heads; no method or calibration object",
+   "inert_puresolvmd": "solvent dispensing is a manual valve, needle and regulator procedure per column; no run or measurement",
+   "vaisala_dmt152": "a transmitter: installation, cap and analog-output configuration and one measurement query; no set point or run",
+   "cem_libertyblue": "the twin exposes power, cover, clamp, start / stop and one synthesis query; no reactor verbs exist",
+   "cytiva_ktaoligosynt": "the twin exposes power, clamp, start / stop and one synthesis query; no reactor verbs exist"
+  }
+ },
+ "members": {
+  "wtw_oxitopi": {
+   "verbs": {
+    "power": {"cap": "platform.set_power", "arg": "on"},
+    "open": {"parts": {"incubator_door": {"cap": "incubator.set_door", "arg": "open", "open": true, "close": false}}},
+    "method": {"cap": "head.configure", "keys": {"days": {"arg": "duration_days"}}},
+    "start": {"cap": "head.start", "job": "none"},
+    "stop": {"cap": "head.stop"},
+    "result": {"cap": "head.read"}
+   },
+   "targets": {"head": {"arg": "head", "values": {"h1": "h1", "h2": "h2", "h3": "h3", "h4": "h4", "h5": "h5", "h6": "h6"}, "required": true}},
+   "slots": {"power": "platform.powered"},
+   "status_slots": ["platform.powered", "incubator.door_open", "incubator.temperature_k", "warnings.active"],
+   "unsupported": {"ack": "no alarm acknowledge (the heads show warnings on their displays)", "estop": "no emergency stop"},
+   "notes": {"start": ["a BOD run lasts days: start returns at once; follow the head with `result --head hN` or `chemlab read`"],
+             "method": ["head settings (duration_days, unit, sample_volume_m3) per head: method --head h1 duration_days=5 unit=mg/l"]}
+  },
+  "inert_puresolvmd": {
+   "verbs": {
+    "open": {"parts": {"cabinet_left_door": {"cap": "cabinet.door", "arg": "angle_rad", "open": 1.7, "close": 0.0, "args": {"side": "left"}},
+                       "cabinet_right_door": {"cap": "cabinet.door", "arg": "angle_rad", "open": 1.7, "close": 0.0, "args": {"side": "right"}},
+                       "gas_isolation_valve": {"cap": "gas.isolation", "arg": "open", "open": true, "close": false}}}
+   },
+   "status_slots": ["pump.on", "gas.isolation_open", "gauge.vacuum_pa", "gauge.pressure_pa"],
+   "unsupported": {"power": "no mains switch for agents (the vacuum pump is `chemlab call inert_puresolvmd pump.set`)",
+                   "ack": "no alarm acknowledge", "estop": "no emergency stop", "method": "no method: dispensing is a manual valve procedure",
+                   "start": "no run: dispense with valve.turn / needle.set / regulator.set per channel (`chemlab call`)",
+                   "stop": "no run to stop", "result": "no measurement (water.measure is not supported by this twin)"},
+   "alternatives": {"start": "chemlab describe inert_puresolvmd (flask.attach, valve.turn, needle.set per channel)"}
+  },
+  "vaisala_dmt152": {
+   "verbs": {
+    "power": {"cap": "power.set", "arg": "on", "args": {"voltage_v": 24.0}},
+    "result": {"cap": "measurement.send"}
+   },
+   "slots": {"power": "power.on"},
+   "status_slots": ["power.on", "state.current", "reading.tdf_k", "alarms.active"],
+   "unsupported": {"open": "no door or lid", "close": "no door or lid", "ack": "no alarm acknowledge", "estop": "no emergency stop",
+                   "method": "no method (settings.configure and output.configure are its own capabilities)",
+                   "start": "a continuous transmitter: it measures whenever it is powered", "stop": "a continuous transmitter: switch it off"},
+   "notes": {"power": ["switches the 24 V supply (the transmitter takes 10-35 V; the contract example is 24 V)"],
+             "result": ["one SEND reading: dew point (tdf_k), ppm and mg/kg"]}
+  },
+  "cem_libertyblue": {
+   "verbs": {
+    "power": {"cap": "power.set", "arg": "enabled"},
+    "open": {"parts": {"cover": {"cap": "cover.set_lift", "arg": "lift_m", "open": 0.08, "close": 0.0},
+                       "clamp": {"cap": "clamp.set_lift", "arg": "lift_m", "open": 0.04, "close": 0.0}}},
+    "start": {"cap": "acquisition.start", "job": "operation"},
+    "stop": {"cap": "acquisition.stop"},
+    "result": {"cap": "synthesis.measure"}
+   },
+   "path_exceptions": ["synthesis.measure"],
+   "slots": {"power": "power.enabled"},
+   "status_slots": ["power.enabled", "cycle.phase", "cycle.stage", "cycle.fault"],
+   "unsupported": {"ack": "no alarm acknowledge", "estop": "no emergency stop", "method": "the synthesis queue and kinetics are set up by the lab (host)"}
+  },
+  "cytiva_ktaoligosynt": {
+   "verbs": {
+    "power": {"cap": "power.set", "arg": "enabled"},
+    "open": {"parts": {"clamp": {"cap": "clamp.set_lift", "arg": "lift_m", "open": 0.04, "close": 0.0}}},
+    "start": {"cap": "acquisition.start", "job": "operation"},
+    "stop": {"cap": "acquisition.stop"},
+    "result": {"cap": "synthesis.measure"}
+   },
+   "path_exceptions": ["synthesis.measure"],
+   "slots": {"power": "power.enabled"},
+   "status_slots": ["power.enabled", "cycle.phase", "cycle.stage", "cycle.fault"],
+   "unsupported": {"ack": "no alarm acknowledge", "estop": "no emergency stop", "method": "the synthesis method and kinetics are set up by the lab (host)"}
+  }
+ }
+}

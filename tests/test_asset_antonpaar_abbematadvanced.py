@@ -110,4 +110,19 @@ class AntonpaarAbbematadvancedTests(unittest.TestCase):
         self.assertGreaterEqual(sum(t['runtime_eligible'] for t in self.h.templates.values()),50)
         for t in self.h.templates.values():
             self.assertEqual(t['evidence'],'measured_literature'); self.assertEqual(t['wavelength_m'],589.3e-9); self.assertIsNone(t['dn_dt_per_k']); self.assertTrue(t['source'].startswith('https://pubchem.ncbi.nlm.nih.gov/'))
+    def test_fix_round_b_refusals_name_the_cause(self):
+        """PRECONDITION_FAILED keeps its code (no finer code is declared); the message names the cause."""
+        n=[0]
+        def why(cap='acquisition.start',**args):
+            n[0]+=1; r=self.agent.invoke(instance_id=self.h.instance_id,capability_id=cap,arguments=args,request_id='pm5_%d'%n[0])
+            self.assertEqual(r['error']['code'],'PRECONDITION_FAILED',r); return r['error']['message']
+        self.assertIn('switched off',why())
+        self.h.invoke('power.set',enabled=True)
+        self.assertIn('no sample is on the prism',why()); self.assertIn('lid is not open',why('cleaning.start',volume_m3=1e-6))
+        self.ready(); self.h.invoke('lid.set_angle',angle_rad=0.1); self.assertIn('lid is not closed',why())
+        self.h.invoke('lid.set_angle',angle_rad=0.); self.h.invoke('thermal.set_temperature',temperature_k=303.15)
+        self.assertIn('has not reached the set point',why())
+        self.h.invoke('thermal.set_temperature',temperature_k=293.15); self.h.step(600); self.h.invoke('method.configure',mode='calibrated_concentration')
+        self.assertIn('no concentration calibration',why())
+        self.assertEqual(rt.ASSET_VERSION,'1.1.3')
 if __name__=='__main__': unittest.main()

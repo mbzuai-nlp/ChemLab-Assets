@@ -204,5 +204,21 @@ class FrontPanelCommands(unittest.TestCase):
         h.invoke('vacuum.set',enabled=True,mode='manual',pressure_pa=30.,manual_valve_fraction=1.);h.invoke('acquisition.start',mode='purge');h.step(40)
         self.assertEqual(h.read()['gas.channel_modes'],['purge','close','control']);self.assertEqual(h.flow[1],0.)
         self.assertAlmostEqual(h.flow[0],h.gases['full_scale_std_m3_s'][0]*h.gases['actual_gas_factor'][0],places=12)
+class FixRoundC(unittest.TestCase):
+    def test_full_cylinder_cap_per_gas(self):
+        # A channel may hold one full 50 L / 200 bar(g) cylinder of its gas (NIST SRD 69 densities, 15 C); was 100 mol.
+        # (a comment, not a docstring: verify_runtime.py reads the verbose unittest lines)
+        self.assertEqual(CYLINDER_MOL,{'N2':400.1,'AR':447.7,'CH4':525.1,'H2':372.2});self.assertEqual(GASES['properties']['initial_mol']['items']['maximum'],525.1)
+        full=dict(GASES_EXAMPLE,initial_mol=[400.1,447.7,525.1]);h=ready(gas=full);self.assertEqual(h.remaining,[400.1,447.7,525.1])
+        h.invoke('vacuum.set',enabled=True,mode='manual',pressure_pa=30.,manual_valve_fraction=1.);h.invoke('acquisition.start',mode='purge');h.step(60)
+        self.assertLess(h.remaining[0],400.1)                                   # the purge draws from the full cylinder
+        for bad in ([400.2,1.,1.],[1.,447.8,1.],[1.,1.,525.2]):                 # over one cylinder of that gas: refused, nothing installed
+            r=LaboaoCvdltf12p50Runtime();r.invoke('plant.configure',**PLANT_EXAMPLE);before=copy.deepcopy(r.__dict__)
+            with self.assertRaises(ActionRejected) as x:r.invoke('gas.install',**dict(GASES_EXAMPLE,initial_mol=bad))
+            self.assertEqual(str(x.exception),'INVALID_ARGUMENT');self.assertEqual(before,r.__dict__)
+            if bad[2]<=525.1:self.assertIn('full 50 L / 200 bar cylinder',x.exception.detail)   # CH4 above 525.1 mol is already the schema maximum
+        r=LaboaoCvdltf12p50Runtime();r.invoke('plant.configure',**PLANT_EXAMPLE)
+        with self.assertRaises(ActionRejected):r.invoke('gas.install',**dict(GASES_EXAMPLE,species=['N2','H2','CH4'],initial_mol=[1.,372.3,1.]))
+        self.assertEqual(ASSET_VERSION,'1.1.3')
 if __name__=='__main__':unittest.main()
 

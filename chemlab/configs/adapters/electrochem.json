@@ -1,0 +1,1019 @@
+{
+ "class": "electrochem",
+ "adapter": "chemlab.compile.classes.electrochem:ElectrochemAdapter",
+ "about": "Electrochemical workstations and accessories: connect PORT=ID, technique (cv, lsv, ca, cp, steps, qcm, secm-line, secm-approach), start (job), stop, data, rotate (RRDE rotator), move (SECM probe), zero (QCM baseline), status. Ranges and units come from each member's contract.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "gamry_reference620",
+   "ch_chi920d",
+   "ch_chi440c",
+   "pine_wavevortex10"
+  ],
+  "secondary": {},
+  "secondary_not_mapped": {
+   "ika_electrasyn2": "preparative electrolysis with a CV mode; its primary class (reactor) owns the instrument and can reuse these handlers",
+   "metrohm_914": "pH / conductivity probes are measuring cells, not a potentiostat; property_meter owns it",
+   "pccell_ed64002": "electrodialysis stack (a separation process); its primary class (extraction) owns it"
+  },
+  "notes": "power and open / close of lids and the rotator enclosure come from the shared layer."
+ },
+ "members": {
+  "gamry_reference620": {
+   "role": "primary",
+   "verbs": {
+    "connect": {
+     "cap": "slot.set_connection",
+     "port_arg": "port_id",
+     "id_arg": "connection_id",
+     "ports": {
+      "working": "working_electrode",
+      "reference": "reference_electrode",
+      "counter": "counter_electrode",
+      "cell": "cell"
+     },
+     "slots": {
+      "working": "slot.working_electrode.connection_id",
+      "reference": "slot.reference_electrode.connection_id",
+      "counter": "slot.counter_electrode.connection_id",
+      "cell": "slot.cell.connection_id"
+     }
+    },
+    "technique": {
+     "cap": "electrochem.configure_waveform",
+     "arg": "program",
+     "style": "waveform",
+     "techniques": [
+      "cv",
+      "lsv",
+      "ca",
+      "cp",
+      "steps"
+     ],
+     "max_points": 10000
+    },
+    "start": {
+     "cap": "electrochem.start",
+     "job": {
+      "slot": "waveform.status",
+      "done": [
+       "completed"
+      ],
+      "failed": [
+       "stopped"
+      ],
+      "report": {
+       "samples": "waveform.sample_count",
+       "elapsed_s": "waveform.elapsed_s"
+      },
+      "max_s": 7200
+     }
+    },
+    "stop": {
+     "cap": "electrochem.stop"
+    },
+    "data": {
+     "cap": "electrochem.read_series",
+     "show": [
+      "status",
+      "samples",
+      "synthetic",
+      "response_model"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "waveform.running",
+     "values": [
+      true
+     ]
+    }
+   },
+   "path": "electrochem",
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "status",
+     "waveform.status"
+    ],
+    [
+     "samples",
+     "waveform.sample_count"
+    ],
+    [
+     "elapsed",
+     "waveform.elapsed_s",
+     "duration"
+    ],
+    [
+     "output",
+     "output.commanded_potential_v",
+     "voltage"
+    ],
+    [
+     "working",
+     "slot.working_electrode.connection_id"
+    ],
+    [
+     "reference",
+     "slot.reference_electrode.connection_id"
+    ],
+    [
+     "counter",
+     "slot.counter_electrode.connection_id"
+    ],
+    [
+     "cell",
+     "slot.cell.connection_id"
+    ]
+   ],
+   "requires": {
+    "connect": [
+     {
+      "slot": "waveform.status",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "technique": [
+     {
+      "slot": "waveform.status",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "slot.working_electrode.connection_id",
+      "set": true,
+      "code": "NOT_CONNECTED",
+      "label": "working electrode connected",
+      "message": "no working electrode is connected to {inst}.",
+      "fix": "connect it: `chemlab run {inst} connect working=ID` (the ids the lab gave you)."
+     },
+     {
+      "slot": "slot.reference_electrode.connection_id",
+      "set": true,
+      "code": "NOT_CONNECTED",
+      "label": "reference electrode connected",
+      "message": "no reference electrode is connected to {inst}.",
+      "fix": "connect it: `chemlab run {inst} connect reference=ID`."
+     },
+     {
+      "slot": "slot.counter_electrode.connection_id",
+      "set": true,
+      "code": "NOT_CONNECTED",
+      "label": "counter electrode connected",
+      "message": "no counter electrode is connected to {inst}.",
+      "fix": "connect it: `chemlab run {inst} connect counter=ID`."
+     },
+     {
+      "slot": "slot.cell.connection_id",
+      "set": true,
+      "code": "NOT_CONNECTED",
+      "label": "cell connected",
+      "message": "no cell is registered on {inst}.",
+      "fix": "connect it: `chemlab run {inst} connect cell=ID`."
+     },
+     {
+      "slot": "waveform.program",
+      "set": true,
+      "code": "NO_TECHNIQUE",
+      "label": "a technique set",
+      "message": "{inst} has no technique (waveform) yet.",
+      "fix": "set one: `chemlab run {inst} technique cv --from 0.6V --to -0.2V`."
+     },
+     {
+      "slot": "waveform.status",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "waveform.status",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "a technique running",
+      "message": "{inst} is not playing a technique.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "electrochem.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: power, the four connections and a technique are needed, and the waveform must fit the clock.",
+     "fix": "see `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "rotate": "no rotator (a potentiostat only)",
+    "move": "no positioner",
+    "zero": "no baseline to zero (no QCM)"
+   },
+   "notes": {
+    "technique": [
+     "the Gamry plays the waveform as discrete points: cv / lsv sweep in --step increments at --rate (interval = step / rate); at most 10000 points",
+     "measured current and potential channels of this twin are null (it records the commanded series only); the lab's template cell is for electrochem.template_cv",
+     "IUPAC sign convention (anodic current positive)"
+    ],
+    "connect": [
+     "ports: working, reference, counter, cell"
+    ]
+   },
+   "manual": "Reference 620 operator's manual 988-00086 (cell connections p.49-52, panels p.53-63); Framework Pstat class help",
+   "examples": {
+    "connect": "chemlab run INST connect working=we_01 reference=ref_01 counter=ce_01 cell=cell_01",
+    "technique": "chemlab run INST technique cv --from 0.6V --to -0.2V --rate 100mV/s --step 2mV"
+   }
+  },
+  "ch_chi440c": {
+   "role": "primary",
+   "verbs": {
+    "technique": {
+     "cap": "method.configure",
+     "style": "steps",
+     "techniques": [
+      "ca",
+      "cp",
+      "steps",
+      "qcm"
+     ],
+     "keep": {
+      "last": true,
+      "example": true
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "max_s": 3600,
+      "report": {
+       "points": "acquisition.completed_points",
+       "delta_hz": "frequency.delta_hz"
+      }
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "data": {
+     "cap": "process.measure",
+     "show": [
+      "phase",
+      "complete",
+      "elapsed_s",
+      "points",
+      "evidence",
+      "warnings"
+     ]
+    },
+    "zero": {
+     "cap": "baseline.zero",
+     "report_slot": "frequency.baseline_hz"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "acquisition.phase",
+     "values": [
+      "running"
+     ]
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "method set",
+     "method.configured"
+    ],
+    [
+     "sample",
+     "sample.loaded"
+    ],
+    [
+     "phase",
+     "acquisition.phase"
+    ],
+    [
+     "frequency",
+     "frequency.hz",
+     "Hz"
+    ],
+    [
+     "shift",
+     "frequency.delta_hz",
+     "Hz"
+    ],
+    [
+     "mass change",
+     "mass.inferred_delta_kg",
+     "ug"
+    ],
+    [
+     "potential",
+     "potential.v",
+     "voltage"
+    ],
+    [
+     "current",
+     "current.a",
+     "current"
+    ],
+    [
+     "baseline",
+     "frequency.baseline_hz",
+     "Hz"
+    ],
+    [
+     "lid",
+     "lid.lift_m",
+     "length"
+    ]
+   ],
+   "requires": {
+    "technique": [
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_TECHNIQUE",
+      "label": "a technique set",
+      "message": "{inst} has no technique yet.",
+      "fix": "set one: `chemlab run {inst} technique cp --current 10uA --time 2s`."
+     },
+     {
+      "slot": "sample.loaded",
+      "value": true,
+      "code": "NO_SAMPLE",
+      "label": "solution in the cell",
+      "message": "there is no solution in the EQCM cell of {inst}.",
+      "fix": "ask the lab operator to fill the cell."
+     },
+     {
+      "slot": "lid.lift_m",
+      "max": 0.0,
+      "code": "LID_OPEN",
+      "label": "lid closed",
+      "message": "the cell lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`."
+     },
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "acquisition.phase",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "a technique running",
+      "message": "{inst} is not running a technique.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ],
+    "zero": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "frequency.quality",
+      "value": "estimated",
+      "code": "NO_SIGNAL",
+      "label": "a valid frequency reading",
+      "message": "{inst} has no valid crystal frequency to zero on yet.",
+      "fix": "wait a few seconds after power on (`chemlab wait 5`), then zero."
+     },
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:SAMPLE_GRID": {
+     "code": "BAD_STEP",
+     "message": "every step of {inst} must last a whole number of sample intervals.",
+     "fix": "make the step times multiples of --interval."
+    },
+    "method.configure:POINT_LIMIT": {
+     "code": "TOO_MANY_POINTS",
+     "message": "the technique has more than 20000 points on {inst}.",
+     "fix": "use a longer --interval or a shorter time."
+    },
+    "acquisition.start:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: power, a technique, the solution and a closed lid are needed.",
+     "fix": "see `chemlab run {inst} status`."
+    },
+    "acquisition.start:METHOD_PROCESS_MISMATCH": {
+     "code": "WRONG_TECHNIQUE",
+     "message": "the technique does not fit the cell of {inst}: qcm (frequency only) is for a film that adsorbs without current, while a plating bath needs a potential or current technique.",
+     "fix": "choose ca, cp or steps for a plating bath (`chemlab run {inst} technique cp --current 10uA --time 2s`)."
+    }
+   },
+   "unsupported": {
+    "connect": "the electrodes are fixed in the EQCM cell (no connection slots)",
+    "rotate": "no rotator",
+    "move": "no positioner"
+   },
+   "notes": {
+    "technique": [
+     "techniques: ca (potential step), cp (current step), steps (a staircase of potentials or currents), qcm (frequency only)",
+     "the reference electrode label keeps the last one, else the documented one; give --reference TEXT to change it",
+     "current sign as in this twin (and the CHI software default): a positive current is cathodic (reduces, plates the film); a negative potential vs the bath's E0 plates too"
+    ],
+    "zero": [
+     "sets the frequency baseline; frequency shifts and the inferred mass count from it (Sauerbrey)"
+    ]
+   },
+   "manual": "CHI 400C series EQCM product page (specifications) and CHI brochure p.3-7; CHI900D series user manual (setup and control menus)",
+   "examples": {
+    "technique": "chemlab run INST technique cp --current 10uA --time 2s",
+    "zero": "chemlab run INST zero"
+   }
+  },
+  "ch_chi920d": {
+   "role": "primary",
+   "verbs": {
+    "technique": {
+     "cap": "method.configure",
+     "style": "secm",
+     "techniques": [
+      "secm-line",
+      "secm-approach"
+     ],
+     "keep": {
+      "last": true,
+      "example": true
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "max_s": 7200,
+      "report": {
+       "points": "acquisition.completed_points"
+      }
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "data": {
+     "cap": "process.measure",
+     "show": [
+      "phase",
+      "complete",
+      "elapsed_s",
+      "points",
+      "evidence",
+      "warnings"
+     ]
+    },
+    "move": {
+     "cap": "stage.move",
+     "args_xyz": [
+      "x_m",
+      "y_m",
+      "z_m"
+     ],
+     "axes": [
+      "stage.x_m",
+      "stage.y_m",
+      "stage.z_m"
+     ],
+     "moving_slot": "positioner.moving",
+     "tolerance_m": 1e-08,
+     "max_s": 120
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "acquisition.phase",
+     "values": [
+      "running"
+     ]
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "method set",
+     "method.configured"
+    ],
+    [
+     "sample",
+     "sample.loaded"
+    ],
+    [
+     "phase",
+     "acquisition.phase"
+    ],
+    [
+     "points",
+     "acquisition.completed_points"
+    ],
+    [
+     "x",
+     "stage.x_m",
+     "length"
+    ],
+    [
+     "y",
+     "stage.y_m",
+     "length"
+    ],
+    [
+     "z",
+     "stage.z_m",
+     "length"
+    ],
+    [
+     "moving",
+     "positioner.moving"
+    ],
+    [
+     "tip",
+     "tip.target_v",
+     "voltage"
+    ],
+    [
+     "tip current",
+     "tip.current_a",
+     "current"
+    ]
+   ],
+   "requires": {
+    "technique": [
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_TECHNIQUE",
+      "label": "a technique set",
+      "message": "{inst} has no SECM technique yet.",
+      "fix": "set one: `chemlab run {inst} technique secm-line --path ... --tip 0.5V --substrate 0V`."
+     },
+     {
+      "slot": "sample.loaded",
+      "value": true,
+      "code": "NO_SAMPLE",
+      "label": "a sample in the cell",
+      "message": "there is no sample in the SECM cell of {inst}.",
+      "fix": "ask the lab operator to mount the sample."
+     },
+     {
+      "slot": "positioner.moving",
+      "value": false,
+      "code": "MOVING",
+      "label": "probe at rest",
+      "message": "the probe of {inst} is still moving.",
+      "fix": "wait for it (`chemlab wait 5`)."
+     },
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "move": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "acquisition.phase",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "a technique running",
+      "message": "{inst} is not scanning.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: power, a technique, a sample and a probe at rest are needed.",
+     "fix": "see `chemlab run {inst} status`."
+    },
+    "stage.move:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} does not move the probe now (power off or not set up).",
+     "fix": "switch it on: `chemlab run {inst} power on`."
+    }
+   },
+   "unsupported": {
+    "connect": "the tip, substrate, reference and counter electrodes are wired in the SECM cell (no connection slots)",
+    "rotate": "no rotator",
+    "zero": "no baseline to zero (no QCM)"
+   },
+   "notes": {
+    "technique": [
+     "secm-line scans the probe along the --path at constant height; secm-approach records an approach curve along the path",
+     "path points are X,Y,Z separated by ';' (bare numbers in mm; µm is usual: -40um,-40um,5um)"
+    ],
+    "move": [
+     "moves the probe and waits until the positioner is at rest"
+    ]
+   },
+   "manual": "CHI900D series SECM user manual (SECM parameters p.103-112, control menu p.119-158, positioner p.27-29)",
+   "examples": {
+    "technique": "chemlab run INST technique secm-line --path -40um,0um,5um;40um,0um,5um --tip 0.5V --substrate 0V",
+    "move": "chemlab run INST move 0um 0um 1mm"
+   }
+  },
+  "pine_wavevortex10": {
+   "role": "primary",
+   "verbs": {
+    "start": {
+     "cap": "acquisition.start",
+     "time_arg": "duration_s",
+     "interval_arg": "sample_interval_s",
+     "job": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "max_s": 3600,
+      "report": {
+       "points": "acquisition.completed_points",
+       "rpm": "speed.rpm"
+      }
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "data": {
+     "cap": "process.measure",
+     "show": [
+      "phase",
+      "complete",
+      "elapsed_s",
+      "points",
+      "evidence",
+      "warnings"
+     ]
+    },
+    "rotate": {
+     "cap": "speed.set",
+     "arg": "angular_speed_rad_s",
+     "run_cap": "motor.run",
+     "run_arg": "enabled",
+     "run_slot": "motor.run_requested",
+     "min_rad_s": 10.471975511965976
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "acquisition.phase",
+     "values": [
+      "running"
+     ]
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "motor",
+     "motor.run_requested"
+    ],
+    [
+     "set speed",
+     "speed.target_rad_s",
+     "rotation"
+    ],
+    [
+     "speed (rpm)",
+     "speed.rpm"
+    ],
+    [
+     "phase",
+     "acquisition.phase"
+    ],
+    [
+     "points",
+     "acquisition.completed_points"
+    ],
+    [
+     "disk",
+     "disk.current_a",
+     "current"
+    ],
+    [
+     "ring",
+     "ring.current_a",
+     "current"
+    ],
+    [
+     "enclosure",
+     "enclosure.lift_m",
+     "length"
+    ],
+    [
+     "sample",
+     "sample.loaded"
+    ],
+    [
+     "potentiostat",
+     "electrochem.configured"
+    ]
+   ],
+   "requires": {
+    "rotate": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "electrochem.configured",
+      "value": true,
+      "code": "NO_POTENTIOSTAT",
+      "label": "bipotentiostat connected",
+      "message": "the external bipotentiostat of {inst} is not set up (the rotator has none of its own).",
+      "fix": "ask the lab operator to connect it."
+     },
+     {
+      "slot": "sample.loaded",
+      "value": true,
+      "code": "NO_SAMPLE",
+      "label": "electrode in the solution",
+      "message": "the electrode of {inst} is not in a solution.",
+      "fix": "ask the lab operator to fill the cell."
+     },
+     {
+      "slot": "enclosure.lift_m",
+      "max": 0.0,
+      "code": "ENCLOSURE_OPEN",
+      "label": "enclosure closed",
+      "message": "the enclosure window of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close enclosure`."
+     },
+     {
+      "slot": "motor.run_requested",
+      "value": true,
+      "code": "ROTATION_OFF",
+      "label": "rotating",
+      "message": "the electrode of {inst} is not rotating.",
+      "fix": "rotate it: `chemlab run {inst} rotate 1000rpm`."
+     },
+     {
+      "slot": "speed.target_rad_s",
+      "min": 10.471975511965976,
+      "code": "SPEED_TOO_LOW",
+      "label": "at least 100 rpm",
+      "message": "{inst} records only at 100 rpm or more.",
+      "fix": "rotate faster: `chemlab run {inst} rotate 1000rpm`."
+     },
+     {
+      "slot": "control.stop_blocked",
+      "value": false,
+      "code": "EXTERNAL_STOP",
+      "label": "external stop released",
+      "message": "the external stop input of {inst} holds the motor.",
+      "fix": "ask the lab operator to release the external stop."
+     },
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "nothing running",
+      "message": "{inst} is running a technique.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "acquisition.phase",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "a technique running",
+      "message": "{inst} is not recording.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "speed.set:TIP_SPEED_LIMIT": {
+     "code": "TOO_FAST",
+     "message": "{inst} keeps the electrode at or below 3000 rpm while it runs.",
+     "fix": "give 3000rpm or less, or stop first."
+    },
+    "speed.set:DRIVE_SPEED_RANGE": {
+     "code": "OUT_OF_RANGE",
+     "message": "{inst} rotates from 100 to 8000 rpm (or 0).",
+     "fix": "give a speed from 100rpm to 8000rpm."
+    },
+    "speed.set:LOCAL_ZERO_REQUIRED": {
+     "code": "EXTERNAL_CONTROL",
+     "message": "{inst} is under external rate control.",
+     "fix": "switch to local control first (`chemlab call {inst} control.configure ...`)."
+    },
+    "acquisition.start:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot record: power, rotation of at least 100 rpm, a closed enclosure, the solution and the bipotentiostat are needed.",
+     "fix": "see `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "connect": "the ring-disk electrode is mounted on the rotator shaft (no connection slots)",
+    "technique": "a rotator only: the disk and ring potentials are set on the external bipotentiostat",
+    "move": "no positioner",
+    "zero": "no baseline to zero"
+   },
+   "alternatives": {
+    "technique": "rotate the electrode (`chemlab run INST rotate 1600rpm`) and record (`chemlab run INST start --time 30s`); the lab sets the potentials."
+   },
+   "notes": {
+    "start": [
+     "start --time T [--interval DT] records the disk and ring currents for T (at most 600 s)",
+     "disk and ring currents follow IUPAC: a reducing (cathodic) disk current is negative"
+    ],
+    "rotate": [
+     "100 to 8000 rpm when idle, at most 3000 rpm while recording; `rotate off` stops the motor"
+    ]
+   },
+   "manual": "WaveVortex 10 user guide (specifications p.13-14, components p.24-28, operation p.34-40)",
+   "examples": {
+    "rotate": "chemlab run INST rotate 1600rpm",
+    "start": "chemlab run INST start --time 30s"
+   }
+  }
+ }
+}

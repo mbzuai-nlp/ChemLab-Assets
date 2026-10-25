@@ -1,7 +1,7 @@
 """CHEM-105 finite EQCM educational process; trusted host API, no experimental calibration."""
 from pathlib import Path
 import copy,math,json,importlib.util
-PROTOCOL_VERSION='1.0.0';SLUG='ch_chi440c';CATALOG_ID='CHEM-105';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.1';SLUG='ch_chi440c';CATALOG_ID='CHEM-105';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];TEMPLATE_REL='assets/expansion_batch04/t4_measure/'+SLUG+'/qcm_material_library.json'
 class ActionRejected(ValueError):pass
 def number(unit='1',lo=None,hi=None):
@@ -51,7 +51,7 @@ LEDGER=obj({'loaded_mass_kg':number('kg',0),'solution_mass_kg':number('kg',0),'f
 CAPS={};UNSUPPORTED={'voltammetry.full_suite','qcmd.acquire','resistance.acquire','hardware.connect'}
 def cap(k,i,o,c,z,kind='device_command',vis='agent',ex=None,effects=None):CAPS[k]=(i,o,c,z,kind,vis,ex or {},effects or [])
 cap('crystal.configure',CRYSTAL,obj({'configured':BOOL,'sensitivity_hz_kg':number('Hz/kg',0)}),['quartz_crystal','oscillator'],'显式晶体与薄膜适用性参数；初始化时设置','configuration','evaluator',CRYSTAL_EXAMPLE,['crystal.configured'])
-cap('method.configure',METHOD,obj({'configured':BOOL}),['controller'],'电位/电流台阶或仅QCM；采样≥1ms','configuration','agent',METHOD_EXAMPLE,['method.configured'])
+cap('method.configure',METHOD,obj({'configured':BOOL}),['controller'],'电位/电流台阶或仅QCM；采样≥1ms；电流台阶current_a的符号：正值为阴极（还原）电流、负值为阳极（氧化）电流（CHI阴极为正约定）','configuration','agent',METHOD_EXAMPLE,['method.configured'])
 cap('sample.load',SAMPLE,obj({'loaded':BOOL}),['sample_cell','gold_electrode'],'宿主装入有限浴液和显式动力学参数','configuration','evaluator',SAMPLE_EXAMPLE,['sample.loaded','sample.identity'])
 cap('sample.unload',obj({}),obj({'returned_mass_kg':number('kg',0)}),['sample_cell'],'开盖后归还剩余浴液；晶体膜保留','device_command','evaluator',effects=['sample.loaded','sample.identity'])
 cap('crystal.clean',obj({}),obj({'waste_mass_kg':number('kg',0)}),['quartz_crystal','gold_electrode'],'开盖且排液后将膜转入废物账本；不凭空抹除质量','device_command','evaluator')
@@ -69,7 +69,7 @@ def slot(k,s,u,z,o='derived',v='agent',c='controller',w=None):SLOTS[k]=(s,u,o,v,
 for k in ['crystal','method']:slot(k+'.configured',BOOL,'1',k+'参数已配置','setpoint')
 slot('power.enabled',BOOL,'1','逻辑电源','setpoint',w=('power.set','enabled'));slot('lid.lift_m',number('m',0,.05),'m','盖实际抬升；人工拆装抽象','scene',c='cell_lid',w=('lid.set','lift_m'))
 slot('sample.loaded',BOOL,'1','有限浴液已装入');slot('sample.identity',TEXT,'1','样品身份','process_truth','evaluator','sample_cell');slot('film.true_mass_kg',number('kg',0),'kg','有限薄膜真实质量','process_truth','evaluator','gold_electrode')
-for k,u,z in [('frequency.true_hz','Hz','过程真频率'),('frequency.hz','Hz','理想计数量化后的频率'),('frequency.delta_hz','Hz','相对观测基线频移'),('mass.inferred_delta_kg','kg','从观测频移换算的质量变化'),('current.a','A','区间平均电流'),('potential.v','V','相对明确参比的区间电位')]:slot(k,nullable(number(u)),u,z,'process_truth' if k=='frequency.true_hz' else 'derived','evaluator' if k=='frequency.true_hz' else 'agent',c='oscillator' if k.startswith('frequency') else 'controller')
+for k,u,z in [('frequency.true_hz','Hz','过程真频率'),('frequency.hz','Hz','理想计数量化后的频率'),('frequency.delta_hz','Hz','相对观测基线频移'),('mass.inferred_delta_kg','kg','从观测频移换算的质量变化'),('current.a','A','区间平均电流；符号：阴极（还原）电流为正、阳极（氧化）电流为负（CHI软件的阴极为正约定，系统设置可改，手册p.113；Gamry、Pine资产用IUPAC约定，阳极为正）'),('potential.v','V','相对明确参比的区间电位')]:slot(k,nullable(number(u)),u,z,'process_truth' if k=='frequency.true_hz' else 'derived','evaluator' if k=='frequency.true_hz' else 'agent',c='oscillator' if k.startswith('frequency') else 'controller')
 slot('frequency.baseline_hz',nullable(number('Hz',0)),'Hz','观测零点，不是过程真质量归零','setpoint',c='oscillator');slot('frequency.quality',enum(['unavailable','estimated','invalid']),'1','薄膜条件与理想频率质量状态',c='oscillator');slot('acquisition.phase',PHASE,'1','采集任务状态');slot('acquisition.elapsed_s',number('s',0),'s','已处理采样时长');slot('acquisition.failure',TEXT,'1','无私有身份的失败码');slot('acquisition.completed_points',dict(number('1',0),type='integer'),'1','有效记录数')
 def adsorb_exact(x,total,sites,ka,kd,volume,dt):
  a=ka/volume
@@ -211,7 +211,7 @@ class ChChi440cSession:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  m=export_ch_chi440c_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  m=export_ch_chi440c_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')

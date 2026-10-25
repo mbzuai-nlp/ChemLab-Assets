@@ -62,10 +62,10 @@ class TestAlicatMCRuntime(_amc_test_unittest.TestCase):
     def test_catalog_default_scale_and_unknown_parameters(self):
         metadata = export_alicat_mc_contract_metadata()["asset_types"][ALICAT_MC_TYPE]
         self.assertEqual(ALICAT_MC_FS_M3_S, 1e-3/60)
-        self.assertEqual(self.value("gas.reference_temperature_K"), 298.15)
-        self.assertEqual(self.value("gas.reference_pressure_Pa"), 101325.0)
+        self.assertEqual(self.value("gas.reference_temperature_k"), 298.15)
+        self.assertEqual(self.value("gas.reference_pressure_pa"), 101325.0)
         self.assertIsNone(self.value("gas.selected_id"))
-        for sid in ("measurement.standard_flow_m3_s", "measurement.mass_flow_kg_s", "measurement.actual_flow_m3_s", "measurement.total_standard_volume_m3", "measurement.pressure_Pa", "measurement.temperature_K"):
+        for sid in ("measurement.standard_flow_m3_s", "measurement.mass_flow_kg_s", "measurement.actual_flow_m3_s", "measurement.total_standard_volume_m3", "measurement.pressure_pa", "measurement.temperature_k"):
             response = self.agent.read(instance_id="mfc_a", state_ids=[sid])["observations"][sid]
             self.assertIsNone(response["value"])
             self.assertEqual(response["quality"], "unavailable")
@@ -228,7 +228,7 @@ class TestAlicatMCRuntime(_amc_test_unittest.TestCase):
         q = self.value("measurement.standard_flow_m3_s")
         self.assertAlmostEqual(self.value("measurement.actual_flow_m3_s"), q*310/298.15*101325/150000, delta=1e-17)
         self.assertAlmostEqual(self.value("measurement.mass_flow_kg_s"), q*101325*.028/(ALICAT_MC_R*298.15), delta=1e-17)
-        observation = self.agent.read(instance_id="mfc_a", state_ids=["measurement.pressure_Pa"])["observations"]["measurement.pressure_Pa"]
+        observation = self.agent.read(instance_id="mfc_a", state_ids=["measurement.pressure_pa"])["observations"]["measurement.pressure_pa"]
         self.assertEqual(observation["value"], 150000)
         self.assertEqual(observation["quality"], "estimated")
 
@@ -236,7 +236,7 @@ class TestAlicatMCRuntime(_amc_test_unittest.TestCase):
         self.configure()
         self.assertEqual(self.value("measurement.total_standard_volume_m3"), 0)
         self.ok("gas.set_reference_conditions", temperature_K=273.15, pressure_Pa=100000)
-        self.assertEqual(self.value("gas.reference_temperature_K"), 273.15)
+        self.assertEqual(self.value("gas.reference_temperature_k"), 273.15)
         self.assertFalse(self.value("flow.zeroed"))
         self.assertIsNone(self.value("measurement.standard_flow_m3_s"))
         self.assertIsNone(self.value("measurement.total_standard_volume_m3"))
@@ -302,7 +302,7 @@ class TestAlicatMCRuntime(_amc_test_unittest.TestCase):
         self.assertEqual(response["status"], "succeeded")
         self.assertEqual(response, self.agent.invoke(instance_id="mfc_a", capability_id="power.set", arguments={"enabled": True}, request_id="write_power"))
         before = self.host.debug_snapshot()
-        for sid in ("truth.standard_flow_m3_s", "measurement.standard_flow_m3_s", "gas.reference_temperature_K", "nonexistent"):
+        for sid in ("truth.standard_flow_m3_s", "measurement.standard_flow_m3_s", "gas.reference_temperature_k", "nonexistent"):
             self.assertEqual(self.agent.write(instance_id="mfc_a", state_id=sid, value=1, request_id=sid)["error"]["code"], "ACCESS_DENIED")
         self.assertEqual(self.invoke("control.set_pid")["status"], "unsupported")
         self.assertEqual(self.invoke("sim.step", dt_s=1)["error"]["code"], "UNKNOWN_CAPABILITY")
@@ -380,12 +380,12 @@ class TestAlicatMCRuntime(_amc_test_unittest.TestCase):
     def test_reconnecting_ports_clears_old_boundaries_and_zero_assertions(self):
         self.configure()
         self.host.host_connect_ports("mfc_a", upstream_node_id="new_supply", downstream_node_id="new_receiver")
-        for sid in ("truth.upstream_pressure_Pa", "truth.downstream_pressure_Pa", "truth.temperature_K"):
+        for sid in ("truth.upstream_pressure_pa", "truth.downstream_pressure_pa", "truth.temperature_k"):
             self.assertIsNone(self.value(sid, debug=True))
         self.assertFalse(self.value("truth.no_flow", debug=True))
         self.assertFalse(self.value("truth.equilibrium", debug=True))
         self.assertFalse(self.value("flow.zeroed"))
-        self.assertIsNone(self.value("measurement.pressure_Pa"))
+        self.assertIsNone(self.value("measurement.pressure_pa"))
         before = self.host.debug_snapshot()
         self.assertEqual(self.invoke("flow.zero")["error"]["code"], "PRECONDITION_FAILED")
         self.assertEqual(self.host.debug_snapshot(), before)
@@ -1416,6 +1416,25 @@ def _dp5_test_historical_operation_results(self):
     self.assertIsNone(self.value('results.data'))
 TestZiathDP5Runtime.test_historical_operation_result_availability = _dp5_test_historical_operation_results
 
+
+def _dp5_test_fix_round_b_refusals_name_the_cause(self):
+    """PRECONDITION_FAILED keeps its code; the message names the cause (format mismatch included)."""
+    def why(cid, **args):
+        r = self.invoke(cid, **args)
+        self.assertEqual(r['error']['code'], 'PRECONDITION_FAILED', r)
+        return r['error']['message']
+    self.assertIn('switched off', why('acquisition.start'))
+    self.assertIn('No rack is on the reader', why('scene.set_rack_lift', lift_m=0.05))
+    self.assertIn('no scan results', why('results.export', format='json'))
+    self.load(24)
+    self.assertIn('loaded rack has 24 positions; rack_format 96', why('configuration.set', rack_format=96, identity_matching=True, export_format='csv'))
+    self.ok('scene.set_rack_lift', lift_m=0.05)
+    self.assertIn('not seated', why('acquisition.start'))
+    self.assertEqual(_dp5_metadata()['asset_version'], '1.0.2')
+
+
+TestZiathDP5Runtime.test_fix_round_b_refusals_name_the_cause = _dp5_test_fix_round_b_refusals_name_the_cause
+
 # BEGIN CHEM-177 INTELLIXCAP S1 APPEND-ONLY TESTS
 """Synthetic geometry fixtures are assumptions, never manufacturer parameters."""
 import copy as _ixs_test_copy
@@ -1823,7 +1842,7 @@ class TestAzentaHeatSealerRuntime(_ahs_test_unittest.TestCase):
             self.assertEqual(cap['implementation']['hardware'], 'absent')
         for sid, obs in self.judge.read(instance_id='ahs_a')['observations'].items():
             self.assertEqual(_ahs_test_validate(obs['value'], m['state_slots'][sid]['value_schema']), [], sid)
-        for sid in ('truth.temperature_K', 'truth.thermal_rate_K_s', 'film.remaining_seals', 'configuration.press_time_s'):
+        for sid in ('truth.temperature_k', 'truth.thermal_rate_k_s', 'film.remaining_seals', 'configuration.press_time_s'):
             self.assertIsNone(self.value(sid, debug=True))
         self.assertEqual(self.invoke('sealing.set_pressure')['status'], 'unsupported')
 
@@ -1831,26 +1850,26 @@ class TestAzentaHeatSealerRuntime(_ahs_test_unittest.TestCase):
         self.ok('power.set', enabled=True)
         self.ok('thermal.set_temperature', temperature_K=373.15)
         self.step(2)
-        self.assertIsNone(self.value('measurement.temperature_K'))
+        self.assertIsNone(self.value('measurement.temperature_k'))
         self.host.host_set_temperature('ahs_a', temperature_K=293.15, evidence='synthetic explicit initial temperature')
         self.step(2)
-        self.assertEqual(self.value('measurement.temperature_K'), 293.15)
+        self.assertEqual(self.value('measurement.temperature_k'), 293.15)
         self.host.host_configure_thermal_rate('ahs_a', thermal_rate_K_s=10, evidence='synthetic linear 10 K/s assumption, not vendor value')
         self.step(3)
-        self.assertEqual(self.value('measurement.temperature_K'), 323.15)
+        self.assertEqual(self.value('measurement.temperature_k'), 323.15)
         before = self.host.debug_snapshot()
         self.agent.read(instance_id='ahs_a')
         self.ok('sealing.read')
         self.assertEqual(self.host.debug_snapshot(), before)
         self.step(5)
-        self.assertEqual(self.value('measurement.temperature_K'), 373.15)
+        self.assertEqual(self.value('measurement.temperature_k'), 373.15)
         self.assertTrue(self.value('thermal.target_reached'))
         self.ok('thermal.set_temperature', temperature_K=468.15)
-        self.assertEqual(self.value('measurement.temperature_K'), 373.15)
+        self.assertEqual(self.value('measurement.temperature_k'), 373.15)
         self.assertFalse(self.value('thermal.target_reached'))
         self.step(9.5)
-        self.assertEqual(self.value('measurement.temperature_K'), 468.15)
-        obs = self.agent.read(instance_id='ahs_a', state_ids=['measurement.temperature_K'])['observations']['measurement.temperature_K']
+        self.assertEqual(self.value('measurement.temperature_k'), 468.15)
+        obs = self.agent.read(instance_id='ahs_a', state_ids=['measurement.temperature_k'])['observations']['measurement.temperature_k']
         self.assertEqual(obs['quality'], 'estimated')
 
     def test_temperature_uniformity_not_used_as_readiness_tolerance(self):
@@ -1898,7 +1917,7 @@ class TestAzentaHeatSealerRuntime(_ahs_test_unittest.TestCase):
         self.assertEqual(self.value('sealing.status'), 'cancelled')
         self.assertEqual(self.value('sealing.elapsed_s'), 1)
         self.assertEqual(self.value('film.remaining_seals'), 0)
-        self.assertIsNone(self.value('measurement.temperature_K'))
+        self.assertIsNone(self.value('measurement.temperature_k'))
         self.assertFalse(self.value('thermal.target_reached'))
 
     def test_temperature_loss_fails_preserving_partial_effects(self):
@@ -2004,14 +2023,14 @@ class TestAzentaHeatSealerRuntime(_ahs_test_unittest.TestCase):
             text = _ahs_test_json.dumps(answer)
             self.assertNotIn('SYNTHETIC_PRIVATE', text)
             self.assertNotIn('truth.', text)
-        self.assertEqual(self.agent.read(instance_id='ahs_a', state_ids=['truth.temperature_K'])['error']['code'], 'ACCESS_DENIED')
-        self.assertIn('truth.temperature_K', self.judge.read(instance_id='ahs_a')['observations'])
+        self.assertEqual(self.agent.read(instance_id='ahs_a', state_ids=['truth.temperature_k'])['error']['code'], 'ACCESS_DENIED')
+        self.assertIn('truth.temperature_k', self.judge.read(instance_id='ahs_a')['observations'])
         self.assertEqual(self.other.read(instance_id='ahs_b')['error']['code'], 'UNKNOWN_INSTANCE')
         self.assertEqual(self.other.poll(instance_id='ahs_a', operation_id=op)['error']['code'], 'UNKNOWN_OPERATION')
         self.assertEqual(self.other.cancel(instance_id='ahs_a', operation_id=op, request_id='other')['error']['code'], 'UNKNOWN_OPERATION')
         self.assertEqual(self.agent.poll(instance_id='ahs_b', operation_id=op)['error']['code'], 'UNKNOWN_OPERATION')
         before = self.host.debug_snapshot()
-        self.assertEqual(self.judge.write(instance_id='ahs_a', state_id='truth.temperature_K', value=1, request_id='write_truth')['error']['code'], 'ACCESS_DENIED')
+        self.assertEqual(self.judge.write(instance_id='ahs_a', state_id='truth.temperature_k', value=1, request_id='write_truth')['error']['code'], 'ACCESS_DENIED')
         self.assertEqual(self.host.debug_snapshot(), before)
         r = self.agent.write(instance_id='ahs_b', state_id='power.enabled', value=True, request_id='write_power')
         self.assertEqual(r['status'], 'succeeded')
@@ -2048,8 +2067,8 @@ class TestAzentaHeatSealerRuntime(_ahs_test_unittest.TestCase):
         self.assertEqual(self.value('sealing.progress', 'ahs_b'), .25)
         self.assertEqual(self.value('film.remaining_seals', 'ahs_a'), 0)
         self.assertEqual(self.value('film.remaining_seals', 'ahs_b'), 9)
-        self.assertEqual(self.value('measurement.temperature_K', 'ahs_a'), 373.15)
-        self.assertEqual(self.value('measurement.temperature_K', 'ahs_b'), 468.15)
+        self.assertEqual(self.value('measurement.temperature_k', 'ahs_a'), 373.15)
+        self.assertEqual(self.value('measurement.temperature_k', 'ahs_b'), 468.15)
         self.assertEqual(self.agent.read(instance_id='ahs_a')['clock'], self.agent.read(instance_id='ahs_b')['clock'])
         isolated = _AHSRuntime()
         isolated.create_instance('ahs_a')
@@ -2194,6 +2213,34 @@ class TestQuantosQ2Runtime(_qt_test_unittest.TestCase):
                 self.assertEqual(_qt_test_validate(example,cap['input_schema']),[],cid)
             self.assertEqual(cap['implementation']['robot'],'absent')
             self.assertEqual(cap['implementation']['hardware'],'absent')
+
+    def test_dose_sum_residue_below_resolution_finishes_and_keeps_the_clock(self):
+        # chemlab finding (2026-10-22): 20 mg at 5e-7 kg/s in 1 s steps summed to 1.999999999999999e-05 kg, 1e-20 kg short; the
+        # next step's transfer was below the resolution of the masses, host_step raised and dropped the step, every later step failed on the
+        # clock and dosing.status stayed running
+        for target in (1e-6, 7e-6, 1e-5, 1.2e-5, 1.7e-5, 2e-5, 2.3e-5, 3e-5, 4.9e-5, 1e-4, 1.234567e-4):
+            self.setUp()
+            self.prepare(source=.002, contents=0, target=target, rate=5e-7)
+            self.ok('dosing.start')
+            n = 0
+            while self.val('dosing.status') == 'running' and n < 1000:
+                self.step(1.0)
+                n += 1
+            self.assertEqual(self.val('dosing.status'), 'succeeded', target)
+            self.assertAlmostEqual(self.val('truth.actual_dosed_kg', debug=True), target, delta=1e-12 * target)
+            self.assertEqual(n, _amc_test_math.ceil(target / 5e-7 - 1e-9), target)
+            for _ in range(3):                                                    # the clock keeps going with the lab clock
+                t = self.host.time_s
+                self.step(1.0)
+                self.assertEqual(self.host.time_s, t + 1.0)
+        # a transfer step below the resolution of the masses moves nothing and still advances the clock
+        self.setUp()
+        self.prepare(source=.002, contents=0, target=2e-5, rate=5e-7)
+        self.ok('dosing.start')
+        t = self.host.time_s
+        self.step(1e-30)
+        self.assertEqual(self.host.time_s, t + 1e-30)
+        self.assertEqual(self.val('dosing.status'), 'running')
 
     def test_no_reads_queries_or_describe_advance_time_or_state(self):
         self.prepare()
@@ -2453,18 +2500,55 @@ class TestQuantosQ2Runtime(_qt_test_unittest.TestCase):
             self.assertEqual(_qt_test_validate(obs['value'],_qt_test_metadata()['state_slots'][sid]['value_schema']),[],sid)
 
     def test_scene_bridge_target_and_authority_guards(self):
-        class Location: y=0
-        class Door: location=Location(); animation_data=None; constraints=[]
-        class Scene: objects={'quantos__door_slide':Door()}
+        # 2026-10-23: the front door is a lever (revolute) with the door panel as its mimic; the side doors slide +Y
+        from basic40_runtime_automation import QUANTOS_FRONT_DOOR as fd, QUANTOS_SIDE_DOOR as sd
+        class Vec:
+            def __init__(self): self.x=self.y=self.z=0.0
+        class Obj:
+            def __init__(self): self.location=Vec(); self.rotation_euler=Vec(); self.animation_data=None; self.constraints=[]
+        names=('quantos__front_door_lever','quantos__front_door_hinge','quantos__side_door_left_slide','quantos__side_door_right_slide')
+        class Scene: objects={n:Obj() for n in names}
         scene=Scene()
         self.assertTrue(_qt_test_scene(scene,{'scene.door_opening_m':.11}))
-        self.assertEqual(scene.objects['quantos__door_slide'].location.y,.11)
+        lever,hinge=scene.objects[names[0]],scene.objects[names[1]]
+        self.assertAlmostEqual(lever.rotation_euler.x,-.11/fd['lever_length_m'],12)
+        self.assertAlmostEqual(hinge.rotation_euler.x,fd['mimic']*.11/fd['lever_length_m']*-1,12)
+        self.assertTrue(_qt_test_scene(scene,{'scene.door_opening_m':fd['travel_m']}))
+        self.assertAlmostEqual(-lever.rotation_euler.x,fd['lever_max_rad'],9)
+        with self.assertRaises(ValueError): _qt_test_scene(scene,{'scene.door_opening_m':fd['travel_m']+.01})
+        self.assertTrue(_qt_test_scene(scene,{'door.side_opening_fraction':.5}))
+        self.assertEqual([scene.objects[n].location.y for n in names[2:]],[.5*sd['travel_m']]*2)
+        with self.assertRaises(ValueError): _qt_test_scene(scene,{'door.side_opening_fraction':1.5})
         with self.assertRaises(ValueError): _qt_test_scene(scene,{'wrong':.1})
+        with self.assertRaises(ValueError): _qt_test_scene(scene,{})
         with self.assertRaises(ValueError): _qt_test_scene(scene,{'scene.door_opening_m':True})
-        scene.objects['quantos__door_slide'].constraints=['override']
+        lever.constraints=['override']
         with self.assertRaises(ValueError): _qt_test_scene(scene,{'scene.door_opening_m':.05})
         scene.objects={}
         with self.assertRaises(ValueError): _qt_test_scene(scene,{'scene.door_opening_m':0})
+
+    def test_doors_and_head_support_geometry(self):
+        # 2026-10-23: front door (lever + mimic door), side doors with travel, open dosing head support (manual p.21, p.25; brochure p.10)
+        import json, subprocess, sys, xml.etree.ElementTree as ET
+        from pathlib import Path
+        from basic40_runtime_automation import QUANTOS_FRONT_DOOR as fd, QUANTOS_SIDE_DOOR as sd, QUANTOS_Q2_ASSET_DIR as adir
+        joints={j.get('name'):j for j in ET.parse(adir/'model.urdf').getroot().findall('joint')}
+        lever,door=joints['front_door_lever_joint'],joints['front_door_joint']
+        self.assertEqual((lever.get('type'),door.get('type'),door.find('parent').get('link')),('revolute','revolute','draft_door_lever'))
+        self.assertAlmostEqual(float(lever.find('limit').get('upper')),fd['lever_max_rad'],6)
+        self.assertEqual(door.find('mimic').get('joint'),'front_door_lever_joint')
+        self.assertAlmostEqual(float(door.find('mimic').get('multiplier')),fd['mimic'],9)
+        for side in ('left','right'):
+            j=joints['side_door_%s_joint'%side]
+            self.assertEqual((j.get('type'),j.find('axis').get('xyz')),('prismatic','0 1 0'))
+            self.assertAlmostEqual(float(j.find('limit').get('upper')),sd['travel_m'],9)
+        self.assertNotIn('door_slide',joints)
+        names=json.loads((adir/'geometry_manifest.json').read_text())['components']['head_slot']['objects']
+        self.assertFalse([n for n in names if 'slot_receiver' in n])
+        self.assertEqual(len([n for n in names if 'holding_pin' in n]),4)
+        out=adir.parents[3]/'outputs/basic40_batch02/t5_automation/mt_quantos_q2'
+        r=subprocess.run([sys.executable,str(out/'verify_doors_head_support.py'),'--no-write'],capture_output=True,text=True)
+        self.assertEqual(r.returncode,0,r.stdout+r.stderr)
 # END CHEM-174 QUANTOS Q2 XPE206DR APPEND-ONLY TESTS
 
 # BEGIN CHEM-175 OPENTRONS FLEX APPEND-ONLY TESTS
@@ -3465,3 +3549,39 @@ class TestPreciseFlex400Runtime(_pf400_test_unittest.TestCase):
                         self.assertLessEqual(_pf400_test_math.hypot(p['x_m'],p['y_m']), .579+1e-12)
                         self.assertAlmostEqual(p['z_m'], .2+z)
 # END CHEM-178 PRECISEFLEX 400 APPEND-ONLY TESTS
+
+# BEGIN 2026-10-22 SLOT-ID FIX REGRESSION (alicat_mc 1.4.1, azenta_heat_sealer 1.2.2)
+# The runtimes used SI-suffix slot ids (gas.reference_pressure_Pa, thermal.setpoint_K, ...) while the contracts, whose schema allows only
+# lower-case ids, list gas.reference_pressure_pa, thermal.setpoint_k, ...; the heat sealer's describe showed the contract ids but its read
+# returned the old ones.  Now describe, a full read and the contract name the same slots.
+import json as _ids_test_json
+from pathlib import Path as _ids_test_Path
+
+_IDS_TEST_ROOT = _ids_test_Path(__file__).resolve().parents[1]
+
+
+def _ids_test_slots_equal_contract(test, contract_rel, iid):
+    contract = _ids_test_json.loads((_IDS_TEST_ROOT / contract_rel).read_text())
+    every = set(contract['state_slots'])
+    agent = {k for k, v in contract['state_slots'].items() if v['visibility'] == 'agent'}
+    test.assertEqual(set(test.agent.describe(instance_id=iid)['state_slots']), agent)
+    test.assertEqual(set(test.agent.read(instance_id=iid)['observations']), agent)
+    test.assertEqual(set(test.judge.describe(instance_id=iid)['state_slots']), every)
+    test.assertEqual(set(test.judge.read(instance_id=iid)['observations']), every)
+    for cid, cap in test.judge.describe(instance_id=iid)['capabilities'].items():
+        test.assertLessEqual({e['state_id'] for e in cap.get('state_effects', [])} | set(cap.get('observes', [])), every, cid)
+
+
+def _amc_test_slot_ids_equal_contract(self):
+    _ids_test_slots_equal_contract(self, 'assets/basic40_batch02/t5_automation/alicat_mc/asset.contract.json', 'mfc_a')
+    self.assertEqual(self.agent.read(instance_id='mfc_a', state_ids=['gas.reference_pressure_pa'])['observations']['gas.reference_pressure_pa']['value'], 101325.0)
+
+
+def _ahs_test_slot_ids_equal_contract(self):
+    _ids_test_slots_equal_contract(self, 'assets/basic40_batch02/t5_automation/azenta_heat_sealer/asset.contract.json', 'ahs_a')
+    self.assertNotIn('thermal.setpoint_K', self.agent.read(instance_id='ahs_a')['observations'])
+
+
+TestAlicatMCRuntime.test_slot_ids_equal_contract = _amc_test_slot_ids_equal_contract
+TestAzentaHeatSealerRuntime.test_slot_ids_equal_contract = _ahs_test_slot_ids_equal_contract
+# END 2026-10-22 SLOT-ID FIX REGRESSION

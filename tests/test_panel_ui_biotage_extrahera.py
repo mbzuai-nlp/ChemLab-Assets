@@ -1208,5 +1208,20 @@ class Sweep20261019(unittest.TestCase):
         self.assertEqual(r.val('reports.list')[-1]['abort_comment'], 'Aborted (power off)')
         self.assertNotEqual(r.h._instances[INST].operations[op]['status'], 'running')
 
+
+class FixRoundB(unittest.TestCase):
+    def test_prime_without_an_assigned_bottle_is_a_state_refusal(self):
+        # run.prime on an inlet with no solvent bottle assigned was INVALID_ARGUMENT (a schema-style code for a state
+        # problem); it is now PRECONDITION_FAILED with a message naming the cause; the state is unchanged.
+        r = Rig()
+        before = copy.deepcopy(r.h._instances[INST].state)
+        e = r.call(r.A, 'run.prime', expect='rejected', inlet='S1', volume_m3=15e-6)['error']
+        self.assertEqual(e['code'], 'PRECONDITION_FAILED')
+        self.assertIn('No solvent bottle is assigned to inlet S1', e['message'])
+        self.assertEqual(r.h._instances[INST].state, before)
+        self.assertEqual(r.call(r.A, 'run.prime', expect='rejected', inlet='S1', volume_m3=30e-6)['error']['code'], 'INVALID_ARGUMENT')  # schema
+        self.assertEqual(rt.EXTRAHERA_ASSET_VERSION, '1.3.1')
+
+
 if __name__ == '__main__':
     unittest.main()

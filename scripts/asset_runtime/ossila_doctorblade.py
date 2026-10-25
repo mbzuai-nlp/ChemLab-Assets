@@ -4,7 +4,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='ossila_doctorblade'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-055'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.3.1'
+SLUG='ossila_doctorblade'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-055'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.3.2'
 ASSET_DIR=ROOT/'assets/expansion_batch04/t5_automation/ossila_doctorblade'
 TEMPLATE_REL='assets/reactions/ossila_doctorblade_film_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
@@ -44,7 +44,7 @@ SPEED=number('m/s',.00005,.25);POS=number('m',0,.29);GAP=number('m',0,.01)
 PHASE=dict(type='string',enum=['idle','running','succeeded','cancelled','failed'])
 PLANT=obj({'temperature_k':number('K',278.15,313.15),'mass_transfer_m_s':number('m/s',0,.1),'manual_gap_speed_m_s':number('m/s',.00001,.1),'accept_uncalibrated_model':BOOL})
 PLANT_EXAMPLE=dict(temperature_k=298.15,mass_transfer_m_s=.0002,manual_gap_speed_m_s=.005,accept_uncalibrated_model=True)
-METHOD=obj({'distance_m':number('m',.001,.29),'speed_m_s':SPEED})
+METHOD=obj({'distance_m':number('m',.001,.29),'speed_m_s':dict(SPEED,multipleOf=1e-5)})   # 1.3.2: the panel grids in the schemas (0.01 mm/s)
 METHOD_EXAMPLE=dict(distance_m=.26,speed_m_s=.02)
 CHARGE=obj({'solvent_id':TEXT,'solvent_kg':number('kg',1e-9,.1),'solute_kg':number('kg',0,.1),'solvent_density_kg_m3':number('kg/m^3',100,3000),'solute_density_kg_m3':number('kg/m^3',100,10000),'viscosity_pa_s':number('Pa*s',.0001,100),'reservoir_area_m2':number('m^2',.0001,.01),'blade_contact_length_m':number('m',.001,.02),'accept_newtonian_compatibility':BOOL})
 CHARGE_EXAMPLE=dict(solvent_id='ethanol',solvent_kg=.0008,solute_kg=.0018,solvent_density_kg_m3=789.,solute_density_kg_m3=2500.,viscosity_pa_s=.5,reservoir_area_m2=.0025,blade_contact_length_m=.005,accept_newtonian_compatibility=True)
@@ -61,8 +61,8 @@ for key,s,ex,vis,c in [('plant',PLANT,PLANT_EXAMPLE,'evaluator','motor'),('metho
 cap('power.set',obj({'enabled':BOOL}),obj({'enabled':BOOL}),['switch_power'],'后部电源；急停释放后须关开电源才复位',ex={'enabled':True},effects=['power.enabled','stage.homed','cycle.phase','safety.latched'])
 cap('power.toggle',obj({}),obj({'enabled':BOOL}),['switch_power'],'后部电源开关翻转',effects=['power.enabled','stage.homed','cycle.phase','safety.latched'])
 cap('stage.home',obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['button_return','motor','carriage'],'规定速度回回零位置（回零参考端+回零偏移，默认后端）；空料无膜时才允许',effects=['cycle.phase','stage.target_m'])
-cap('stage.move_to',obj({'position_m':POS,'speed_m_s':SPEED}),obj({'phase':PHASE,'operation_id':TEXT}),['carriage','motor'],'无料轴定位，非自动涂布',ex={'position_m':.05,'speed_m_s':.02},effects=['cycle.phase','stage.target_m'])
-cap('gap.set',obj({'left_m':GAP,'right_m':GAP}),obj({'left_m':GAP,'right_m':GAP}),['blade','gauge_left','gauge_right'],'宿主手动双端调隙目标；非机载电动执行','configuration','agent',{'left_m':.0001,'right_m':.0001},['gap.left_target_m','gap.right_target_m'])
+cap('stage.move_to',obj({'position_m':POS,'speed_m_s':dict(SPEED,multipleOf=1e-5)}),obj({'phase':PHASE,'operation_id':TEXT}),['carriage','motor'],'无料轴定位，非自动涂布',ex={'position_m':.05,'speed_m_s':.02},effects=['cycle.phase','stage.target_m'])
+cap('gap.set',obj({'left_m':dict(GAP,multipleOf=1e-6),'right_m':dict(GAP,multipleOf=1e-6)}),obj({'left_m':GAP,'right_m':GAP}),['blade','gauge_left','gauge_right'],'宿主手动双端调隙目标；非机载电动执行','configuration','agent',{'left_m':.0001,'right_m':.0001},['gap.left_target_m','gap.right_target_m'])
 cap('emergency.stop',obj({}),obj({'latched':BOOL}),['button_emergency'],'急停锁存；驱动停止且回零失效',effects=['safety.pressed','safety.latched','power.enabled','stage.homed','cycle.phase'])
 cap('emergency.release',obj({}),obj({'released':BOOL}),['button_emergency'],'宿主顺时针释放按钮，尚未重置驱动故障','configuration','agent',{},['safety.pressed'])
 cap('acquisition.start',obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['button_start','motor','carriage','blade'],'运行所选程序：从回零位置按各步长度与速度分段恒速刮涂（延时步停留），离开回零端方向；有限浆料',effects=['cycle.phase','cycle.elapsed_s','stage.target_m'])
@@ -95,12 +95,12 @@ GAUGE=obj({'on':BOOL,'unit':dict(type='string',enum=['mm','in']),'zero_m':GAP,'r
 GAUGES_VIEW=obj({'left':GAUGE,'right':GAUGE})
 PROGRAM_CAPS={}
 def pcap(k,i,o,c,z,ex,effects,kind='configuration'):PROGRAM_CAPS[k]=(i,o,c,z,kind,'agent',ex,effects)
-pcap('settings.configure',opt(SETTINGS_FIELDS),SETTINGS_VIEW,['display_digits'],'面板设定：LCD亮度（5%步进）、回零参考（后端BACK/前端FRONT：改变离开回零端的行进方向并清零回零偏移）、停止方式（HARD立即停/SOFT短时减速停）、手动模式速度',
+pcap('settings.configure',opt(dict(SETTINGS_FIELDS,brightness_pct=dict(INT(5,100),multipleOf=5),manual_speed_m_s=dict(SPEED,multipleOf=1e-6))),SETTINGS_VIEW,['display_digits'],'面板设定：LCD亮度（5%步进）、回零参考（后端BACK/前端FRONT：改变离开回零端的行进方向并清零回零偏移）、停止方式（HARD立即停/SOFT短时减速停）、手动模式速度',
      {'stop_mode':'soft'},['settings.state'])
 pcap('stage.set_home_offset',obj({}),SETTINGS_VIEW,['button_return','carriage'],'手动模式按住Return：回零偏移设为当前位置距回零参考端的距离，此后回零与程序起点都在该位置',{},['settings.state'])
 pcap('program.select',obj({'program':INT(1,PROGRAMS)}),PROGRAM_VIEW,['display_digits'],'选择程序1–20；所选程序即运行的方法（每步为涂布长度+速度，或延时步）',{'program':2},['programs.state','method.configured'])
 pcap('program.set_steps_count',obj({'count':INT(1,MAX_STEPS)}),PROGRAM_VIEW,['display_digits'],'所选程序的步数1–100（增加的步为0 mm/0 mm/s/0 s未编程，减少即删去末尾步）',{'count':2},['programs.state','method.configured'])
-pcap('program.set_step',opt(dict(step=INT(1,MAX_STEPS),**STEP_FIELDS),['step']),PROGRAM_VIEW,['display_digits'],
+pcap('program.set_step',opt(dict(step=INT(1,MAX_STEPS),length_m=dict(POS,multipleOf=1e-5),speed_m_s=dict(STEP_FIELDS['speed_m_s'],multipleOf=1e-5),delay_s=dict(STEP_FIELDS['delay_s'],multipleOf=.01)),['step']),PROGRAM_VIEW,['display_digits'],
      '所选程序某一步：涂布长度0–290 mm与速度0.05–250 mm/s（网格0.01 mm、0.01 mm/s），或延时0.01–999.99 s（延时步的长度与速度为0；设长度或速度即清除延时）',
      {'step':1,'length_m':.2,'speed_m_s':.02},['programs.state','method.configured'])
 pcap('stage.jog',obj({'direction':dict(type='string',enum=['forward','back']),'duration_s':number('s',.02,60)}),obj({'phase':PHASE,'operation_id':TEXT}),['carriage','motor'],
@@ -287,7 +287,7 @@ class OssilaDoctorbladeRuntime:
     def _stop(self,result='cancelled'):
         if self.phase=='running':self.phase=result;self.stage='stopped';self.target=self.q;self.speed=0.
     def _new_operation(self,stage,target):
-        self.phase='running';self.stage=stage;self.target=target;self.elapsed_s=0.;self._operation_count+=1
+        self._archive_op();self.phase='running';self.stage=stage;self.target=target;self.elapsed_s=0.;self._operation_count+=1
         self.operation_id=self.instance_id+':motion:'+str(self._operation_count)
         return dict(phase=self.phase,operation_id=self.operation_id)
     def _model_check(self):
@@ -458,6 +458,11 @@ class OssilaDoctorbladeRuntime:
         for masses,exposed in [(self.bead,self.charge_cfg['reservoir_area_m2'])]+[(f,area) for f in self.film]:
             ev=min(masses[0],self.evap_flux*exposed*masses[0]/max(sum(masses),1e-30)*dt)
             masses[0]-=ev;self.evaporated[0]+=ev
+    def _archive_op(self):
+        # 2026-10-22 (chemlab findings B D4): the final record (status and coating.measure) of a finished operation is kept, so an older operation of a
+        # caller stays pollable after a newer one started (poll used to accept only the latest operation)
+        op=self.operation_id;arch=self.__dict__.setdefault('_op_final',{})
+        if op and self.phase not in ('running',) and op not in arch:arch[op]=dict(status=self.phase,result=self.invoke('coating.measure'))
     def step(self,dt_s):
         validate(number('s',1e-12,1000),dt_s);remaining=float(dt_s)
         while remaining>1e-12:
@@ -485,7 +490,7 @@ class OssilaDoctorbladeRuntime:
             if self.plant:
                 for i in range(2):
                     dx=self.plant['manual_gap_speed_m_s']*dt;self.gaps[i]+=max(-dx,min(dx,self.gap_targets[i]-self.gaps[i]))
-            self._evaporate(dt);self.time_s+=dt;remaining-=dt
+            self._evaporate(dt);self.time_s+=dt;remaining-=dt;self._archive_op()
         self.revision+=1;return self.read('evaluator')
 class OssilaDoctorbladeSession:
     """Only the trusted host assigns roles; returned data obey the same boundary."""
@@ -519,6 +524,7 @@ class OssilaDoctorbladeSession:
             before=h.operation_id;h._caller=self._principal
             try:result=h.invoke(capability_id,**arguments)
             finally:h._caller=None
+            if ALL_CAPS[capability_id][4]!='query':h._archive_op()
             op=result.get('operation_id')
             if op:h._owners[op]=self._principal
             elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a run, homing or jog started by a key belongs to the caller
@@ -530,10 +536,16 @@ class OssilaDoctorbladeSession:
         cap,arg=SLOTS[state_id][5];return self.invoke(instance_id=instance_id,capability_id=cap,arguments={arg:value},request_id=request_id)
     def poll(self,operation_id):
         h=self._host
-        if operation_id!=h.operation_id or h._owners.get(operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
+        if h._owners.get(operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
+        if operation_id!=h.operation_id:                                    # an older operation of this caller: its final record (2026-10-22)
+            rec=h.__dict__.get('_op_final',{}).get(operation_id)
+            if rec is None:raise ActionRejected('ACCESS_DENIED')
+            return dict(operation_id=operation_id,status=rec['status'],result=copy.deepcopy(rec['result']))
         return dict(operation_id=operation_id,status=h.phase,result=h.invoke('coating.measure'))
     def cancel(self,operation_id,request_id):
-        self.poll(operation_id);return self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
+        r=self.poll(operation_id)
+        if operation_id!=self._host.operation_id:return r                 # finished before a newer operation started: nothing to cancel
+        return self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
 
 
 

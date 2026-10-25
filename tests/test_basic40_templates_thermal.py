@@ -32,7 +32,7 @@ TIER = ROOT / "assets/basic40_batch02/t1_thermal"
 REACTION_INSTRUMENTS = {"nabertherm_l9": "instrument.nabertherm_l9", "carbolite_tf1": "instrument.carbolite_tf1_12_60_300",
                         "binder_vd56": "instrument.binder_vd56", "parr_4591": "instrument.parr_4591", "radleys_mya4": "instrument.radleys_mya4"}
 R = 8.314462618
-PANEL_VERSIONS = {"binder_vd56": "1.3.0", "carbolite_tf1": "1.3.0", "parr_4591": "1.3.0", "radleys_mya4": "1.2.1", "nabertherm_l9": "1.3.0"}            # assets that gained the front-panel layer (2026-10-18); parr / nabertherm 1.3.0: 3D panel parts (2026-10-20)
+PANEL_VERSIONS = {"binder_vd56": "1.3.0", "carbolite_tf1": "1.3.0", "parr_4591": "1.3.0", "radleys_mya4": "1.2.3", "nabertherm_l9": "1.3.0"}            # assets that gained the front-panel layer (2026-10-18); parr / nabertherm 1.3.0: 3D panel parts (2026-10-20)
 
 
 def load(path):
@@ -292,7 +292,7 @@ class Multiwave7101TemplateTests(unittest.TestCase):
         self.assertEqual(self.spec["declared_capabilities"]["chemistry.digest"]["availability"], "unsupported")
         for cap in ("power.set", "thermal.set_temperature", "microwave.set_enabled", "microwave.set_power", "door.open", "door.close", "rack.set_slot"):
             self.assertIn(cap, self.spec["capabilities"])
-        self.assertEqual(self.spec["asset_version"], "1.3.0")   # templates 1.1.0, + front panel (minor), + users / fan / pressure (minor)
+        self.assertEqual(self.spec["asset_version"], "1.3.1")   # templates 1.1.0, + front panel (minor), + users / fan / pressure (minor), run set point fix 1.3.1
 
     def test_template_read_is_public_and_side_effect_free(self):
         before = self.host.debug_snapshot()
@@ -369,6 +369,27 @@ class Multiwave7101TemplateTests(unittest.TestCase):
         res = self.ok("digestion.evaluate", slot_index=2)
         self.assertTrue(res["program"]["left_window_after_entry"])
         self.assertFalse(res["program"]["program_complete"])
+
+    def test_evaluate_judges_the_runs_setpoint_not_the_post_run_one(self):
+        # chemlab finding (2026-10-22): after the run the set point is back at ambient (safety cooling / operator); the
+        # evaluation judged that one, so every completed vessel showed "setpoint ... outside method window"
+        self.load_slot()
+        self.assertEqual(self.ok("digestion.evaluate", slot_index=0)["program"]["setpoint_K"], 298.15)   # before heating: the current set point
+        self.run_program()
+        self.ok("microwave.set_enabled", enabled=False)
+        self.ok("thermal.set_temperature", temperature_K=298.15)
+        self.host.step(600.0)
+        res = self.ok("digestion.evaluate", slot_index=0)
+        self.assertEqual(res["program"]["setpoint_K"], 448.15)
+        self.assertTrue(res["program"]["setpoint_in_window"])
+        self.assertFalse([d for d in res["method_deviations"] if d.startswith("setpoint")])
+        self.load_slot(slot=1)                                                        # a set point outside the window while heating stays flagged
+        self.run_program(target=573.15, power=1500.0, steps=(30.0,))
+        self.ok("thermal.set_temperature", temperature_K=448.15)
+        self.host.step(60.0)
+        p = self.ok("digestion.evaluate", slot_index=1)["program"]
+        self.assertEqual(p["setpoint_K"], 573.15)
+        self.assertFalse(p["setpoint_in_window"])
 
     def test_epa_3051a_measured_recovery_used_for_table_materials(self):
         self.load_slot(material="nist_srm_2704", method="epa_3051a_hno3")
@@ -466,7 +487,7 @@ class Multiwave7101TemplateTests(unittest.TestCase):
 
     def test_contract_registration(self):
         c = load(TIER / "multiwave_7101/asset.contract.json")
-        self.assertEqual(c["asset_version"], "1.3.0")   # templates 1.1.0, + front panel (minor), + users / fan / pressure (minor)
+        self.assertEqual(c["asset_version"], "1.3.1")   # templates 1.1.0, + front panel (minor), + users / fan / pressure (minor), run set point fix 1.3.1
         ext = c["extensions"]["chemistry_lab.output_templates"]
         self.assertEqual(ext["status"], "implemented")
         self.assertEqual(ext["library"], mw.TEMPLATE_REL)
@@ -488,7 +509,7 @@ class NotApplicableRegistrationTests(unittest.TestCase):
             self.assertEqual(set(ext), {"status", "reason_zh"})
             self.assertEqual(ext["status"], "not_applicable")
             self.assertTrue(ext["reason_zh"])
-            self.assertEqual(c["asset_version"], {"julabo_corio_cd200f": "1.2.0", "miele_plw6111": "1.3.0"}[slug])   # both: + front panel (minor); miele 1.3.0: 3D panel parts (2026-10-20)
+            self.assertEqual(c["asset_version"], {"julabo_corio_cd200f": "1.2.0", "miele_plw6111": "1.3.1"}[slug])   # both: + front panel (minor); miele 1.3.0: 3D panel parts (2026-10-20), 1.3.1: door precondition / BUSY (2026-10-22)
 
 
 if __name__ == "__main__":

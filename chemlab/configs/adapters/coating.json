@@ -1,0 +1,1725 @@
+{
+ "class": "coating",
+ "adapter": "chemlab.compile.classes.coating:CoatingAdapter",
+ "about": "Coating and thin-film deposition: method (class keys with units), move, home, gap, set-temp, vacuum, prime, start (job), stop, result, status. power, open/close, estop, ack and wait come from the shared layer. Ranges come from each member's contract in the unit the argument declares.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "ossila_spincoater",
+   "ossila_dipcoater",
+   "ossila_doctorblade",
+   "ossila_slotdie",
+   "quorum_q150tes",
+   "laboao_cvdltf12p50",
+   "arradiance_gemstarxt",
+   "fujifilm_dmp2850"
+  ],
+  "secondary": {},
+  "excluded": {
+   "buchi_minispray": "spray dryer: its job is drying a feed to a powder (evaporation package, primary there); the twin has no coating operation or substrate, so no coating verb would lower to anything new",
+   "glatt_miniglatt": "fluid-bed processor: particle coating is one operation of its method (operation=coating, top or bottom spray) next to drying and granulation; it is primary in the formulation package, whose method / start / stop / result verbs cover it, so a coating part would only duplicate them"
+  }
+ },
+ "members": {
+  "ossila_spincoater": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "build": "spin",
+     "cap": "method.configure",
+     "arg": "steps"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "elapsed": "cycle.elapsed_s",
+    "speed": "motor.indicated_rad_s",
+    "lid": "lid.angle_rad",
+    "method": "method.configured",
+    "sample": "sample.configured"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not spinning",
+      "message": "{inst} is spinning.",
+      "fix": "wait for the job or `chemlab run {inst} stop`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method ...` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "sample.configured",
+      "value": true,
+      "code": "NO_SUBSTRATE",
+      "label": "substrate mounted",
+      "message": "no substrate is mounted on {inst}.",
+      "fix": "ask the lab operator to mount the substrate."
+     },
+     {
+      "slot": "lid.target_rad",
+      "max": 0.001,
+      "code": "LID_OPEN",
+      "label": "lid closed",
+      "message": "the lid of {inst} is open; it spins only with the lid closed.",
+      "fix": "close it: `chemlab run {inst} close lid`, give it a second (`chemlab wait 2`), then start."
+     },
+     {
+      "slot": "lid.angle_rad",
+      "max": 0.001,
+      "code": "LID_MOVING",
+      "label": "lid fully closed",
+      "message": "the lid of {inst} is still closing.",
+      "fix": "give it a second: `chemlab wait 2`, then start."
+     },
+     {
+      "slot": "motor.indicated_rad_s",
+      "max": 0,
+      "code": "SPINNING",
+      "label": "chuck at rest",
+      "message": "the chuck of {inst} is still turning.",
+      "fix": "wait until it stands still (`chemlab wait 5`)."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, a programme, a substrate on the chuck, the lid closed and the chuck at rest.",
+     "fix": "check `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "move": "no motion stage: the substrate sits on the spinning chuck",
+    "home": "no motion stage to home",
+    "gap": "no blade, die or clamp gap",
+    "set-temp": "no heater (an ambient process)",
+    "vacuum": "no vacuum: the chuck holds the substrate without vacuum (manual p.3-4)",
+    "prime": "no ink pump: the solution is dispensed by hand before spinning"
+   },
+   "params": {
+    "run_word": "spin programme",
+    "result_word": "spin record",
+    "method_example": "speed=3000rpm time=30s"
+   },
+   "notes": {
+    "method": [
+     "speed= and time= make one step; program=500rpm@5s,3000rpm@30s makes several (manual p.18-23: multi-step recipes of speed and time)"
+    ],
+    "start": [
+     "close the lid first (`close lid`); the substrate and the solution are placed by the lab operator"
+    ]
+   }
+  },
+  "ossila_dipcoater": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "length": "coating_length_m",
+      "dip-speed": "immersion_speed_m_s",
+      "withdraw": [
+       "withdrawal_initial_m_s",
+       "withdrawal_final_m_s"
+      ],
+      "dwell": "dwell_s",
+      "dry": "dry_s",
+      "dry-gap": "drying_gap_m",
+      "cycles": "cycles"
+     },
+     "then": {
+      "withdraw-final": "withdrawal_final_m_s"
+     },
+     "required": [
+      "length",
+      "dip-speed",
+      "withdraw",
+      "cycles"
+     ],
+     "defaults": "example"
+    },
+    "move": {
+     "cap": "stage.move_to",
+     "arg": "position_m",
+     "speed_arg": "speed_m_s"
+    },
+    "home": {
+     "cap": "stage.home"
+    },
+    "gap": {
+     "cap": "clamp.set_gap",
+     "arg": "gap_m",
+     "what": "the clamp gap"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "position": "stage.position_m",
+    "gap": "clamp.gap_m",
+    "homed": "stage.homed",
+    "method": "method.configured",
+    "sample": "substrate.configured"
+   },
+   "requires": {
+    "move": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "stage.homed",
+      "value": true,
+      "code": "NOT_HOMED",
+      "label": "stage homed",
+      "message": "the stage of {inst} has not been homed since it was switched on.",
+      "fix": "home it: `chemlab run {inst} home`."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     },
+     {
+      "slot": "safety.fault",
+      "value": false,
+      "code": "FAULT",
+      "label": "no fault",
+      "message": "{inst} shows a fault.",
+      "fix": "acknowledge it: `chemlab run {inst} ack`."
+     }
+    ],
+    "home": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     },
+     {
+      "slot": "substrate.configured",
+      "value": false,
+      "code": "SUBSTRATE_IN",
+      "label": "no substrate clamped",
+      "message": "a substrate is clamped on {inst}; homing drives the arm to its top end.",
+      "fix": "move instead: `chemlab run {inst} move 175mm`."
+     }
+    ],
+    "gap": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method ...` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "bath.configured",
+      "value": true,
+      "code": "NO_BATH",
+      "label": "reservoir in place",
+      "message": "no solution reservoir is in place on {inst}.",
+      "fix": "ask the lab operator to fill and place the reservoir."
+     },
+     {
+      "slot": "substrate.configured",
+      "value": true,
+      "code": "NO_SUBSTRATE",
+      "label": "substrate mounted",
+      "message": "no substrate is mounted on {inst}.",
+      "fix": "ask the lab operator to mount the substrate."
+     },
+     {
+      "slot": "stage.homed",
+      "value": true,
+      "code": "NOT_HOMED",
+      "label": "stage homed",
+      "message": "the stage of {inst} has not been homed since it was switched on.",
+      "fix": "home it: `chemlab run {inst} home`."
+     },
+     {
+      "slot": "safety.crash",
+      "value": false,
+      "code": "CRASH",
+      "label": "no crash",
+      "message": "the crash-detection switch of {inst} has tripped.",
+      "fix": "ask the lab operator to clear the obstruction, then `chemlab run {inst} ack`."
+     },
+     {
+      "slot": "safety.fault",
+      "value": false,
+      "code": "FAULT",
+      "label": "no fault",
+      "message": "{inst} shows a fault.",
+      "fix": "acknowledge it: `chemlab run {inst} ack`."
+     },
+     {
+      "slot": "safety.system_error",
+      "value": false,
+      "code": "SYSTEM_ERROR",
+      "label": "no system error",
+      "message": "{inst} shows a system error.",
+      "fix": "switch it off and on (`chemlab run {inst} power off`, `power on`)."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: the clamp must hold the substrate (gap no wider than the substrate, e.g. `gap 1mm` for a 1 mm slide), with power, a programme, the reservoir, a homed arm and no fault.",
+     "fix": "close the clamp: `chemlab run {inst} gap 1mm`, then start."
+    },
+    "clamp.set_gap:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot open the clamp wider than the clamped substrate or while running.",
+     "fix": "stop first, or keep the gap at most the substrate thickness."
+    }
+   },
+   "unsupported": {
+    "set-temp": "no heater (an ambient process)",
+    "vacuum": "no vacuum: an ambient process",
+    "prime": "no ink pump: the substrate dips into a reservoir"
+   },
+   "params": {
+    "run_word": "dip programme",
+    "result_word": "dip record",
+    "method_example": "length=40mm dip-speed=10mm/s withdraw=1mm/s cycles=1",
+    "motion_max_s": 900
+   },
+   "notes": {
+    "move": [
+     "the stage moves at --speed (default: the documented example speed) and the verb waits until it is there; --job returns a job instead"
+    ],
+    "home": [
+     "homing runs once after switching on (manual: turning on); the verb waits until it is home"
+    ],
+    "method": [
+     "programme: coating length, immersion speed, withdrawal speed (withdraw-final= for a speed ramp), dwell, dry time, drying gap, cycles (manual p.26-32)"
+    ],
+    "gap": [
+     "the clamp holds the substrate: give at most the substrate thickness (manual p.16-19)"
+    ]
+   }
+  },
+  "ossila_doctorblade": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "distance": "distance_m",
+      "speed": "speed_m_s"
+     },
+     "required": [
+      "distance",
+      "speed"
+     ]
+    },
+    "move": {
+     "cap": "stage.move_to",
+     "arg": "position_m",
+     "speed_arg": "speed_m_s"
+    },
+    "home": {
+     "cap": "stage.home"
+    },
+    "gap": {
+     "cap": "gap.set",
+     "left_arg": "left_m",
+     "right_arg": "right_m",
+     "left_slot": "gap.left_m",
+     "right_slot": "gap.right_m",
+     "steps": {
+      "left_m": [
+       1e-06,
+       "m"
+      ],
+      "right_m": [
+       1e-06,
+       "m"
+      ]
+     },
+     "what": "the gap"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "position": "stage.position_m",
+    "gap": "gap.mean_m",
+    "homed": "stage.homed",
+    "method": "method.configured",
+    "sample": "substrate.configured"
+   },
+   "requires": {
+    "move": [
+     {
+      "slot": "safety.latched",
+      "value": false,
+      "code": "ESTOP_LATCHED",
+      "label": "emergency stop released",
+      "message": "the emergency stop of {inst} is latched (it switched the coater off).",
+      "fix": "release the button (`chemlab call {inst} emergency.release`), switch off and on (`chemlab run {inst} power off`, `power on`), then `home`."
+     },
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "safety.crash_warning",
+      "value": false,
+      "code": "CRASH_WARNING",
+      "label": "no crash warning",
+      "message": "{inst} shows a crash warning.",
+      "fix": "switch it off and on (`chemlab run {inst} power off`, `power on`)."
+     },
+     {
+      "slot": "stage.homed",
+      "value": true,
+      "code": "NOT_HOMED",
+      "label": "stage homed",
+      "message": "the stage of {inst} has not been homed since it was switched on.",
+      "fix": "home it: `chemlab run {inst} home`."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "home": [
+     {
+      "slot": "safety.latched",
+      "value": false,
+      "code": "ESTOP_LATCHED",
+      "label": "emergency stop released",
+      "message": "the emergency stop of {inst} is latched (it switched the coater off).",
+      "fix": "release the button (`chemlab call {inst} emergency.release`), switch off and on (`chemlab run {inst} power off`, `power on`), then `home`."
+     },
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "safety.crash_warning",
+      "value": false,
+      "code": "CRASH_WARNING",
+      "label": "no crash warning",
+      "message": "{inst} shows a crash warning.",
+      "fix": "switch it off and on (`chemlab run {inst} power off`, `power on`)."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "gap": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "safety.latched",
+      "value": false,
+      "code": "ESTOP_LATCHED",
+      "label": "emergency stop released",
+      "message": "the emergency stop of {inst} is latched (it switched the coater off).",
+      "fix": "release the button (`chemlab call {inst} emergency.release`), switch off and on (`chemlab run {inst} power off`, `power on`), then `home`."
+     },
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "safety.crash_warning",
+      "value": false,
+      "code": "CRASH_WARNING",
+      "label": "no crash warning",
+      "message": "{inst} shows a crash warning.",
+      "fix": "switch it off and on (`chemlab run {inst} power off`, `power on`)."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method ...` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "charge.configured",
+      "value": true,
+      "code": "NO_INK",
+      "label": "solution applied",
+      "message": "no coating solution is in front of the blade of {inst}.",
+      "fix": "ask the lab operator to apply the solution."
+     },
+     {
+      "slot": "substrate.configured",
+      "value": true,
+      "code": "NO_SUBSTRATE",
+      "label": "substrate mounted",
+      "message": "no substrate is mounted on {inst}.",
+      "fix": "ask the lab operator to mount the substrate."
+     },
+     {
+      "slot": "stage.homed",
+      "value": true,
+      "code": "NOT_HOMED",
+      "label": "stage homed",
+      "message": "the stage of {inst} has not been homed since it was switched on.",
+      "fix": "home it: `chemlab run {inst} home`."
+     },
+     {
+      "slot": "gap.mean_m",
+      "min": 1e-09,
+      "code": "NO_GAP",
+      "label": "a gap set",
+      "message": "the gap of {inst} is not set (0).",
+      "fix": "set it: `chemlab run {inst} gap 100um`."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, a programme, the solution, a substrate, the stage at its home position and the blade gap reached on both sides.",
+     "fix": "home the stage (`chemlab run {inst} home`) and set the gap (`gap 100um`), then start."
+    },
+    "gap.set:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "BAD_STEP",
+     "message": "{inst} sets the gap in whole micrometres.",
+     "fix": "round it, e.g. 100um."
+    },
+    "stage.home:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} homes only switched on, with the emergency stop released, no run and no wet film or bead on the bed.",
+     "fix": "have the coated substrate removed first (lab operator)."
+    },
+    "stage.move_to:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} moves only switched on and homed, with the emergency stop released, no run and no wet film or bead on the bed.",
+     "fix": "have the coated substrate removed first (lab operator)."
+    }
+   },
+   "unsupported": {
+    "set-temp": "no heated bed on this coater",
+    "vacuum": "no vacuum: an ambient process",
+    "prime": "no ink pump: the solution is applied in front of the blade"
+   },
+   "params": {
+    "run_word": "blade coating",
+    "result_word": "coating record",
+    "method_example": "distance=200mm speed=10mm/s",
+    "motion_max_s": 900
+   },
+   "notes": {
+    "move": [
+     "the stage moves at --speed (default: the documented example speed) and the verb waits until it is there; --job returns a job instead"
+    ],
+    "home": [
+     "homing runs once after switching on (manual: turning on); the verb waits until it is home"
+    ],
+    "method": [
+     "programme: travel distance and speed (manual p.22-23)"
+    ],
+    "gap": [
+     "left and right micrometer gauges, in whole µm (manual p.17-21)"
+    ]
+   }
+  },
+  "ossila_slotdie": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "distance": "distance_m",
+      "speed": "speed_m_s",
+      "flow": "flow_m3_s",
+      "delay": "stage_delay_s"
+     },
+     "required": [
+      "distance",
+      "speed",
+      "flow"
+     ],
+     "defaults": "example"
+    },
+    "move": {
+     "cap": "stage.move_to",
+     "arg": "position_m",
+     "speed_arg": "speed_m_s"
+    },
+    "home": {
+     "cap": "stage.home"
+    },
+    "gap": {
+     "cap": "gap.set",
+     "left_arg": "left_m",
+     "right_arg": "right_m",
+     "left_slot": "gap.left_m",
+     "right_slot": "gap.right_m"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "on_cap": "thermal.set_enabled",
+     "on_arg": "enabled"
+    },
+    "prime": {
+     "cap": "pump.dispense",
+     "arg": "volume_m3",
+     "flow_arg": "flow_m3_s"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "position": "stage.position_m",
+    "gap": "gap.mean_m",
+    "homed": "stage.homed",
+    "temp": "thermal.indicated_k",
+    "set": "thermal.target_k",
+    "heating": "thermal.enabled",
+    "method": "method.configured",
+    "sample": "substrate.configured"
+   },
+   "requires": {
+    "move": [
+     {
+      "slot": "safety.latched",
+      "value": false,
+      "code": "ESTOP_LATCHED",
+      "label": "emergency stop released",
+      "message": "the emergency stop of {inst} is latched (it switched the coater off).",
+      "fix": "release the button (`chemlab call {inst} emergency.release`), switch off and on (`chemlab run {inst} power off`, `power on`), then `home`."
+     },
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "safety.crash_warning",
+      "value": false,
+      "code": "CRASH_WARNING",
+      "label": "no crash warning",
+      "message": "{inst} shows a crash warning.",
+      "fix": "switch it off and on (`chemlab run {inst} power off`, `power on`)."
+     },
+     {
+      "slot": "stage.homed",
+      "value": true,
+      "code": "NOT_HOMED",
+      "label": "stage homed",
+      "message": "the stage of {inst} has not been homed since it was switched on.",
+      "fix": "home it: `chemlab run {inst} home`."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "home": [
+     {
+      "slot": "safety.latched",
+      "value": false,
+      "code": "ESTOP_LATCHED",
+      "label": "emergency stop released",
+      "message": "the emergency stop of {inst} is latched (it switched the coater off).",
+      "fix": "release the button (`chemlab call {inst} emergency.release`), switch off and on (`chemlab run {inst} power off`, `power on`), then `home`."
+     },
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "safety.crash_warning",
+      "value": false,
+      "code": "CRASH_WARNING",
+      "label": "no crash warning",
+      "message": "{inst} shows a crash warning.",
+      "fix": "switch it off and on (`chemlab run {inst} power off`, `power on`)."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "gap": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "safety.latched",
+      "value": false,
+      "code": "ESTOP_LATCHED",
+      "label": "emergency stop released",
+      "message": "the emergency stop of {inst} is latched (it switched the coater off).",
+      "fix": "release the button (`chemlab call {inst} emergency.release`), switch off and on (`chemlab run {inst} power off`, `power on`), then `home`."
+     },
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     }
+    ],
+    "prime": [
+     {
+      "slot": "safety.latched",
+      "value": false,
+      "code": "ESTOP_LATCHED",
+      "label": "emergency stop released",
+      "message": "the emergency stop of {inst} is latched (it switched the coater off).",
+      "fix": "release the button (`chemlab call {inst} emergency.release`), switch off and on (`chemlab run {inst} power off`, `power on`), then `home`."
+     },
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "stage.homed",
+      "value": true,
+      "code": "NOT_HOMED",
+      "label": "stage homed",
+      "message": "the stage of {inst} has not been homed since it was switched on.",
+      "fix": "home it: `chemlab run {inst} home`."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     },
+     {
+      "slot": "ink.configured",
+      "value": true,
+      "code": "NO_INK",
+      "label": "ink connected",
+      "message": "no ink syringe is connected to {inst}.",
+      "fix": "ask the lab operator to fill and connect the syringe."
+     },
+     {
+      "slot": "gap.mean_m",
+      "min": 1e-09,
+      "code": "NO_GAP",
+      "label": "a gap set",
+      "message": "the gap of {inst} is not set (0).",
+      "fix": "set it: `chemlab run {inst} gap 100um`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "safety.latched",
+      "value": false,
+      "code": "ESTOP_LATCHED",
+      "label": "emergency stop released",
+      "message": "the emergency stop of {inst} is latched (it switched the coater off).",
+      "fix": "release the button (`chemlab call {inst} emergency.release`), switch off and on (`chemlab run {inst} power off`, `power on`), then `home`."
+     },
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "safety.crash_warning",
+      "value": false,
+      "code": "CRASH_WARNING",
+      "label": "no crash warning",
+      "message": "{inst} shows a crash warning.",
+      "fix": "switch it off and on (`chemlab run {inst} power off`, `power on`)."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method ...` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "ink.configured",
+      "value": true,
+      "code": "NO_INK",
+      "label": "ink connected",
+      "message": "no ink syringe is connected to {inst}.",
+      "fix": "ask the lab operator to fill and connect the syringe."
+     },
+     {
+      "slot": "substrate.configured",
+      "value": true,
+      "code": "NO_SUBSTRATE",
+      "label": "substrate mounted",
+      "message": "no substrate is mounted on {inst}.",
+      "fix": "ask the lab operator to mount the substrate."
+     },
+     {
+      "slot": "stage.homed",
+      "value": true,
+      "code": "NOT_HOMED",
+      "label": "stage homed",
+      "message": "the stage of {inst} has not been homed since it was switched on.",
+      "fix": "home it: `chemlab run {inst} home`."
+     },
+     {
+      "slot": "gap.mean_m",
+      "min": 1e-09,
+      "code": "NO_GAP",
+      "label": "a gap set",
+      "message": "the gap of {inst} is not set (0).",
+      "fix": "set it: `chemlab run {inst} gap 100um`."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, a programme, ink, a substrate, a homed stage and the die gap reached on both sides.",
+     "fix": "check `chemlab run {inst} status`; set the gap (`gap 100um`)."
+    },
+    "stage.move_to:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} moves only switched on and homed, with no run going on; with ink under the die the gap must be at least 1 mm (the die would smear the film).",
+     "fix": "lift the die first (`chemlab run {inst} gap 1mm`), then move."
+    },
+    "stage.home:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} homes only switched on, with no run going on; with ink under the die the gap must be at least 1 mm.",
+     "fix": "lift the die first (`chemlab run {inst} gap 1mm`)."
+    },
+    "pump.dispense:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} primes only switched on, homed, with ink, a die gap and no run.",
+     "fix": "set the gap first (`gap 100um`)."
+    }
+   },
+   "unsupported": {
+    "vacuum": "no vacuum: an ambient process (the bed is a hot plate)"
+   },
+   "params": {
+    "run_word": "slot-die coating",
+    "result_word": "coating record",
+    "method_example": "distance=120mm speed=10mm/s flow=1.2mL/min",
+    "motion_max_s": 900
+   },
+   "notes": {
+    "move": [
+     "the stage moves at --speed (default: the documented example speed) and the verb waits until it is there; --job returns a job instead"
+    ],
+    "home": [
+     "homing runs once after switching on (manual: turning on); the verb waits until it is home"
+    ],
+    "method": [
+     "one step: coating length, stage speed, pump flow, stage delay (manual p.19-29; the wet film is flow / (width x speed))"
+    ],
+    "prime": [
+     "fill the line and form the meniscus under the die before coating (manual p.30-38)"
+    ],
+    "gap": [
+     "gap of 1-10 x the wet film thickness (manual p.39-41)"
+    ],
+    "set-temp": [
+     "hot-plate set point; `set-temp off` switches the heater off"
+    ]
+   }
+  },
+  "quorum_q150tes": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "current": "sputter_current_a",
+      "pressure": "working_pressure_pa",
+      "time": "duration_s",
+      "tooling": "tooling",
+      "preclean": "preclean_s",
+      "lift": "stage_lift_m",
+      "carbon-current": "carbon_current_a",
+      "carbon-ramp": "carbon_ramp_a_s"
+     },
+     "flag_keys": {
+      "thickness": {
+       "arg": "endpoint_m",
+       "on": {
+        "thickness_endpoint": true,
+        "ftm_enabled": true
+       },
+       "off": {
+        "thickness_endpoint": false
+       }
+      },
+      "rotation": {
+       "arg": "rotation_rpm",
+       "on": {
+        "rotation_enabled": true
+       },
+       "off": {
+        "rotation_enabled": false
+       }
+      }
+     },
+     "required_any": [
+      [
+       "time",
+       "thickness"
+      ]
+     ],
+     "defaults": "example"
+    },
+    "vacuum": {
+     "cap": "vacuum.pump",
+     "arg": "enabled",
+     "vent_cap": "vacuum.vent"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "elapsed": "cycle.elapsed_s",
+    "pressure": "vacuum.pressure_pa",
+    "vacuum": "vacuum.pump_enabled",
+    "method": "method.configured"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not coating",
+      "message": "{inst} is coating.",
+      "fix": "wait for the job or `chemlab run {inst} stop`."
+     }
+    ],
+    "vacuum-pump": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "chamber.opened",
+      "value": false,
+      "code": "CHAMBER_OPEN",
+      "label": "chamber closed",
+      "message": "the chamber of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close chamber`."
+     }
+    ],
+    "vacuum-vent": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "chamber.opened",
+      "value": false,
+      "code": "CHAMBER_OPEN",
+      "label": "chamber closed",
+      "message": "the chamber of {inst} is open (already at room pressure).",
+      "fix": "nothing to vent."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "chamber.opened",
+      "value": false,
+      "code": "CHAMBER_OPEN",
+      "label": "chamber closed",
+      "message": "the chamber of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close chamber`, then start."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method ...` (see `chemlab help {inst} method`)."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, the chamber closed, samples and a target in place, and a method.",
+     "fix": "check `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "move": "no motion stage: the sample stage only rotates and its height is a method setting (lift=)",
+    "home": "no motion stage to home",
+    "gap": "no blade, die or clamp gap",
+    "set-temp": "no temperature set point: the samples warm only from the deposition",
+    "prime": "no ink pump: a sputter target or carbon rod is the source"
+   },
+   "params": {
+    "run_word": "coating run (pump, coat, vent)",
+    "result_word": "coating record",
+    "method_example": "current=50mA time=60s"
+   },
+   "notes": {
+    "method": [
+     "sputter current and time (or thickness= with the film-thickness monitor), rotation, tooling factor (manual p.21-42, profile parameters p.79-85)"
+    ],
+    "start": [
+     "a run pumps down, pre-cleans, coats and vents by itself (manual p.17-20)"
+    ],
+    "vacuum": [
+     "`vacuum vent` brings the chamber to room pressure before `open chamber`"
+    ]
+   }
+  },
+  "laboao_cvdltf12p50": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "build": "segments",
+     "cap": "method.configure",
+     "seg_arg": "segments",
+     "keys": {
+      "flow": "flow_std_m3_s",
+      "pressure": "pressure_pa",
+      "purge": "purge_s",
+      "mode": "mode",
+      "pump": "pump_mode",
+      "valve": "manual_valve_fraction",
+      "curve": "curve_slot"
+     },
+     "defaults": "example"
+    },
+    "set-temp": {
+     "cap": "controller.set_sv",
+     "arg": "target_k"
+    },
+    "vacuum": {
+     "cap": "vacuum.set",
+     "arg": "enabled",
+     "full": true,
+     "pressure_arg": "pressure_pa",
+     "auto": {
+      "mode": "auto"
+     },
+     "vent_cap": "vacuum.vent"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "mode_arg": "mode",
+     "default_mode": "cvd"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "temp": "oven.temperature_k",
+    "set": "oven.setpoint_k",
+    "pressure": "vacuum.pressure_pa",
+    "vacuum": "pump.enabled",
+    "method": "method.configured"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not running",
+      "message": "{inst} is running a process.",
+      "fix": "wait for the job or `chemlab run {inst} stop`."
+     }
+    ],
+    "vacuum-pump": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "flange.opened",
+      "value": false,
+      "code": "FLANGE_OPEN",
+      "label": "flange closed",
+      "message": "the tube flange of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close flange`."
+     }
+    ],
+    "vacuum-vent": [
+     {
+      "slot": "flange.opened",
+      "value": false,
+      "code": "FLANGE_OPEN",
+      "label": "flange closed",
+      "message": "the tube flange of {inst} is open (already at room pressure).",
+      "fix": "nothing to vent."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "furnace.opened",
+      "value": false,
+      "code": "FURNACE_OPEN",
+      "label": "furnace closed",
+      "message": "the furnace lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close furnace`, then start."
+     },
+     {
+      "slot": "flange.opened",
+      "value": false,
+      "code": "FLANGE_OPEN",
+      "label": "flange closed",
+      "message": "the tube flange of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close flange`, then start."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method ...` (see `chemlab help {inst} method`)."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, the furnace lid and flange closed, no venting, the gas supply, a method and (for cvd) a substrate.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "vacuum.set:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} pumps only switched on, with the flange closed and not venting.",
+     "fix": "close the flange; after venting wait until room pressure is reached."
+    }
+   },
+   "unsupported": {
+    "move": "no motion stage: the sample boat is placed by the lab operator",
+    "home": "no motion stage to home",
+    "gap": "no blade, die or clamp gap",
+    "prime": "no ink pump: process gases come from the mass-flow controllers (method flow=)"
+   },
+   "params": {
+    "run_word": "furnace process",
+    "result_word": "process record",
+    "method_example": "temp=600C rate=5K/min hold=30min flow=200,0,0"
+   },
+   "notes": {
+    "method": [
+     "one controller segment: temp, heating rate, hold; gas flows per channel in sccm (= mL/min), pressure, purge time (datasheet: controller curves, mass-flow channels)"
+    ],
+    "set-temp": [
+     "works in fixed controller mode (method mode=fixed); in programme mode the curve sets the temperature"
+    ],
+    "vacuum": [
+     "`vacuum pump --pressure 30Pa` pumps in automatic pressure control; plain `vacuum pump` uses the documented example settings"
+    ],
+    "start": [
+     "--mode cvd (default, needs a substrate) or --mode purge"
+    ]
+   }
+  },
+  "arradiance_gemstarxt": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "cycles": "cycles",
+      "temp": "reactor_k",
+      "door-temp": "door_k",
+      "manifold-temp": "manifold_k",
+      "pulse": "pulse_s",
+      "exposure": "exposure_s",
+      "purge": "purge_s",
+      "precursor-flow": "precursor_mol_s",
+      "carrier": "carrier_std_m3_s",
+      "rf": "rf_w"
+     },
+     "required": [
+      "cycles",
+      "temp"
+     ],
+     "defaults": "example"
+    },
+    "vacuum": {
+     "cap": "vacuum.set",
+     "arg": "enabled",
+     "vent_cap": "vacuum.vent"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "temp": "reactor.temperature_k",
+    "set": "reactor.setpoint_k",
+    "pressure": "vacuum.pressure_pa",
+    "vacuum": "vacuum.enabled",
+    "method": "method.configured"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not running",
+      "message": "{inst} is running a recipe.",
+      "fix": "wait for the job or `chemlab run {inst} stop`."
+     }
+    ],
+    "vacuum-pump": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     },
+     {
+      "slot": "door.opened",
+      "value": false,
+      "code": "DOOR_OPEN",
+      "label": "door closed",
+      "message": "the chamber door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close door`."
+     }
+    ],
+    "vacuum-vent": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "door.opened",
+      "value": false,
+      "code": "DOOR_OPEN",
+      "label": "door closed",
+      "message": "the chamber door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close door`, then start."
+     },
+     {
+      "slot": "safety.emo_latched",
+      "value": false,
+      "code": "EMO_LATCHED",
+      "label": "EMO released",
+      "message": "the emergency off of {inst} is latched.",
+      "fix": "switch off and reset it: `chemlab run {inst} power off`, `chemlab call {inst} safety.reset`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method ...` (see `chemlab help {inst} method`)."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, the door closed, no EMO, the precursors, the substrate and a recipe (plasma recipes also RF on).",
+     "fix": "check `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "move": "no motion stage",
+    "home": "no motion stage to home",
+    "gap": "no blade, die or clamp gap",
+    "set-temp": "the zone temperatures are part of the recipe (reactor, door, manifold) and are set with it",
+    "prime": "no ink pump: precursors are dosed by the ALD valves of the recipe"
+   },
+   "alternatives": {
+    "set-temp": "set the reactor temperature in the recipe: `chemlab run INST method cycles=50 temp=250C`."
+   },
+   "params": {
+    "run_word": "ALD recipe",
+    "result_word": "process record",
+    "method_example": "cycles=50 temp=250C"
+   },
+   "notes": {
+    "method": [
+     "recipe: cycles, zone temperatures, pulse / exposure / purge times per precursor, carrier flow, RF power (operation notes p.3-6)"
+    ],
+    "start": [
+     "the run pumps to vacuum ready and runs the recipe; send `chemlab call arradiance_gemstarxt control.heartbeat` at least hourly during long runs (communication watchdog)"
+    ]
+   }
+  },
+  "fujifilm_dmp2850": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "build": "dmp",
+     "cap": "method.configure",
+     "pattern_cap": "pattern.configure",
+     "keys": {
+      "spacing": "drop_spacing_m",
+      "height": "gap_m",
+      "voltage": "voltage_v",
+      "frequency": "frequency_hz",
+      "nozzles": "nozzles",
+      "rise": "rise_s",
+      "dwell": "dwell_s",
+      "fall": "fall_s",
+      "clean-every": "clean_every_drops",
+      "clean-time": "clean_duration_s"
+     },
+     "defaults": "example"
+    },
+    "move": {
+     "cap": "axis.move_to",
+     "axes": [
+      "x_m",
+      "y_m",
+      "z_m"
+     ]
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "zones": {
+      "platen": {
+       "arg": "platen_k",
+       "keep": "thermal.platen_target_k"
+      },
+      "cartridge": {
+       "arg": "cartridge_k",
+       "keep": "thermal.cartridge_target_k"
+      }
+     },
+     "default_zone": "platen",
+     "on_cap": "thermal.set_enabled",
+     "on_arg": "enabled"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "printing.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "printing.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "temp": "thermal.platen_k",
+    "set": "thermal.platen_target_k",
+    "heating": "thermal.enabled",
+    "method": "method.configured",
+    "sample": "substrate.configured"
+   },
+   "requires": {
+    "move": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not busy",
+      "message": "{inst} is busy (a move or a run).",
+      "fix": "wait for it (`chemlab run {inst} status`) or `chemlab run {inst} stop`."
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method ...` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "ink.configured",
+      "value": true,
+      "code": "NO_INK",
+      "label": "cartridge installed",
+      "message": "no ink cartridge is installed in {inst}.",
+      "fix": "ask the lab operator to install a filled cartridge."
+     },
+     {
+      "slot": "substrate.configured",
+      "value": true,
+      "code": "NO_SUBSTRATE",
+      "label": "substrate mounted",
+      "message": "no substrate is mounted on {inst}.",
+      "fix": "ask the lab operator to mount the substrate."
+     },
+     {
+      "slot": "pattern.configured",
+      "value": true,
+      "code": "NO_PATTERN",
+      "label": "a pattern set",
+      "message": "{inst} has no pattern to print.",
+      "fix": "set one: `chemlab run {inst} method pattern=010/111/010 at=50mm,50mm`."
+     },
+     {
+      "slot": "vacuum.enabled",
+      "value": true,
+      "code": "NO_VACUUM",
+      "label": "platen vacuum on",
+      "message": "the platen vacuum of {inst} is off, so the substrate is not held.",
+      "fix": "ask the lab operator to switch the platen vacuum on."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, a method, an ink cartridge, a substrate held by the platen vacuum and a pattern.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "axis.move_to:PRECONDITION_FAILED": {
+     "code": "TOO_LOW",
+     "message": "{inst} keeps the head at least 0.1 mm above the substrate.",
+     "fix": "give a higher z."
+    }
+   },
+   "unsupported": {
+    "home": "no homing command: the axes move with `move X,Y,Z`",
+    "gap": "the head height above the substrate is the method key height=",
+    "vacuum": "the platen vacuum that holds the substrate is switched by the lab operator (no agent capability)",
+    "prime": "no priming pump: the cartridge is filled and purged by the lab operator"
+   },
+   "alternatives": {
+    "gap": "set the print height in the method: `chemlab run INST method height=1mm`."
+   },
+   "params": {
+    "run_word": "print",
+    "result_word": "print record",
+    "method_example": "spacing=20um voltage=24V"
+   },
+   "notes": {
+    "method": [
+     "jetting: drop spacing, print height, voltage, waveform (rise / dwell / fall), frequency, nozzles; pattern=ROWS of 0/1 with at=X,Y (quick guide p.1-3)"
+    ],
+    "set-temp": [
+     "--zone platen (default) or cartridge; the other zone keeps its set point; `set-temp off` switches the heaters off"
+    ],
+    "move": [
+     "move X,Y,Z of the print head (e.g. 50mm,40mm,2mm)"
+    ]
+   }
+  }
+ }
+}

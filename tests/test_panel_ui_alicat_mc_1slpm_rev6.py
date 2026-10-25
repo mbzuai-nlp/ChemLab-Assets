@@ -394,7 +394,7 @@ class KeyProcedures(unittest.TestCase):
         g.press(BR)
         self.assertEqual(g.lcd()[2], 'Standard Temperature')
         g.enter_digits(20.0, 2)
-        self.assertAlmostEqual(g.state('gas.reference_temperature_K'), 293.15, delta=1e-9)
+        self.assertAlmostEqual(g.state('gas.reference_temperature_k'), 293.15, delta=1e-9)
         self.assertFalse(g.state('flow.zeroed'))                                      # a new reference invalidates the tare (runtime rule)
         g.select('stan_p_atm')
         g.enter_digits(1.0, 3)
@@ -996,11 +996,11 @@ class DeviceFunctions(unittest.TestCase):
         g.call(g.A, 'menu.configure', pressure_averaging_ms=255)
         g.step(0.1)
         g.boundary(upstream=150000.0)
-        self.assertEqual(g.state('measurement.pressure_Pa'), 130000.0)                 # no time has passed: the average is unchanged
+        self.assertEqual(g.state('measurement.pressure_pa'), 130000.0)                 # no time has passed: the average is unchanged
         g.step(0.255)
-        self.assertAlmostEqual(g.state('measurement.pressure_Pa'), 150000.0 - 20000.0 * math.exp(-1.0), delta=1e-6)
+        self.assertAlmostEqual(g.state('measurement.pressure_pa'), 150000.0 - 20000.0 * math.exp(-1.0), delta=1e-6)
         g.step(10.0)
-        self.assertAlmostEqual(g.state('measurement.pressure_Pa'), 150000.0, delta=1e-6)
+        self.assertAlmostEqual(g.state('measurement.pressure_pa'), 150000.0, delta=1e-6)
 
     def test_timer_freezes_and_totalizer_rolls_over(self):
         g = Rig()
@@ -1042,7 +1042,7 @@ class StatusMessages(unittest.TestCase):
         g.boundary(upstream=170 * rt.ALICAT_MC_PSI_PA)                                    # inlet above the 160 PSIA range
         self.assertEqual(g.state('device.alarms'), ['POV'])
         self.assertIn('POV', g.text())
-        self.assertIsNone(g.state('measurement.pressure_Pa'))                            # out of range: no valid reading
+        self.assertIsNone(g.state('measurement.pressure_pa'))                            # out of range: no valid reading
         g.boundary(temperature=343.15)                                                   # 70 C gas
         self.assertEqual(g.state('device.alarms'), ['TOV'])
         self.assertIn('TOV', g.text())

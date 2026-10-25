@@ -6,6 +6,8 @@ from scipy.optimize import brentq,minimize_scalar
 PROTOCOL_VERSION='1.0.0';SLUG='netzsch_lfa467';CATALOG_ID='CHEM-135';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch04/t1_thermal'/SLUG
 HOST_DT=.1;R_GAS=8.31446261815324
+ASSET_VERSION='1.1.2'   # 1.1.1 (2026-10-22): idle and held intervals stepped analytically (F4); describe reported 1.0.0 since 1.1.0; 1.1.2: feed-forward (no set-point offset), cheap acquisition equilibration
+_HOLD_PERIOD_NS=10000000;_HOLD_CACHE={}   # controller period (see _control); one-period maps of held set-points, shared by instances
 class ActionRejected(ValueError):pass
 def number(unit='1',lo=None,hi=None):
  s={'type':'number','x-unit':unit}
@@ -441,7 +443,7 @@ class NetzschLfa467Runtime:
   self._ensure_model();end=(self.time_ns//10000000+1)*10000000;h=(end-self.time_ns)/1e9;p=self.plant
   if not self.thermal_enabled:P=0.
   else:
-   desired=self._toward(self.target,self.final_target,self.rate*h);zero=propagate_modes(self.model,self.theta,0.,0.,h,detector_tau_s=p['detector_tau_s']);_,phi,_=modal_kernels(self.model['eigenvalues'],[h]);response=float(np.sum(self.model['eigenvectors'][0,:]**2*phi[:,0])/p['furnace_capacity_j_k']);raw=p['controller_gain_w_k']*(desired-p['ambient_k']-zero['temperature_delta_k'][0])/(1+p['controller_gain_w_k']*response);cold=p['cooler_max_w'] if p['cooler']=='LN2' and self.coolant_remaining['furnace']>0 else 0.;P=max(-cold,min(p['heater_max_w'],raw))
+   desired=self._toward(self.target,self.final_target,self.rate*h);zero=propagate_modes(self.model,self.theta,0.,0.,h,detector_tau_s=p['detector_tau_s']);_,phi,_=modal_kernels(self.model['eigenvalues'],[h]);response=float(np.sum(self.model['eigenvectors'][0,:]**2*phi[:,0])/p['furnace_capacity_j_k']);raw=(self.model['ambient_conductance_w_k']*(desired-p['ambient_k'])+p['controller_gain_w_k']*(desired-p['ambient_k']-zero['temperature_delta_k'][0]))/(1+p['controller_gain_w_k']*response);cold=p['cooler_max_w'] if p['cooler']=='LN2' and self.coolant_remaining['furnace']>0 else 0.;P=max(-cold,min(p['heater_max_w'],raw))
   self._cached_power=float(P);self._control_until_ns=end;return self._cached_power
  def _equilibrated(self):
   tol=self.method['equilibrium_tolerance_k'];return abs(self.target-self.final_target)<1e-10 and abs(self._furnace()-self.final_target)<=tol and abs(self._mean()-self.final_target)<=tol and (not self.sample or float(np.ptp(self.theta[1:]))<=tol)
@@ -487,6 +489,113 @@ class NetzschLfa467Runtime:
   if self.thermal_enabled:self.target=self._toward(self.target,self.final_target,self.rate*h)
   if self.phase=='running' and self.stage=='equilibrating':self.equilibrium_ns=self.equilibrium_ns+ns if self._equilibrated() else 0
   if self.phase=='running' and self.stage in ['pulse','recording'] and self.sample and float(np.max(self.theta[1:]))+p['ambient_k']-self.shot_base_k>p['maximum_local_temperature_rise_k']:self.model_fault='PULSE_LINEAR_DOMAIN';self.pending_fault='PULSE_LINEAR_DOMAIN'
+ # 1.1.1 (2026-10-22): a held set-point between operations costs O(log N), not N, control periods.  With thermal control on, the target
+ # reached (target == final target), nothing moving and no acquisition, one 10 ms period of the sampled controller plus the exact modal
+ # propagation is an affine map of (theta, detector state) that also yields the heater energy and the ambient loss of the period, as long as
+ # the commanded power keeps one sign inside its limits (no clamp: [0, heater_max], or [-cooler_max, 0] with LN2 left, whose use then follows
+ # the power).  N periods are the N-th power of that map (cached binary powers, exact up to
+ # rounding).  The jump is taken only when a bound on the power over all N periods (closed-loop eigen-decomposition) keeps it inside that
+ # range; otherwise the periods are stepped one by one as before.  Gas and detector coolant use are linear in time and must last the window.
+ def _hold_data(self):
+  p=self.plant;key=(self.model_key,json.dumps(self.sample,sort_keys=True),json.dumps(p,sort_keys=True),self.final_target)
+  if key in _HOLD_CACHE:return _HOLD_CACHE[key]
+  m=self.model;h=_HOLD_PERIOD_NS/1e9;V=m['eigenvectors'];lam=m['eigenvalues'];s=m['sqrtC'];n=len(s);v0=V[0,:]
+  E,p1,p2=(x[:,0] for x in modal_kernels(lam,[h]));A,B,decay,one=detector_kernels(lam,[h],p['detector_tau_s']);c=(m['rear']/s)@V
+  Phi=((V*E)@V.T)*np.outer(1/s,s);Gam=(V@(p1*v0))/s/s[0]                  # theta' = Phi theta + Gam P
+  rr=float(np.sum(v0**2*p1))/p['furnace_capacity_j_k'];g=p['controller_gain_w_k']/(1+p['controller_gain_w_k']*rr)
+  q=-g*Phi[0,:];q1=g*(self.final_target-p['ambient_k'])+m['ambient_conductance_w_k']*(self.final_target-p['ambient_k'])/(1+p['controller_gain_w_k']*rr)   # P = q theta + q1 (see _control; 1.1.2 feed-forward)
+  d_th=p['detector_gain']*((c*A[:,0])@V.T)*s;d_p=p['detector_gain']*float((c*B[:,0])@v0)/s[0]
+  i_th=((v0*p1)@V.T)*s/s[0];i_p=float((v0*p2)@v0)/s[0]/s[0];Ga=m['ambient_conductance_w_k']
+  T=np.zeros((n+4,n+4));th=slice(0,n);S,H,L,O=n,n+1,n+2,n+3
+  T[th,th]=Phi+np.outer(Gam,q);T[th,O]=Gam*q1
+  T[S,th]=d_th+d_p*q;T[S,S]=float(decay[0]);T[S,O]=p['detector_offset_k']*float(one[0])+d_p*q1
+  T[H,th]=h*q;T[H,H]=1.;T[H,O]=h*q1
+  T[L,th]=Ga*(i_th+i_p*q);T[L,L]=1.;T[L,O]=Ga*i_p*q1;T[O,O]=1.
+  M=T[th,th];data=None
+  try:                                                                     # an adiabatic disk keeps its mean (eigenvalue 1): any fixed point will do
+   star=np.linalg.lstsq(np.eye(n)-M,T[th,O],rcond=None)[0];mu,W=np.linalg.eig(M);Winv=np.linalg.inv(W)
+   fixed=np.max(abs((np.eye(n)-M)@star-T[th,O]))<=1e-12*max(1.,float(np.max(abs(T[th,O]))))
+   if fixed and np.max(abs(mu))<=1+1e-12 and np.linalg.cond(W)<1e8:data=dict(powers=[T],star=star,P_star=float(q@star+q1),qW=q@W,Winv=Winv,n=n,W=W,mu=mu)
+  except np.linalg.LinAlgError:pass
+  if len(_HOLD_CACHE)>=8:_HOLD_CACHE.pop(next(iter(_HOLD_CACHE)))
+  _HOLD_CACHE[key]=data;return data
+ def _jump_plan(self,end):
+  """The one-period map of the held set point and the longest window of whole periods it may cover (power inside its limits and of one sign
+  for every period by the closed-loop bound, supplies lasting the window); None when it does not apply."""
+  P=_HOLD_PERIOD_NS;p=self.plant
+  self._ensure_model();J=self._hold_data()
+  if J is None:return None
+  beta=float(np.sum(abs(J['qW'])*abs(J['Winv']@(self.theta-J['star']))));Ps=J['P_star']   # |P_k - P*| <= beta for every period k
+  lat=p['coolant_latent_j_kg']*p['coolant_efficiency'];cold=p['cooler_max_w'] if p['cooler']=='LN2' and self.coolant_remaining['furnace']>0 else 0.
+  if Ps-2*beta>=0 or abs(Ps)+2*beta<=1e-12:cooling=False                 # heater power (or none) over the whole window
+  elif Ps+2*beta<=0 and Ps-2*beta>=-cold+1e-9:cooling=True               # LN2 cooling power over the whole window
+  else:return None
+  if Ps+2*beta>p['heater_max_w']-1e-9:return None
+  n=(end-self.time_ns)//P;rates=[]
+  for g in CHANNELS:
+   if self.gas_open[g] and self.gas_flow[g]>0:stock=self.gases[g];rates.append(('gas',g,self.gas_flow[g]*stock['reference_pressure_pa']/(R_GAS*stock['reference_temperature_k'])))
+  if self._detector_ready():rates.append(('cold','detector',p['detector_cooling_w']/lat))
+  bounds=rates+([('cold','furnace',(abs(Ps)+2*beta)/lat)] if cooling else [])   # furnace coolant: bound of its use rate
+  for kind,name,rate in bounds:                                           # the window must end strictly before any supply runs out
+   left=self.gas_remaining[name] if kind=='gas' else self.coolant_remaining[name];n=min(n,(int(math.floor(left/rate*1e9+1e-6))-1)//P)
+  return J,n,rates,cooling,lat
+ def _jump_apply(self,J,n,rates,cooling,lat):
+  """Advance n whole control periods with the binary powers of the one-period map (state, detector, heater energy, ambient loss)."""
+  P=_HOLD_PERIOD_NS
+  z=np.r_[self.theta,self.sensor_delta,0.,0.,1.];k=0;powers=J['powers']
+  while n>>k:
+   if len(powers)<=k:powers.append(powers[-1]@powers[-1])
+   if n>>k&1:z=powers[k]@z
+   k+=1
+  t=n*P/1e9;nn=J['n'];heat=float(z[nn+1]);self.theta=z[:nn].copy();self.sensor_delta=float(z[nn]);self.ambient_loss+=float(z[nn+2])
+  if cooling:used=-heat/lat;self.furnace_cooling-=heat;self.coolant_remaining['furnace']-=used;self.coolant_used['furnace']+=used;self.cold_used['furnace']-=heat
+  else:self.heater_input+=heat
+  for kind,name,rate in rates:
+   if kind=='gas':self.gas_remaining[name]-=rate*t;self.gas_used[name]+=rate*t
+   else:used=rate*t;self.coolant_remaining[name]-=used;self.coolant_used[name]+=used;self.cold_used[name]+=used*lat
+  self.time_ns+=n*P;self._invalidate_control()
+ def _hold_jump(self,end):
+  P=_HOLD_PERIOD_NS
+  if self.phase=='running' or not self.thermal_enabled or self.target!=self.final_target or self.time_ns%P or end-self.time_ns<2*P or self._moving():return False
+  plan=self._jump_plan(end)
+  if plan is None or plan[1]<2:return False
+  self._jump_apply(*plan);return True
+ # 1.1.2 (2026-10-22): the equilibration inside an acquisition (stage 'equilibrating', target reached, nothing moving) uses the same one-period
+ # map.  The equilibrium test of every period of the window (furnace, sample mean and sample spread within the method tolerance) is evaluated
+ # from the closed-loop eigen-decomposition theta_k = theta* + W diag(mu^k) W^-1 (theta_0 - theta*), so the jump ends one period before the
+ # dwell completes; the window also ends before the operation timeout and before any period whose test lies within 1e-9 K of the tolerance
+ # (those periods and the completion are stepped one by one, so the stage change happens at the same time as with per-period stepping).
+ def _equil_jump(self,end):
+  P=_HOLD_PERIOD_NS;p=self.plant
+  if (self.phase!='running' or self.stage!='equilibrating' or not self.thermal_enabled or self.target!=self.final_target or self.time_ns%P
+      or end-self.time_ns<2*P or self._moving() or self.pending_fault):return False
+  plan=self._jump_plan(end)
+  if plan is None:return False
+  J,n,rates,cooling,lat=plan
+  if 'W' not in J:return False
+  n=min(n,(self.operation_start_ns+round(self.method['timeout_s']*1e9)-self.time_ns)//P-1)
+  if n<2:return False
+  tol=self.method['equilibrium_tolerance_k'];dwell=round(self.method['equilibrium_dwell_s']*1e9);ref=self.final_target-p['ambient_k']
+  W,mu,a=J['W'],J['mu'],J['Winv']@(self.theta-J['star']);star=J['star'];eq=self.equilibrium_ns;take=0;k0=0;block=4096
+  while k0<n:
+   k=np.arange(k0+1,min(n,k0+block)+1);th=star[None,:]+np.real((mu[None,:]**k[:,None]*a[None,:])@W.T)
+   err=np.abs(th[:,0]-ref)
+   if self.sample:err=np.maximum(err,np.maximum(np.abs(th[:,1:].mean(axis=1)-ref),np.ptp(th[:,1:],axis=1)))
+   margin=tol-err;near=np.abs(margin)<=1e-9*max(1.,tol)+1e-12
+   for i in range(len(k)):
+    if near[i]:return self._equil_apply(plan,take,eq)
+    eq=eq+P if margin[i]>=0 else 0
+    if eq>=dwell:return self._equil_apply(plan,take,eq-P if margin[i]>=0 else eq)
+    take+=1
+   k0+=block
+  return self._equil_apply(plan,take,eq)
+ def _equil_apply(self,plan,take,eq_ns):
+  """Apply `take` periods of an equilibration window and the equilibrium time accumulated by then."""
+  if take<2:return False
+  J,_,rates,cooling,lat=plan
+  self._jump_apply(J,take,rates,cooling,lat)
+  self.equilibrium_ns=eq_ns;self.elapsed=(self.time_ns-self.operation_start_ns)/1e9
+  return True
  def step(self,dt_s):
   validate(number('s',0,3600),dt_s);delta=round(dt_s*1e9)
   if dt_s>0 and delta==0:raise ActionRejected('TIME_RESOLUTION')
@@ -494,7 +603,10 @@ class NetzschLfa467Runtime:
   end=self.time_ns+delta
   if self.plant is None:self.time_ns=end;self.revision+=int(delta>0);return
   while self.time_ns<end:
-   self._transitions();power=self._control();ns=min(end-self.time_ns,self._control_until_ns-self.time_ns)
+   self._transitions()
+   if self._hold_jump(end) or self._equil_jump(end):continue
+   power=self._control();ns=min(end-self.time_ns,self._control_until_ns-self.time_ns)
+   if self.phase!='running' and not self.thermal_enabled:ns=end-self.time_ns   # 1.1.1: no control action (power 0 for the whole call): one exact interval
    if self.phase=='running':
     ns=min(ns,max(1,self.operation_start_ns+round(self.method['timeout_s']*1e9)-self.time_ns))
     if self.stage=='equilibrating' and self._equilibrated():ns=min(ns,max(1,round(self.method['equilibrium_dwell_s']*1e9)-self.equilibrium_ns))
@@ -537,7 +649,7 @@ class NetzschLfa467Session:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  meta=export_netzsch_lfa467_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  meta=export_netzsch_lfa467_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;values=h.read(self._role);ids=list(values) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -618,7 +730,7 @@ def export_netzsch_lfa467_contract_metadata():
  'kappa=alpha*rho*Cp. Slab finite volumes C=rho*Cp*A*dx and intercell G=kappa*A/dx; furnace finite Cf. Half-cell Robin face G=h*A/(1+h*dx/(2*kappa)); rear surface=(Tlast+h*dx/(2*kappa)*Tf)/(1+h*dx/(2*kappa)).',
  'Front absorbed power enters first cell by fraction1/(1+hfront*dx/(2*kappa)), remainder enters furnace via face Robin path; surface direct temperature includes Pabs/(2*kappa*A/dx+hfront*A). Uniform absorption is assumed over disk front face.',
  'Capacity-scaled symmetric thermal graph is diagonalized; exact constant-power propagator gives temperatures, stored energy, heat-loss integral and internally timed rear observations. Every ungrounded connected component has an explicit sqrt(C)-weighted null mode, preserving uniform equilibrium even for thin/high-alpha stiff limits.',
- 'Controller predicts next fixed10ms-grid furnace state and uses bounded P=K*(target_end-Tfree_end)/(1+K*dTf_end/dP). None cooler has no negative heater; passive/forced heat goes to ambient. LN2 cooling consumes exactly removedQ/(latent*efficiency), in an independent furnace tank.',
+ 'Controller predicts next fixed10ms-grid furnace state and uses bounded P=(G_amb*(target_end-Tamb)+K*(target_end-Tfree_end))/(1+K*dTf_end/dP) (1.1.2: feed-forward of the steady ambient loss, so a held set point has no proportional droop). None cooler has no negative heater; passive/forced heat goes to ambient. LN2 cooling consumes exactly removedQ/(latent*efficiency), in an independent furnace tank.',
  'Optical budget<=10J: loaded=remaining+emitted+recovered; emitted=absorbed+reflected. Finite10..1500us rectangular pulse is1us-grid input; partial cancellation keeps consumed energy. Sample mass is unchanged by ideal heat diffusion; removal exports remaining sensible energy.',
  'IR first-order detector dy/dt=(gain*rear_delta+offset-y)/tau is propagated by exact modal convolution, then delta-temperature calibration ycorrected=Tamb+(ydelta-zero)*gain, quantization and range checked. Thermal and pulse observations have explicit internal timestamps up to2MHz; acquisition is not an instantaneous0.1s-host sample.',
  'Three finite gas branches consume Qref*Pref/(R*Tref)*dt and exhaust accounting. Two independent detector/furnace LN2 inventories use explicit latent and efficiency. Residual sub-nanosecond resource quantities are exhausted at the event-clock resolution and recorded, not replenished.',

@@ -177,4 +177,19 @@ class VsmTests(unittest.TestCase):
             sample=dict(m.SAMPLE_EXAMPLE,reference_id=record['id'],magnetic_model='linear_susceptibility',initial_temperature_k=299.);r=self.make(sample=sample,plant=dict(m.PLANT_EXAMPLE,ambient_k=299.),lower=False);expected=sample['mass_kg']/record['molar_mass_kg_mol']*record['molar_susceptibility_m3_mol']*.01/m.MU0;self.assertAlmostEqual(r._moment(.01),expected,14);count+=1
         self.assertGreaterEqual(count,50)
 
+class FixRoundB(unittest.TestCase):
+    make,call,session=VsmTests.make,VsmTests.call,VsmTests.session
+    def test_calibration_refusals_name_the_cause(self):
+        """calibration.start with the vibration off kept NOT_CONFIGURED without a reason; power off is now the
+        declared POWER_OFF and every refusal names its cause; the state is unchanged."""
+        r=self.make(standard=True,lower=False);ag=self.session(r,'operator','agent');args=dict(reference_moment_a_m2=.00347,field_t=.5,averaging_time_s=1.)
+        def refused(code):
+            before=json.dumps(r.read('evaluator'),sort_keys=True);e=self.call(ag,'calibration.start',args,rid='ta8_%d'%r.revision)['error']
+            self.assertEqual(e['code'],code,e);self.assertEqual(before,json.dumps(r.read('evaluator'),sort_keys=True));return e['message']
+        r.invoke('power.set',enabled=False);self.assertEqual(refused('POWER_OFF'),'the instrument is switched off')
+        r.invoke('power.set',enabled=True);r.invoke('sample.set_lift',lift_m=0.);r.step(3.5)
+        self.assertIn('vibration is off',refused('NOT_CONFIGURED'))
+        r.invoke('vibration.configure',**m.VIBRATION_EXAMPLE);self.assertEqual(self.call(ag,'calibration.start',args,rid='ta8_ok')['status'],'accepted')
+        self.assertEqual(m.ASSET_VERSION,'1.0.1')
+
 if __name__=='__main__':unittest.main()

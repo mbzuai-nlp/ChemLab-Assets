@@ -189,6 +189,23 @@ class SolventLibraryTests(unittest.TestCase):
         with self.assertRaisesRegex(ActionRejected,'REFERENCE_INCOMPLETE'):g.invoke('ink.configure_from_reference',**dict(INK_REF_EXAMPLE,solvent_id='menthol'))
         r=g.session().invoke(instance_id=g.instance_id,capability_id='ink.configure_from_reference',arguments=INK_REF_EXAMPLE,request_id='a');self.assertEqual(r['error']['code'],'ACCESS_DENIED')
 
+
+class FixRoundB(unittest.TestCase):
+    """chemlab finding (2026-10-22): older finished operations stay pollable (poll used to accept only the latest operation)."""
+    def test_older_operation_stays_pollable(self):
+        import sys as _sys
+        h=configured();s=h.session();h.register_principal('fixb_other');other=h.session('fixb_other')
+        Rejected=_sys.modules[type(h).__module__].ActionRejected
+        start=lambda rid: s.invoke(instance_id=h.instance_id,capability_id='acquisition.start',arguments={},request_id=rid)['operation_id']   # noqa: E731
+        op1=start('fixb_1');s.cancel(op1,'fixb_c1');h.step(5)
+        final=s.poll(op1);self.assertEqual(final['status'],'cancelled')
+        op2=start('fixb_2');self.assertNotEqual(op1,op2);h.step(0.5)
+        self.assertEqual(s.poll(op1),final)                                   # the frozen final record of op1
+        self.assertEqual(s.cancel(op1,'fixb_c2'),final)                        # nothing to cancel: op2 keeps running
+        self.assertEqual(s.poll(op2)['status'],'running')
+        with self.assertRaises(Rejected):other.poll(op1)
+        with self.assertRaises(Rejected):s.poll(h.instance_id+':no_such_operation')
+
 if __name__=='__main__':unittest.main()
 
 

@@ -82,4 +82,16 @@ class Tests(unittest.TestCase):
   r=prepared();self.assertEqual(len(r.templates),50)
  def test_zero_oh(self):
   r=prepared(plant=dict(oh_concentration_mol_m3=0));r.invoke('acquisition.start');r.step(120);self.assertEqual(r.parent[5],1e-7)
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): the whole-degree / whole-minute grids the runtime enforces are in the schemas now."""
+ def test_grids_in_schemas_match_the_runtime(self):
+  sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'skills/chemistry-lab-assets/scripts'));from asset_tool import validate_value
+  caps=export_metrohm_909uv_contract_metadata()['capabilities'];sch=caps['method.configure']['input_schema']
+  self.assertEqual(sch['properties']['duration_s']['multipleOf'],60);self.assertIn('whole degrees',sch['properties']['temperature_K']['description'])
+  self.assertIn('whole degrees',caps['thermal.set_temperature']['input_schema']['properties']['temperature_K']['description'])
+  self.assertTrue(validate_value(dict(METHOD_EXAMPLE,duration_s=90.),sch));self.assertEqual(validate_value(dict(METHOD_EXAMPLE,duration_s=120.),sch),[])
+  r=Metrohm909uvRuntime();r.invoke('plant.configure',**PLANT_EXAMPLE)
+  for bad in (dict(METHOD_EXAMPLE,duration_s=90.),dict(METHOD_EXAMPLE,temperature_K=363.65)):
+   with self.assertRaises(ActionRejected):r.invoke('method.configure',**bad)
+  r.invoke('method.configure',**dict(METHOD_EXAMPLE,duration_s=120.,temperature_K=364.15))
 if __name__=='__main__':unittest.main()

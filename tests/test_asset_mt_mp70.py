@@ -77,4 +77,19 @@ class TestMP70(unittest.TestCase):
         for cap in ['power.set','thermal.set_temperature','method.configure','method.select','sample.configure','melting.measure','melting.curve','sample.unload']:
             r=h.invoke(cap,**CAPS[cap][6]); self.assertEqual(asset_tool.validate_value(r,CAPS[cap][1]),[],cap)
         configure(h); r=h.invoke('acquisition.start'); self.assertEqual(asset_tool.validate_value(r,CAPS['acquisition.start'][1]),[]); r=h.invoke('acquisition.stop'); self.assertEqual(asset_tool.validate_value(r,CAPS['acquisition.stop'][1]),[])
+class FixRoundB(unittest.TestCase):
+    def test_refusals_name_the_cause(self):
+        """PRECONDITION_FAILED keeps its code (no finer code is declared); the message names the cause."""
+        h=MtMp70Runtime(); h.register_principal('evaluator',visibility='evaluator'); ag,ev=h.session(),h.session('evaluator'); n=[0]
+        def why(cap='acquisition.start',sess=None,**args):
+            n[0]+=1; r=(sess or ag).invoke(instance_id=h.instance_id,capability_id=cap,arguments=args,request_id='pm5_%d'%n[0])
+            self.assertEqual(r['error']['code'],'PRECONDITION_FAILED',r); return r['error']['message']
+        self.assertIn('switched off',why()); h.invoke('power.set',enabled=True)
+        self.assertIn('no method is selected',why()); self.assertIn("no stored method 'x'",why('method.select',method_id='x'))
+        h.invoke('method.configure',method_id='m',start_k=400.,end_k=430.,ramp_k_s=1/60,criterion='transmission'); h.invoke('method.select',method_id='m')   # benzoic acid melts near 395 K
+        self.assertIn('no capillary',why())
+        configure(h,0,'benzoic_acid'); self.assertIn('not at least 1 K below',why())
+        self.assertIn('channel 0 is occupied',why('sample.configure',sess=ev,**dict(CAPS['sample.configure'][6],channel=0)))
+        self.assertIn('channel 1 is empty',why('sample.unload',sess=ev,channel=1))
+        self.assertEqual(h.describe()['asset_version'],'1.2.2')
 if __name__=='__main__': unittest.main()

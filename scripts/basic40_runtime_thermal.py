@@ -5501,7 +5501,7 @@ def export_miele_plw6111_metadata(panel=True):
         if name == 'thermal.set_temperature':
             pre.append({'description_zh': '目标不低于宿主环境，若水模型已配置则不得超过其明确液态适用上限；273.15..373.15K仅模拟输入域', 'state_ids': ['water.model_configured'], 'enforced_by': 'adapter', 'check': 'ambient_K <= temperature_K <= configured maximum if configured'})
         if name in ('door.open', 'door.close', 'basket.set_position'):
-            pre.append({'description_zh': '程序停止且已注册同步场景适配器', 'state_ids': ['program.running'], 'enforced_by': 'adapter', 'check': 'not program.running and scene_adapter is not None'})
+            pre.append({'description_zh': '程序停止（program.running为false）且程序状态不是running/interrupted/malfunction/power_fail（中断、故障或断电时门与篮架被锁，返回BUSY），并已注册同步场景适配器', 'state_ids': ['program.running', 'programme.status'], 'enforced_by': 'adapter', 'check': "not program.running and programme.status not in ('running', 'interrupted', 'malfunction', 'power_fail') and scene_adapter is not None"})   # 1.3.1 (2026-10-22): text follows the runtime
         if name == 'door.close':
             pre.append({'description_zh': '三层篮架均归位', 'state_ids': ['basket.' + s + '.extension_m' for s in MIELE_PLW6111_BASKETS], 'enforced_by': 'adapter', 'check': 'all extensions == 0'})
         if name == 'basket.set_position':
@@ -5772,7 +5772,7 @@ def _miele_extend_metadata(meta, panel):
         effects = list({e['state_id']: dict(e, description_zh='面板动作调用的能力的效果：' + e['description_zh']) for c in called for e in caps[c]['state_effects']
                         if e['timing'] == 'immediate'}.values())
         panel_caps = _g02_panel_capabilities(p, "basic40_runtime_thermal.MielePLW6111Session.invoke(instance_id=..., capability_id='{}', arguments=..., request_id=...)", effects)
-    spec.update(controller_capabilities=controller, evaluator_capabilities=evaluator, panel_capabilities=panel_caps, asset_version='1.3.0')   # 1.2.0: fault.inject / clear; 1.3.0: control-strip 3D parts (TFT, touch keys, power rocker)
+    spec.update(controller_capabilities=controller, evaluator_capabilities=evaluator, panel_capabilities=panel_caps, asset_version='1.3.1')   # 1.2.0: fault.inject / clear; 1.3.0: control-strip 3D parts (TFT, touch keys, power rocker); 1.3.1: door precondition text, BUSY declared (2026-10-22)
     meta['limitations'] = meta['limitations'] + [
         'MP.CON 3 functions behind the front panel: the 18 standard programmes of the programme overview (p.35-38) and 20 customer positions run block by block on the '
         'same single water node (heated blocks heat at 7500 W to the block temperature, then hold; unheated blocks only time; drying is timed, then 120 s cooling). '
@@ -6978,7 +6978,7 @@ def _mw_extend_metadata(meta, panel):
                         if e['timing'] == 'immediate'}.values())
         panel_caps = _g02_panel_capabilities(p, "basic40_runtime_thermal.Multiwave7101Session.invoke(instance_id=..., capability_id='{}', arguments=..., request_id=...)", effects)
     spec.update(controller_capabilities=controller, evaluator_capabilities=evaluator, panel_capabilities=panel_caps,
-                asset_version='1.3.0')   # 1.3.0: users and roles, fan, pressure, error codes (2026-10-19)
+                asset_version='1.3.1')   # 1.3.0: users and roles, fan, pressure, error codes (2026-10-19); 1.3.1: digestion.evaluate judges the run's set point (2026-10-22)
     meta['limitations'] = meta['limitations'] + [
         'Touchscreen software behind the front panel (approximate: no Multiwave 7101 manual saved; the Multiwave 5000 reference guide of the same software family): '
         'method library with the EPA programs of the digestion template library as pre-installed methods, user methods with up to 10 steps, temperature programs '
@@ -8550,6 +8550,7 @@ def export_radleys_mya4_metadata(panel=True):
         if name in ('thermal.set_enabled','thermal.start_program'): prerequisites += ['启用需宿主确认冷源可用、2..5L/min且5..35°C；低于环境的目标另受冷源最低可达温度限制。']
         if name in ('thermal.set_temperature','thermal.set_probe_mode','thermal.configure_program'): prerequisites += ['本区温程未运行；目标须符合当前探头模式及全部区目标跨度<=200K。']
         if name == 'vessel.configure': prerequisites += ['本区温控、搅拌、程序均停止；块温和液温在环境温度±1e-9K内。']
+        if name in ('thermal.set_temperature','thermal.set_probe_mode','thermal.configure_program','thermal.set_enabled','thermal.start_program'): prerequisites += ['目标（及温程各段）须在本区Control Pad安全限值内：块模式Min/Max Tb，液模式Min/Max Tr（说明书p.101：设了安全限值后不能输入限值外的值；出厂限值即全范围）。']
         effects = [{'state_id': sid, 'timing': 'immediate', 'description_zh': '仅所选区发生所声明配置/控制变化；power.set可涉及四区。'} for sid in changed[name]]
         if True:
             effects += [{'state_id': z+'.'+f, 'timing': 'on_step', 'description_zh': '宿主积分推进块/液温、理想显示、热量账目、转子和温程；跨区导热允许未启用邻区缓慢改变温度。'} for z in MYA4_ZONES for f in ('thermal.temperature_k','thermal.liquid_temperature_k','thermal.indicated_temperature_k','thermal.indicated_liquid_temperature_k','thermal.control_energy_j','thermal.environment_energy_j','thermal.adjacent_energy_j','stirring.angle_rad')]
@@ -8760,7 +8761,7 @@ def _mya4_extend_metadata(meta, panel):
                                     'read_binding': "RadleysMya4Session.read(instance_id=..., state_ids=['%s'])" % sid, 'meaning_zh': meaning}
     examples = {'pad.new_experiment': {'zone_index': 0, 'name': 'Experiment 5'}, 'pad.open_experiment': {'zone_index': 0, 'source': 'Experiment 1', 'name': 'Experiment 6'},
                 'pad.save_experiment': {'zone_index': 0}, 'pad.save_experiment_as': {'zone_index': 0, 'name': 'Experiment 7'}, 'pad.set_mode': {'zone_index': 0, 'mode': 'profile'},
-                'pad.set_option': {'zone_index': 0, 'option': 'B'}, 'pad.set_limits': {'zone_index': 0, 'max_tb_C': 120}, 'pad.set_manual': {'zone_index': 0, 'setpoint_C': 60},
+                'pad.set_option': {'zone_index': 0, 'option': 'B'}, 'pad.set_limits': {'zone_index': 0, 'max_tb_C': 120, 'max_tr_C': 115}, 'pad.set_manual': {'zone_index': 0, 'setpoint_C': 60},
                 'pad.set_temperature_control': {'zone_index': 0, 'on': True}, 'pad.set_stirrer_control': {'zone_index': 0, 'on': True},
                 'pad.set_step': {'zone_index': 0, 'index': 0, 'duration_min': 30, 'speed_rpm': 250, 'from_C': 20, 'to_C': 50, 'control': 'tb', 'end': 'time'},
                 'pad.add_step': {'zone_index': 0, 'index': 0}, 'pad.delete_step': {'zone_index': 0, 'index': 1}, 'pad.profile_start': {'zone_index': 0},
@@ -8803,7 +8804,7 @@ def _mya4_extend_metadata(meta, panel):
         eff = list({e['state_id']: dict(e, description_zh='面板动作调用的能力的效果：' + e['description_zh']) for c in called for e in caps[c]['state_effects']
                     if e['timing'] == 'immediate'}.values())
         panel_caps = _g02_panel_capabilities(p, "basic40_runtime_thermal.RadleysMya4Session.invoke(instance_id=..., capability_id='{}', arguments=..., request_id=...)", eff)
-    spec.update(controller_capabilities=controller, evaluator_capabilities=evaluator, panel_capabilities=panel_caps, asset_version='1.2.1')   # 1.2.1: sync fixes 2026-10-19 (PID logging, caller)
+    spec.update(controller_capabilities=controller, evaluator_capabilities=evaluator, panel_capabilities=panel_caps, asset_version='1.2.3')   # 1.2.1: sync fixes 2026-10-19 (PID logging, caller); 1.2.2: pad.set_limits example (2026-10-22); 1.2.3: pad safety limits bound the direct set points (2026-10-22)
     meta['limitations'] = meta['limitations'] + [
         'Control Pad software behind the front panel: experiments with names, Manual and Profile runs (linear From -> To steps over 1-960 min, Time / Value end '
         'conditions, Pause / Skip / Stop, up to 10 steps), zone safety limits with the T3 / T4 / T5 / T6 / T9 trips (2 degC tolerance), coolant loss T1, the 7-day '
@@ -9195,6 +9196,13 @@ class RadleysMya4Runtime(_Mya4Pad):
                         if s[z+'.program.running']: s[z+'.program.running'],s[z+'.program.phase']=False,'interrupted_cooling'
                 if s!=before: inst['revision']+=1
             self._publish_scene()
+    def _zone_limits(self,s,z,mode):
+        """(min, max) degC of the zone's Control Pad safety limits for the probe mode (block: Min/Max Tb, liquid: Min/Max Tr), OM p.101."""
+        lim=(s.get(z+'.pad.experiment') or {}).get('limits') or _PAD_LIMITS_DEFAULT
+        return (lim['min_tb_C'],lim['max_tb_C']) if mode=='block' else (lim['min_tr_C'],lim['max_tr_C'])
+    def _zone_limits_ok(self,s,z,target,mode):
+        lo,hi=self._zone_limits(s,z,mode)
+        return lo-1e-9<=target-273.15<=hi+1e-9
     def _target_valid(self,s,z,target,mode):
         low,high=(243.15,453.15) if mode=='block' else (253.15,448.15)      # Tr up to 175 C (OM p.105, p.161)
         if not low<=target<=high: return False
@@ -9324,10 +9332,10 @@ class RadleysMya4Session:
         inst=self._instance(sid)
         return {'protocol_version':PROTOCOL_VERSION,'instance_id':sid if isinstance(sid,str) else None,'request_id':request_id if isinstance(request_id,str) else None,'operation_id':None,'status':status,
             'state_revision':inst['revision'] if inst else None,'clock':{'domain':'simulation','time_s':self.__host.time_s},'result':copy.deepcopy(result or {}),'observations':copy.deepcopy(observations or {}),'error':error}
-    def _error(self,sid,code,request_id=None,status='rejected'):
+    def _error(self,sid,code,request_id=None,status='rejected',message=None):
         messages={'UNKNOWN_INSTANCE':'Instance unavailable.','UNKNOWN_CAPABILITY':'Capability unavailable.','INVALID_ARGUMENT':'Arguments violate schema or bounds.','ACCESS_DENIED':'Request outside session policy.',
             'PRECONDITION_FAILED':'Required configuration or operating state unavailable.','BUSY':'Zone program is running.','REQUEST_CONFLICT':'Request ID already belongs to different arguments.','UNSUPPORTED':'Execution unavailable in this adapter.','DEVICE_ERROR':'Scene callback did not complete command.'}
-        return self._envelope(sid,request_id,status=status,error={'code':code,'message':messages[code],'retryable':False,'side_effects':'unknown' if code=='DEVICE_ERROR' else 'none','progress':None})
+        return self._envelope(sid,request_id,status=status,error={'code':code,'message':message or messages[code],'retryable':False,'side_effects':'unknown' if code=='DEVICE_ERROR' else 'none','progress':None})
     def describe(self,*,asset_type_id=None,instance_id=None):
         host=self.__host
         with host._lock:
@@ -9414,6 +9422,18 @@ class RadleysMya4Session:
         if cap=='thermal.set_temperature' and not host._target_valid(old,z,args['temperature_K'],old[z+'.thermal.probe_mode']):return fail('PRECONDITION_FAILED')
         if cap=='thermal.set_probe_mode' and not host._target_valid(old,z,old[z+'.thermal.target_k'],args['mode']):return fail('PRECONDITION_FAILED')
         if cap=='thermal.configure_program' and any(not host._target_valid(old,z,seg['temperature_K'],old[z+'.thermal.probe_mode']) for seg in args['segments']):return fail('PRECONDITION_FAILED')
+        # 1.2.3 (2026-10-22): the zone's Control Pad safety limits (Min/Max Tb in block mode, Min/Max Tr in liquid mode) bound the direct set points
+        # too (OM p.101: once safety limits are set for a zone, values outside them cannot be entered); default limits = the full range
+        lim_t={'thermal.set_temperature':[args.get('temperature_K')],'thermal.configure_program':[seg['temperature_K'] for seg in args.get('segments') or []],
+               'thermal.set_probe_mode':[old[z+'.thermal.target_k']] if z else []}.get(cap)
+        if cap in ('thermal.start_program','thermal.set_enabled') and (cap=='thermal.start_program' or args.get('enabled')):
+            lim_t=[old[z+'.thermal.target_k']]+([seg['temperature_K'] for seg in old[z+'.program.segments']] if cap=='thermal.start_program' else [])
+        if lim_t:
+            mode=args['mode'] if cap=='thermal.set_probe_mode' else old[z+'.thermal.probe_mode']
+            bad=[t for t in lim_t if not host._zone_limits_ok(old,z,t,mode)]
+            if bad:
+                lo,hi=host._zone_limits(old,z,mode)
+                return self._error(sid,'PRECONDITION_FAILED',request_id,message='%.2f K is outside the safety limits of this zone (%s %g..%g degC, set on the Control Pad).'%(bad[0],'Tb' if mode=='block' else 'Tr',lo,hi))
         if cap in ('thermal.start_program','thermal.set_enabled') and (cap=='thermal.start_program' or args['enabled']):
             if not old['cooling.available'] or not host._target_valid(old,z,old[z+'.thermal.target_k'],old[z+'.thermal.probe_mode']):return fail('PRECONDITION_FAILED')
         if cap=='thermal.start_program':

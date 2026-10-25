@@ -123,4 +123,16 @@ class AntonpaarDma5002Tests(unittest.TestCase):
         for cap,args in cases:
             result=self.h.invoke(cap,**args); self.assertEqual(validate_value(result,meta['capabilities'][cap]['output_schema']),[])
         for key,value in self.h.read('evaluator').items(): self.assertEqual(validate_value(value,meta['state_slots'][key]['value_schema']),[])
+    def test_fix_round_b_refusals_name_the_cause(self):
+        """PRECONDITION_FAILED keeps its code (no finer code is declared); the message names the cause."""
+        n=[0]
+        def why(cap='acquisition.start',**args):
+            n[0]+=1; r=self.agent.invoke(instance_id=self.h.instance_id,capability_id=cap,arguments=args,request_id='pm5_%d'%n[0])
+            self.assertEqual(r['error']['code'],'PRECONDITION_FAILED',r); return r['error']['message']
+        self.assertIn('switched off',why()); self.assertIn('switched off',why('cleaning.start',volume_m3=1e-5))
+        self.h.invoke('power.set',enabled=True)
+        self.assertIn('not filled',why()); self.assertIn('no measurement result',why('calibration.check',reference_density_kg_m3=789.3,reference_temperature_k=293.15))
+        self.ready(); self.h.invoke('thermal.set_temperature',temperature_k=303.15)
+        self.assertIn('has not reached the set point',why())
+        self.assertEqual(rt.ASSET_VERSION,'1.2.1')
 if __name__=='__main__': unittest.main()

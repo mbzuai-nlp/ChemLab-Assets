@@ -8,8 +8,12 @@ import copy, importlib.util, json, math
 from pathlib import Path
 import numpy as np
 from asset_runtime.mt_hx204 import ActionRejected, number, obj, BOOL, TEXT
+
+
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.0.1: a refusal whose message names the cause
 from asset_runtime.pccell_ed64002 import validate
-ROOT=Path(__file__).resolve().parents[2]; SLUG='pilodist_pilodist104'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-037'; PROTOCOL_VERSION='1.0.0'
+ROOT=Path(__file__).resolve().parents[2]; SLUG='pilodist_pilodist104'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-037'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.0.1'
 TEMPLATE_REL='assets/reactions/pilodist_pilodist104_vle_library/templates.json'
 PHASE=dict(type='string',enum=['idle','running','succeeded','cancelled','failed'])
 def integer(lo,hi):return dict(type='integer',minimum=lo,maximum=hi,**{'x-unit':'1'})
@@ -125,7 +129,8 @@ class PilodistPilodist104Runtime:
    if not self.method:raise ActionRejected('PRECONDITION_FAILED')
    self.method.update(reflux_ratio=a['ratio'],total_reflux=a['total_reflux']);out=a
   elif capability=='fraction.select':
-   if not self.sample or float(self.fractions[a['index']]@self.vm)>=self.method['cut_volume_m3']-1e-12:raise ActionRejected('RECEIVER_FULL')
+   if not self.sample:raise _rejected('PRECONDITION_FAILED','no charge is in the boiler yet (sample.configure)')   # 1.0.1: was RECEIVER_FULL
+   if float(self.fractions[a['index']]@self.vm)>=self.method['cut_volume_m3']-1e-12:raise _rejected('RECEIVER_FULL','receiver %d already holds the cut volume'%a['index'])
    self.receiver=a['index'];out=a
   elif capability=='acquisition.start':
    if not self.powered or not self.sample or self.lift<.15-1e-9 or not self.engaged or self.phase not in ['idle','cancelled']:raise ActionRejected('PRECONDITION_FAILED')
@@ -193,7 +198,7 @@ class PilodistPilodist104Session:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_pilodist_pilodist104_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -210,7 +215,7 @@ class PilodistPilodist104Session:
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,
                 status='rejected',state_revision=self._host.revision,clock={'domain':'simulation','time_s':self._host.time_s},
-                result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+                result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host

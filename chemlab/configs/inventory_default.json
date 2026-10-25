@@ -1,0 +1,7602 @@
+{
+ "about": "The default lab's physical inventory (chemlab/inventory.py): one record per container at a storage place and position, with contents, storage class and source. Matterix can spawn the same containers; chemlab shows them (chemlab list --inventory [ID]). Moving a container is a host or robot action.",
+ "storage_classes": [
+  "flammable",
+  "acid",
+  "base",
+  "oxidizer",
+  "toxic",
+  "cold",
+  "compressed_gas",
+  "general"
+ ],
+ "places": [
+  {
+   "id": "bench_shelf",
+   "access": "top_down",
+   "type": "stepped two-tier shelf on the robot bench (T1 front/low, T2 rear/high), all positions within the fixed arm's reach: the containers the robot handles (common solvents, pH buffers, the smoke workflows' standards)",
+   "storage_class": "general",
+   "positions": [
+    "T1-01",
+    "T1-02",
+    "T1-03",
+    "T1-04",
+    "T1-05",
+    "T2-01",
+    "T2-02",
+    "T2-03",
+    "T2-04",
+    "T2-05"
+   ],
+   "furniture": "furniture.trippnt_step_shelf_2tier",
+   "reach": "franka_bench",
+   "slots": 10
+  },
+  {
+   "id": "reagent_shelf_a",
+   "type": "open room reagent rack, 4 shelves x 8 positions (out of the fixed arm's reach)",
+   "storage_class": "general",
+   "positions": [
+    "S1-01",
+    "S1-02",
+    "S1-03",
+    "S1-04",
+    "S1-05",
+    "S1-06",
+    "S1-07",
+    "S1-08",
+    "S2-01",
+    "S2-02",
+    "S2-03",
+    "S2-04",
+    "S2-05",
+    "S2-06",
+    "S2-07",
+    "S2-08",
+    "S3-01",
+    "S3-02",
+    "S3-03",
+    "S3-04",
+    "S3-05",
+    "S3-06",
+    "S3-07",
+    "S3-08",
+    "S4-01",
+    "S4-02",
+    "S4-03",
+    "S4-04",
+    "S4-05",
+    "S4-06",
+    "S4-07",
+    "S4-08"
+   ],
+   "furniture": "furniture.metro_super_erecta_1848_4shelf",
+   "reach": "room",
+   "slots": 32
+  },
+  {
+   "id": "standards_cabinet",
+   "type": "closed cabinet for check standards and certified reference materials, 3 shelves x 8",
+   "storage_class": "general",
+   "positions": [
+    "S1-01",
+    "S1-02",
+    "S1-03",
+    "S1-04",
+    "S1-05",
+    "S1-06",
+    "S1-07",
+    "S1-08",
+    "S2-01",
+    "S2-02",
+    "S2-03",
+    "S2-04",
+    "S2-05",
+    "S2-06",
+    "S2-07",
+    "S2-08",
+    "S3-01",
+    "S3-02",
+    "S3-03",
+    "S3-04",
+    "S3-05",
+    "S3-06",
+    "S3-07",
+    "S3-08"
+   ],
+   "furniture": "furniture.asecos_cs_195_105_standards",
+   "reach": "room",
+   "slots": 24
+  },
+  {
+   "id": "flammables_cabinet",
+   "type": "90 cm safety cabinet for flammable liquids (EN 14470-1 type 90), 3 shelves x 6",
+   "storage_class": "flammable",
+   "positions": [
+    "S1-01",
+    "S1-02",
+    "S1-03",
+    "S1-04",
+    "S1-05",
+    "S1-06",
+    "S2-01",
+    "S2-02",
+    "S2-03",
+    "S2-04",
+    "S2-05",
+    "S2-06",
+    "S3-01",
+    "S3-02",
+    "S3-03",
+    "S3-04",
+    "S3-05",
+    "S3-06"
+   ],
+   "furniture": "furniture.asecos_q90_195_120",
+   "reach": "room",
+   "slots": 18
+  },
+  {
+   "id": "acids_cabinet",
+   "type": "ventilated corrosives cabinet, acid compartment, 2 shelves x 6",
+   "storage_class": "acid",
+   "positions": [
+    "A:S1-01",
+    "A:S1-02",
+    "A:S1-03",
+    "A:S1-04",
+    "A:S1-05",
+    "A:S1-06",
+    "A:S2-01",
+    "A:S2-02",
+    "A:S2-03",
+    "A:S2-04",
+    "A:S2-05",
+    "A:S2-06"
+   ],
+   "furniture": "furniture.asecos_sl_196_120",
+   "reach": "room",
+   "slots": 12
+  },
+  {
+   "id": "bases_cabinet",
+   "type": "ventilated corrosives cabinet, base compartment, 2 shelves x 6",
+   "storage_class": "base",
+   "positions": [
+    "B:S1-01",
+    "B:S1-02",
+    "B:S1-03",
+    "B:S1-04",
+    "B:S1-05",
+    "B:S1-06",
+    "B:S2-01",
+    "B:S2-02",
+    "B:S2-03",
+    "B:S2-04",
+    "B:S2-05",
+    "B:S2-06"
+   ],
+   "furniture": "furniture.asecos_sl_196_120",
+   "reach": "room",
+   "slots": 12
+  },
+  {
+   "id": "toxics_cabinet",
+   "type": "ventilated, lockable cabinet for toxic substances, 2 shelves x 6",
+   "storage_class": "toxic",
+   "positions": [
+    "S1-01",
+    "S1-02",
+    "S1-03",
+    "S1-04",
+    "S1-05",
+    "S1-06",
+    "S2-01",
+    "S2-02",
+    "S2-03",
+    "S2-04",
+    "S2-05",
+    "S2-06"
+   ],
+   "furniture": "furniture.asecos_cs_195_105",
+   "reach": "room",
+   "slots": 12
+  },
+  {
+   "id": "oxidizers_cabinet",
+   "type": "cabinet for oxidizers, 1 shelf x 6",
+   "storage_class": "oxidizer",
+   "positions": [
+    "S1-01",
+    "S1-02",
+    "S1-03",
+    "S1-04",
+    "S1-05",
+    "S1-06"
+   ],
+   "furniture": "furniture.asecos_cs_195_105_oxidizers",
+   "reach": "room",
+   "slots": 6
+  },
+  {
+   "id": "fridge_4c",
+   "type": "lab refrigerator 2-8 °C, 4 shelves x 8",
+   "storage_class": "cold",
+   "positions": [
+    "S1-01",
+    "S1-02",
+    "S1-03",
+    "S1-04",
+    "S1-05",
+    "S1-06",
+    "S1-07",
+    "S1-08",
+    "S2-01",
+    "S2-02",
+    "S2-03",
+    "S2-04",
+    "S2-05",
+    "S2-06",
+    "S2-07",
+    "S2-08",
+    "S3-01",
+    "S3-02",
+    "S3-03",
+    "S3-04",
+    "S3-05",
+    "S3-06",
+    "S3-07",
+    "S3-08",
+    "S4-01",
+    "S4-02",
+    "S4-03",
+    "S4-04",
+    "S4-05",
+    "S4-06",
+    "S4-07",
+    "S4-08"
+   ],
+   "furniture": "furniture.liebherr_lkv3910",
+   "reach": "room",
+   "slots": 32
+  },
+  {
+   "id": "freezer_m20c",
+   "type": "lab freezer -20 °C, 3 drawers x 8",
+   "storage_class": "cold",
+   "positions": [
+    "D1-01",
+    "D1-02",
+    "D1-03",
+    "D1-04",
+    "D1-05",
+    "D1-06",
+    "D1-07",
+    "D1-08",
+    "D2-01",
+    "D2-02",
+    "D2-03",
+    "D2-04",
+    "D2-05",
+    "D2-06",
+    "D2-07",
+    "D2-08",
+    "D3-01",
+    "D3-02",
+    "D3-03",
+    "D3-04",
+    "D3-05",
+    "D3-06",
+    "D3-07",
+    "D3-08"
+   ],
+   "furniture": "furniture.liebherr_lguex1500",
+   "reach": "room",
+   "slots": 24
+  },
+  {
+   "id": "desiccator",
+   "type": "benchtop desiccator cabinet with a hinged door on the robot bench, silica gel, 2 shelves x 6; side access only for the fixed arm (161 mm headroom, the door sweep blocks the route: measured in the Isaac Sim storage scene), so not for top-down robot picks",
+   "storage_class": "general",
+   "access": "side_only",
+   "positions": [
+    "S1-01",
+    "S1-02",
+    "S1-03",
+    "S1-04",
+    "S1-05",
+    "S1-06",
+    "S2-01",
+    "S2-02",
+    "S2-03",
+    "S2-04",
+    "S2-05",
+    "S2-06"
+   ],
+   "furniture": "furniture.belart_secador_2_vertical",
+   "reach": "franka_bench",
+   "slots": 12
+  },
+  {
+   "id": "vial_rack_bench",
+   "type": "MACHEREY-NAGEL 702503 rack for 20 mL headspace vials (3 rows x 12) on the robot bench next to the bench shelf, >= 0.25 m free above the vial tops; the robot uses rows A and C only (fingers close along Y: a vial in row B would overlap them by 11 mm), so row B stays empty",
+   "storage_class": "general",
+   "access": "top_down",
+   "rack_type": "vial_rack_20ml",
+   "robot_forbidden_prefixes": [
+    "B"
+   ],
+   "positions": [
+    "A01",
+    "A02",
+    "A03",
+    "A04",
+    "A05",
+    "A06",
+    "A07",
+    "A08",
+    "A09",
+    "A10",
+    "A11",
+    "A12",
+    "B01",
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B06",
+    "B07",
+    "B08",
+    "B09",
+    "B10",
+    "B11",
+    "B12",
+    "C01",
+    "C02",
+    "C03",
+    "C04",
+    "C05",
+    "C06",
+    "C07",
+    "C08",
+    "C09",
+    "C10",
+    "C11",
+    "C12"
+   ],
+   "furniture": "labware.mn_702503_vial_rack_23mm",
+   "slots": 36
+  },
+  {
+   "id": "consumables_cabinet",
+   "type": "cabinet for labware consumables, 4 shelves x 8",
+   "storage_class": "general",
+   "positions": [
+    "S1-01",
+    "S1-02",
+    "S1-03",
+    "S1-04",
+    "S1-05",
+    "S1-06",
+    "S1-07",
+    "S1-08",
+    "S2-01",
+    "S2-02",
+    "S2-03",
+    "S2-04",
+    "S2-05",
+    "S2-06",
+    "S2-07",
+    "S2-08",
+    "S3-01",
+    "S3-02",
+    "S3-03",
+    "S3-04",
+    "S3-05",
+    "S3-06",
+    "S3-07",
+    "S3-08",
+    "S4-01",
+    "S4-02",
+    "S4-03",
+    "S4-04",
+    "S4-05",
+    "S4-06",
+    "S4-07",
+    "S4-08"
+   ],
+   "furniture": "furniture.asecos_cs_195_105_consumables",
+   "reach": "room",
+   "slots": 32
+  },
+  {
+   "id": "cylinder_rack",
+   "type": "wall rack for gas cylinders with chains, 8 slots (inert and oxidizing gases)",
+   "storage_class": "compressed_gas",
+   "positions": [
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8"
+   ],
+   "furniture": "furniture.denios_cylinder_stand_x4",
+   "reach": "room",
+   "slots": 8
+  },
+  {
+   "id": "gas_cabinet_flammable",
+   "type": "ventilated gas cabinet for flammable gases, 4 slots",
+   "storage_class": "compressed_gas",
+   "positions": [
+    "G1",
+    "G2",
+    "G3",
+    "G4"
+   ],
+   "furniture": "furniture.asecos_g90_205_140",
+   "reach": "room",
+   "slots": 4
+  },
+  {
+   "id": "instrument",
+   "type": "inside an instrument (position named per instrument)",
+   "storage_class": "general",
+   "positions": [],
+   "slots": 0
+  }
+ ],
+ "container_types": {
+  "labware.agilent_hs_vial_20ml": "",
+  "labware.agilent_vial_2ml_screw": "",
+  "labware.azenta_seal_roll_4ti0520": "",
+  "labware.biorad_hardshell_pcr_plate_96": "",
+  "labware.biorad_tgx_gel_4_20_10well": "",
+  "labware.brand_ps_macro_cuvette_759005": "",
+  "labware.corning_96_wellplate_360ul_flat": "",
+  "labware.cytiva_series_s_sensor_chip_cm5": "",
+  "labware.duran_gl45_1000ml_clear": "",
+  "labware.duran_gl45_100ml_amber": "",
+  "labware.duran_gl45_500ml_clear": "",
+  "labware.elementar_tin_capsule_11x8": "",
+  "labware.eppendorf_safelock_1p5ml": "",
+  "labware.falcon_352052_tube_12x75": "",
+  "labware.falcon_tube_15ml": "",
+  "labware.falcon_tube_50ml": "",
+  "labware.gas_cylinder_10l_200bar": "",
+  "labware.gas_cylinder_50l_200bar": "",
+  "labware.gelpak_ad1135_case": "",
+  "labware.hach_tl2300_sample_cell_25mm": "",
+  "labware.hellma_100_10_40_quartz_cuvette": "",
+  "labware.mt_quantos_head_container": "",
+  "labware.mt_quantos_qh016_bnmw": "",
+  "labware.nalgene_nm_hdpe_1000ml": "",
+  "labware.nalgene_nm_hdpe_500ml": "",
+  "labware.nalgene_wm_hdpe_500ml": "",
+  "labware.norell_nmr_tube_5mm_7in": "",
+  "labware.opentrons_flex_tiprack_1000ul": "",
+  "labware.opentrons_flex_tiprack_200ul": "",
+  "labware.rigaku_glass_holder_0p2mm": "",
+  "labware.sciex_universal_vial_2ml": "",
+  "labware.sigma_ir_polystyrene_card_z804290": "",
+  "labware.ta_tzero_pan_lid": "",
+  "labware.winchester_2500ml_amber": ""
+ },
+ "container_types_source": "assets/labware/catalog.json types (inventory_type_map); ids still provisional where the catalog has not built the item (type_status not_built)",
+ "new_substances": {},
+ "conventions": "containers: one record per container in storage (Matterix spawns these). contents: shared substance ids (assets/reactions/substances.json) with a physical amount (g, kg, mg, mL, L, uL, mol, mmol); a solution lists its solvent (a liquid, by volume or mass) and every solute with its mass (or amount in mol) and its concentration; a mixture substance (kind mixture in the table) describes itself. count = number of units in the container; per_unit = true: the contents amounts are those of one unit; units = [{name, count, contents}] for a pack of different units (e.g. a kit or a standards set). instrument_contents: what the default set-up put into each instrument (the instruments' own state, not spawned): a runtime material is named with defined_by (its composition is the instrument runtime's sample / template). cap: \"on\" | \"off\" - the closure of a container whose type has one (catalog closure: screw cap, hinged or lift-off lid); absent = \"on\" (closed); \"off\" = opened, the cap set aside (e.g. vials prepared open for a dosing run).",
+ "containers": [
+  {
+   "id": "water_ultrapure_1l",
+   "type": "labware.duran_gl45_1000ml_clear",
+   "contents": [
+    {
+     "substance": "water",
+     "amount": {
+      "value": 1.0,
+      "unit": "L"
+     },
+     "grade": "ASTM type I, 18.2 MOhm cm"
+    }
+   ],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T2-02"
+   },
+   "storage_class": "general",
+   "for": [],
+   "source": "typical: filled each morning from the lab water system (elga_purelab_flex3)",
+   "description": "borosilicate media bottle GL45, 1000 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_1000ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "ethanol_500ml",
+   "type": "labware.duran_gl45_500ml_clear",
+   "contents": [
+    {
+     "substance": "ethanol",
+     "amount": {
+      "value": 0.5,
+      "unit": "L"
+     },
+     "grade": ">= 99.8 %, absolute"
+    }
+   ],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T1-02"
+   },
+   "storage_class": "flammable",
+   "for": [],
+   "source": "typical: a 500 mL working bottle for rinsing and cleaning; the stock bottle stays in the flammables cabinet",
+   "description": "borosilicate media bottle GL45, 500 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_500ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "acetone_500ml",
+   "type": "labware.duran_gl45_500ml_clear",
+   "contents": [
+    {
+     "substance": "acetone",
+     "amount": {
+      "value": 0.5,
+      "unit": "L"
+     },
+     "grade": ">= 99.5 %"
+    }
+   ],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T1-03"
+   },
+   "storage_class": "flammable",
+   "for": [],
+   "source": "typical: a 500 mL wash bottle for rinsing glassware",
+   "description": "borosilicate media bottle GL45, 500 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_500ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "buffer_ph4_01",
+   "type": "labware.nalgene_nm_hdpe_500ml",
+   "contents": [
+    {
+     "substance": "potassium_hydrogen_phthalate",
+     "amount": {
+      "value": 5.106,
+      "unit": "g"
+     },
+     "grade": "primary standard buffer salt",
+     "certificate": {
+      "value": "pH 4.005 at 25 °C",
+      "standard": "DIN 19266 / NIST SRM 185 type (KHP 0.05 mol/kg)"
+     },
+     "concentration": {
+      "value": 0.05,
+      "unit": "mol/kg"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 0.5,
+      "unit": "L"
+     },
+     "grade": "solvent (about 0.5 kg)"
+    }
+   ],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T1-04"
+   },
+   "storage_class": "general",
+   "for": [
+    "metrohm_914",
+    "metrohm_omnis",
+    "antonpaar_surpass3"
+   ],
+   "source": "manual: 914_ph_do_conductometer_manual p.55, p.78 (buffer series for calibration); composition: DIN 19266 KHP standard, 0.05 mol/kg x 0.5 kg x 204.22 g/mol = 5.106 g",
+   "description": "HDPE bottle 500 mL, screw cap (buffers, standards)",
+   "provisional_type": "bottle_hdpe_500ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "buffer_ph6_86",
+   "type": "labware.nalgene_nm_hdpe_500ml",
+   "contents": [
+    {
+     "substance": "potassium_dihydrogen_phosphate",
+     "amount": {
+      "value": 1.701,
+      "unit": "g"
+     },
+     "grade": "0.025 mol/kg (phosphate pH 6.86 standard, with Na2HPO4)",
+     "certificate": {
+      "value": "pH 6.865 at 25 °C",
+      "standard": "DIN 19266 phosphate standard (KH2PO4 + Na2HPO4, each 0.025 mol/kg; NIST SRM 186 type)"
+     }
+    },
+    {
+     "substance": "disodium_hydrogen_phosphate",
+     "amount": {
+      "value": 1.774,
+      "unit": "g"
+     },
+     "grade": "0.025 mol/kg (phosphate pH 6.86 standard, with KH2PO4)"
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 0.5,
+      "unit": "L"
+     },
+     "grade": "solvent (about 0.5 kg)"
+    }
+   ],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T1-05"
+   },
+   "storage_class": "general",
+   "for": [
+    "metrohm_914",
+    "metrohm_omnis",
+    "antonpaar_surpass3"
+   ],
+   "source": "manual: 914_ph_do_conductometer_manual p.55, p.78; composition: DIN 19266 / NIST equimolal phosphate standard; the 914 class world uses the same buffer (template nist_srm_186g_phosphate_equimolal_buffer, pH 6.864)",
+   "description": "HDPE bottle 500 mL, screw cap (buffers, standards)",
+   "provisional_type": "bottle_hdpe_500ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "buffer_ph9_18",
+   "type": "labware.nalgene_nm_hdpe_500ml",
+   "contents": [
+    {
+     "substance": "sodium_tetraborate_decahydrate",
+     "amount": {
+      "value": 1.907,
+      "unit": "g"
+     },
+     "grade": "borax",
+     "certificate": {
+      "value": "pH 9.180 at 25 °C",
+      "standard": "DIN 19266 / NIST SRM 187 type (borax 0.01 mol/kg)"
+     },
+     "concentration": {
+      "value": 0.01,
+      "unit": "mol/kg"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 0.5,
+      "unit": "L"
+     },
+     "grade": "solvent (about 0.5 kg)"
+    }
+   ],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T2-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "metrohm_914",
+    "metrohm_omnis",
+    "antonpaar_surpass3"
+   ],
+   "source": "manual: 914_ph_do_conductometer_manual p.55, p.78; composition: 0.01 mol/kg x 0.5 kg x 381.37 g/mol = 1.907 g",
+   "keep_class": "a 0.01 mol/kg borax solution (about 0.4 %) is below the concentration limit at which borax is classified toxic for reproduction, so it is stored as a general reagent",
+   "description": "HDPE bottle 500 mL, screw cap (buffers, standards)",
+   "provisional_type": "bottle_hdpe_500ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "xrd_si_srm640_holder",
+   "type": "labware.rigaku_glass_holder_0p2mm",
+   "contents": [
+    {
+     "substance": "silicon",
+     "amount": {
+      "value": 0.5,
+      "unit": "g"
+     },
+     "grade": "NIST SRM 640 type line-position standard",
+     "certificate": {
+      "lattice_a_nm": 0.5431,
+      "note": "certified lattice parameter of the SRM 640 series"
+     }
+    }
+   ],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T1-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "rigaku_miniflex600_external_cooling"
+   ],
+   "source": "typical: a Si powder standard checks the 2-theta zero of a powder diffractometer (manual: miniflex brochure p.3 lists qualitative / quantitative use); load it with `chemlab run rigaku_miniflex600_external_cooling load xrd_si_srm640_holder`",
+   "sample_id": "si_srm640_holder",
+   "description": "XRD specimen holder (glass / zero-background), powder packed, in a closed box",
+   "provisional_type": "xrd_holder_zero_background",
+   "type_status": "substitute",
+   "type_note": "glass 0.2 mm well plate for the MiniFlex standard stage; a zero-background Si plate has the same role, its outer size is not published"
+  },
+  {
+   "id": "xrd_quartz_holder",
+   "type": "labware.rigaku_glass_holder_0p2mm",
+   "contents": [
+    {
+     "substance": "silica",
+     "amount": {
+      "value": 0.5,
+      "unit": "g"
+     },
+     "grade": "alpha-quartz powder, check sample"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S3-07"
+   },
+   "storage_class": "general",
+   "for": [
+    "rigaku_miniflex600_external_cooling"
+   ],
+   "source": "the structure class world's quartz specimen (sample id quartz_holder)",
+   "sample_id": "quartz_holder",
+   "description": "XRD specimen holder (glass / zero-background), powder packed, in a closed box",
+   "provisional_type": "xrd_holder_zero_background",
+   "type_status": "substitute",
+   "type_note": "glass 0.2 mm well plate for the MiniFlex standard stage; a zero-background Si plate has the same role, its outer size is not published"
+  },
+  {
+   "id": "ir_polystyrene_film",
+   "type": "labware.sigma_ir_polystyrene_card_z804290",
+   "contents": [
+    {
+     "substance": "polystyrene",
+     "amount": {
+      "value": 0.05,
+      "unit": "g"
+     },
+     "grade": "film about 38 um",
+     "certificate": {
+      "bands_cm-1": [
+       3060.0,
+       2849.5,
+       1601.2,
+       1028.3,
+       906.7
+      ],
+      "note": "wavenumber check bands of polystyrene film"
+     }
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S3-06"
+   },
+   "storage_class": "general",
+   "for": [
+    "jasco_ftir4700"
+   ],
+   "source": "manual: ftir4000_6000_series_brochure p.4 (standard sample: polystyrene film); registered with the FT/IR-4700 as sample ir_polystyrene_film (template: NIST WebBook spectrum + SRM 1921b certified bands)",
+   "sample_id": "ir_polystyrene_film",
+   "description": "IR standard film mounted in a card holder",
+   "provisional_type": "ir_film_card",
+   "type_status": "exact"
+  },
+  {
+   "id": "plate_96_flat_ready",
+   "type": "labware.corning_96_wellplate_360ul_flat",
+   "contents": [],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T2-05"
+   },
+   "storage_class": "general",
+   "for": [
+    "biotek_405ts",
+    "bmg_clariostarplus",
+    "opentrons_flex_single_5_1000ul"
+   ],
+   "source": "typical: one empty plate staged for the plate washer / reader / robot",
+   "on_carrier": "labware.sbs_plate_carrier",
+   "description": "96-well flat-bottom polystyrene plate (SBS footprint)",
+   "provisional_type": "plate_96_flat_ps",
+   "type_status": "exact"
+  },
+  {
+   "id": "xrd_calcite_holder",
+   "type": "labware.rigaku_glass_holder_0p2mm",
+   "contents": [
+    {
+     "substance": "calcium_carbonate",
+     "amount": {
+      "value": 0.5,
+      "unit": "g"
+     },
+     "grade": "calcite powder"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S1-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "rigaku_miniflex600_external_cooling"
+   ],
+   "source": "the structure class world's calcite specimen (sample id calcite_holder)",
+   "sample_id": "calcite_holder",
+   "description": "XRD specimen holder (glass / zero-background), powder packed, in a closed box",
+   "provisional_type": "xrd_holder_zero_background",
+   "type_status": "substitute",
+   "type_note": "glass 0.2 mm well plate for the MiniFlex standard stage; a zero-background Si plate has the same role, its outer size is not published"
+  },
+  {
+   "id": "xrd_corundum_srm676_holder",
+   "type": "labware.rigaku_glass_holder_0p2mm",
+   "contents": [
+    {
+     "substance": "aluminium_oxide",
+     "amount": {
+      "value": 0.5,
+      "unit": "g"
+     },
+     "grade": "corundum, SRM 676 type intensity standard"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S1-02"
+   },
+   "storage_class": "general",
+   "for": [
+    "rigaku_miniflex600_external_cooling"
+   ],
+   "source": "typical: corundum is the reference intensity (RIR) standard of powder XRD; phase \"corundum\" is in the MiniFlex phase list",
+   "sample_id": "corundum_srm676_holder",
+   "description": "XRD specimen holder (glass / zero-background), powder packed, in a closed box",
+   "provisional_type": "xrd_holder_zero_background",
+   "type_status": "substitute",
+   "type_note": "glass 0.2 mm well plate for the MiniFlex standard stage; a zero-background Si plate has the same role, its outer size is not published"
+  },
+  {
+   "id": "crm_si_powder_srm640",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "silicon",
+     "amount": {
+      "value": 7.5,
+      "unit": "g"
+     },
+     "grade": "SRM 640 type unit",
+     "certificate": {
+      "lattice_a_nm": 0.5431
+     }
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S1-03"
+   },
+   "storage_class": "general",
+   "for": [
+    "rigaku_miniflex600_external_cooling"
+   ],
+   "source": "typical: the unit bottle the holder above is packed from",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "aw_standard_0_760",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [
+    {
+     "substance": "sodium_chloride",
+     "amount": {
+      "value": 0.7013,
+      "unit": "g"
+     },
+     "grade": "NaCl",
+     "certificate": {
+      "aw_25C": 0.76,
+      "tolerance": 0.003
+     },
+     "concentration": {
+      "value": 6.0,
+      "unit": "mol/kg"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 2.0,
+      "unit": "mL"
+     },
+     "grade": "solvent (about 2 g per vial)"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S1-04"
+   },
+   "storage_class": "general",
+   "for": [
+    "aqualab_4te"
+   ],
+   "source": "manual: aqualab4_manual p.8, p.44-45, p.48 (verification standards; the whole vial is emptied into a sample cup); per vial (typical: about 2 mL, enough to cover a sample cup bottom): 6.0 mol/kg x 0.002 kg x 58.44 g/mol = 0.701 g NaCl",
+   "count": 5,
+   "per_unit": true,
+   "description": "box of sealed glass ampoules / vials of a certified solution standard",
+   "provisional_type": "ampoule_box_crm",
+   "type_status": "substitute",
+   "type_note": "METER verification standards are small sealed vials emptied into a disposable sample cup"
+  },
+  {
+   "id": "aw_standard_0_250",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [
+    {
+     "substance": "lithium_chloride",
+     "amount": {
+      "value": 1.1369,
+      "unit": "g"
+     },
+     "grade": "LiCl",
+     "certificate": {
+      "aw_25C": 0.25,
+      "tolerance": 0.003
+     },
+     "concentration": {
+      "value": 13.41,
+      "unit": "mol/kg"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 2.0,
+      "unit": "mL"
+     },
+     "grade": "solvent (about 2 g per vial)"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S1-05"
+   },
+   "storage_class": "general",
+   "for": [
+    "aqualab_4te"
+   ],
+   "source": "manual: aqualab4_manual p.44-45, p.49 (0.25 aw standard, whole vial into a sample cup); per vial (typical about 2 mL): 13.41 mol/kg x 0.002 kg x 42.39 g/mol = 1.137 g LiCl",
+   "count": 5,
+   "per_unit": true,
+   "description": "box of sealed glass ampoules / vials of a certified solution standard",
+   "provisional_type": "ampoule_box_crm",
+   "type_status": "substitute",
+   "type_note": "as aw_standard_0_760"
+  },
+  {
+   "id": "turbidity_stablcal_kit",
+   "type": "labware.hach_tl2300_sample_cell_25mm",
+   "contents": [],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S1-06"
+   },
+   "storage_class": "general",
+   "for": [
+    "hach_tl2300epa"
+   ],
+   "source": "manual: tl23_series datasheet p.4 (StablCal calibration kit); tl2300 user manual p.16 (StablCal sealed vial standards); per sealed vial about 25 mL (typical fill of a 25 mm sample cell)",
+   "units": [
+    {
+     "name": "StablCal sealed vial 0.1 NTU",
+     "count": 1,
+     "contents": [
+      {
+       "substance": "formazin",
+       "amount": {
+        "value": 25.0,
+        "unit": "mL"
+       },
+       "grade": "stabilized formazin in water",
+       "certificate": {
+        "turbidity_NTU": 0.1
+       },
+       "concentration": {
+        "value": 0.1,
+        "unit": "NTU"
+       }
+      }
+     ]
+    },
+    {
+     "name": "StablCal sealed vial 20 NTU",
+     "count": 1,
+     "contents": [
+      {
+       "substance": "formazin",
+       "amount": {
+        "value": 25.0,
+        "unit": "mL"
+       },
+       "grade": "stabilized formazin in water",
+       "certificate": {
+        "turbidity_NTU": 20
+       },
+       "concentration": {
+        "value": 20,
+        "unit": "NTU"
+       }
+      }
+     ]
+    },
+    {
+     "name": "StablCal sealed vial 200 NTU",
+     "count": 1,
+     "contents": [
+      {
+       "substance": "formazin",
+       "amount": {
+        "value": 25.0,
+        "unit": "mL"
+       },
+       "grade": "stabilized formazin in water",
+       "certificate": {
+        "turbidity_NTU": 200
+       },
+       "concentration": {
+        "value": 200,
+        "unit": "NTU"
+       }
+      }
+     ]
+    },
+    {
+     "name": "StablCal sealed vial 1000 NTU",
+     "count": 1,
+     "contents": [
+      {
+       "substance": "formazin",
+       "amount": {
+        "value": 25.0,
+        "unit": "mL"
+       },
+       "grade": "stabilized formazin in water",
+       "certificate": {
+        "turbidity_NTU": 1000
+       },
+       "concentration": {
+        "value": 1000,
+        "unit": "NTU"
+       }
+      }
+     ]
+    },
+    {
+     "name": "StablCal sealed vial 4000 NTU",
+     "count": 1,
+     "contents": [
+      {
+       "substance": "formazin",
+       "amount": {
+        "value": 25.0,
+        "unit": "mL"
+       },
+       "grade": "stabilized formazin in water",
+       "certificate": {
+        "turbidity_NTU": 4000
+       },
+       "concentration": {
+        "value": 4000,
+        "unit": "NTU"
+       }
+      }
+     ]
+    },
+    {
+     "name": "StablCal sealed vial 7500 NTU",
+     "count": 1,
+     "contents": [
+      {
+       "substance": "formazin",
+       "amount": {
+        "value": 25.0,
+        "unit": "mL"
+       },
+       "grade": "stabilized formazin in water",
+       "certificate": {
+        "turbidity_NTU": 7500
+       },
+       "concentration": {
+        "value": 7500,
+        "unit": "NTU"
+       }
+      }
+     ]
+    }
+   ],
+   "description": "box of sealed glass ampoules / vials of a certified solution standard",
+   "provisional_type": "ampoule_box_crm",
+   "type_status": "exact",
+   "type_note": "StablCal standards are sealed 95 x 25 mm cells (TL23 data sheet p.3)",
+   "count": 6
+  },
+  {
+   "id": "osmolality_cal_400",
+   "type": "labware.agilent_vial_2ml_screw",
+   "contents": [
+    {
+     "substance": "sodium_chloride",
+     "amount": {
+      "value": 0.01266,
+      "unit": "g"
+     },
+     "grade": "NaCl",
+     "certificate": {
+      "osmolality_mOsmol_kg": 400
+     },
+     "concentration": {
+      "value": 0.2166,
+      "unit": "mol/kg"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "grade": "solvent (about 1 g per vial)"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S1-07"
+   },
+   "storage_class": "general",
+   "for": [
+    "knauer_k7400s"
+   ],
+   "source": "manual: k7400s brochure p.11 (400 mOsmol/kg calibration solution, 12 vials); 0.2166 mol/kg NaCl is the class world's 400 mOsmol/kg standard; per vial typical 1 mL (the osmometer uses 50-150 uL per measurement)",
+   "count": 12,
+   "per_unit": true,
+   "description": "box of sealed glass ampoules / vials of a certified solution standard",
+   "provisional_type": "ampoule_box_crm",
+   "type_status": "substitute",
+   "type_note": "Knauer calibration solution: 12 small vials per box (K7400S brochure p.11)"
+  },
+  {
+   "id": "conductivity_std_1413",
+   "type": "labware.nalgene_nm_hdpe_500ml",
+   "contents": [
+    {
+     "substance": "potassium_chloride",
+     "amount": {
+      "value": 0.3728,
+      "unit": "g"
+     },
+     "grade": "KCl",
+     "certificate": {
+      "conductivity_uS_cm_25C": 1413
+     },
+     "concentration": {
+      "value": 0.01,
+      "unit": "mol/L"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 0.5,
+      "unit": "L"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S1-08"
+   },
+   "storage_class": "general",
+   "for": [
+    "metrohm_914",
+    "metrohm_omnis",
+    "antonpaar_surpass3"
+   ],
+   "source": "typical: 0.01 mol/L KCl is the usual conductivity cell standard (1413 uS/cm at 25 C); 0.01 mol/L x 0.5 L x 74.55 g/mol = 0.373 g; the SurPASS class workflow calibrates with 1.413 mS/cm",
+   "description": "HDPE bottle 500 mL, screw cap (buffers, standards)",
+   "provisional_type": "bottle_hdpe_500ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "dsc_indium_crm",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [
+    {
+     "substance": "indium",
+     "amount": {
+      "value": 1.0,
+      "unit": "g"
+     },
+     "grade": "99.999 %",
+     "certificate": {
+      "onset_C": 156.6,
+      "enthalpy_J_g": 28.71
+     }
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S2-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "ta_dsc2500",
+    "ta_tma450"
+   ],
+   "source": "manual: dsc_q_series_getting_started_guide p.49-50 (cell constant / temperature calibration with indium)",
+   "description": "small vial with metal shot or foil of a calibration metal, with certificate",
+   "provisional_type": "vial_crm_metal_shot",
+   "type_status": "substitute",
+   "type_note": "metal-shot CRM unit (small glass vial) stands in"
+  },
+  {
+   "id": "dsc_zinc_crm",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [
+    {
+     "substance": "zinc",
+     "amount": {
+      "value": 1.0,
+      "unit": "g"
+     },
+     "grade": "99.999 %",
+     "certificate": {
+      "onset_C": 419.5,
+      "enthalpy_J_g": 108.6
+     }
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S2-02"
+   },
+   "storage_class": "general",
+   "for": [
+    "ta_dsc2500"
+   ],
+   "source": "typical: second temperature point next to indium",
+   "description": "small vial with metal shot or foil of a calibration metal, with certificate",
+   "provisional_type": "vial_crm_metal_shot",
+   "type_status": "substitute",
+   "type_note": "metal-shot CRM unit (small glass vial) stands in"
+  },
+  {
+   "id": "dsc_sapphire_disc",
+   "type": "labware.gelpak_ad1135_case",
+   "contents": [
+    {
+     "substance": "aluminium_oxide",
+     "amount": {
+      "value": 0.025,
+      "unit": "g"
+     },
+     "grade": "sapphire disc, Cp reference"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S2-03"
+   },
+   "storage_class": "general",
+   "for": [
+    "ta_dsc2500"
+   ],
+   "source": "manual: dsc_q_series_getting_started_guide p.65 (heat-capacity calibration with sapphire)",
+   "description": "storage case with a certified reference plate / disc",
+   "provisional_type": "case_reference_plate",
+   "type_status": "exact",
+   "type_note": "Gel-Pak AD-1135 hinged case; the reference item inside (sapphire disc, foils, quartz plate, dummy cell) is ledger content"
+  },
+  {
+   "id": "tga_nickel_curie",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [
+    {
+     "substance": "nickel",
+     "amount": {
+      "value": 0.5,
+      "unit": "g"
+     },
+     "grade": "Curie-point standard",
+     "certificate": {
+      "curie_C": 358.0
+     }
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S2-04"
+   },
+   "storage_class": "general",
+   "for": [
+    "ta_tga5500"
+   ],
+   "source": "manual: discovery_tga_brochure p.7, p.29 (Curie-point temperature calibration)",
+   "description": "small vial with metal shot or foil of a calibration metal, with certificate",
+   "provisional_type": "vial_crm_metal_shot",
+   "type_status": "substitute",
+   "type_note": "metal-shot CRM unit (small glass vial) stands in"
+  },
+  {
+   "id": "tga_calcium_oxalate",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "calcium_oxalate_monohydrate",
+     "amount": {
+      "value": 10.0,
+      "unit": "g"
+     },
+     "grade": "reference grade"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S2-05"
+   },
+   "storage_class": "general",
+   "for": [
+    "ta_tga5500"
+   ],
+   "source": "typical: three-step mass-loss check sample of thermogravimetry",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "calorimetry_benzoic_acid",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "benzoic_acid",
+     "amount": {
+      "value": 50.0,
+      "unit": "g"
+     },
+     "grade": "calorimetric standard, NBS 39 type",
+     "certificate": {
+      "gross_heat_J_g": 26434
+     }
+    }
+   ],
+   "location": {
+    "place": "desiccator",
+    "position": "S1-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "ika_c6000"
+   ],
+   "source": "manual: c6000_isoperibol_package_1_10 datasheet p.1 (1 g benzoic acid NBS39i)",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "hplc_caffeine_std",
+   "type": "labware.agilent_vial_2ml_screw",
+   "contents": [
+    {
+     "substance": "caffeine",
+     "amount": {
+      "value": 0.00015,
+      "unit": "g"
+     },
+     "grade": "caffeine",
+     "concentration": {
+      "value": 100.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 1.5,
+      "unit": "mL"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S2-06"
+   },
+   "storage_class": "general",
+   "for": [
+    "agilent_hplc1260",
+    "agilent_1290infinity",
+    "agilent_1260infinity"
+   ],
+   "source": "manual: infinitylab_lc_series_specification_compendium p.13, p.16 (water / caffeine tracer for flow and delay checks); per vial 1.5 mL of 100 mg/L (typical 2 mL vial fill)",
+   "count": 10,
+   "per_unit": true,
+   "description": "box of 2 mL screw vials with caps (HPLC)",
+   "provisional_type": "box_vials_2ml_screw",
+   "type_status": "packaging_of",
+   "type_note": "Agilent 5182-0715 is sold 100/pk"
+  },
+  {
+   "id": "gc_alkane_mix",
+   "type": "labware.agilent_vial_2ml_screw",
+   "contents": [
+    {
+     "substance": "octane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-octane (C8)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "nonane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-nonane (C9)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "decane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-decane (C10)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "undecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-undecane (C11)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "dodecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-dodecane (C12)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "tridecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-tridecane (C13)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "tetradecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-tetradecane (C14)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "pentadecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-pentadecane (C15)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "hexadecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-hexadecane (C16)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "heptadecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-heptadecane (C17)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "octadecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-octadecane (C18)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "nonadecane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-nonadecane (C19)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "icosane",
+     "amount": {
+      "value": 4e-05,
+      "unit": "g"
+     },
+     "grade": "n-icosane (C20)",
+     "concentration": {
+      "value": 40.0,
+      "unit": "mg/L"
+     }
+    },
+    {
+     "substance": "hexane",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S2-03"
+   },
+   "storage_class": "flammable",
+   "for": [
+    "agilent_7890b_ssl_fid",
+    "agilent_gc8890b"
+   ],
+   "source": "product: Supelco (Sigma-Aldrich) 04070, alkane standard solution C8-C20, about 40 mg/L of each n-alkane C8...C20 in hexane, analytical standard sold as 1 mL (product page sigmaaldrich.com/US/en/product/sial/04070: retention-index standard for GC); per 1 mL unit 40 ug of each alkane; two units in stock (typical); a 2 mL GC vial stands in for the ampule (catalog substitute)",
+   "count": 2,
+   "per_unit": true,
+   "product": {
+    "maker": "Supelco (Sigma-Aldrich)",
+    "catalogue_number": "04070",
+    "name": "Alkane standard solution C8-C20, ~40 mg/L each component in hexane",
+    "pack": "1 mL",
+    "url": "https://www.sigmaaldrich.com/US/en/product/sial/04070"
+   },
+   "description": "Supelco 04070 alkane standard C8-C20 in hexane (1 mL units)",
+   "provisional_type": "box_vials_2ml_crimp",
+   "type_status": "substitute",
+   "type_note": "crimp-top vial has the same 12 x 32 mm body; crimp cap not modelled (screw vial stands in)"
+  },
+  {
+   "id": "chns_sulfanilic_acid",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "sulfanilic_acid",
+     "amount": {
+      "value": 10.0,
+      "unit": "g"
+     },
+     "grade": "CHNS standard",
+     "certificate": {
+      "C_pct": 41.61,
+      "H_pct": 4.07,
+      "N_pct": 8.09,
+      "S_pct": 18.51
+     }
+    }
+   ],
+   "location": {
+    "place": "desiccator",
+    "position": "S1-02"
+   },
+   "storage_class": "general",
+   "for": [
+    "elementar_varioel"
+   ],
+   "source": "quant_analyzer class world (the vario EL standards are sulfanilic acid; theoretical composition)",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "toc_khp_1000",
+   "type": "labware.nalgene_nm_hdpe_500ml",
+   "contents": [
+    {
+     "substance": "potassium_hydrogen_phthalate",
+     "amount": {
+      "value": 1.0627,
+      "unit": "g"
+     },
+     "grade": "KHP",
+     "certificate": {
+      "TC_mg_L": 1000
+     },
+     "concentration": {
+      "value": 2.1254,
+      "unit": "g/L"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 0.5,
+      "unit": "L"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S2-08"
+   },
+   "storage_class": "general",
+   "for": [
+    "shimadzu_tocl"
+   ],
+   "source": "quant_analyzer class world (TOC calibration with a KHP CRM); 1000 mg C/L = 2.1254 g KHP per L (8 C of 204.22 g/mol)",
+   "description": "HDPE bottle 500 mL, screw cap (buffers, standards)",
+   "provisional_type": "bottle_hdpe_500ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "ce_sds_mw_kit",
+   "type": "labware.sciex_universal_vial_2ml",
+   "contents": [],
+   "location": {
+    "place": "fridge_4c",
+    "position": "S1-01"
+   },
+   "storage_class": "cold",
+   "for": [
+    "sciex_pa800"
+   ],
+   "source": "manual: pa800plus_brochure p.10 (SDS-MW analysis kit 390953); sealed kit, its proprietary gel buffer, sample buffer and size standards are not itemised (no amounts in the documents at hand)",
+   "description": "sealed SDS-MW analysis kit (proprietary reagents, not itemised)",
+   "provisional_type": "kit_ce_reagents",
+   "type_status": "packaging_of",
+   "type_note": "SDS-MW kit 390953 (box not modelled); its liquids are run from PA 800 universal vials (A62251 + caps A62250)"
+  },
+  {
+   "id": "ferrocene_ref",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "ferrocene",
+     "amount": {
+      "value": 5.0,
+      "unit": "g"
+     },
+     "grade": "98 %"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S2-04"
+   },
+   "storage_class": "flammable",
+   "for": [
+    "ch_chi440c",
+    "ch_chi920d",
+    "gamry_reference620"
+   ],
+   "source": "manual: chi_brochure p.20 (ferrocene oxidation as the example redox couple)",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "xps_ag_au_foils",
+   "type": "labware.gelpak_ad1135_case",
+   "contents": [
+    {
+     "substance": "silver",
+     "amount": {
+      "value": 0.1,
+      "unit": "g"
+     },
+     "grade": "Ag foil, sputter-clean"
+    },
+    {
+     "substance": "copper",
+     "amount": {
+      "value": 0.1,
+      "unit": "g"
+     },
+     "grade": "Cu foil"
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S3-02"
+   },
+   "storage_class": "general",
+   "for": [
+    "kratos_axissupra"
+   ],
+   "source": "manual: axis_supra_getting_started_guide p.74 (Au 4f images); typical: Ag 3d5/2 and Cu 2p3/2 set the binding-energy scale",
+   "description": "storage case with a certified reference plate / disc",
+   "provisional_type": "case_reference_plate",
+   "type_status": "exact",
+   "type_note": "Gel-Pak AD-1135 hinged case; the reference item inside (sapphire disc, foils, quartz plate, dummy cell) is ledger content"
+  },
+  {
+   "id": "quartz_control_plate",
+   "type": "labware.gelpak_ad1135_case",
+   "contents": [
+    {
+     "substance": "silica",
+     "amount": {
+      "value": 1.0,
+      "unit": "g"
+     },
+     "grade": "quartz control plate",
+     "certificate": {
+      "rotation_deg_589nm": 10.0
+     }
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S3-03"
+   },
+   "storage_class": "general",
+   "for": [
+    "jasco_p4200"
+   ],
+   "source": "manual: p4000_instrument_management_appnote p.1-2 (calibrated quartz control plate); the plate in use sits in the instrument",
+   "description": "storage case with a certified reference plate / disc",
+   "provisional_type": "case_reference_plate",
+   "type_status": "exact",
+   "type_note": "Gel-Pak AD-1135 hinged case; the reference item inside (sapphire disc, foils, quartz plate, dummy cell) is ledger content"
+  },
+  {
+   "id": "cell_dummy_gamry",
+   "type": "labware.gelpak_ad1135_case",
+   "contents": [],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S3-04"
+   },
+   "storage_class": "general",
+   "for": [
+    "gamry_reference620"
+   ],
+   "source": "manual: reference620_operators_manual p.40, p.44 (calibration with the resistive dummy cell)",
+   "description": "storage case with a certified reference plate / disc",
+   "provisional_type": "case_reference_plate",
+   "type_status": "exact",
+   "type_note": "Gel-Pak AD-1135 hinged case; the reference item inside (sapphire disc, foils, quartz plate, dummy cell) is ledger content"
+  },
+  {
+   "id": "upyc_calibration_sphere",
+   "type": "labware.gelpak_ad1135_case",
+   "contents": [
+    {
+     "substance": "iron",
+     "amount": {
+      "value": 80.0,
+      "unit": "g"
+     },
+     "grade": "stainless-steel sphere",
+     "certificate": {
+      "volume_cm3": 10.0
+     }
+    }
+   ],
+   "location": {
+    "place": "standards_cabinet",
+    "position": "S3-05"
+   },
+   "storage_class": "general",
+   "for": [
+    "antonpaar_ultrapyc5000"
+   ],
+   "source": "the class workflow calibrates with a 10 cm3 sphere (sphere_volume_m3=1e-5)",
+   "keep_class": "a solid stainless-steel sphere, not the flammable iron powder of the substance table",
+   "description": "storage case with a certified reference plate / disc",
+   "provisional_type": "case_reference_plate",
+   "type_status": "exact",
+   "type_note": "Gel-Pak AD-1135 hinged case; the reference item inside (sapphire disc, foils, quartz plate, dummy cell) is ledger content"
+  },
+  {
+   "id": "dls_latex_100nm",
+   "type": "labware.agilent_vial_2ml_screw",
+   "contents": [
+    {
+     "substance": "polystyrene_latex",
+     "amount": {
+      "value": 15,
+      "unit": "mL"
+     },
+     "grade": "100 nm, 1 % solids",
+     "certificate": {
+      "diameter_nm": 100
+     }
+    }
+   ],
+   "location": {
+    "place": "fridge_4c",
+    "position": "S1-02"
+   },
+   "storage_class": "cold",
+   "for": [
+    "antonpaar_litesizerdls"
+   ],
+   "source": "the class workflow calibrates size with a 100 nm reference",
+   "description": "dropper vial of a fluorescent bead standard",
+   "provisional_type": "vial_bead_standard",
+   "type_status": "substitute",
+   "type_note": "small reagent vial stands in"
+  },
+  {
+   "id": "cst_beads",
+   "type": "labware.agilent_vial_2ml_screw",
+   "contents": [
+    {
+     "substance": "calibration_beads_fluorescent",
+     "amount": {
+      "value": 5,
+      "unit": "mL"
+     },
+     "grade": "CS&T research beads (bright, mid, dim)"
+    }
+   ],
+   "location": {
+    "place": "fridge_4c",
+    "position": "S1-03"
+   },
+   "storage_class": "cold",
+   "for": [
+    "bd_facsariaiii"
+   ],
+   "source": "manual: facsaria_iii_users_guide p.138 (preparing the CS&T beads); the runtime's bead library has cst_bead_bright / mid / dim",
+   "description": "dropper vial of a fluorescent bead standard",
+   "provisional_type": "vial_bead_standard",
+   "type_status": "substitute",
+   "type_note": "small reagent vial stands in"
+  },
+  {
+   "id": "hbs_ep_plus_10x",
+   "type": "labware.nalgene_nm_hdpe_500ml",
+   "contents": [
+    {
+     "substance": "hbs_ep_plus_10x",
+     "amount": {
+      "value": 0.5,
+      "unit": "L"
+     },
+     "grade": "10x concentrate"
+    }
+   ],
+   "location": {
+    "place": "fridge_4c",
+    "position": "S1-04"
+   },
+   "storage_class": "cold",
+   "for": [
+    "cytiva_biacoret200"
+   ],
+   "source": "manual: biacore_t200_getting_started p.6 (10X HBS-EP+ buffer)",
+   "description": "HDPE bottle 500 mL, screw cap (buffers, standards)",
+   "provisional_type": "bottle_hdpe_500ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "spr_chips_cm5",
+   "type": "labware.cytiva_series_s_sensor_chip_cm5",
+   "contents": [],
+   "location": {
+    "place": "fridge_4c",
+    "position": "S1-05"
+   },
+   "storage_class": "cold",
+   "for": [
+    "cytiva_biacoret200"
+   ],
+   "source": "typical: CM5 is the general-purpose sensor chip; the class workflow docks one (load chip1 --type CM5)",
+   "description": "pack of SPR sensor chips",
+   "provisional_type": "box_sensor_chips_spr",
+   "type_status": "packaging_of",
+   "type_note": "BR100530 = pack of 3",
+   "count": 3
+  },
+  {
+   "id": "gels_tgx_4_20",
+   "type": "labware.biorad_tgx_gel_4_20_10well",
+   "contents": [],
+   "location": {
+    "place": "fridge_4c",
+    "position": "S1-06"
+   },
+   "storage_class": "cold",
+   "for": [
+    "biorad_miniprotean"
+   ],
+   "source": "the chromatography class world installs a 4-20 % TGX 10-well gel; precast gels are stored at 2-8 °C",
+   "description": "box of precast mini polyacrylamide gels, 10 wells",
+   "provisional_type": "box_gels_precast_10well",
+   "type_status": "packaging_of",
+   "type_note": "box of 10 gels (4561094)",
+   "count": 10
+  },
+  {
+   "id": "protein_ladder",
+   "type": "labware.eppendorf_safelock_1p5ml",
+   "contents": [
+    {
+     "substance": "protein_ladder_prestained",
+     "amount": {
+      "value": 0.5,
+      "unit": "mL"
+     },
+     "grade": "prestained, 10-250 kD"
+    }
+   ],
+   "location": {
+    "place": "freezer_m20c",
+    "position": "D1-01"
+   },
+   "storage_class": "cold",
+   "for": [
+    "biorad_miniprotean"
+   ],
+   "source": "the default gel has ladder_1 (Precision Plus prestained); the ladder is stored at -20 °C",
+   "description": "vial of a prestained protein ladder",
+   "provisional_type": "vial_protein_ladder",
+   "type_status": "substitute",
+   "type_note": "ladders ship in 0.5-1.5 mL tubes"
+  },
+  {
+   "id": "qh_kbr_1",
+   "type": "labware.mt_quantos_qh016_bnmw",
+   "contents": [
+    {
+     "substance": "potassium_bromide",
+     "amount": {
+      "value": 11.4,
+      "unit": "g"
+     },
+     "grade": "for IR spectroscopy (Merck 104907)"
+    }
+   ],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T2-04"
+   },
+   "storage_class": "general",
+   "for": [
+    "mt_quantos_q2_xpe206dr"
+   ],
+   "source": "head: METTLER TOLEDO QH016-BNMW (part 11141503), 16 mL, 0.1-250 mg per dose (manual: quantos_operating_instructions p.102, p.107); fill: 75 % of the 16 mL volume (12 mL, headspace left for the dosing mechanism: assumption) x KBr bulk density 950 kg/m3 (Merck 104907 product page: 900-1000 kg/m3) = 11.4 g. Stands in its storage container (manual p.27). KBr is hygroscopic: in its closed head on the bench for a working day is acceptable (it takes up water only slowly below about 60 % RH and deliquesces near 80 %); between working days the head belongs in the desiccator. A host or the robot inserts it; the Quantos registers it as head qh_kbr_1 with 0.0114 kg of free-flowing powder",
+   "head_id": "qh_kbr_1",
+   "free_flowing": true,
+   "stored_in": "labware.mt_quantos_head_container",
+   "product": {
+    "maker": "METTLER TOLEDO",
+    "catalogue_number": "11141503",
+    "name": "QH016-BNMW powder dosing head, 16 ml",
+    "source": "Quantos operating instructions p.102 (16 ml, 0.1-250 mg) and p.107 (part number)"
+   },
+   "description": "METTLER TOLEDO QH016-BNMW powder dosing head, 16 mL, 0.1-250 mg per dose (part 11141503)",
+   "provisional_type": "quantos_dosing_head",
+   "type_status": "exact",
+   "type_note": "QH016-BNMW 16 mL powder head (Quantos manual p.102/p.107); geometry from the mt_quantos_q2 asset's dosing_head part"
+  },
+  {
+   "id": "qh_caco3_1",
+   "type": "labware.mt_quantos_qh016_bnmw",
+   "contents": [
+    {
+     "substance": "calcium_carbonate",
+     "amount": {
+      "value": 4.0,
+      "unit": "g"
+     },
+     "grade": "Sigma-Aldrich 21061 (BioUltra, precipitated)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "position": "head_slot",
+    "instrument": "mt_quantos_q2_xpe206dr"
+   },
+   "storage_class": "general",
+   "for": [
+    "mt_quantos_q2_xpe206dr"
+   ],
+   "source": "the lab's check head, inserted in the Quantos by the default set-up: QH016-BNMW (part 11141503, manual p.102/p.107) with calcium carbonate Sigma-Aldrich 21061, the powder the dosing specification is given for (manual p.102). Fill 4.0 g: no bulk density is published for 21061; precipitated CaCO3 is a light powder (assumption 0.3-0.6 g/mL), so 4 g takes 7-13 mL of the 16 mL head",
+   "sample_id": "qh_caco3_1",
+   "head_id": "qh_caco3_1",
+   "free_flowing": true,
+   "product": {
+    "maker": "METTLER TOLEDO",
+    "catalogue_number": "11141503",
+    "name": "QH016-BNMW powder dosing head, 16 ml",
+    "source": "Quantos operating instructions p.102 (16 ml, 0.1-250 mg) and p.107 (part number)"
+   },
+   "description": "METTLER TOLEDO QH016-BNMW powder dosing head, 16 mL, 0.1-250 mg per dose (part 11141503)",
+   "provisional_type": "quantos_dosing_head",
+   "type_status": "exact",
+   "type_note": "QH016-BNMW 16 mL powder head (Quantos manual p.102/p.107); geometry from the mt_quantos_q2 asset's dosing_head part"
+  },
+  {
+   "id": "qh_caco3_1_container",
+   "type": "labware.mt_quantos_head_container",
+   "contents": [],
+   "location": {
+    "place": "bench_shelf",
+    "position": "T2-03"
+   },
+   "storage_class": "general",
+   "for": [
+    "mt_quantos_q2_xpe206dr"
+   ],
+   "source": "the empty storage container of the CaCO3 head (manual p.27: heads are stored in the plastic container they are supplied in); the head goes back here when it is taken out of the Quantos",
+   "description": "empty Quantos head storage container (lid off)",
+   "provisional_type": "quantos_head_container",
+   "type_status": "exact",
+   "type_note": "plastic container supplied with each head (manual p.27/p.94); holds one head upright on the bench shelf"
+  },
+  {
+   "id": "quantos_vial_pan",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [],
+   "location": {
+    "place": "instrument",
+    "position": "balance_pan",
+    "instrument": "mt_quantos_q2_xpe206dr"
+   },
+   "storage_class": "general",
+   "for": [
+    "mt_quantos_q2_xpe206dr"
+   ],
+   "source": "empty target vial on the Quantos weighing pan (default set-up): Agilent 5188-2753 20 mL vial, within the sample-container limits (31-178 mm high, opening >= 6 mm, manual p.103)",
+   "sample_id": "quantos_vial_pan",
+   "description": "empty 20 mL glass target vial for the Quantos weighing pan",
+   "provisional_type": "quantos_target_vial",
+   "type_status": "exact",
+   "type_note": "fits the Quantos sample-container limits (manual p.103); the instrument asset's sample_container part is an authored placeholder"
+  },
+  {
+   "id": "quantos_vial_1",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [],
+   "location": {
+    "place": "vial_rack_bench",
+    "position": "A01"
+   },
+   "storage_class": "general",
+   "for": [
+    "mt_quantos_q2_xpe206dr"
+   ],
+   "source": "empty target vial for Quantos dosing (Agilent 5188-2753 20 mL vial, fits the pan: manual p.103), in the bench vial rack (top-down grip)",
+   "description": "empty 20 mL glass target vial for the Quantos weighing pan",
+   "provisional_type": "quantos_target_vial",
+   "type_status": "exact",
+   "type_note": "fits the Quantos sample-container limits (manual p.103); the instrument asset's sample_container part is an authored placeholder"
+  },
+  {
+   "id": "quantos_vial_2",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [],
+   "location": {
+    "place": "vial_rack_bench",
+    "position": "A02"
+   },
+   "storage_class": "general",
+   "for": [
+    "mt_quantos_q2_xpe206dr"
+   ],
+   "source": "empty target vial for Quantos dosing (Agilent 5188-2753 20 mL vial, fits the pan: manual p.103), in the bench vial rack (top-down grip)",
+   "description": "empty 20 mL glass target vial for the Quantos weighing pan",
+   "provisional_type": "quantos_target_vial",
+   "type_status": "exact",
+   "type_note": "fits the Quantos sample-container limits (manual p.103); the instrument asset's sample_container part is an authored placeholder"
+  },
+  {
+   "id": "quantos_vial_3",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [],
+   "location": {
+    "place": "vial_rack_bench",
+    "position": "A03"
+   },
+   "storage_class": "general",
+   "for": [
+    "mt_quantos_q2_xpe206dr"
+   ],
+   "source": "empty target vial for Quantos dosing (Agilent 5188-2753 20 mL vial, fits the pan: manual p.103), in the bench vial rack (top-down grip)",
+   "description": "empty 20 mL glass target vial for the Quantos weighing pan",
+   "provisional_type": "quantos_target_vial",
+   "type_status": "exact",
+   "type_note": "fits the Quantos sample-container limits (manual p.103); the instrument asset's sample_container part is an authored placeholder"
+  },
+  {
+   "id": "ethanol_2_5l",
+   "type": "labware.winchester_2500ml_amber",
+   "contents": [
+    {
+     "substance": "ethanol",
+     "amount": {
+      "value": 2.5,
+      "unit": "L"
+     },
+     "grade": ">= 99.8 %"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S1-01"
+   },
+   "storage_class": "flammable",
+   "for": [],
+   "source": "typical stock bottle",
+   "description": "solvent bottle GL45, 2.5 L, amber glass (supplier bottle)",
+   "provisional_type": "bottle_gl45_2500ml_amber",
+   "type_status": "substitute",
+   "type_note": "2.5 L amber Winchester (38 mm screw neck); DURAN makes no 2.5 L GL45 bottle"
+  },
+  {
+   "id": "acetone_2_5l",
+   "type": "labware.winchester_2500ml_amber",
+   "contents": [
+    {
+     "substance": "acetone",
+     "amount": {
+      "value": 2.5,
+      "unit": "L"
+     },
+     "grade": ">= 99.5 %"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S1-02"
+   },
+   "storage_class": "flammable",
+   "for": [],
+   "source": "typical stock bottle",
+   "description": "solvent bottle GL45, 2.5 L, amber glass (supplier bottle)",
+   "provisional_type": "bottle_gl45_2500ml_amber",
+   "type_status": "substitute",
+   "type_note": "2.5 L amber Winchester (38 mm screw neck); DURAN makes no 2.5 L GL45 bottle"
+  },
+  {
+   "id": "isopropanol_2_5l",
+   "type": "labware.winchester_2500ml_amber",
+   "contents": [
+    {
+     "substance": "propan_2_ol",
+     "amount": {
+      "value": 2.5,
+      "unit": "L"
+     },
+     "grade": ">= 99.5 %"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S1-03"
+   },
+   "storage_class": "flammable",
+   "for": [],
+   "source": "typical stock bottle (cleaning optics, wipes)",
+   "description": "solvent bottle GL45, 2.5 L, amber glass (supplier bottle)",
+   "provisional_type": "bottle_gl45_2500ml_amber",
+   "type_status": "substitute",
+   "type_note": "2.5 L amber Winchester (38 mm screw neck); DURAN makes no 2.5 L GL45 bottle"
+  },
+  {
+   "id": "methanol_hplc_2_5l",
+   "type": "labware.winchester_2500ml_amber",
+   "contents": [
+    {
+     "substance": "methanol",
+     "amount": {
+      "value": 2.5,
+      "unit": "L"
+     },
+     "grade": "HPLC grade"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S1-04"
+   },
+   "storage_class": "flammable",
+   "for": [
+    "agilent_hplc1260",
+    "agilent_1290infinity",
+    "agilent_1260infinity"
+   ],
+   "source": "typical HPLC mobile-phase solvent",
+   "description": "solvent bottle GL45, 2.5 L, amber glass (supplier bottle)",
+   "provisional_type": "bottle_gl45_2500ml_amber",
+   "type_status": "substitute",
+   "type_note": "2.5 L amber Winchester (38 mm screw neck); DURAN makes no 2.5 L GL45 bottle"
+  },
+  {
+   "id": "acetonitrile_hplc_2_5l",
+   "type": "labware.winchester_2500ml_amber",
+   "contents": [
+    {
+     "substance": "acetonitrile",
+     "amount": {
+      "value": 2.5,
+      "unit": "L"
+     },
+     "grade": "HPLC grade"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S1-05"
+   },
+   "storage_class": "flammable",
+   "for": [
+    "agilent_hplc1260",
+    "agilent_1290infinity"
+   ],
+   "source": "typical HPLC mobile-phase solvent",
+   "description": "solvent bottle GL45, 2.5 L, amber glass (supplier bottle)",
+   "provisional_type": "bottle_gl45_2500ml_amber",
+   "type_status": "substitute",
+   "type_note": "2.5 L amber Winchester (38 mm screw neck); DURAN makes no 2.5 L GL45 bottle"
+  },
+  {
+   "id": "hexane_2_5l",
+   "type": "labware.winchester_2500ml_amber",
+   "contents": [
+    {
+     "substance": "hexane",
+     "amount": {
+      "value": 2.5,
+      "unit": "L"
+     },
+     "grade": ">= 97 %"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S1-06"
+   },
+   "storage_class": "flammable",
+   "for": [],
+   "source": "typical stock bottle (GC dilutions, extraction)",
+   "description": "solvent bottle GL45, 2.5 L, amber glass (supplier bottle)",
+   "provisional_type": "bottle_gl45_2500ml_amber",
+   "type_status": "substitute",
+   "type_note": "2.5 L amber Winchester (38 mm screw neck); DURAN makes no 2.5 L GL45 bottle"
+  },
+  {
+   "id": "toluene_2_5l",
+   "type": "labware.winchester_2500ml_amber",
+   "contents": [
+    {
+     "substance": "toluene",
+     "amount": {
+      "value": 2.5,
+      "unit": "L"
+     },
+     "grade": ">= 99.5 %"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S2-01"
+   },
+   "storage_class": "flammable",
+   "for": [],
+   "source": "typical stock bottle",
+   "description": "solvent bottle GL45, 2.5 L, amber glass (supplier bottle)",
+   "provisional_type": "bottle_gl45_2500ml_amber",
+   "type_status": "substitute",
+   "type_note": "2.5 L amber Winchester (38 mm screw neck); DURAN makes no 2.5 L GL45 bottle"
+  },
+  {
+   "id": "ethyl_acetate_2_5l",
+   "type": "labware.winchester_2500ml_amber",
+   "contents": [
+    {
+     "substance": "ethyl_acetate",
+     "amount": {
+      "value": 2.5,
+      "unit": "L"
+     },
+     "grade": ">= 99.5 %"
+    }
+   ],
+   "location": {
+    "place": "flammables_cabinet",
+    "position": "S2-02"
+   },
+   "storage_class": "flammable",
+   "for": [],
+   "source": "typical stock bottle",
+   "description": "solvent bottle GL45, 2.5 L, amber glass (supplier bottle)",
+   "provisional_type": "bottle_gl45_2500ml_amber",
+   "type_status": "substitute",
+   "type_note": "2.5 L amber Winchester (38 mm screw neck); DURAN makes no 2.5 L GL45 bottle"
+  },
+  {
+   "id": "hcl_37_1l",
+   "type": "labware.duran_gl45_1000ml_clear",
+   "contents": [
+    {
+     "substance": "hydrochloric_acid",
+     "amount": {
+      "value": 438.1,
+      "unit": "g"
+     },
+     "grade": "HCl",
+     "concentration": {
+      "value": 37.0,
+      "unit": "% w/w"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 745.9,
+      "unit": "g"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "acids_cabinet",
+    "position": "A:S1-01"
+   },
+   "storage_class": "acid",
+   "for": [],
+   "source": "typical stock: 1 L of 37 % w/w hydrochloric acid, density 1.184 g/mL at 20 C (1184 g: 438.1 g HCl + 745.9 g water)",
+   "description": "borosilicate media bottle GL45, 1000 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_1000ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "hno3_65_1l",
+   "type": "labware.duran_gl45_1000ml_clear",
+   "contents": [
+    {
+     "substance": "nitric_acid",
+     "amount": {
+      "value": 904.2,
+      "unit": "g"
+     },
+     "grade": "HNO3, trace-metal grade",
+     "concentration": {
+      "value": 65.0,
+      "unit": "% w/w"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 486.9,
+      "unit": "g"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "acids_cabinet",
+    "position": "A:S1-02"
+   },
+   "storage_class": "acid",
+   "for": [
+    "shimadzu_icpe9800",
+    "shimadzu_icpms2030"
+   ],
+   "source": "typical: digestion and ICP sample acid; 1 L of 65 % w/w nitric acid, density 1.391 g/mL at 20 C (904.2 g HNO3 + 486.9 g water)",
+   "description": "borosilicate media bottle GL45, 1000 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_1000ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "h2so4_96_1l",
+   "type": "labware.duran_gl45_1000ml_clear",
+   "contents": [
+    {
+     "substance": "sulfuric_acid",
+     "amount": {
+      "value": 1761.6,
+      "unit": "g"
+     },
+     "grade": "H2SO4",
+     "concentration": {
+      "value": 96.0,
+      "unit": "% w/w"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 73.4,
+      "unit": "g"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "acids_cabinet",
+    "position": "A:S1-03"
+   },
+   "storage_class": "acid",
+   "for": [],
+   "source": "typical stock: 1 L of 96 % w/w sulfuric acid, density 1.835 g/mL at 20 C (1761.6 g H2SO4 + 73.4 g water)",
+   "description": "borosilicate media bottle GL45, 1000 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_1000ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "acetic_acid_1l",
+   "type": "labware.duran_gl45_1000ml_clear",
+   "contents": [
+    {
+     "substance": "acetic_acid",
+     "amount": {
+      "value": 1.0,
+      "unit": "L"
+     },
+     "grade": "glacial"
+    }
+   ],
+   "location": {
+    "place": "acids_cabinet",
+    "position": "A:S1-04"
+   },
+   "storage_class": "acid",
+   "for": [],
+   "source": "typical stock",
+   "description": "borosilicate media bottle GL45, 1000 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_1000ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "naoh_pellets_1kg",
+   "type": "labware.nalgene_wm_hdpe_500ml",
+   "contents": [
+    {
+     "substance": "sodium_hydroxide",
+     "amount": {
+      "value": 500.0,
+      "unit": "g"
+     },
+     "grade": "pellets >= 98 %"
+    }
+   ],
+   "location": {
+    "place": "bases_cabinet",
+    "position": "B:S1-01"
+   },
+   "storage_class": "base",
+   "for": [],
+   "source": "typical stock",
+   "description": "wide-neck HDPE jar for 500 g solids",
+   "provisional_type": "jar_hdpe_500g",
+   "type_status": "exact"
+  },
+  {
+   "id": "naoh_0_1n_1l",
+   "type": "labware.nalgene_nm_hdpe_1000ml",
+   "contents": [
+    {
+     "substance": "sodium_hydroxide",
+     "amount": {
+      "value": 4.0,
+      "unit": "g"
+     },
+     "grade": "NaOH",
+     "certificate": {
+      "titer": "0.1000 mol/L +- 0.2 %"
+     },
+     "concentration": {
+      "value": 0.1,
+      "unit": "mol/L"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 1.0,
+      "unit": "L"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "bases_cabinet",
+    "position": "B:S1-02"
+   },
+   "storage_class": "base",
+   "for": [
+    "metrohm_omnis",
+    "metrohm_899"
+   ],
+   "source": "typical titrant: 0.1 mol/L x 1 L x 40.00 g/mol = 4.000 g NaOH",
+   "description": "HDPE bottle 1 L, screw cap (bases, aqueous reagents)",
+   "provisional_type": "bottle_hdpe_1000ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "ammonia_25_1l",
+   "type": "labware.nalgene_nm_hdpe_1000ml",
+   "contents": [
+    {
+     "substance": "ammonia",
+     "amount": {
+      "value": 226.8,
+      "unit": "g"
+     },
+     "grade": "NH3",
+     "concentration": {
+      "value": 25.0,
+      "unit": "% w/w"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 680.2,
+      "unit": "g"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "bases_cabinet",
+    "position": "B:S1-03"
+   },
+   "storage_class": "base",
+   "for": [],
+   "source": "typical stock: 1 L of 25 % w/w ammonia solution, density 0.907 g/mL at 20 C (226.8 g NH3 + 680.2 g water)",
+   "description": "HDPE bottle 1 L, screw cap (bases, aqueous reagents)",
+   "provisional_type": "bottle_hdpe_1000ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "h2o2_30_500ml",
+   "type": "labware.nalgene_nm_hdpe_500ml",
+   "contents": [
+    {
+     "substance": "hydrogen_peroxide",
+     "amount": {
+      "value": 166.5,
+      "unit": "g"
+     },
+     "grade": "H2O2",
+     "concentration": {
+      "value": 30.0,
+      "unit": "% w/w"
+     }
+    },
+    {
+     "substance": "water",
+     "amount": {
+      "value": 388.5,
+      "unit": "g"
+     },
+     "grade": "solvent"
+    }
+   ],
+   "location": {
+    "place": "oxidizers_cabinet",
+    "position": "S1-01"
+   },
+   "storage_class": "oxidizer",
+   "for": [],
+   "source": "typical: digestion oxidant; 0.5 L of 30 % w/w hydrogen peroxide, density 1.11 g/mL at 20 C (166.5 g H2O2 + 388.5 g water)",
+   "description": "HDPE bottle 500 mL, screw cap (buffers, standards)",
+   "provisional_type": "bottle_hdpe_500ml",
+   "type_status": "exact"
+  },
+  {
+   "id": "silver_nitrate_100g",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "silver_nitrate",
+     "amount": {
+      "value": 100.0,
+      "unit": "g"
+     },
+     "grade": ">= 99 %"
+    }
+   ],
+   "location": {
+    "place": "oxidizers_cabinet",
+    "position": "S1-02"
+   },
+   "storage_class": "oxidizer",
+   "for": [],
+   "source": "typical stock (chloride titrations)",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "phenol_100g",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "phenol",
+     "amount": {
+      "value": 100.0,
+      "unit": "g"
+     },
+     "grade": ">= 99 %"
+    }
+   ],
+   "location": {
+    "place": "toxics_cabinet",
+    "position": "S1-01"
+   },
+   "storage_class": "toxic",
+   "for": [],
+   "source": "typical stock",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "aniline_100ml",
+   "type": "labware.duran_gl45_500ml_clear",
+   "contents": [
+    {
+     "substance": "aniline",
+     "amount": {
+      "value": 0.1,
+      "unit": "L"
+     },
+     "grade": ">= 99 %"
+    }
+   ],
+   "location": {
+    "place": "toxics_cabinet",
+    "position": "S1-02"
+   },
+   "storage_class": "toxic",
+   "for": [],
+   "source": "typical stock",
+   "description": "borosilicate media bottle GL45, 500 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_500ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "nitrobenzene_100ml",
+   "type": "labware.duran_gl45_500ml_clear",
+   "contents": [
+    {
+     "substance": "nitrobenzene",
+     "amount": {
+      "value": 0.1,
+      "unit": "L"
+     },
+     "grade": ">= 99 %"
+    }
+   ],
+   "location": {
+    "place": "toxics_cabinet",
+    "position": "S1-03"
+   },
+   "storage_class": "toxic",
+   "for": [],
+   "source": "typical stock",
+   "description": "borosilicate media bottle GL45, 500 mL, clear, screw cap",
+   "provisional_type": "bottle_gl45_500ml_clear",
+   "type_status": "exact"
+  },
+  {
+   "id": "kbr_ir_grade",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "potassium_bromide",
+     "amount": {
+      "value": 88.6,
+      "unit": "g"
+     },
+     "grade": "for IR spectroscopy (Uvasol)"
+    }
+   ],
+   "location": {
+    "place": "desiccator",
+    "position": "S1-03"
+   },
+   "storage_class": "general",
+   "for": [
+    "jasco_ftir4700",
+    "mt_quantos_q2_xpe206dr"
+   ],
+   "source": "product: Merck 104907 potassium bromide for IR spectroscopy Uvasol (100 g pack; bulk density 900-1000 kg/m3, product page); 11.4 g of it filled the Quantos head qh_kbr_1; kept in the desiccator (hygroscopic); manual: ftir4600_kbr_procedure quick guide (KBr pellet method)",
+   "product": {
+    "maker": "Merck",
+    "catalogue_number": "104907",
+    "name": "Potassium bromide for IR spectroscopy Uvasol",
+    "pack": "100 g",
+    "bulk_density_kg_m3": [
+     900,
+     1000
+    ],
+    "url": "https://www.merckmillipore.com/product/Potassium-bromide,MDA_CHEM-104907"
+   },
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "khp_primary_std",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "potassium_hydrogen_phthalate",
+     "amount": {
+      "value": 50.0,
+      "unit": "g"
+     },
+     "grade": "primary standard, dried"
+    }
+   ],
+   "location": {
+    "place": "desiccator",
+    "position": "S2-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "metrohm_omnis",
+    "metrohm_899"
+   ],
+   "source": "typical: titer determination of NaOH",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "sodium_carbonate_primary",
+   "type": "labware.duran_gl45_100ml_amber",
+   "contents": [
+    {
+     "substance": "sodium_carbonate",
+     "amount": {
+      "value": 50.0,
+      "unit": "g"
+     },
+     "grade": "primary standard, dried"
+    }
+   ],
+   "location": {
+    "place": "desiccator",
+    "position": "S2-02"
+   },
+   "storage_class": "general",
+   "for": [
+    "metrohm_omnis"
+   ],
+   "source": "typical: titer determination of acids",
+   "description": "small glass bottle of a certified reference material unit (5-20 g), with certificate",
+   "provisional_type": "bottle_glass_crm_unit",
+   "type_status": "substitute",
+   "type_note": "CRM unit bottles are small amber glass bottles of the issuing body; the 100 mL amber GL45 bottle stands in"
+  },
+  {
+   "id": "cons_plates_96_flat",
+   "type": "labware.corning_96_wellplate_360ul_flat",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S1-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "biotek_405ts",
+    "bmg_clariostarplus",
+    "opentrons_flex_single_5_1000ul"
+   ],
+   "source": "typical",
+   "count": 50,
+   "description": "box of 96-well flat-bottom polystyrene plates (SBS)",
+   "provisional_type": "box_microplates_96_flat_ps",
+   "type_status": "packaging_of",
+   "type_note": "sleeve of 25 plates; sleeve not modelled"
+  },
+  {
+   "id": "cons_pcr_plates",
+   "type": "labware.biorad_hardshell_pcr_plate_96",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S1-02"
+   },
+   "storage_class": "general",
+   "for": [
+    "biorad_cfxopus",
+    "azenta_automated_roll_heat_sealer_a4s"
+   ],
+   "source": "typical",
+   "count": 25,
+   "description": "box of skirted 96-well PCR plates (SBS)",
+   "provisional_type": "box_pcr_plates_96_skirted",
+   "type_status": "packaging_of",
+   "type_note": "HSP9655 pkg of 50 (CFX Opus flier p.2)"
+  },
+  {
+   "id": "cons_tubes_1p5ml",
+   "type": "labware.eppendorf_safelock_1p5ml",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S1-03"
+   },
+   "storage_class": "general",
+   "for": [],
+   "source": "typical",
+   "count": 500,
+   "description": "bag of 1.5 mL microcentrifuge tubes",
+   "provisional_type": "bag_tubes_1p5ml",
+   "type_status": "packaging_of",
+   "type_note": "bag of 500 tubes; bag not modelled"
+  },
+  {
+   "id": "cons_tubes_15ml",
+   "type": "labware.falcon_tube_15ml",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S1-04"
+   },
+   "storage_class": "general",
+   "for": [],
+   "source": "typical",
+   "count": 50,
+   "description": "bag of 15 mL conical tubes",
+   "provisional_type": "bag_tubes_conical_15ml",
+   "type_status": "packaging_of",
+   "type_note": "bag of 50; bag not modelled"
+  },
+  {
+   "id": "cons_tubes_50ml",
+   "type": "labware.falcon_tube_50ml",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S1-05"
+   },
+   "storage_class": "general",
+   "for": [],
+   "source": "typical",
+   "count": 25,
+   "description": "bag of 50 mL conical tubes",
+   "provisional_type": "bag_tubes_conical_50ml",
+   "type_status": "packaging_of",
+   "type_note": "bag of 25; bag not modelled"
+  },
+  {
+   "id": "cons_tubes_12x75",
+   "type": "labware.falcon_352052_tube_12x75",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S1-06"
+   },
+   "storage_class": "general",
+   "for": [
+    "bd_facsariaiii"
+   ],
+   "source": "manual: facsaria_iii_users_guide (12 x 75 mm sample tubes); the runtime's tube types include 12x75",
+   "count": 125,
+   "description": "bag of 12 x 75 mm polystyrene cytometry tubes",
+   "provisional_type": "bag_tubes_12x75mm_ps",
+   "type_status": "packaging_of",
+   "type_note": "125 per bag (FACSAria guide p.286)"
+  },
+  {
+   "id": "cons_vials_gc",
+   "type": "labware.agilent_vial_2ml_screw",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S1-07"
+   },
+   "storage_class": "general",
+   "for": [
+    "agilent_7890b_ssl_fid",
+    "agilent_gc8890b"
+   ],
+   "source": "typical",
+   "count": 100,
+   "description": "box of 2 mL crimp vials with caps (GC)",
+   "provisional_type": "box_vials_2ml_crimp",
+   "type_status": "substitute",
+   "type_note": "crimp-top vial has the same 12 x 32 mm body; crimp cap not modelled (screw vial stands in)"
+  },
+  {
+   "id": "cons_vials_hplc",
+   "type": "labware.agilent_vial_2ml_screw",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S1-08"
+   },
+   "storage_class": "general",
+   "for": [
+    "agilent_hplc1260",
+    "agilent_1290infinity",
+    "agilent_1260infinity"
+   ],
+   "source": "typical",
+   "count": 100,
+   "description": "box of 2 mL screw vials with caps (HPLC)",
+   "provisional_type": "box_vials_2ml_screw",
+   "type_status": "packaging_of",
+   "type_note": "Agilent 5182-0715 is sold 100/pk"
+  },
+  {
+   "id": "cons_vials_hs",
+   "type": "labware.agilent_hs_vial_20ml",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S2-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "agilent_hs8697"
+   ],
+   "source": "typical",
+   "count": 100,
+   "description": "box of 20 mL headspace vials with crimp caps",
+   "provisional_type": "box_vials_20ml_headspace",
+   "type_status": "packaging_of",
+   "type_note": "Agilent 5188-2753 is sold 100/pk"
+  },
+  {
+   "id": "cons_tips_1000",
+   "type": "labware.opentrons_flex_tiprack_1000ul",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S2-02"
+   },
+   "storage_class": "general",
+   "for": [
+    "opentrons_flex_single_5_1000ul"
+   ],
+   "source": "typical spare rack (one is on the deck)",
+   "count": 96,
+   "description": "Opentrons Flex tip rack, 96 x 1000 uL (SBS)",
+   "provisional_type": "tiprack_flex_1000ul",
+   "type_status": "exact"
+  },
+  {
+   "id": "cons_tips_200",
+   "type": "labware.opentrons_flex_tiprack_200ul",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S2-03"
+   },
+   "storage_class": "general",
+   "for": [
+    "opentrons_flex_single_5_1000ul"
+   ],
+   "source": "typical spare rack (one is on the deck)",
+   "count": 96,
+   "description": "Opentrons Flex tip rack, 96 x 200 uL (SBS)",
+   "provisional_type": "tiprack_flex_200ul",
+   "type_status": "exact"
+  },
+  {
+   "id": "cons_dsc_pans",
+   "type": "labware.ta_tzero_pan_lid",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S2-04"
+   },
+   "storage_class": "general",
+   "for": [
+    "ta_dsc2500"
+   ],
+   "source": "typical",
+   "count": 100,
+   "description": "box of aluminium DSC pans and lids",
+   "provisional_type": "box_dsc_pans_tzero",
+   "type_status": "packaging_of",
+   "type_note": "pkg of 100 pans + 100 lids (DSC guide p.64)"
+  },
+  {
+   "id": "cons_tin_capsules",
+   "type": "labware.elementar_tin_capsule_11x8",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S2-05"
+   },
+   "storage_class": "general",
+   "for": [
+    "elementar_varioel"
+   ],
+   "source": "typical",
+   "count": 100,
+   "description": "box of tin capsules for CHNS combustion",
+   "provisional_type": "box_tin_capsules",
+   "type_status": "packaging_of",
+   "type_note": "100 pcs package (Elementar 200006458)"
+  },
+  {
+   "id": "cons_cuvettes_ps",
+   "type": "labware.brand_ps_macro_cuvette_759005",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S2-06"
+   },
+   "storage_class": "general",
+   "for": [],
+   "source": "typical",
+   "count": 100,
+   "description": "box of disposable 10 mm polystyrene cuvettes",
+   "provisional_type": "box_cuvettes_ps_10mm",
+   "type_status": "packaging_of",
+   "type_note": "pack of 100"
+  },
+  {
+   "id": "cons_cuvettes_quartz",
+   "type": "labware.hellma_100_10_40_quartz_cuvette",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S2-07"
+   },
+   "storage_class": "general",
+   "for": [],
+   "source": "typical",
+   "count": 4,
+   "description": "case with 10 mm quartz cuvettes",
+   "provisional_type": "cuvette_quartz_10mm_case",
+   "type_status": "packaging_of",
+   "type_note": "cuvette case not modelled"
+  },
+  {
+   "id": "cons_nmr_tubes",
+   "type": "labware.norell_nmr_tube_5mm_7in",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S2-08"
+   },
+   "storage_class": "general",
+   "for": [
+    "magritek_spinsolve80"
+   ],
+   "source": "typical",
+   "count": 25,
+   "description": "box of 5 mm NMR tubes",
+   "provisional_type": "box_nmr_tubes_5mm",
+   "type_status": "packaging_of"
+  },
+  {
+   "id": "cons_seal_film",
+   "type": "labware.azenta_seal_roll_4ti0520",
+   "contents": [],
+   "location": {
+    "place": "consumables_cabinet",
+    "position": "S3-01"
+   },
+   "storage_class": "general",
+   "for": [
+    "azenta_automated_roll_heat_sealer_a4s"
+   ],
+   "source": "typical spare roll (one roll is threaded in the sealer)",
+   "count": 1,
+   "description": "roll of peelable heat-seal film for microplates",
+   "provisional_type": "roll_heat_seal_film",
+   "type_status": "exact",
+   "type_note": "mesh reused from the a4S asset's film_roll part"
+  },
+  {
+   "id": "cyl_n2_1",
+   "type": "labware.gas_cylinder_50l_200bar",
+   "contents": [
+    {
+     "substance": "nitrogen",
+     "amount": {
+      "value": 410.0,
+      "unit": "mol"
+     },
+     "grade": "5.0 (99.999 %)"
+    }
+   ],
+   "location": {
+    "place": "cylinder_rack",
+    "position": "C1"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "ta_dsc2500",
+    "ta_tga5500",
+    "ta_tma450",
+    "ta_dma850",
+    "netzsch_lfa467",
+    "surface_dvsresolution",
+    "porometer_poroluxrevo"
+   ],
+   "connected_to": [
+    "ta_dsc2500",
+    "ta_tga5500",
+    "ta_tma450",
+    "ta_dma850",
+    "netzsch_lfa467",
+    "surface_dvsresolution",
+    "porometer_poroluxrevo"
+   ],
+   "source": "typical: a 50 L cylinder at 200 bar holds about 410 mol of a permanent gas (pV/RT at 20 °C) (hydrogen about 360 mol: compressibility about 1.13 at 200 bar)",
+   "description": "steel gas cylinder 50 L water capacity, 200 bar, with regulator",
+   "provisional_type": "cylinder_50l_200bar",
+   "type_status": "exact"
+  },
+  {
+   "id": "cyl_n2_2",
+   "type": "labware.gas_cylinder_50l_200bar",
+   "contents": [
+    {
+     "substance": "nitrogen",
+     "amount": {
+      "value": 400.1,
+      "unit": "mol"
+     },
+     "grade": "5.0 (99.999 %)"
+    }
+   ],
+   "location": {
+    "place": "cylinder_rack",
+    "position": "C2"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "laboao_cvdltf12p50",
+    "bronkhorst_cemw",
+    "inert_puresolvmd",
+    "gas_flavourspec25gc",
+    "teledyne_atomxxyz",
+    "bronkhorst_p702cv_5bar_gauge_n2"
+   ],
+   "connected_to": [
+    "laboao_cvdltf12p50",
+    "bronkhorst_cemw",
+    "inert_puresolvmd",
+    "gas_flavourspec25gc",
+    "teledyne_atomxxyz",
+    "bronkhorst_p702cv_5bar_gauge_n2"
+   ],
+   "source": "full 50 L cylinder: 8.0018 mol/L x 50 L = 400.1 mol (NIST Chemistry WebBook SRD 69 density at 288.15 K and 201.01 bar abs (200 bar gauge fill at 15 C), x water capacity; table and query URLs: outputs/expansion_batch04/t5_automation/laboao_cvdltf12p50/sources/nist_fluid_288K_201bar.json)",
+   "description": "steel gas cylinder 50 L water capacity, 200 bar, with regulator",
+   "provisional_type": "cylinder_50l_200bar",
+   "type_status": "exact"
+  },
+  {
+   "id": "cyl_ar_1",
+   "type": "labware.gas_cylinder_50l_200bar",
+   "contents": [
+    {
+     "substance": "argon",
+     "amount": {
+      "value": 447.7,
+      "unit": "mol"
+     },
+     "grade": "5.0 (99.999 %)"
+    }
+   ],
+   "location": {
+    "place": "cylinder_rack",
+    "position": "C3"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "shimadzu_icpe9800",
+    "shimadzu_icpms2030",
+    "laboao_cvdltf12p50",
+    "inert_purelab_he_2gb"
+   ],
+   "connected_to": [
+    "shimadzu_icpe9800",
+    "shimadzu_icpms2030",
+    "laboao_cvdltf12p50",
+    "inert_purelab_he_2gb"
+   ],
+   "source": "full 50 L cylinder: 8.9545 mol/L x 50 L = 447.7 mol (NIST Chemistry WebBook SRD 69 density at 288.15 K and 201.01 bar abs (200 bar gauge fill at 15 C), x water capacity; table and query URLs: outputs/expansion_batch04/t5_automation/laboao_cvdltf12p50/sources/nist_fluid_288K_201bar.json)",
+   "description": "steel gas cylinder 50 L water capacity, 200 bar, with regulator",
+   "provisional_type": "cylinder_50l_200bar",
+   "type_status": "exact"
+  },
+  {
+   "id": "cyl_he_1",
+   "type": "labware.gas_cylinder_50l_200bar",
+   "contents": [
+    {
+     "substance": "helium",
+     "amount": {
+      "value": 410.0,
+      "unit": "mol"
+     },
+     "grade": "5.0 (99.999 %)"
+    }
+   ],
+   "location": {
+    "place": "cylinder_rack",
+    "position": "C4"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "agilent_7890b_ssl_fid",
+    "agilent_gc8890b",
+    "antonpaar_ultrapyc5000",
+    "elementar_varioel",
+    "leco_onh836",
+    "markes_unityxr"
+   ],
+   "connected_to": [
+    "agilent_7890b_ssl_fid",
+    "agilent_gc8890b",
+    "antonpaar_ultrapyc5000",
+    "elementar_varioel",
+    "leco_onh836",
+    "markes_unityxr"
+   ],
+   "source": "typical: a 50 L cylinder at 200 bar holds about 410 mol of a permanent gas (pV/RT at 20 °C) (hydrogen about 360 mol: compressibility about 1.13 at 200 bar)",
+   "description": "steel gas cylinder 50 L water capacity, 200 bar, with regulator",
+   "provisional_type": "cylinder_50l_200bar",
+   "type_status": "exact"
+  },
+  {
+   "id": "cyl_o2_1",
+   "type": "labware.gas_cylinder_50l_200bar",
+   "contents": [
+    {
+     "substance": "oxygen",
+     "amount": {
+      "value": 410.0,
+      "unit": "mol"
+     },
+     "grade": "4.8 (99.998 %)"
+    }
+   ],
+   "location": {
+    "place": "cylinder_rack",
+    "position": "C5"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "ta_tga5500",
+    "elementar_varioel",
+    "shimadzu_tocl",
+    "ika_c6000"
+   ],
+   "connected_to": [
+    "ta_tga5500",
+    "elementar_varioel",
+    "shimadzu_tocl",
+    "ika_c6000"
+   ],
+   "source": "typical: a 50 L cylinder at 200 bar holds about 410 mol of a permanent gas (pV/RT at 20 °C) (hydrogen about 360 mol: compressibility about 1.13 at 200 bar)",
+   "description": "steel gas cylinder 50 L water capacity, 200 bar, with regulator",
+   "provisional_type": "cylinder_50l_200bar",
+   "type_status": "exact"
+  },
+  {
+   "id": "cyl_air_1",
+   "type": "labware.gas_cylinder_50l_200bar",
+   "contents": [
+    {
+     "substance": "nitrogen",
+     "amount": {
+      "value": 325.95,
+      "unit": "mol"
+     },
+     "mole_fraction": 0.795,
+     "grade": "synthetic air, hydrocarbon-free"
+    },
+    {
+     "substance": "oxygen",
+     "amount": {
+      "value": 84.05,
+      "unit": "mol"
+     },
+     "mole_fraction": 0.205,
+     "grade": "synthetic air, hydrocarbon-free"
+    }
+   ],
+   "location": {
+    "place": "cylinder_rack",
+    "position": "C6"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "agilent_7890b_ssl_fid",
+    "ta_dma850",
+    "jena_contraa800"
+   ],
+   "connected_to": [
+    "agilent_7890b_ssl_fid",
+    "ta_dma850",
+    "jena_contraa800"
+   ],
+   "source": "typical: a 50 L cylinder at 200 bar holds about 410 mol of a permanent gas (pV/RT at 20 °C) (hydrogen about 360 mol: compressibility about 1.13 at 200 bar)",
+   "description": "steel gas cylinder 50 L water capacity, 200 bar, with regulator",
+   "provisional_type": "cylinder_50l_200bar",
+   "type_status": "exact"
+  },
+  {
+   "id": "cyl_co2_ref",
+   "type": "labware.gas_cylinder_10l_200bar",
+   "contents": [
+    {
+     "substance": "carbon_dioxide",
+     "amount": {
+      "value": 170.0,
+      "unit": "mol"
+     },
+     "grade": "4.5, isotope reference gas"
+    }
+   ],
+   "location": {
+    "place": "cylinder_rack",
+    "position": "C7"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "elementar_isoprimeprecision"
+   ],
+   "connected_to": [
+    "elementar_isoprimeprecision"
+   ],
+   "source": "typical: a 10 L CO2 cylinder holds 7.5 kg (170 mol) liquefied",
+   "description": "CO2 cylinder 10 L, liquefied, with regulator",
+   "provisional_type": "cylinder_10l_co2_liquefied",
+   "type_status": "substitute",
+   "type_note": "same 10 L steel shell; liquefied CO2 at ~57 bar (20 C) is a ledger property, no dip tube modelled"
+  },
+  {
+   "id": "cyl_h2_1",
+   "type": "labware.gas_cylinder_50l_200bar",
+   "contents": [
+    {
+     "substance": "hydrogen",
+     "amount": {
+      "value": 360.0,
+      "unit": "mol"
+     },
+     "grade": "5.0 (99.999 %)"
+    }
+   ],
+   "location": {
+    "place": "gas_cabinet_flammable",
+    "position": "G1"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "agilent_7890b_ssl_fid",
+    "agilent_gc8890b"
+   ],
+   "connected_to": [
+    "agilent_7890b_ssl_fid",
+    "agilent_gc8890b"
+   ],
+   "source": "typical: a 50 L cylinder at 200 bar holds about 410 mol of a permanent gas (pV/RT at 20 °C) (hydrogen about 360 mol: compressibility about 1.13 at 200 bar)",
+   "description": "steel gas cylinder 50 L water capacity, 200 bar, with regulator",
+   "provisional_type": "cylinder_50l_200bar",
+   "type_status": "exact"
+  },
+  {
+   "id": "cyl_ch4_1",
+   "type": "labware.gas_cylinder_50l_200bar",
+   "contents": [
+    {
+     "substance": "methane",
+     "amount": {
+      "value": 525.1,
+      "unit": "mol"
+     },
+     "grade": "4.5 (99.995 %)"
+    }
+   ],
+   "location": {
+    "place": "gas_cabinet_flammable",
+    "position": "G2"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "laboao_cvdltf12p50"
+   ],
+   "connected_to": [
+    "laboao_cvdltf12p50"
+   ],
+   "source": "full 50 L cylinder: 10.502 mol/L x 50 L = 525.1 mol (NIST Chemistry WebBook SRD 69 density at 288.15 K and 201.01 bar abs (200 bar gauge fill at 15 C), x water capacity; table and query URLs: outputs/expansion_batch04/t5_automation/laboao_cvdltf12p50/sources/nist_fluid_288K_201bar.json); a 50 L cylinder like the hydrogen one (G1), was 10 L / 95 mol",
+   "description": "steel gas cylinder 50 L water capacity, 200 bar, with regulator",
+   "provisional_type": "cylinder_50l_200bar",
+   "type_status": "exact"
+  },
+  {
+   "id": "cyl_c2h2_1",
+   "type": "labware.gas_cylinder_10l_200bar",
+   "contents": [
+    {
+     "substance": "acetylene",
+     "amount": {
+      "value": 77.0,
+      "unit": "mol"
+     },
+     "grade": "2.6, dissolved in acetone"
+    }
+   ],
+   "location": {
+    "place": "gas_cabinet_flammable",
+    "position": "G3"
+   },
+   "storage_class": "compressed_gas",
+   "for": [
+    "jena_contraa800"
+   ],
+   "connected_to": [
+    "jena_contraa800"
+   ],
+   "source": "typical: a 10 L acetylene cylinder holds about 2 kg (77 mol) dissolved in acetone",
+   "description": "acetylene cylinder 10 L (dissolved in acetone), with regulator",
+   "provisional_type": "cylinder_10l_acetylene",
+   "type_status": "substitute",
+   "type_note": "acetylene cylinders hold a porous mass + acetone at ~19 bar and are wider; shape of the 10 L cylinder stands in until a sourced model is built"
+  }
+ ],
+ "instrument_contents": [
+  {
+   "id": "agilent_1260infinity/sample",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sample",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "defined_by": "the agilent_1260infinity runtime (sample / template sample)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "agilent_1260infinity",
+    "position": "position 1"
+   },
+   "for": [
+    "agilent_1260infinity"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "agilent_1290infinity/PS_mix",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "tetrahydrofuran",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     }
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "agilent_1290infinity",
+    "position": null
+   },
+   "for": [
+    "agilent_1290infinity"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "agilent_gc8890b/mix1",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "mix1",
+     "defined_by": "the agilent_gc8890b runtime (sample / template mix1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "agilent_gc8890b",
+    "position": null
+   },
+   "for": [
+    "agilent_gc8890b"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "agilent_hplc1260/mix1",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "mix1",
+     "defined_by": "the agilent_hplc1260 runtime (sample / template mix1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "agilent_hplc1260",
+    "position": null
+   },
+   "for": [
+    "agilent_hplc1260"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "agilent_hs8697/v1",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "v1",
+     "amount": {
+      "value": 20.0,
+      "unit": "mL"
+     },
+     "defined_by": "the agilent_hs8697 runtime (sample / template v1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "agilent_hs8697",
+    "position": null
+   },
+   "for": [
+    "agilent_hs8697"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "agilent_hs8697/v2",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "v2",
+     "amount": {
+      "value": 20.0,
+      "unit": "mL"
+     },
+     "defined_by": "the agilent_hs8697 runtime (sample / template v2)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "agilent_hs8697",
+    "position": null
+   },
+   "for": [
+    "agilent_hs8697"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "agilent_hs8697/v3",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "v3",
+     "amount": {
+      "value": 20.0,
+      "unit": "mL"
+     },
+     "defined_by": "the agilent_hs8697 runtime (sample / template v3)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "agilent_hs8697",
+    "position": null
+   },
+   "for": [
+    "agilent_hs8697"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "agilent_hs8697/v4",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "v4",
+     "amount": {
+      "value": 20.0,
+      "unit": "mL"
+     },
+     "defined_by": "the agilent_hs8697 runtime (sample / template v4)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "agilent_hs8697",
+    "position": null
+   },
+   "for": [
+    "agilent_hs8697"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "ametek_oxtran/poly_ethylene_terephthalate",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "poly_ethylene_terephthalate",
+     "reference_template": "poly_ethylene_terephthalate",
+     "defined_by": "the ametek_oxtran runtime (sample / template poly_ethylene_terephthalate)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ametek_oxtran",
+    "position": "cell A"
+   },
+   "for": [
+    "ametek_oxtran"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_autosorb6100/sample_0",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sample_0",
+     "defined_by": "the antonpaar_autosorb6100 runtime (sample / template sample_0)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_autosorb6100",
+    "position": "station 0"
+   },
+   "for": [
+    "antonpaar_autosorb6100"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_hit300/borofloat33_5mn_rep1",
+   "kind": "specimen",
+   "contents": [
+    {
+     "material": "borofloat33_5mn_rep1",
+     "defined_by": "the antonpaar_hit300 runtime (sample / template borofloat33_5mn_rep1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_hit300",
+    "position": null
+   },
+   "for": [
+    "antonpaar_hit300"
+   ],
+   "source": "put in by the default lab set-up (specimen)"
+  },
+  {
+   "id": "antonpaar_litesizerdia/liquid",
+   "kind": "liquid",
+   "contents": [
+    {
+     "material": "liquid",
+     "amount": {
+      "value": 300.0,
+      "unit": "mL"
+     },
+     "defined_by": "the antonpaar_litesizerdia runtime (sample / template liquid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_litesizerdia",
+    "position": null
+   },
+   "for": [
+    "antonpaar_litesizerdia"
+   ],
+   "source": "put in by the default lab set-up (liquid)"
+  },
+  {
+   "id": "antonpaar_litesizerdia/grain_capecod",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "grain_capecod",
+     "defined_by": "the antonpaar_litesizerdia runtime (sample / template grain_capecod)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_litesizerdia",
+    "position": null
+   },
+   "for": [
+    "antonpaar_litesizerdia"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_litesizerdls/cad9_aqueous",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "cad9_aqueous",
+     "amount": {
+      "value": 0.7,
+      "unit": "mL"
+     },
+     "defined_by": "the antonpaar_litesizerdls runtime (sample / template cad9_aqueous)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_litesizerdls",
+    "position": null
+   },
+   "for": [
+    "antonpaar_litesizerdls"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_mcr503/water",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "water",
+     "amount": {
+      "value": 0.490874,
+      "unit": "mL"
+     },
+     "defined_by": "the antonpaar_mcr503 runtime (sample / template water)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_mcr503",
+    "position": null
+   },
+   "for": [
+    "antonpaar_mcr503"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_poremaster60/mercury",
+   "kind": "mercury",
+   "contents": [
+    {
+     "material": "mercury",
+     "amount": {
+      "value": 100.0,
+      "unit": "g"
+     },
+     "defined_by": "the antonpaar_poremaster60 runtime (sample / template mercury)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_poremaster60",
+    "position": null
+   },
+   "for": [
+    "antonpaar_poremaster60"
+   ],
+   "source": "put in by the default lab set-up (mercury)"
+  },
+  {
+   "id": "antonpaar_poremaster60/hemp_01",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "hemp_01",
+     "defined_by": "the antonpaar_poremaster60 runtime (sample / template hemp_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_poremaster60",
+    "position": null
+   },
+   "for": [
+    "antonpaar_poremaster60"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_psa1190/liquid",
+   "kind": "liquid",
+   "contents": [
+    {
+     "material": "liquid",
+     "amount": {
+      "value": 450.0,
+      "unit": "mL"
+     },
+     "defined_by": "the antonpaar_psa1190 runtime (sample / template liquid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_psa1190",
+    "position": null
+   },
+   "for": [
+    "antonpaar_psa1190"
+   ],
+   "source": "put in by the default lab set-up (liquid)"
+  },
+  {
+   "id": "antonpaar_psa1190/steel_batch_1",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "steel_batch_1",
+     "amount": {
+      "value": 8.0,
+      "unit": "g"
+     },
+     "defined_by": "the antonpaar_psa1190 runtime (sample / template steel_batch_1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_psa1190",
+    "position": null
+   },
+   "for": [
+    "antonpaar_psa1190"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_rst300/borofloat33_10n_r1",
+   "kind": "specimen",
+   "contents": [
+    {
+     "material": "borofloat33_10n_r1",
+     "defined_by": "the antonpaar_rst300 runtime (sample / template borofloat33_10n_r1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_rst300",
+    "position": null
+   },
+   "for": [
+    "antonpaar_rst300"
+   ],
+   "source": "put in by the default lab set-up (specimen)"
+  },
+  {
+   "id": "antonpaar_saxspace/lysozyme_5",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "water",
+     "amount": {
+      "value": 0.2,
+      "unit": "mL"
+     }
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_saxspace",
+    "position": null
+   },
+   "for": [
+    "antonpaar_saxspace"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_surpass3/private_cotton_equivalent",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "private_cotton_equivalent",
+     "defined_by": "the antonpaar_surpass3 runtime (sample / template private_cotton_equivalent)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_surpass3",
+    "position": null
+   },
+   "for": [
+    "antonpaar_surpass3"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "antonpaar_trb/cr100_leadbronze_dry_003",
+   "kind": "specimen",
+   "contents": [
+    {
+     "material": "cr100_leadbronze_dry_003",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "defined_by": "the antonpaar_trb runtime (sample / template cr100_leadbronze_dry_003)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_trb",
+    "position": null
+   },
+   "for": [
+    "antonpaar_trb"
+   ],
+   "source": "put in by the default lab set-up (specimen)"
+  },
+  {
+   "id": "antonpaar_ultrapyc5000/private_al_powder",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "private_al_powder",
+     "defined_by": "the antonpaar_ultrapyc5000 runtime (sample / template private_al_powder)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "antonpaar_ultrapyc5000",
+    "position": null
+   },
+   "for": [
+    "antonpaar_ultrapyc5000"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "applied_sx20/fluorescein_demo",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "ethanol"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "applied_sx20",
+    "position": null
+   },
+   "for": [
+    "applied_sx20"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "arradiance_gemstarxt/substrate_01",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "substrate_01",
+     "defined_by": "the arradiance_gemstarxt runtime (sample / template substrate_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "arradiance_gemstarxt",
+    "position": null
+   },
+   "for": [
+    "arradiance_gemstarxt"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "azenta_automated_roll_heat_sealer_a4s/roll_1",
+   "kind": "load film",
+   "contents": [
+    {
+     "material": "roll_1",
+     "defined_by": "the azenta_automated_roll_heat_sealer_a4s runtime (sample / template roll_1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "azenta_automated_roll_heat_sealer_a4s",
+    "position": null
+   },
+   "for": [
+    "azenta_automated_roll_heat_sealer_a4s"
+   ],
+   "source": "put in by the default lab set-up (load film)"
+  },
+  {
+   "id": "azenta_automated_roll_heat_sealer_a4s/pcr_plate_1",
+   "kind": "load plate",
+   "contents": [
+    {
+     "material": "pcr_plate_1",
+     "defined_by": "the azenta_automated_roll_heat_sealer_a4s runtime (sample / template pcr_plate_1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "azenta_automated_roll_heat_sealer_a4s",
+    "position": null
+   },
+   "for": [
+    "azenta_automated_roll_heat_sealer_a4s"
+   ],
+   "source": "put in by the default lab set-up (load plate)"
+  },
+  {
+   "id": "azenta_intellixcap_s1_46_0001/register_consumable",
+   "kind": "register consumable",
+   "contents": [
+    {
+     "material": "register_consumable",
+     "defined_by": "the azenta_intellixcap_s1_46_0001 runtime (sample / template register_consumable)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "azenta_intellixcap_s1_46_0001",
+    "position": null
+   },
+   "for": [
+    "azenta_intellixcap_s1_46_0001"
+   ],
+   "source": "put in by the default lab set-up (register consumable)"
+  },
+  {
+   "id": "azenta_intellixcap_s1_46_0001/t1",
+   "kind": "present sample",
+   "contents": [
+    {
+     "material": "t1",
+     "defined_by": "the azenta_intellixcap_s1_46_0001 runtime (sample / template t1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "azenta_intellixcap_s1_46_0001",
+    "position": null
+   },
+   "for": [
+    "azenta_intellixcap_s1_46_0001"
+   ],
+   "source": "put in by the default lab set-up (present sample)"
+  },
+  {
+   "id": "biolin_sigma700/cas_67_56_1",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "methanol",
+     "amount": {
+      "value": 30.0,
+      "unit": "mL"
+     }
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biolin_sigma700",
+    "position": null
+   },
+   "for": [
+    "biolin_sigma700"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "biolin_thetaflex/al_ctab_a_row7",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "al_ctab_a_row7",
+     "defined_by": "the biolin_thetaflex runtime (sample / template al_ctab_a_row7)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biolin_thetaflex",
+    "position": null
+   },
+   "for": [
+    "biolin_thetaflex"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "biolin_thetaflex/al_ctab_a_row7_2",
+   "kind": "stock",
+   "contents": [
+    {
+     "material": "al_ctab_a_row7",
+     "amount": {
+      "value": 0.2,
+      "unit": "mL"
+     },
+     "defined_by": "the biolin_thetaflex runtime (sample / template al_ctab_a_row7)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biolin_thetaflex",
+    "position": null
+   },
+   "for": [
+    "biolin_thetaflex"
+   ],
+   "source": "put in by the default lab set-up (stock)"
+  },
+  {
+   "id": "biorad_cfxopus/gapdh_std",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "gapdh_std",
+     "defined_by": "the biorad_cfxopus runtime (sample / template gapdh_std)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biorad_cfxopus",
+    "position": null
+   },
+   "for": [
+    "biorad_cfxopus"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "biorad_cfxopus/plate_1",
+   "kind": "plate",
+   "contents": [
+    {
+     "material": "plate_1",
+     "defined_by": "the biorad_cfxopus runtime (sample / template plate_1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biorad_cfxopus",
+    "position": null
+   },
+   "for": [
+    "biorad_cfxopus"
+   ],
+   "source": "put in by the default lab set-up (plate)"
+  },
+  {
+   "id": "biorad_miniprotean/gel_a",
+   "kind": "gel",
+   "contents": [
+    {
+     "material": "gel_a",
+     "defined_by": "the biorad_miniprotean runtime (sample / template gel_a)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biorad_miniprotean",
+    "position": null
+   },
+   "for": [
+    "biorad_miniprotean"
+   ],
+   "source": "put in by the default lab set-up (gel)"
+  },
+  {
+   "id": "biorad_miniprotean/gel_a_2",
+   "kind": "gel",
+   "contents": [
+    {
+     "material": "gel_a",
+     "defined_by": "the biorad_miniprotean runtime (sample / template gel_a)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biorad_miniprotean",
+    "position": "position 1"
+   },
+   "for": [
+    "biorad_miniprotean"
+   ],
+   "source": "put in by the default lab set-up (gel)"
+  },
+  {
+   "id": "biorad_miniprotean/buffer_dam",
+   "kind": "gel",
+   "contents": [
+    {
+     "material": "buffer_dam",
+     "defined_by": "the biorad_miniprotean runtime (sample / template buffer_dam)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biorad_miniprotean",
+    "position": "position 2"
+   },
+   "for": [
+    "biorad_miniprotean"
+   ],
+   "source": "put in by the default lab set-up (gel)"
+  },
+  {
+   "id": "biorad_miniprotean/buffer",
+   "kind": "buffer",
+   "contents": [
+    {
+     "material": "tris_glycine_sds_1x",
+     "amount": {
+      "value": 150.0,
+      "unit": "mL"
+     },
+     "defined_by": "the biorad_miniprotean runtime (sample / template buffer)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biorad_miniprotean",
+    "position": "chamber inner"
+   },
+   "for": [
+    "biorad_miniprotean"
+   ],
+   "source": "put in by the default lab set-up (buffer)"
+  },
+  {
+   "id": "biorad_miniprotean/buffer_2",
+   "kind": "buffer",
+   "contents": [
+    {
+     "material": "tris_glycine_sds_1x",
+     "amount": {
+      "value": 600.0,
+      "unit": "mL"
+     },
+     "defined_by": "the biorad_miniprotean runtime (sample / template buffer)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biorad_miniprotean",
+    "position": "chamber outer"
+   },
+   "for": [
+    "biorad_miniprotean"
+   ],
+   "source": "put in by the default lab set-up (buffer)"
+  },
+  {
+   "id": "biorad_miniprotean/ladder_1",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "ladder_1",
+     "amount": {
+      "value": 0.01,
+      "unit": "mL"
+     },
+     "defined_by": "the biorad_miniprotean runtime (sample / template ladder_1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biorad_miniprotean",
+    "position": null
+   },
+   "for": [
+    "biorad_miniprotean"
+   ],
+   "source": "protein ladder: prestained marker, 10 µL (typical mini-gel loading)"
+  },
+  {
+   "id": "biotek_405ts/p1",
+   "kind": "plate",
+   "contents": [
+    {
+     "material": "pbs_1x",
+     "defined_by": "the biotek_405ts runtime (sample / template p1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "biotek_405ts",
+    "position": null
+   },
+   "for": [
+    "biotek_405ts"
+   ],
+   "source": "put in by the default lab set-up (plate)"
+  },
+  {
+   "id": "bmg_clariostarplus/fluorescein_standard",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "fluorescein_standard",
+     "defined_by": "the bmg_clariostarplus runtime (sample / template fluorescein_standard)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "bmg_clariostarplus",
+    "position": null
+   },
+   "for": [
+    "bmg_clariostarplus"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "bmg_clariostarplus/water",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "water",
+     "defined_by": "the bmg_clariostarplus runtime (sample / template water)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "bmg_clariostarplus",
+    "position": null
+   },
+   "for": [
+    "bmg_clariostarplus"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "bmg_clariostarplus/wp",
+   "kind": "plate",
+   "contents": [
+    {
+     "material": "wp",
+     "defined_by": "the bmg_clariostarplus runtime (sample / template wp)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "bmg_clariostarplus",
+    "position": null
+   },
+   "for": [
+    "bmg_clariostarplus"
+   ],
+   "source": "put in by the default lab set-up (plate)"
+  },
+  {
+   "id": "bruker_magnettechesr5000/blank_01",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "material": "blank_01",
+     "amount": {
+      "value": 0.1,
+      "unit": "mL"
+     },
+     "defined_by": "the bruker_magnettechesr5000 runtime (sample / template blank_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "bruker_magnettechesr5000",
+    "position": null
+   },
+   "for": [
+    "bruker_magnettechesr5000"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "bruker_magnettechesr5000/sample_01",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sample_01",
+     "reference_template": "niehs_109",
+     "amount": {
+      "value": 0.1,
+      "unit": "mL"
+     },
+     "defined_by": "the bruker_magnettechesr5000 runtime (sample / template niehs_109)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "bruker_magnettechesr5000",
+    "position": null
+   },
+   "for": [
+    "bruker_magnettechesr5000"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "bruker_minispecmq20/sample_01",
+   "kind": "solution",
+   "contents": [
+    {
+     "material": "sample_01",
+     "reference_template": "patent_picolinate_p04218_pc2a1pa_sym",
+     "amount": {
+      "value": 0.5,
+      "unit": "mL"
+     },
+     "defined_by": "the bruker_minispecmq20 runtime (sample / template patent_picolinate_p04218_pc2a1pa_sym)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "bruker_minispecmq20",
+    "position": null
+   },
+   "for": [
+    "bruker_minispecmq20"
+   ],
+   "source": "put in by the default lab set-up (solution)"
+  },
+  {
+   "id": "bruker_minispecmq20/sample_01_2",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sample_01",
+     "defined_by": "the bruker_minispecmq20 runtime (sample / template sample_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "bruker_minispecmq20",
+    "position": null
+   },
+   "for": [
+    "bruker_minispecmq20"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "bruker_x4poseidon/alumina_pellet",
+   "kind": "sample (cylinder)",
+   "contents": [
+    {
+     "material": "alumina_pellet",
+     "defined_by": "the bruker_x4poseidon runtime (sample / template alumina_pellet)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "bruker_x4poseidon",
+    "position": null
+   },
+   "for": [
+    "bruker_x4poseidon"
+   ],
+   "source": "put in by the default lab set-up (sample (cylinder))"
+  },
+  {
+   "id": "camag_tlcscanner/hptlc_01",
+   "kind": "plate",
+   "contents": [
+    {
+     "material": "hptlc_01",
+     "defined_by": "the camag_tlcscanner runtime (sample / template hptlc_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "camag_tlcscanner",
+    "position": null
+   },
+   "for": [
+    "camag_tlcscanner"
+   ],
+   "source": "put in by the default lab set-up (plate)"
+  },
+  {
+   "id": "camag_tlcscanner/plate",
+   "kind": "plate",
+   "contents": [
+    {
+     "material": "plate",
+     "defined_by": "the camag_tlcscanner runtime (sample / template plate)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "camag_tlcscanner",
+    "position": null
+   },
+   "for": [
+    "camag_tlcscanner"
+   ],
+   "source": "put in by the default lab set-up (plate)"
+  },
+  {
+   "id": "ch_chi440c/copper_bath",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "copper_bath",
+     "main_component": "copper",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "defined_by": "the ch_chi440c runtime (sample / template copper_bath)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ch_chi440c",
+    "position": null
+   },
+   "for": [
+    "ch_chi440c"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "ch_chi920d/synthetic_surface",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "o2_neutral",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "defined_by": "the ch_chi920d runtime (sample / template synthetic_surface)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ch_chi920d",
+    "position": null
+   },
+   "for": [
+    "ch_chi920d"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "cytiva_biacoret200/run_buffer",
+   "kind": "solution",
+   "contents": [
+    {
+     "material": "hbs_ep_plus",
+     "amount": {
+      "value": 1000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the cytiva_biacoret200 runtime (sample / template run_buffer)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_biacoret200",
+    "position": null
+   },
+   "for": [
+    "cytiva_biacoret200"
+   ],
+   "source": "put in by the default lab set-up (solution)"
+  },
+  {
+   "id": "cytiva_biacoret200/dist_water",
+   "kind": "solution",
+   "contents": [
+    {
+     "substance": "water",
+     "amount": {
+      "value": 500.0,
+      "unit": "mL"
+     }
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_biacoret200",
+    "position": null
+   },
+   "for": [
+    "cytiva_biacoret200"
+   ],
+   "source": "put in by the default lab set-up (solution)"
+  },
+  {
+   "id": "cytiva_biacoret200/run_buffer_2",
+   "kind": "bottle",
+   "contents": [
+    {
+     "material": "run_buffer",
+     "amount": {
+      "value": 950.0,
+      "unit": "mL"
+     },
+     "defined_by": "the cytiva_biacoret200 runtime (sample / template run_buffer)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_biacoret200",
+    "position": "slot buffer_a"
+   },
+   "for": [
+    "cytiva_biacoret200"
+   ],
+   "source": "put in by the default lab set-up (bottle)"
+  },
+  {
+   "id": "cytiva_biacoret200/dist_water_2",
+   "kind": "bottle",
+   "contents": [
+    {
+     "material": "dist_water",
+     "amount": {
+      "value": 450.0,
+      "unit": "mL"
+     },
+     "defined_by": "the cytiva_biacoret200 runtime (sample / template dist_water)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_biacoret200",
+    "position": "slot water"
+   },
+   "for": [
+    "cytiva_biacoret200"
+   ],
+   "source": "put in by the default lab set-up (bottle)"
+  },
+  {
+   "id": "cytiva_biacoret200/buf_s",
+   "kind": "solution",
+   "contents": [
+    {
+     "material": "hbs_ep_plus",
+     "amount": {
+      "value": 0.6,
+      "unit": "mL"
+     },
+     "defined_by": "the cytiva_biacoret200 runtime (sample / template buf_s)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_biacoret200",
+    "position": null
+   },
+   "for": [
+    "cytiva_biacoret200"
+   ],
+   "source": "put in by the default lab set-up (solution)"
+  },
+  {
+   "id": "cytiva_biacoret200/buf_s_2",
+   "kind": "rack",
+   "contents": [
+    {
+     "material": "buf_s",
+     "amount": {
+      "value": 0.4,
+      "unit": "mL"
+     },
+     "defined_by": "the cytiva_biacoret200 runtime (sample / template buf_s)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_biacoret200",
+    "position": "position R1B1"
+   },
+   "for": [
+    "cytiva_biacoret200"
+   ],
+   "source": "put in by the default lab set-up (rack)"
+  },
+  {
+   "id": "cytiva_nanoassemblrignite/tubes",
+   "kind": "tubes",
+   "contents": [
+    {
+     "material": "tubes",
+     "defined_by": "the cytiva_nanoassemblrignite runtime (sample / template tubes)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_nanoassemblrignite",
+    "position": null
+   },
+   "for": [
+    "cytiva_nanoassemblrignite"
+   ],
+   "source": "put in by the default lab set-up (tubes)"
+  },
+  {
+   "id": "cytiva_nanoassemblrignite/syringe",
+   "kind": "syringe",
+   "contents": [
+    {
+     "material": "syringe",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the cytiva_nanoassemblrignite runtime (sample / template syringe)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_nanoassemblrignite",
+    "position": "channel 0"
+   },
+   "for": [
+    "cytiva_nanoassemblrignite"
+   ],
+   "source": "put in by the default lab set-up (syringe)"
+  },
+  {
+   "id": "cytiva_nanoassemblrignite/syringe_2",
+   "kind": "syringe",
+   "contents": [
+    {
+     "material": "syringe",
+     "amount": {
+      "value": 3.0,
+      "unit": "mL"
+     },
+     "defined_by": "the cytiva_nanoassemblrignite runtime (sample / template syringe)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_nanoassemblrignite",
+    "position": "channel 1"
+   },
+   "for": [
+    "cytiva_nanoassemblrignite"
+   ],
+   "source": "put in by the default lab set-up (syringe)"
+  },
+  {
+   "id": "cytiva_nanoassemblrignite/syringe_3",
+   "kind": "syringe",
+   "contents": [
+    {
+     "material": "syringe",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "defined_by": "the cytiva_nanoassemblrignite runtime (sample / template syringe)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "cytiva_nanoassemblrignite",
+    "position": "channel 2"
+   },
+   "for": [
+    "cytiva_nanoassemblrignite"
+   ],
+   "source": "put in by the default lab set-up (syringe)"
+  },
+  {
+   "id": "edinburgh_fls1000tcspc/reference_488",
+   "kind": "sample (fluorescent)",
+   "contents": [
+    {
+     "material": "reference_488",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "defined_by": "the edinburgh_fls1000tcspc runtime (sample / template reference_488)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "edinburgh_fls1000tcspc",
+    "position": null
+   },
+   "for": [
+    "edinburgh_fls1000tcspc"
+   ],
+   "source": "put in by the default lab set-up (sample (fluorescent))"
+  },
+  {
+   "id": "elementar_varioel/blank_0",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "material": "blank_0",
+     "defined_by": "the elementar_varioel runtime (sample / template blank_0)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "elementar_varioel",
+    "position": "slot_index 0"
+   },
+   "for": [
+    "elementar_varioel"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "elementar_varioel/standard_1",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "standard_1",
+     "reference_template": "oem_sulfanilic_acid",
+     "amount": {
+      "value": 0.001,
+      "unit": "g"
+     },
+     "defined_by": "the elementar_varioel runtime (sample / template oem_sulfanilic_acid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "elementar_varioel",
+    "position": "slot_index 1"
+   },
+   "for": [
+    "elementar_varioel"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "elementar_varioel/standard_2",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "standard_2",
+     "reference_template": "oem_sulfanilic_acid",
+     "amount": {
+      "value": 0.002,
+      "unit": "g"
+     },
+     "defined_by": "the elementar_varioel runtime (sample / template oem_sulfanilic_acid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "elementar_varioel",
+    "position": "slot_index 2"
+   },
+   "for": [
+    "elementar_varioel"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "elementar_varioel/standard_3",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "standard_3",
+     "reference_template": "oem_sulfanilic_acid",
+     "amount": {
+      "value": 0.003,
+      "unit": "g"
+     },
+     "defined_by": "the elementar_varioel runtime (sample / template oem_sulfanilic_acid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "elementar_varioel",
+    "position": "slot_index 3"
+   },
+   "for": [
+    "elementar_varioel"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "elementar_varioel/sample_4",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sample_4",
+     "reference_template": "oem_wheat_flour",
+     "amount": {
+      "value": 0.002,
+      "unit": "g"
+     },
+     "defined_by": "the elementar_varioel runtime (sample / template oem_wheat_flour)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "elementar_varioel",
+    "position": "slot_index 4"
+   },
+   "for": [
+    "elementar_varioel"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "elga_purelab_flex3/install_consumables",
+   "kind": "install consumables",
+   "contents": [
+    {
+     "material": "install_consumables",
+     "defined_by": "the elga_purelab_flex3 runtime (sample / template install_consumables)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "elga_purelab_flex3",
+    "position": null
+   },
+   "for": [
+    "elga_purelab_flex3"
+   ],
+   "source": "put in by the default lab set-up (install consumables)"
+  },
+  {
+   "id": "eppendorf_5910ri/tube_a",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "tube_a",
+     "amount": {
+      "value": 50.0,
+      "unit": "g"
+     },
+     "defined_by": "the eppendorf_5910ri runtime (sample / template tube_a)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "eppendorf_5910ri",
+    "position": null
+   },
+   "for": [
+    "eppendorf_5910ri"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "eppendorf_5910ri/tube_b",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "tube_b",
+     "amount": {
+      "value": 50.0,
+      "unit": "g"
+     },
+     "defined_by": "the eppendorf_5910ri runtime (sample / template tube_b)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "eppendorf_5910ri",
+    "position": null
+   },
+   "for": [
+    "eppendorf_5910ri"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "eppendorf_5910ri/tube_c",
+   "kind": "register sample",
+   "contents": [
+    {
+     "material": "tube_c",
+     "amount": {
+      "value": 60.0,
+      "unit": "g"
+     },
+     "defined_by": "the eppendorf_5910ri runtime (sample / template tube_c)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "eppendorf_5910ri",
+    "position": null
+   },
+   "for": [
+    "eppendorf_5910ri"
+   ],
+   "source": "put in by the default lab set-up (register sample)"
+  },
+  {
+   "id": "evident_bx53p/quartz_section",
+   "kind": "sample (thin_section)",
+   "contents": [
+    {
+     "material": "main_sio2",
+     "defined_by": "the evident_bx53p runtime (sample / template quartz_section)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "evident_bx53p",
+    "position": null
+   },
+   "for": [
+    "evident_bx53p"
+   ],
+   "source": "put in by the default lab set-up (sample (thin_section))"
+  },
+  {
+   "id": "freeman_ft4powder/tablettose_70_2026",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "tablettose_70_2026",
+     "amount": {
+      "value": 51.0,
+      "unit": "g"
+     },
+     "defined_by": "the freeman_ft4powder runtime (sample / template tablettose_70_2026)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "freeman_ft4powder",
+    "position": null
+   },
+   "for": [
+    "freeman_ft4powder"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "frontier_egapy/private_PS",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "private_PS",
+     "defined_by": "the frontier_egapy runtime (sample / template private_PS)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "frontier_egapy",
+    "position": null
+   },
+   "for": [
+    "frontier_egapy"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "glatt_miniglatt/powder",
+   "kind": "powder",
+   "contents": [
+    {
+     "material": "powder",
+     "defined_by": "the glatt_miniglatt runtime (sample / template powder)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "glatt_miniglatt",
+    "position": null
+   },
+   "for": [
+    "glatt_miniglatt"
+   ],
+   "source": "put in by the default lab set-up (powder)"
+  },
+  {
+   "id": "glatt_miniglatt/liquid",
+   "kind": "liquid",
+   "contents": [
+    {
+     "material": "liquid",
+     "amount": {
+      "value": 30.0,
+      "unit": "mL"
+     },
+     "defined_by": "the glatt_miniglatt runtime (sample / template liquid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "glatt_miniglatt",
+    "position": null
+   },
+   "for": [
+    "glatt_miniglatt"
+   ],
+   "source": "put in by the default lab set-up (liquid)"
+  },
+  {
+   "id": "hach_dr6000/blank_01",
+   "kind": "register sample (blank)",
+   "contents": [
+    {
+     "material": "blank_01",
+     "defined_by": "the hach_dr6000 runtime (sample / template blank_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "hach_dr6000",
+    "position": null
+   },
+   "for": [
+    "hach_dr6000"
+   ],
+   "source": "put in by the default lab set-up (register sample (blank))"
+  },
+  {
+   "id": "hach_dr6000/sample_01",
+   "kind": "register sample (sample)",
+   "contents": [
+    {
+     "material": "sample_01",
+     "defined_by": "the hach_dr6000 runtime (sample / template sample_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "hach_dr6000",
+    "position": null
+   },
+   "for": [
+    "hach_dr6000"
+   ],
+   "source": "put in by the default lab set-up (register sample (sample))"
+  },
+  {
+   "id": "hot_tps2500/stainless_steel_316l_hotdisk",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "stainless_steel_316l_hotdisk",
+     "defined_by": "the hot_tps2500 runtime (sample / template stainless_steel_316l_hotdisk)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "hot_tps2500",
+    "position": null
+   },
+   "for": [
+    "hot_tps2500"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "ja_alphase/pmma_on_si",
+   "kind": "sample (film_stack)",
+   "contents": [
+    {
+     "material": "pmma_on_si",
+     "defined_by": "the ja_alphase runtime (sample / template pmma_on_si)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ja_alphase",
+    "position": null
+   },
+   "for": [
+    "ja_alphase"
+   ],
+   "source": "put in by the default lab set-up (sample (film_stack))"
+  },
+  {
+   "id": "jasco_cpl300/solvent_blank",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "material": "basic ethanol",
+     "amount": {
+      "value": 2.0,
+      "unit": "mL"
+     },
+     "defined_by": "the jasco_cpl300 runtime (sample / template solvent_blank)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_cpl300",
+    "position": null
+   },
+   "for": [
+    "jasco_cpl300"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "jasco_fp8350/blank_01",
+   "kind": "solution (blank)",
+   "contents": [
+    {
+     "material": "blank_01",
+     "amount": {
+      "value": 2.0,
+      "unit": "mL"
+     },
+     "defined_by": "the jasco_fp8350 runtime (sample / template blank_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_fp8350",
+    "position": null
+   },
+   "for": [
+    "jasco_fp8350"
+   ],
+   "source": "put in by the default lab set-up (solution (blank))"
+  },
+  {
+   "id": "jasco_fp8350/sample_01",
+   "kind": "solution (sample)",
+   "contents": [
+    {
+     "material": "sample_01",
+     "reference_template": "pcad_083",
+     "amount": {
+      "value": 2.0,
+      "unit": "mL"
+     },
+     "defined_by": "the jasco_fp8350 runtime (sample / template pcad_083)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_fp8350",
+    "position": null
+   },
+   "for": [
+    "jasco_fp8350"
+   ],
+   "source": "put in by the default lab set-up (solution (sample))"
+  },
+  {
+   "id": "jasco_fp8350/blank_01_2",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "blank_01",
+     "defined_by": "the jasco_fp8350 runtime (sample / template blank_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_fp8350",
+    "position": null
+   },
+   "for": [
+    "jasco_fp8350"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "jasco_ftir4700/ethanol_01",
+   "kind": "register template sample",
+   "contents": [
+    {
+     "substance": "ethanol"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_ftir4700",
+    "position": null
+   },
+   "for": [
+    "jasco_ftir4700"
+   ],
+   "source": "put in by the default lab set-up (register template sample)"
+  },
+  {
+   "id": "jasco_fvs6000/solvent_blank",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "material": "DMSO-d6",
+     "amount": {
+      "value": 0.05,
+      "unit": "mL"
+     },
+     "defined_by": "the jasco_fvs6000 runtime (sample / template solvent_blank)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_fvs6000",
+    "position": null
+   },
+   "for": [
+    "jasco_fvs6000"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "jasco_j1500/blank_01",
+   "kind": "solution (blank)",
+   "contents": [
+    {
+     "material": "blank_01",
+     "amount": {
+      "value": 0.2,
+      "unit": "mL"
+     },
+     "defined_by": "the jasco_j1500 runtime (sample / template blank_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_j1500",
+    "position": null
+   },
+   "for": [
+    "jasco_j1500"
+   ],
+   "source": "put in by the default lab set-up (solution (blank))"
+  },
+  {
+   "id": "jasco_j1500/sample_01",
+   "kind": "solution (sample)",
+   "contents": [
+    {
+     "material": "sample_01",
+     "reference_template": "sp175_hsa",
+     "amount": {
+      "value": 0.2,
+      "unit": "mL"
+     },
+     "defined_by": "the jasco_j1500 runtime (sample / template sp175_hsa)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_j1500",
+    "position": null
+   },
+   "for": [
+    "jasco_j1500"
+   ],
+   "source": "put in by the default lab set-up (solution (sample))"
+  },
+  {
+   "id": "jasco_j1500/blank_01_2",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "blank_01",
+     "defined_by": "the jasco_j1500 runtime (sample / template blank_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_j1500",
+    "position": null
+   },
+   "for": [
+    "jasco_j1500"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "jasco_nrs5500/mineral_01",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "mineral_01",
+     "amount": {
+      "value": 1.0,
+      "unit": "g"
+     },
+     "defined_by": "the jasco_nrs5500 runtime (sample / template mineral_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_nrs5500",
+    "position": null
+   },
+   "for": [
+    "jasco_nrs5500"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "jasco_p4200/blank_water",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "substance": "water",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     }
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_p4200",
+    "position": null
+   },
+   "for": [
+    "jasco_p4200"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "jasco_p4200/quartz_10deg",
+   "kind": "sample (quartz)",
+   "contents": [
+    {
+     "material": "quartz_10deg",
+     "defined_by": "the jasco_p4200 runtime (sample / template quartz_10deg)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_p4200",
+    "position": null
+   },
+   "for": [
+    "jasco_p4200"
+   ],
+   "source": "put in by the default lab set-up (sample (quartz))"
+  },
+  {
+   "id": "jasco_p4200/sample_01",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "water",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     }
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jasco_p4200",
+    "position": null
+   },
+   "for": [
+    "jasco_p4200"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "jena_contraa800/standard",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "standard",
+     "reference_template": "aj_wastewater_std3_cu",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the jena_contraa800 runtime (sample / template aj_wastewater_std3_cu)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jena_contraa800",
+    "position": "vial_index 0"
+   },
+   "for": [
+    "jena_contraa800"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "jena_multix/aox_linear_100_r1_c1",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "aox_linear_100_r1_c1",
+     "reference_template": "aox_linear_100_r1_c1",
+     "amount": {
+      "value": 0.05,
+      "unit": "g"
+     },
+     "defined_by": "the jena_multix runtime (sample / template aox_linear_100_r1_c1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jena_multix",
+    "position": null
+   },
+   "for": [
+    "jena_multix"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "jeol_jem1400flash/au_np_on_carbon",
+   "kind": "specimen",
+   "contents": [
+    {
+     "material": "au_np_on_carbon",
+     "defined_by": "the jeol_jem1400flash runtime (sample / template au_np_on_carbon)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jeol_jem1400flash",
+    "position": null
+   },
+   "for": [
+    "jeol_jem1400flash"
+   ],
+   "source": "put in by the default lab set-up (specimen)"
+  },
+  {
+   "id": "jeol_jsmit200/fe_si_polished",
+   "kind": "specimen",
+   "contents": [
+    {
+     "material": "fe_si_polished",
+     "defined_by": "the jeol_jsmit200 runtime (sample / template fe_si_polished)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "jeol_jsmit200",
+    "position": null
+   },
+   "for": [
+    "jeol_jsmit200"
+   ],
+   "source": "put in by the default lab set-up (specimen)"
+  },
+  {
+   "id": "keyence_vkx3000/sio2_step_on_si",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sio2_step_on_si",
+     "defined_by": "the keyence_vkx3000 runtime (sample / template sio2_step_on_si)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "keyence_vkx3000",
+    "position": null
+   },
+   "for": [
+    "keyence_vkx3000"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "knauer_k7400s/water",
+   "kind": "sample (reference)",
+   "contents": [
+    {
+     "material": "water",
+     "amount": {
+      "value": 0.15,
+      "unit": "mL"
+     },
+     "defined_by": "the knauer_k7400s runtime (sample / template water)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "knauer_k7400s",
+    "position": null
+   },
+   "for": [
+    "knauer_k7400s"
+   ],
+   "source": "put in by the default lab set-up (sample (reference))"
+  },
+  {
+   "id": "kratos_axissupra/sio2_on_si",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sio2_on_si",
+     "defined_by": "the kratos_axissupra runtime (sample / template sio2_on_si)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "kratos_axissupra",
+    "position": null
+   },
+   "for": [
+    "kratos_axissupra"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "lakeshore_8604vsm/kuleuven_cf_300k",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "kuleuven_cf_300k",
+     "amount": {
+      "value": 0.006283,
+      "unit": "mL"
+     },
+     "defined_by": "the lakeshore_8604vsm runtime (sample / template kuleuven_cf_300k)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "lakeshore_8604vsm",
+    "position": null
+   },
+   "for": [
+    "lakeshore_8604vsm"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "leco_onh836/sample",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "material": "sample",
+     "defined_by": "the leco_onh836 runtime (sample / template sample)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "leco_onh836",
+    "position": null
+   },
+   "for": [
+    "leco_onh836"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "leco_onh836/crucible",
+   "kind": "crucible",
+   "contents": [
+    {
+     "material": "crucible",
+     "defined_by": "the leco_onh836 runtime (sample / template crucible)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "leco_onh836",
+    "position": null
+   },
+   "for": [
+    "leco_onh836"
+   ],
+   "source": "put in by the default lab set-up (crucible)"
+  },
+  {
+   "id": "leco_onh836/leco_503558_reference",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "leco_503558_reference",
+     "reference_template": "leco_503558_reference",
+     "amount": {
+      "value": 0.12,
+      "unit": "g"
+     },
+     "defined_by": "the leco_onh836 runtime (sample / template leco_503558_reference)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "leco_onh836",
+    "position": null
+   },
+   "for": [
+    "leco_onh836"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "linseis_lsr3/tematdb_00009",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "tematdb_00009",
+     "defined_by": "the linseis_lsr3 runtime (sample / template tematdb_00009)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "linseis_lsr3",
+    "position": null
+   },
+   "for": [
+    "linseis_lsr3"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "magritek_spinsolve80/ethanol_01",
+   "kind": "register template sample",
+   "contents": [
+    {
+     "material": "CDCl3",
+     "defined_by": "the magritek_spinsolve80 runtime (sample / template ethanol_01)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "magritek_spinsolve80",
+    "position": null
+   },
+   "for": [
+    "magritek_spinsolve80"
+   ],
+   "source": "put in by the default lab set-up (register template sample)"
+  },
+  {
+   "id": "malvern_microcalpeaq/edta",
+   "kind": "solution",
+   "contents": [
+    {
+     "material": "edta",
+     "amount": {
+      "value": 3.0,
+      "unit": "mL"
+     },
+     "defined_by": "the malvern_microcalpeaq runtime (sample / template edta)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "malvern_microcalpeaq",
+    "position": null
+   },
+   "for": [
+    "malvern_microcalpeaq"
+   ],
+   "source": "put in by the default lab set-up (solution)"
+  },
+  {
+   "id": "malvern_microcalpeaq/ca",
+   "kind": "solution",
+   "contents": [
+    {
+     "material": "ca",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "defined_by": "the malvern_microcalpeaq runtime (sample / template ca)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "malvern_microcalpeaq",
+    "position": null
+   },
+   "for": [
+    "malvern_microcalpeaq"
+   ],
+   "source": "put in by the default lab set-up (solution)"
+  },
+  {
+   "id": "markes_unityxr/private_air",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "private_air",
+     "defined_by": "the markes_unityxr runtime (sample / template private_air)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "markes_unityxr",
+    "position": null
+   },
+   "for": [
+    "markes_unityxr"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "metrohm_899/copper_ii_sulfate_pentahydrate",
+   "kind": "load template sample",
+   "contents": [
+    {
+     "substance": "copper_sulfate_pentahydrate"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "metrohm_899",
+    "position": null
+   },
+   "for": [
+    "metrohm_899"
+   ],
+   "source": "put in by the default lab set-up (load template sample)"
+  },
+  {
+   "id": "metrohm_omnis/load_template_sample",
+   "kind": "load template sample",
+   "contents": [
+    {
+     "material": "load_template_sample",
+     "defined_by": "the metrohm_omnis runtime (sample / template load_template_sample)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "metrohm_omnis",
+    "position": null
+   },
+   "for": [
+    "metrohm_omnis"
+   ],
+   "source": "put in by the default lab set-up (load template sample)"
+  },
+  {
+   "id": "microtrac_turbiscanlab/lentil_soybean_hipe_untreated",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "lentil_soybean_hipe_untreated",
+     "amount": {
+      "value": 20.0,
+      "unit": "mL"
+     },
+     "defined_by": "the microtrac_turbiscanlab runtime (sample / template lentil_soybean_hipe_untreated)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "microtrac_turbiscanlab",
+    "position": null
+   },
+   "for": [
+    "microtrac_turbiscanlab"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "milestone_dma80/sample",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "material": "sample",
+     "amount": {
+      "value": 0.1,
+      "unit": "g"
+     },
+     "defined_by": "the milestone_dma80 runtime (sample / template sample)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "milestone_dma80",
+    "position": "slot_index 0"
+   },
+   "for": [
+    "milestone_dma80"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "milestone_dma80/nist_2448_certified",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "nist_2448_certified",
+     "reference_template": "nist_2448_certified",
+     "amount": {
+      "value": 0.02,
+      "unit": "g"
+     },
+     "defined_by": "the milestone_dma80 runtime (sample / template nist_2448_certified)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "milestone_dma80",
+    "position": "slot_index 1"
+   },
+   "for": [
+    "milestone_dma80"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "milestone_dma80/nist_2448_certified_2",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "nist_2448_certified",
+     "reference_template": "nist_2448_certified",
+     "amount": {
+      "value": 0.05,
+      "unit": "g"
+     },
+     "defined_by": "the milestone_dma80 runtime (sample / template nist_2448_certified)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "milestone_dma80",
+    "position": "slot_index 2"
+   },
+   "for": [
+    "milestone_dma80"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "milestone_dma80/nist_2448_certified_3",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "nist_2448_certified",
+     "reference_template": "nist_2448_certified",
+     "amount": {
+      "value": 0.1,
+      "unit": "g"
+     },
+     "defined_by": "the milestone_dma80 runtime (sample / template nist_2448_certified)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "milestone_dma80",
+    "position": "slot_index 3"
+   },
+   "for": [
+    "milestone_dma80"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "milestone_dma80/nist_2448_certified_4",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "nist_2448_certified",
+     "reference_template": "nist_2448_certified",
+     "amount": {
+      "value": 0.05,
+      "unit": "g"
+     },
+     "defined_by": "the milestone_dma80 runtime (sample / template nist_2448_certified)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "milestone_dma80",
+    "position": "slot_index 5"
+   },
+   "for": [
+    "milestone_dma80"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "nanosurf_naiostm/hopg",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "hopg",
+     "reference_template": "hopg_kit",
+     "defined_by": "the nanosurf_naiostm runtime (sample / template hopg_kit)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "nanosurf_naiostm",
+    "position": null
+   },
+   "for": [
+    "nanosurf_naiostm"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "netzsch_lfa467/nist_sic",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "nist_sic",
+     "defined_by": "the netzsch_lfa467 runtime (sample / template nist_sic)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "netzsch_lfa467",
+    "position": "position 1"
+   },
+   "for": [
+    "netzsch_lfa467"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "netzsch_mmc315/di_tbutyl_peroxide",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "toluene"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "netzsch_mmc315",
+    "position": null
+   },
+   "for": [
+    "netzsch_mmc315"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "newera_ne1000/syringe",
+   "kind": "syringe",
+   "contents": [
+    {
+     "substance": "water"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "newera_ne1000",
+    "position": null
+   },
+   "for": [
+    "newera_ne1000"
+   ],
+   "source": "put in by the default lab set-up (syringe)"
+  },
+  {
+   "id": "novocontrol_alphat/water_crc_7732_18_5",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "water_crc_7732_18_5",
+     "defined_by": "the novocontrol_alphat runtime (sample / template water_crc_7732_18_5)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "novocontrol_alphat",
+    "position": null
+   },
+   "for": [
+    "novocontrol_alphat"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "park_nx10/grating",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "grating",
+     "reference_template": "calibration_grating_xyz",
+     "defined_by": "the park_nx10 runtime (sample / template calibration_grating_xyz)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "park_nx10",
+    "position": null
+   },
+   "for": [
+    "park_nx10"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "pine_wavevortex10/private_oxygen_bath",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "o2_neutral",
+     "amount": {
+      "value": 50.0,
+      "unit": "mL"
+     },
+     "defined_by": "the pine_wavevortex10 runtime (sample / template private_oxygen_bath)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "pine_wavevortex10",
+    "position": null
+   },
+   "for": [
+    "pine_wavevortex10"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "porometer_poroluxrevo/pvdf_fc43_2016",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "pvdf_fc43_2016",
+     "defined_by": "the porometer_poroluxrevo runtime (sample / template pvdf_fc43_2016)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "porometer_poroluxrevo",
+    "position": null
+   },
+   "for": [
+    "porometer_poroluxrevo"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "porometer_poroluxrevo/liquid",
+   "kind": "liquid",
+   "contents": [
+    {
+     "material": "liquid",
+     "amount": {
+      "value": 1.0,
+      "unit": "g"
+     },
+     "defined_by": "the porometer_poroluxrevo runtime (sample / template liquid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "porometer_poroluxrevo",
+    "position": null
+   },
+   "for": [
+    "porometer_poroluxrevo"
+   ],
+   "source": "put in by the default lab set-up (liquid)"
+  },
+  {
+   "id": "rigaku_xtalabsynergy/aspirin_01",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "aspirin"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "rigaku_xtalabsynergy",
+    "position": null
+   },
+   "for": [
+    "rigaku_xtalabsynergy"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "sciex_pa800/rinse buffer",
+   "kind": "vial",
+   "contents": [
+    {
+     "material": "rinse buffer",
+     "amount": {
+      "value": 1.5,
+      "unit": "mL"
+     },
+     "defined_by": "the sciex_pa800 runtime (sample / template rinse buffer)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "sciex_pa800",
+    "position": "position BI:A1"
+   },
+   "for": [
+    "sciex_pa800"
+   ],
+   "source": "put in by the default lab set-up (vial)"
+  },
+  {
+   "id": "sciex_pa800/waste",
+   "kind": "vial",
+   "contents": [
+    {
+     "material": "waste",
+     "amount": {
+      "value": 0.6,
+      "unit": "mL"
+     },
+     "defined_by": "the sciex_pa800 runtime (sample / template waste)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "sciex_pa800",
+    "position": "position BO:A1"
+   },
+   "for": [
+    "sciex_pa800"
+   ],
+   "source": "put in by the default lab set-up (vial)"
+  },
+  {
+   "id": "sciex_pa800/run buffer in",
+   "kind": "vial",
+   "contents": [
+    {
+     "material": "run buffer in",
+     "amount": {
+      "value": 1.5,
+      "unit": "mL"
+     },
+     "defined_by": "the sciex_pa800 runtime (sample / template run buffer in)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "sciex_pa800",
+    "position": "position BI:B1"
+   },
+   "for": [
+    "sciex_pa800"
+   ],
+   "source": "put in by the default lab set-up (vial)"
+  },
+  {
+   "id": "sciex_pa800/run buffer out",
+   "kind": "vial",
+   "contents": [
+    {
+     "material": "run buffer out",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     },
+     "defined_by": "the sciex_pa800 runtime (sample / template run buffer out)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "sciex_pa800",
+    "position": "position BO:B1"
+   },
+   "for": [
+    "sciex_pa800"
+   ],
+   "source": "put in by the default lab set-up (vial)"
+  },
+  {
+   "id": "sciex_pa800/sample 1",
+   "kind": "vial",
+   "contents": [
+    {
+     "material": "sample 1",
+     "amount": {
+      "value": 1.5,
+      "unit": "mL"
+     },
+     "defined_by": "the sciex_pa800 runtime (sample / template sample 1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "sciex_pa800",
+    "position": "position SI:A1"
+   },
+   "for": [
+    "sciex_pa800"
+   ],
+   "source": "put in by the default lab set-up (vial)"
+  },
+  {
+   "id": "seal_aa500/nitrate_stock",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "nitrate_stock",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template nitrate_stock)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/nitrite_stock",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "nitrite_stock",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template nitrite_stock)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/ammonium_stock",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "ammonium_stock",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template ammonium_stock)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/phosphate_stock",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "phosphate_stock",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template phosphate_stock)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/silicate_stock",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "silicate_stock",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template silicate_stock)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/reagents_nitrate_nitrite",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "reagents_nitrate_nitrite",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template reagents_nitrate_nitrite)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/reagents_nitrite",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "reagents_nitrite",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template reagents_nitrite)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/reagents_ammonia",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "reagents_ammonia",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template reagents_ammonia)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/reagents_phosphate",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "reagents_phosphate",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template reagents_phosphate)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/reagents_silicate",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "reagents_silicate",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template reagents_silicate)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/wash_water",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "wash_water",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template wash_water)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/cadmium_activation",
+   "kind": "kit",
+   "contents": [
+    {
+     "material": "cadmium_activation",
+     "amount": {
+      "value": 3000.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template cadmium_activation)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (kit)"
+  },
+  {
+   "id": "seal_aa500/imidazole_buffer",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "imidazole_buffer",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template imidazole_buffer)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch1"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/colour_reagent",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "colour_reagent",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template colour_reagent)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch1"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/complexing_reagent",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "complexing_reagent",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template complexing_reagent)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch2"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/alkaline_phenol",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "alkaline_phenol",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template alkaline_phenol)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch2"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/hypochlorite_nitroprusside",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "hypochlorite_nitroprusside",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template hypochlorite_nitroprusside)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch2"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/molybdate_antimony",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "molybdate_antimony",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template molybdate_antimony)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch3"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/ascorbic_acid",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "ascorbic_acid",
+     "main_component": "ascorbic_acid",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template ascorbic_acid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch3"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/molybdate",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "molybdate",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template molybdate)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch4"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/oxalic_acid",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "oxalic_acid",
+     "main_component": "oxalic_acid",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template oxalic_acid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch4"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/ascorbic_acid_2",
+   "kind": "reagent",
+   "contents": [
+    {
+     "material": "ascorbic_acid",
+     "main_component": "ascorbic_acid",
+     "amount": {
+      "value": 400.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template ascorbic_acid)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "channel ch4"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (reagent)"
+  },
+  {
+   "id": "seal_aa500/wash_water_2",
+   "kind": "sampler",
+   "contents": [
+    {
+     "material": "wash_water",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template wash_water)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "position 22"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (sampler)"
+  },
+  {
+   "id": "seal_aa500/std0",
+   "kind": "standard",
+   "contents": [
+    {
+     "material": "std0",
+     "amount": {
+      "value": 100.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template std0)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (standard)"
+  },
+  {
+   "id": "seal_aa500/std0_2",
+   "kind": "sampler",
+   "contents": [
+    {
+     "material": "std0",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template std0)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "position 1"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (sampler)"
+  },
+  {
+   "id": "seal_aa500/std1",
+   "kind": "standard",
+   "contents": [
+    {
+     "material": "std1",
+     "amount": {
+      "value": 100.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template std1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (standard)"
+  },
+  {
+   "id": "seal_aa500/std1_2",
+   "kind": "sampler",
+   "contents": [
+    {
+     "material": "std1",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template std1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "position 2"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (sampler)"
+  },
+  {
+   "id": "seal_aa500/std2",
+   "kind": "standard",
+   "contents": [
+    {
+     "material": "std2",
+     "amount": {
+      "value": 100.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template std2)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (standard)"
+  },
+  {
+   "id": "seal_aa500/std2_2",
+   "kind": "sampler",
+   "contents": [
+    {
+     "material": "std2",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template std2)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "position 3"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (sampler)"
+  },
+  {
+   "id": "seal_aa500/std3",
+   "kind": "standard",
+   "contents": [
+    {
+     "material": "std3",
+     "amount": {
+      "value": 100.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template std3)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": null
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (standard)"
+  },
+  {
+   "id": "seal_aa500/std3_2",
+   "kind": "sampler",
+   "contents": [
+    {
+     "material": "std3",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the seal_aa500 runtime (sample / template std3)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "seal_aa500",
+    "position": "position 4"
+   },
+   "for": [
+    "seal_aa500"
+   ],
+   "source": "put in by the default lab set-up (sampler)"
+  },
+  {
+   "id": "shimadzu_ags10knxd/epfl_s355_j2m_hem320_web",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "epfl_s355_j2m_hem320_web",
+     "amount": {
+      "value": 0.11,
+      "unit": "mL"
+     },
+     "defined_by": "the shimadzu_ags10knxd runtime (sample / template epfl_s355_j2m_hem320_web)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "shimadzu_ags10knxd",
+    "position": null
+   },
+   "for": [
+    "shimadzu_ags10knxd"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "shimadzu_edx7200/blackmass_icp_f",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "blackmass_icp_f",
+     "reference_template": "blackmass_icp_f",
+     "amount": {
+      "value": 10.0,
+      "unit": "g"
+     },
+     "defined_by": "the shimadzu_edx7200 runtime (sample / template blackmass_icp_f)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "shimadzu_edx7200",
+    "position": null
+   },
+   "for": [
+    "shimadzu_edx7200"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "shimadzu_icpe9800/standard",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "standard",
+     "reference_template": "shimadzu_epa_ipc_assigned",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the shimadzu_icpe9800 runtime (sample / template shimadzu_epa_ipc_assigned)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "shimadzu_icpe9800",
+    "position": null
+   },
+   "for": [
+    "shimadzu_icpe9800"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "shimadzu_icpms2030/standard",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "standard",
+     "reference_template": "infant_cal4",
+     "amount": {
+      "value": 10.0,
+      "unit": "mL"
+     },
+     "defined_by": "the shimadzu_icpms2030 runtime (sample / template infant_cal4)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "shimadzu_icpms2030",
+    "position": null
+   },
+   "for": [
+    "shimadzu_icpms2030"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "shimadzu_tocl/standard",
+   "kind": "sample (standard)",
+   "contents": [
+    {
+     "material": "standard",
+     "reference_template": "crm_altus_khp_10mg",
+     "amount": {
+      "value": 20.0,
+      "unit": "mL"
+     },
+     "defined_by": "the shimadzu_tocl runtime (sample / template crm_altus_khp_10mg)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "shimadzu_tocl",
+    "position": null
+   },
+   "for": [
+    "shimadzu_tocl"
+   ],
+   "source": "put in by the default lab set-up (sample (standard))"
+  },
+  {
+   "id": "signatone_quadpro2/starry_40927",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "starry_40927",
+     "defined_by": "the signatone_quadpro2 runtime (sample / template starry_40927)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "signatone_quadpro2",
+    "position": null
+   },
+   "for": [
+    "signatone_quadpro2"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "stanford_rga100/blank",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "material": "blank",
+     "defined_by": "the stanford_rga100 runtime (sample / template blank)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "stanford_rga100",
+    "position": null
+   },
+   "for": [
+    "stanford_rga100"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "surface_dvsresolution/bam_p109_water_nitrogen_298p15k",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "bam_p109_water_nitrogen_298p15k",
+     "defined_by": "the surface_dvsresolution runtime (sample / template bam_p109_water_nitrogen_298p15k)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "surface_dvsresolution",
+    "position": null
+   },
+   "for": [
+    "surface_dvsresolution"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "ta_dma850/sample",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sample",
+     "amount": {
+      "value": 0.01,
+      "unit": "g"
+     },
+     "defined_by": "the ta_dma850 runtime (sample / template sample)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ta_dma850",
+    "position": null
+   },
+   "for": [
+    "ta_dma850"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "ta_tamiv/halite_dissolution",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "halite_dissolution",
+     "amount": {
+      "value": 0.1,
+      "unit": "mL"
+     },
+     "defined_by": "the ta_tamiv runtime (sample / template halite_dissolution)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ta_tamiv",
+    "position": null
+   },
+   "for": [
+    "ta_tamiv"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "ta_tamiv/reference",
+   "kind": "reference",
+   "contents": [
+    {
+     "material": "reference",
+     "amount": {
+      "value": 0.1,
+      "unit": "mL"
+     },
+     "defined_by": "the ta_tamiv runtime (sample / template reference)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ta_tamiv",
+    "position": null
+   },
+   "for": [
+    "ta_tamiv"
+   ],
+   "source": "put in by the default lab set-up (reference)"
+  },
+  {
+   "id": "ta_tma450/ptfe_tma450em_expansion",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "ptfe_tma450em_expansion",
+     "amount": {
+      "value": 0.1,
+      "unit": "g"
+     },
+     "defined_by": "the ta_tma450 runtime (sample / template ptfe_tma450em_expansion)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ta_tma450",
+    "position": null
+   },
+   "for": [
+    "ta_tma450"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "teledyne_analyteexcite/private_glass",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "private_glass",
+     "defined_by": "the teledyne_analyteexcite runtime (sample / template private_glass)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "teledyne_analyteexcite",
+    "position": null
+   },
+   "for": [
+    "teledyne_analyteexcite"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "teledyne_atomxxyz/aqueous_benzene",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "benzene"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "teledyne_atomxxyz",
+    "position": "vial_index 0"
+   },
+   "for": [
+    "teledyne_atomxxyz"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "teledyne_atomxxyz/aqueous_toluene",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "toluene"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "teledyne_atomxxyz",
+    "position": "vial_index 2"
+   },
+   "for": [
+    "teledyne_atomxxyz"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "thermo_ibrightfl1500/gel1",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "gel1",
+     "defined_by": "the thermo_ibrightfl1500 runtime (sample / template gel1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "thermo_ibrightfl1500",
+    "position": null
+   },
+   "for": [
+    "thermo_ibrightfl1500"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "thermo_orbitrapexploris/blank",
+   "kind": "sample (blank)",
+   "contents": [
+    {
+     "material": "blank",
+     "amount": {
+      "value": 0.1,
+      "unit": "mL"
+     },
+     "defined_by": "the thermo_orbitrapexploris runtime (sample / template blank)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "thermo_orbitrapexploris",
+    "position": null
+   },
+   "for": [
+    "thermo_orbitrapexploris"
+   ],
+   "source": "put in by the default lab set-up (sample (blank))"
+  },
+  {
+   "id": "thermo_orbitrapexploris/host_prepared_benzamide_solution",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "host_prepared_benzamide_solution",
+     "amount": {
+      "value": 0.1,
+      "unit": "mL"
+     },
+     "defined_by": "the thermo_orbitrapexploris runtime (sample / template host_prepared_benzamide_solution)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "thermo_orbitrapexploris",
+    "position": null
+   },
+   "for": [
+    "thermo_orbitrapexploris"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "ultrafast_helios/rhodamine_b_demo",
+   "kind": "sample",
+   "contents": [
+    {
+     "substance": "ethanol",
+     "amount": {
+      "value": 1.0,
+      "unit": "mL"
+     }
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ultrafast_helios",
+    "position": null
+   },
+   "for": [
+    "ultrafast_helios"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "wyatt_eclipseaf4/sample",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "sample",
+     "defined_by": "the wyatt_eclipseaf4 runtime (sample / template sample)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "wyatt_eclipseaf4",
+    "position": null
+   },
+   "for": [
+    "wyatt_eclipseaf4"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  },
+  {
+   "id": "ziath_dp5_mirage_2023/rack_1",
+   "kind": "load rack",
+   "contents": [
+    {
+     "material": "rack_1",
+     "defined_by": "the ziath_dp5_mirage_2023 runtime (sample / template rack_1)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "ziath_dp5_mirage_2023",
+    "position": null
+   },
+   "for": [
+    "ziath_dp5_mirage_2023"
+   ],
+   "source": "put in by the default lab set-up (load rack)"
+  },
+  {
+   "id": "zwick_hit5p/basf_ultradur_b4520",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "basf_ultradur_b4520",
+     "amount": {
+      "value": 3.192,
+      "unit": "mL"
+     },
+     "defined_by": "the zwick_hit5p runtime (sample / template basf_ultradur_b4520)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "zwick_hit5p",
+    "position": null
+   },
+   "for": [
+    "zwick_hit5p"
+   ],
+   "source": "the contract example notched bar (reference specimen)"
+  },
+  {
+   "id": "zwick_mflow/basf_ultradur_b6550",
+   "kind": "sample",
+   "contents": [
+    {
+     "material": "basf_ultradur_b6550",
+     "amount": {
+      "value": 6.0,
+      "unit": "g"
+     },
+     "defined_by": "the zwick_mflow runtime (sample / template basf_ultradur_b6550)"
+    }
+   ],
+   "location": {
+    "place": "instrument",
+    "instrument": "zwick_mflow",
+    "position": null
+   },
+   "for": [
+    "zwick_mflow"
+   ],
+   "source": "put in by the default lab set-up (sample)"
+  }
+ ]
+}

@@ -1,0 +1,522 @@
+{
+ "class": "thermal",
+ "adapter": "chemlab.compile.classes.thermal:ThermalAdapter",
+ "about": "Temperature control: power, set-temp, heat on|off, temp, wait-temp, stir, safety-limit, remote, status. Ranges come from each member's contract input schema (in the unit the argument declares); temperatures are shown in °C.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "julabo_corio_cd200f",
+   "ika_plate_rctdigital",
+   "binder_fd056",
+   "binder_vd56",
+   "nabertherm_l9",
+   "carbolite_tf1_12_60_300",
+   "eppendorf_cellxpertc170i",
+   "binder_kbf115",
+   "eppendorf_cryocubef570n"
+  ],
+  "secondary": {
+   "ika_ks4000": "incubated shaker: temperature + shaking (agitation primary)",
+   "elma_elmasonics60h": "ultrasonic bath with a heater (agitation primary)"
+  },
+  "not_in_phase_a": {
+   "radleys_mya4": "four heated zones; its runtime is being fixed (F-list) - add as a member with --zone in the reactor package",
+   "scp_digiprepms": "digestion block: thermal.set_temperature only inside a configured digestion cycle (sample.configured) - digestion class",
+   "laboao_cvdltf12p50": "CVD tube furnace: set value only with furnace and flange states of a deposition run - coating class",
+   "parr_4591, mt_rc1mxhfcal, ika_rv10_digital_v, sonics_vcx750, antonpaar_dma5002 and the other instruments with a thermal.set_temperature": "temperature is one parameter of their main job (reaction, calorimetry, evaporation, measurement); their classes can reuse this class's set-temp / wait-temp handlers"
+  },
+  "verbs_not_yet_covered": "program (ramp/soak), timer and atmosphere (rh / CO2 / O2); add them here later"
+ },
+ "members": {
+  "julabo_corio_cd200f": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K"
+    },
+    "heat": {
+     "cap": "circulation.set_running",
+     "arg": "running"
+    },
+    "safety-limit": {
+     "cap": "safety.set_cutoff",
+     "arg": "temperature_K"
+    },
+    "remote": {
+     "cap": "interface.set_remote",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "limit": "safety.cutoff_k",
+    "heat": "circulation.running",
+    "remote": "interface.remote"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "interface.remote",
+      "value": true,
+      "code": "REMOTE_OFF",
+      "label": "remote control on",
+      "message": "{inst} takes set points from the computer only in remote control mode, which is off.",
+      "fix": "switch it on: `chemlab run {inst} remote on` (manual: OUT commands work only in remote mode)."
+     }
+    ],
+    "heat": [
+     {
+      "slot": "interface.remote",
+      "value": true,
+      "code": "REMOTE_OFF",
+      "label": "remote control on",
+      "message": "{inst} starts or stops from the computer only in remote control mode, which is off.",
+      "fix": "switch it on: `chemlab run {inst} remote on`."
+     }
+    ]
+   },
+   "codes": {
+    "circulation.set_running:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, a bath filled and declared by the lab, no alarm and remote mode.",
+     "fix": "check `chemlab run {inst} status` (alarm code, remote) and ask the lab operator if the bath is not set up."
+    }
+   },
+   "unsupported": {
+    "stir": "no stirrer: the bath is mixed by the circulation pump (`heat on`)"
+   },
+   "params": {
+    "tolerance_k": 0.5,
+    "heat_word": "circulation and temperature control"
+   },
+   "notes": {
+    "heat": [
+     "on a circulator, heat on starts the pump and the temperature control (circulation.set_running)"
+    ],
+    "set-temp": [
+     "the over-temperature cut-off (safety-limit) must stay above the set point"
+    ]
+   }
+  },
+  "ika_plate_rctdigital": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "set-temp": {
+     "cap": "heating.set_temperature",
+     "arg": "temperature_k"
+    },
+    "heat": {
+     "cap": "heating.set",
+     "arg": "on"
+    },
+    "stir": {
+     "speed_cap": "stirring.set_speed",
+     "speed_arg": "speed_rad_s",
+     "on_cap": "stirring.set",
+     "on_arg": "on"
+    },
+    "safety-limit": {
+     "cap": "safety.set_limit",
+     "arg": "limit_k"
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "temp": "display.temperature",
+    "set": "heating.set_k",
+    "limit": "safety.limit_k",
+    "heat": "heating.on",
+    "stir_on": "stirring.on",
+    "stir_speed": "stirring.set_rad_s"
+   },
+   "unsupported": {
+    "remote": "no remote/local mode: it takes commands whenever its interface is connected"
+   },
+   "params": {
+    "tolerance_k": 1.0,
+    "limit_margin_k": 0.0
+   },
+   "notes": {
+    "safety-limit": [
+     "the safety-circuit screw is turned by hand (safety.set_limit is a physical action)"
+    ],
+    "temp": [
+     "the plate temperature, or the probe's when a sensor is immersed"
+    ]
+   }
+  },
+  "binder_fd056": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "temperature_k"
+    },
+    "safety-limit": {
+     "cap": "safety.set_limit",
+     "arg": "limit_k"
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "temp": {
+     "slot": "display.temperature",
+     "unit_slot": "unit"
+    },
+    "set": "temperature.set_k",
+    "limit": "safety.limit_k"
+   },
+   "unsupported": {
+    "heat": "the oven controls to its set point whenever it is switched on (use `power`)",
+    "stir": "no stirrer",
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 1.0
+   }
+  },
+  "binder_vd56": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K"
+    },
+    "heat": {
+     "cap": "thermal.set_control",
+     "arg": "enabled"
+    },
+    "safety-limit": {
+     "cap": "safety.configure",
+     "arg": "limit_K",
+     "args": {
+      "mode": "limit"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "heat": "thermal.control_enabled"
+   },
+   "unsupported": {
+    "stir": "no stirrer",
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 1.0,
+    "heat_word": "temperature control"
+   },
+   "notes": {
+    "safety-limit": [
+     "sets the safety controller to an absolute limit (mode limit); its other mode is an offset above the set point"
+    ]
+   }
+  },
+  "nabertherm_l9": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "program.running",
+      "value": false,
+      "code": "BUSY",
+      "label": "no programme running",
+      "message": "a temperature programme is running on {inst}; it owns the set point.",
+      "fix": "wait for it to end, or stop it (`chemlab call {inst} thermal.stop_program`)."
+     }
+    ]
+   },
+   "unsupported": {
+    "heat": "a plain set point holds while the furnace is on; ramp/soak programmes are not class verbs yet (chemlab call thermal.start_program)",
+    "stir": "no stirrer",
+    "safety-limit": "the over-temperature limiter is not exposed by the controller",
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 3.0
+   }
+  },
+  "carbolite_tf1_12_60_300": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k"
+   },
+   "unsupported": {
+    "heat": "the controller holds its set point while on; programmes (program.*) are not class verbs yet",
+    "stir": "no stirrer",
+    "safety-limit": "not exposed (loop.configure only)",
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 3.0
+   }
+  },
+  "eppendorf_cellxpertc170i": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "setpoint_k"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "sensor.temperature_k",
+    "set": "setpoint.temperature_k"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "htd.phase",
+      "value": "idle",
+      "code": "BUSY",
+      "label": "no disinfection running",
+      "message": "{inst} is running its high-temperature disinfection (phase {value}).",
+      "fix": "wait until it has finished (`chemlab run {inst} status`)."
+     }
+    ]
+   },
+   "unsupported": {
+    "heat": "temperature control is always active while the incubator is on",
+    "stir": "no stirrer",
+    "safety-limit": "no user safety limit (alarm limits only)",
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 0.3,
+    "step_c": 0.1
+   }
+  },
+  "binder_kbf115": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "set-temp": {
+     "cap": "setpoint.set",
+     "arg": "temperature_k"
+    },
+    "safety-limit": {
+     "cap": "safety.configure",
+     "arg": "value_k",
+     "args": {
+      "mode": "limit"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "temp": "temperature.chamber_k",
+    "set": "setpoint.fixed#temperature_k"
+   },
+   "unsupported": {
+    "heat": "the chamber controls to its set point whenever it is on",
+    "stir": "no stirrer",
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 0.5
+   },
+   "notes": {
+    "set-temp": [
+     "only the temperature changes; humidity and fan keep their set points"
+    ]
+   }
+  },
+  "eppendorf_cryocubef570n": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "set-temp": {
+     "cap": "settings.configure",
+     "arg": "set_point_k"
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "temp": "temperature.interior_k",
+    "set": "settings.current#set_point_k"
+   },
+   "unsupported": {
+    "heat": "refrigeration runs whenever the freezer is on",
+    "stir": "no stirrer",
+    "safety-limit": "the freezer has alarm limits, not a cut-off (chemlab call settings.configure --high_alarm_k ...)",
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 2.0,
+    "heat_word": "cooling"
+   }
+  },
+  "ika_ks4000": {
+   "role": "secondary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "heat": {
+     "cap": "thermal.set_enabled",
+     "arg": "enabled"
+    },
+    "stir": {
+     "speed_cap": "shaking.set_speed",
+     "speed_arg": "speed_rad_s",
+     "start_cap": "shaking.start",
+     "stop_cap": "shaking.stop"
+    },
+    "safety-limit": {
+     "cap": "safety.configure",
+     "arg": "temperature_limit_k",
+     "keep": {
+      "speed_limit_rad_s": "safety.speed_limit_rad_s"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "limit": "safety.temperature_limit_k",
+    "heat": "heater.enabled",
+    "stir_speed": "shaking.target_rad_s"
+   },
+   "codes": {
+    "thermal.set_enabled:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot heat now: it needs power, the hood closed, no error, and a set point below the safety limit.",
+     "fix": "close the hood (`chemlab call {inst} hood.set_angle --angle_rad 0` if it is open) and check `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 1.0,
+    "stir_word": "shaking"
+   },
+   "requires": {
+    "safety-limit": [
+     {
+      "slot": "heater.enabled",
+      "value": false,
+      "code": "HEATING_ON",
+      "label": "heating off",
+      "message": "{inst} takes new safety limits only while heating and shaking are stopped (heating is on).",
+      "fix": "`chemlab run {inst} heat off`, set the limit, then `heat on` again."
+     }
+    ],
+    "stir": [
+     {
+      "slot": "fixture.installed",
+      "value": true,
+      "code": "NO_FIXTURE",
+      "label": "fixture installed",
+      "message": "{inst} has no shaking fixture (platform) installed, so it cannot shake.",
+      "fix": "ask the lab operator to install a fixture and secure the vessels; temperature control works without it."
+     }
+    ]
+   }
+  },
+  "elma_elmasonics60h": {
+   "role": "secondary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "heat": {
+     "cap": "thermal.set_enabled",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "heat": "heater.enabled"
+   },
+   "codes": {
+    "thermal.set_enabled:PRECONDITION_FAILED": {
+     "code": "BATH_NOT_READY",
+     "message": "the bath heater of {inst} cannot start: it needs power, liquid in the bath, the drain closed and no error.",
+     "fix": "have the bath filled (lab operator) and the drain closed, switch it on, then `heat on`."
+    }
+   },
+   "unsupported": {
+    "stir": "no stirrer (ultrasound is the agitation class's verb)",
+    "safety-limit": "no user safety limit",
+    "remote": "no remote mode"
+   },
+   "params": {
+    "tolerance_k": 1.0,
+    "heat_word": "bath heating"
+   }
+  }
+ }
+}

@@ -8,7 +8,7 @@ import copy,importlib.util,json,math
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
 from asset_runtime.pccell_ed64002 import validate
-ROOT=Path(__file__).resolve().parents[2];SLUG='scp_digiprepms';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-039';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/scp_digiprepms_digestion_library/templates.json'
+ROOT=Path(__file__).resolve().parents[2];SLUG='scp_digiprepms';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-039';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.1';TEMPLATE_REL='assets/reactions/scp_digiprepms_digestion_library/templates.json'
 def integer(lo,hi):return dict(type='integer',minimum=lo,maximum=hi,**{'x-unit':'1'})
 PHASE=dict(type='string',enum=['idle','running','succeeded','cancelled','failed'])
 SIDE=dict(type='string',enum=['left','right'])
@@ -25,13 +25,13 @@ PRODUCT_ROW=obj({'position':integer(0,47),'substance_id':TEXT,'initial_solid_mol
 POINT=obj({'time_s':number('s',0),'block_temperature_k':number('K',293.15,453.15),'indicated_temperature_k':number('K',293.15,453.15),'target_k':number('K',293.15,453.15),'heater_w':number('W',0,2000)})
 CAPS={
  'plant.configure':(PLANT,obj({'configured':BOOL}),['heater','internal_probe','port_controller'],'宿主外置控制器/通风/管材审查与热学系数，不冒充现行额定','configuration','evaluator',PLANT_EXAMPLE),
- 'method.configure':(METHOD,obj({'configured':BOOL}),['port_controller','heater'],'严格递增时间节点的线性温度程序及达温保温时间','configuration','agent',METHOD_EXAMPLE),
- 'sample.configure':(SAMPLE,obj({'configured':BOOL,'attachment_event':TEXT}),['rack_left','rack_right'],'宿主初始化最多48管、每管50mL有限样品；不是机器人装管','configuration','evaluator',example_sample()),
+ 'method.configure':(METHOD,obj({'configured':BOOL}),['port_controller','heater'],'严格递增时间节点的线性温度程序及达温保温时间；未运行时可改，周期结束或停止之后设新方法即开始新周期（时间与保温计时清零）','configuration','agent',METHOD_EXAMPLE),
+ 'sample.configure':(SAMPLE,obj({'configured':BOOL,'attachment_event':TEXT}),['rack_left','rack_right'],'宿主初始化最多48管、每管50mL有限样品；不是机器人装管；不需先有方法；未运行且块与管都不高于50 °C时可再次调用换管（取下原管，原管显热计入散热）','configuration','evaluator',example_sample()),
  'power.set':(obj({'enabled':BOOL}),obj({'enabled':BOOL}),['port_controller'],'虚拟供电目标，断电取消并保留样品','device_command','agent',dict(enabled=True)),
- 'thermal.set_temperature':(obj({'temperature_k':number('K',293.15,453.15)}),obj({'temperature_k':number('K',293.15,453.15)}),['heater','port_controller'],'未运行时改为恒温程序目标；不瞬时加热','device_command','agent',dict(temperature_k=368.15)),
+ 'thermal.set_temperature':(obj({'temperature_k':number('K',293.15,453.15)}),obj({'temperature_k':number('K',293.15,453.15)}),['heater','port_controller'],'未运行时改恒温程序（单节点）的目标温度，保温与超时不变；已配置的程序有升温斜坡（多个节点）时拒绝RAMP_PROGRAM（改用method.configure）；周期结束或停止之后即开始新周期；不瞬时加热','device_command','agent',dict(temperature_k=368.15)),
  'probe.configure':(obj({'mode':dict(type='string',enum=['block','external']),'position':integer(0,47),'connected':BOOL}),obj({'mode':TEXT,'position':integer(0,47)}),['internal_probe','port_probe'],'外接DigiPROBE选配边界；不虚构已建实体探头','configuration','evaluator',dict(mode='block',position=0,connected=False)),
  'rack.set':(obj({'side':SIDE,'lift_m':number('m',0,.12)}),obj({'side':SIDE,'lift_m':number('m',0,.12)}),['rack_left','rack_right'],'宿主手动提架目标；热/运行时互锁，非自驱动或机器人','configuration','evaluator',dict(side='left',lift_m=.1)),
- 'acquisition.start':(obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['heater','block','port_controller'],'运行热程序；完成不等于消解完全','device_command','agent',{}),
+ 'acquisition.start':(obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['heater','block','port_controller'],'运行热程序；完成不等于消解完全；周期succeeded/failed之后再启动为同一方法的新周期，cancelled之后为续跑','device_command','agent',{}),
  'acquisition.stop':(obj({}),obj({'phase':PHASE}),['heater','port_controller'],'取消保留所有部分转移；温度继续冷却','device_command','agent',{}),
  'digestion.measure':(obj({}),MEASURE,['internal_probe','port_probe'],'理想温度历史观察，不输出隐藏样品标签/真值','query','agent',{}),
  'product.read':(obj({}),obj({'records':dict(type='array',items=PRODUCT_ROW),'evidence':TEXT,'template_source':TEXT}),['rack_left','rack_right'],'评价器逐管矿物当量/酸当量/空白账本，不是实验回收率','query','evaluator',{}),
@@ -79,6 +79,10 @@ class ScpDigiprepmsRuntime:
   if any(not p['ambient_k']<=k['temperature_k']<=p['tube_limit_k'] for k in ks):raise ActionRejected('TUBE_TEMPERATURE_LIMIT')
   for t in self.tubes:
    for k in ks:self._logk(t['substance_id'],k['temperature_k'])
+ def _new_cycle_if_ended(self):
+  # 1.0.1 (2026-10-22): after a finished (succeeded / failed) or stopped cycle a new programme starts a new cycle: the cycle clock and the
+  # hold timer restart; the tubes stay in the block (their ledgers continue) unless the host reloads them
+  if self.phase in ['succeeded','failed','cancelled'] or self.elapsed_s>0:self.phase='idle';self.fault='';self.elapsed_s=0.;self.hold_s=0.
  def _program(self,t):
   ks=self.method['knots']
   for a,b in zip(ks,ks[1:]):
@@ -93,24 +97,25 @@ class ScpDigiprepmsRuntime:
    self.plant=copy.deepcopy(a);self.block_t=self.target=a['ambient_k'];out=dict(configured=True)
   elif capability=='method.configure':
    self._check_method(a)
-   if self.elapsed_s>0:raise ActionRejected('CYCLE_ALREADY_STARTED')
-   self.method=copy.deepcopy(a);self.target=a['knots'][0]['temperature_k'];out=dict(configured=True)
+   self._new_cycle_if_ended();self.method=copy.deepcopy(a);self.target=a['knots'][0]['temperature_k'];out=dict(configured=True)
   elif capability=='sample.configure':
-   if self.sample or not self.method or self.phase!='idle' or self.block_t>323.15:raise ActionRejected('PRECONDITION_FAILED')
+   if max([self.block_t]+[t['temperature_k'] for t in self.tubes])>323.15:raise ActionRejected('PRECONDITION_FAILED')   # 1.0.1: no method needed; a cool block can be reloaded
    if len({x['position'] for x in a['tubes']})!=len(a['tubes']):raise ActionRejected('DUPLICATE_POSITION')
    rows=[]
    for x in a['tubes']:
     self._logk(x['substance_id'],self.plant['ambient_k'])
-    for k in self.method['knots']:self._logk(x['substance_id'],k['temperature_k'])
+    for k in (self.method['knots'] if self.method else []):self._logk(x['substance_id'],k['temperature_k'])
     rows.append(dict(position=x['position'],substance_id=x['substance_id'],initial_solid_mol=x['solid_mol'],solid_mol=x['solid_mol'],dissolved_mol=0.,initial_acid_mol=x['acid_mol'],acid_mol=x['acid_mol'],acid_consumed_mol=0.,acid_exhaust_mol=0.,initial_blank_mol=x['blank_reservoir_mol'],blank_remaining_mol=x['blank_reservoir_mol'],blank_dissolved_mol=0.,temperature_k=self.plant['ambient_k'],_input=copy.deepcopy(x),_c=x['volume_m3']*x['density_kg_m3']*x['heat_capacity_j_kg_k']))
+   if self.tubes:self.loss_j+=sum(t['_c']*(t['temperature_k']-self.plant['ambient_k']) for t in self.tubes)   # unloaded tubes take their sensible heat away
    self.tubes=rows;self.sample=copy.deepcopy(a);out=dict(configured=True,attachment_event='host_sample_ledger_initialization_not_robot')
   elif capability=='power.set':
    self.powered=a['enabled']
    if not self.powered and self.phase=='running':self.phase='cancelled'
    out=a
   elif capability=='thermal.set_temperature':
-   if not self.method or self.elapsed_s>0:raise ActionRejected('PRECONDITION_FAILED')
-   m=copy.deepcopy(self.method);m['knots']=[dict(time_s=0.,temperature_k=a['temperature_k'])];self._check_method(m);self.method=m;self.target=a['temperature_k'];out=a
+   if not self.method:raise ActionRejected('PRECONDITION_FAILED')
+   if len(self.method['knots'])>1:raise ActionRejected('RAMP_PROGRAM')   # 1.0.1: a ramp programme is not silently replaced by a constant one
+   m=copy.deepcopy(self.method);m['knots']=[dict(time_s=0.,temperature_k=a['temperature_k'])];self._check_method(m);self._new_cycle_if_ended();self.method=m;self.target=a['temperature_k'];out=a
   elif capability=='probe.configure':
    if a['mode']=='external' and (not a['connected'] or not any(t['position']==a['position'] for t in self.tubes)):raise ActionRejected('PROBE_NOT_CONNECTED')
    self.probe_mode=a['mode'];self.probe_position=a['position'];out=dict(mode=a['mode'],position=a['position'])
@@ -118,8 +123,10 @@ class ScpDigiprepmsRuntime:
    if max([self.block_t]+[t['temperature_k'] for t in self.tubes])>323.15:raise ActionRejected('HOT_RACK')
    self.lift_target[0 if a['side']=='left' else 1]=a['lift_m'];out=a
   elif capability=='acquisition.start':
-   if not self.powered or not self.method or self.phase not in ['idle','cancelled'] or any(abs(q)>1e-8 for q in self.lift+self.lift_target) or self.elapsed_s>=self.method['timeout_s']:raise ActionRejected('PRECONDITION_FAILED')
-   self._check_method(self.method);self.phase='running';self.fault='';self._operation_count+=1;self.operation_id=self.instance_id+':'+str(self._operation_count);out=dict(phase=self.phase,operation_id=self.operation_id)
+   if not self.powered or not self.method or self.phase not in ['idle','cancelled','succeeded','failed'] or any(abs(q)>1e-8 for q in self.lift+self.lift_target) or (self.phase=='cancelled' and self.elapsed_s>=self.method['timeout_s']):raise ActionRejected('PRECONDITION_FAILED')
+   self._check_method(self.method)
+   if self.phase in ['succeeded','failed']:self._new_cycle_if_ended()   # 1.0.1: a new cycle of the same programme (cancelled: resume)
+   self.phase='running';self.fault='';self._operation_count+=1;self.operation_id=self.instance_id+':'+str(self._operation_count);out=dict(phase=self.phase,operation_id=self.operation_id)
   elif capability=='acquisition.stop':
    if self.phase=='running':self.phase='cancelled'
    out=dict(phase=self.phase)
@@ -180,7 +187,7 @@ class ScpDigiprepmsSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_scp_digiprepms_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -232,6 +239,9 @@ class ScpDigiprepmsSession:
         response=self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
         return dict(operation_id=operation_id,status=self._host.phase,result=response['result'])
 
+ERR_ZH={'RAMP_PROGRAM':'thermal.set_temperature只改恒温程序；已配置的程序有升温斜坡（多个节点），请用method.configure改程序'}   # 1.0.1
+
+
 def export_scp_digiprepms_contract_metadata():
     caps={};slots={}
     for k,(schema,unit,origin,visibility,components,write) in SLOTS.items():
@@ -240,7 +250,7 @@ def export_scp_digiprepms_contract_metadata():
     advancing=['cycle.phase','cycle.fault','cycle.elapsed_s','cycle.hold_elapsed_s','thermal.target_k','thermal.block_temperature_k','thermal.indicated_temperature_k','thermal.heater_w','truth.solid_mol','truth.dissolved_mol','truth.acid_mol','truth.sensible_energy_j','truth.input_energy_j','truth.loss_energy_j']
     for k,(inp,out,components,meaning,kind,vis,example) in CAPS.items():
         async_=k=='acquisition.start'
-        caps[k]=dict(function_zh=meaning,kind=kind,visibility=vis,component_ids=components,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.scp_digiprepms.ScpDigiprepmsSession.invoke',invocation=f'session.invoke(instance_id="digiprep_01",capability_id={k!r},arguments={example!r},request_id="unique")'),preconditions=[] if kind=='query' else [dict(description_zh='外置控制器/管材/通风宿主确认，50mL×48容量、单调程序、原数据温区、冷热管架互锁；拒绝不变状态',state_ids=['cycle.phase','plant.configured','sample.configured','power.enabled'],enforced_by='runtime',check='ScpDigiprepmsRuntime.invoke capability-specific guards')],state_effects=[dict(state_id=i,timing='immediate',description_zh='配置/目标或操作状态，不推进时间') for i in immediate.get(k,[])]+([dict(state_id=i,timing='on_step',description_zh='宿主步进显热交换、有限酸/矿物/空白当量账本与程序') for i in advancing] if async_ else [])+([dict(state_id='rack_'+side+'.lift_m',timing='on_step',description_zh='宿主管架速度0.02m/s教学代理') for side in ['left','right']] if k=='rack.set' else []),observes=[],model_effects=dict(mode='none',description_zh='本体没有一体式面板；只有经过独立求值验证的管架绑定才能升格为联动',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='最终目标±1K内累计保温达到hold_s；程序完成不保证完全消解' if async_ else '同步返回；目标不是已达物理状态',completion_state_ids=['cycle.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['48_finite_tubes','two_manual_racks','host_controller_boundary','principal_request_cache'],partial_failure_zh='取消保留全部矿物/酸/空白库存并继续显热冷却；冻结化学账本不是热酸安全状态证明。'),errors=[dict(code=e,meaning_zh=e,side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_RANGE','PROGRAM_ORDER','TUBE_TEMPERATURE_LIMIT','CYCLE_ALREADY_STARTED','DUPLICATE_POSITION','PROBE_NOT_CONNECTED','HOT_RACK']],example_arguments=copy.deepcopy(example),verification=[],limitations=['宿主教学控制器与手动提架代理；不是原厂固件、机器人或硬件；公开会话不代替文件/进程隔离。'],source_ids=['manufacturer_primary','simulation_assumption'])
+        caps[k]=dict(function_zh=meaning,kind=kind,visibility=vis,component_ids=components,availability='implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='implemented',scene='absent',robot='absent',hardware='absent',host='implemented'),binding=dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.scp_digiprepms.ScpDigiprepmsSession.invoke',invocation=f'session.invoke(instance_id="digiprep_01",capability_id={k!r},arguments={example!r},request_id="unique")'),preconditions=[] if kind=='query' else [dict(description_zh='外置控制器/管材/通风宿主确认，50mL×48容量、单调程序、原数据温区、冷热管架互锁；拒绝不变状态',state_ids=['cycle.phase','plant.configured','sample.configured','power.enabled'],enforced_by='runtime',check='ScpDigiprepmsRuntime.invoke capability-specific guards')],state_effects=[dict(state_id=i,timing='immediate',description_zh='配置/目标或操作状态，不推进时间') for i in immediate.get(k,[])]+([dict(state_id=i,timing='on_step',description_zh='宿主步进显热交换、有限酸/矿物/空白当量账本与程序') for i in advancing] if async_ else [])+([dict(state_id='rack_'+side+'.lift_m',timing='on_step',description_zh='宿主管架速度0.02m/s教学代理') for side in ['left','right']] if k=='rack.set' else []),observes=[],model_effects=dict(mode='none',description_zh='本体没有一体式面板；只有经过独立求值验证的管架绑定才能升格为联动',binding_ids=[]),execution=dict(mode='asynchronous' if async_ else 'synchronous',time_domain='simulation',completion_criterion='最终目标±1K内累计保温达到hold_s；程序完成不保证完全消解' if async_ else '同步返回；目标不是已达物理状态',completion_state_ids=['cycle.phase'] if async_ else [],timeout_s=None,cancellation='supported' if async_ else 'unsupported',retry='same_request_id',resources=['48_finite_tubes','two_manual_racks','host_controller_boundary','principal_request_cache'],partial_failure_zh='取消保留全部矿物/酸/空白库存并继续显热冷却；冻结化学账本不是热酸安全状态证明。'),errors=[dict(code=e,meaning_zh=ERR_ZH.get(e,e),side_effects='none') for e in ['UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','ACCESS_DENIED','INVALID_ARGUMENT','PRECONDITION_FAILED','BUSY','REQUEST_CONFLICT','UNKNOWN_REFERENCE','REFERENCE_RANGE','PROGRAM_ORDER','TUBE_TEMPERATURE_LIMIT','RAMP_PROGRAM','DUPLICATE_POSITION','PROBE_NOT_CONNECTED','HOT_RACK']],example_arguments=copy.deepcopy(example),verification=[],limitations=['宿主教学控制器与手动提架代理；不是原厂固件、机器人或硬件；公开会话不代替文件/进程隔离。'],source_ids=['manufacturer_primary','simulation_assumption'])
         if async_:caps[k]['errors'].append(dict(code='TIMEOUT',meaning_zh='超时终止，保留部分效果',side_effects='partial'))
     mechanism=dict(component_ids=['block','heater','internal_probe','port_controller','port_probe','rack_left','rack_right'],state_ids=list(slots),meaning_zh='历史配置功率/升温时间热代理，48管显热负载，LLNL矿物温变logK，宿主有限酸与空白代理',implementation='lumped',equations=['Historical proxy Cb=-UA*2100/log(1-UA*(368.15-293.15)/925); UA=2W/K assumed, not current model calibration','Cb*dTb/dt=Pheater-UA*(Tb-Ta)-sum(Ki*(Tb-Ti)); Ci=Vreference*rho_host*Cp_host','Exact block source/loss exponential and sequential energy-conserving block/tube pair exchange; dt<=0.5s; no latent/reaction heat','Target is piecewise-linear program; final hold counts only while selected sensor within1K; start/stop do not advance time','log10K=A1+A2*T+A3/T+A4*log10(T)+A5/T^2+A6*T^2 within each LLNL source interval','logQ=logQ0_host+nu_H*log10(H0/H); fixed product-activity proxy, NOT aqueous speciation','dn=min(nsolid*(1-exp(-k298_host*exp(Ea_host/R*(1/298.15-1/T))*max(0,1-Q/K)*dt)),H/nu_H)','acid evaporation and blank release use finite first-order host rates scaled by exp((T-298.15)/30); removed equivalents enter explicit ledgers','nsolid+ndissolved=n0; Hremaining+Hconsumed+Hexhaust=H0; blank_remaining+blank_dissolved=blank0','Only step advances physics, including manual rack position at0.02m/s; cold interlock323.15K is simulation guard, not safe handling instruction'],parameters={},source_ids=['manufacturer_primary','manufacturer_old_en','llnl_phases','simulation_assumption'],limitations=['Current power,mass,heatup unknown;925W35min historical reference is not current configuration calibration.','296 mineral reaction references are not measured digestion recoveries or a validated acid procedure. Some phases polymorphs; preserve exact reaction/name.','No complete aqueous speciation, variable activities, precipitation, redox, aerosol, chemistry heat, latent heat, solvent loss or elemental/water balance.','Energy closes only the deliberately limited sensible-heat model; fixed reference-volume density/Cp are host coefficients.','Mineral equivalents,acid equivalents and blank reservoir conserve separately; do not call this total chemical mass/volume conservation.','Temperature uniformity±1K is manufacturer nominal information, not derived from a measured48-position field.','Program completion is not complete dissolution; all reaction,volatilization,blank kinetics explicitly synthetic.','No integral display/buttons,optional controller/probe remain host boundary; physical probe/cable or robot attachment not built.','Cancellation freezes chemistry while sensible cooling continues; not validated safe-state or post-stop acid behavior.','No factory UI,hardware,safety approval or file/process isolation; Matterixack differs from native operation completion.'])
     spec=importlib.util.spec_from_file_location('_digiprep_local_annotations',ROOT/'scripts/asset_runtime/_annotations.py');ann=importlib.util.module_from_spec(spec);spec.loader.exec_module(ann);ann.KEY_ZH.update(SLOT_ZH);ann.TRUTH_ZH.update(SLOT_ZH);ann.annotate_export(SLUG,caps,slots,{'digestion':mechanism},inputs={'plant.configure':(PLANT,PLANT_EXAMPLE)})

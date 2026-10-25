@@ -3,9 +3,13 @@ from __future__ import annotations
 import copy,importlib.util,json,math
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
+
+
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.0.1: a refusal whose message names the cause
 from asset_runtime.pccell_ed64002 import validate
 ROOT=Path(__file__).resolve().parents[4] if 'outputs' in str(__file__) else Path(__file__).resolve().parents[2]
-SLUG='specac_atlasmanual';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-051';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/specac_atlasmanual_compaction_library/templates.json';TF=9806.65;MAX_LOAD=15*TF;OIL=.000284
+SLUG='specac_atlasmanual';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-051';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.1';TEMPLATE_REL='assets/reactions/specac_atlasmanual_compaction_library/templates.json';TF=9806.65;MAX_LOAD=15*TF;OIL=.000284
 PHASE=dict(type='string',enum=['idle','running','succeeded','cancelled','failed'])
 def nullable(s):return dict(anyOf=[s,dict(type='null')])
 PLANT=obj({'hydraulic_area_m2':number('m^2',.0005,.01),'oil_compliance_m3_Pa':number('m^3/Pa',1e-15,1e-11),'pump_stroke_m3':number('m^3',1e-8,5e-6),'stroke_period_s':number('s',.2,5),'internal_leak_m3_Pa_s':number('m^3/Pa/s',0,1e-12),'release_rate_s':number('1/s',.1,10),'frame_stiffness_N_m':number('N/m',1e7,1e10),'compaction_rate_s':number('1/s',.001,10),'gauge_tau_s':number('s',.01,10),'screw_speed_m_s':number('m/s',.001,.05),'screw_pitch_m_rev':number('m',.0005,.01),'guard_speed_m_s':number('m/s',.05,1),'valve_speed_rad_s':number('rad/s',.5,20),'accept_uncalibrated_model':BOOL,'coefficient_evidence':TEXT})
@@ -96,6 +100,18 @@ class SpecacAtlasmanualRuntime:
   return v
  def read(self,visibility='agent'):return copy.deepcopy({k:v for k,v in self._values().items() if SLOTS[k][3]=='agent' or visibility in ['debug','evaluator']})
  def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k!='templates'})
+ def _not_ready(self):
+  """1.0.1: the first unmet press condition of _ready, as a message (None = ready)."""
+  if not self.plant:return 'the trusted host has not configured the press (plant.configure)'
+  if not self.method:return 'no pressing method is set (method.configure)'
+  if not self.die:return 'no die is installed (die.configure)'
+  if not self.sample:return 'the die holds no sample (sample.configure)'
+  if any(self.guards.values()) or any(x>=1e-9 for x in self.guard_lifts.values()):return 'lower both safety guards first (guard.set_raised false)'
+  if self.valve_open or self.valve_angle>=1e-9:return 'close the release valve first (valve.set_open false)'
+  if abs(self.screw-self.screw_target)>=1e-9:return 'the top screw is still moving to its target'
+  if self.gap()<-1e-9:return 'the top screw is too low for the die stack'
+  if self.die['vacuum_required'] and not self.vacuum:return 'this die needs the vacuum on (vacuum.set true)'
+  return None
  def _ready(self):return bool(self.plant and self.method and self.sample and self.die and all(not x for x in self.guards.values()) and all(x<1e-9 for x in self.guard_lifts.values()) and not self.valve_open and self.valve_angle<1e-9 and abs(self.screw-self.screw_target)<1e-9 and self.gap()>=-1e-9 and (not self.die['vacuum_required'] or self.vacuum))
  def invoke(self,capability,**a):
   if capability not in CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
@@ -105,7 +121,8 @@ class SpecacAtlasmanualRuntime:
    if self.plant or not a['accept_uncalibrated_model'] or a['hydraulic_area_m2']*.0254+a['oil_compliance_m3_Pa']*MAX_LOAD/a['hydraulic_area_m2']>OIL:raise ActionRejected('PRECONDITION_FAILED')
    self.plant=copy.deepcopy(a);out=dict(configured=True)
   elif capability=='method.configure':
-   if self.phase!='idle' or not a['accept_host_observer_not_auto_press']:raise ActionRejected('PRECONDITION_FAILED')
+   if self.phase!='idle' or not a['accept_host_observer_not_auto_press']:
+    raise _rejected('PRECONDITION_FAILED','the method can only change while the press is idle' if self.phase!='idle' else 'accept_host_observer_not_auto_press must be true: the press has no automatic pump')
    self.method=copy.deepcopy(a);out=dict(configured=True)
   elif capability=='die.configure':
    if self.die or self.sample or not all(a[k] for k in ['centered','dry_clean','accept_geometry_estimate']) or self.guard_lifts['front']<.179 or abs(a['diameter_m']-.013)<1e-8 and a['maximum_load_N']>10*TF or abs(a['diameter_m']-.010)<1e-8 and a['maximum_load_N']>5*TF:raise ActionRejected('PRECONDITION_FAILED')
@@ -117,31 +134,41 @@ class SpecacAtlasmanualRuntime:
    if h+self.die['fixed_stack_height_m']>.152-self.screw:raise ActionRejected('CAPACITY_LIMIT')
    self.sample=copy.deepcopy(a);self.solid_volume=vs;self.phi=a['initial_relative_density'];self.initial_height=h;out=dict(configured=True)
   elif capability=='guard.set_raised':
-   if a['raised'] and (self.force>10 or self.pump_active or self.phase=='running'):raise ActionRejected('PRECONDITION_FAILED')
+   if a['raised'] and (self.force>10 or self.pump_active or self.phase=='running'):
+    raise _rejected('PRECONDITION_FAILED','a guard cannot be raised while the ram is under load, a pump stroke runs or a pressing is in progress')
    self.guards[a['side']]=a['raised'];out=dict(raised=a['raised'])
   elif capability=='screw.set_position':
-   if self.force>10 or self.pump_active or self.ram>1e-6 or self.phase=='running' or self.sample and .152-a['position_m']<self.die['fixed_stack_height_m']+self.initial_height:raise ActionRejected('PRECONDITION_FAILED')
+   if self.force>10 or self.pump_active or self.ram>1e-6 or self.phase=='running':
+    raise _rejected('PRECONDITION_FAILED','the screw turns only with the ram fully down and unloaded and no pressing in progress (open the release valve)')
+   if self.sample and .152-a['position_m']<self.die['fixed_stack_height_m']+self.initial_height:
+    raise _rejected('PRECONDITION_FAILED','this screw position leaves no room for the die stack and the sample')
    self.screw_target=a['position_m'];out=a
   elif capability=='valve.set_open':self.valve_open=a['open'];out=a
   elif capability=='relief.set_limit':
-   if self.force>10 or self.pump_active:raise ActionRejected('PRECONDITION_FAILED')
+   if self.force>10 or self.pump_active:raise _rejected('PRECONDITION_FAILED','the relief limit cannot be changed under load or during a pump stroke')
    self.relief_limit=a['load_N'];out=a
   elif capability=='vacuum.set':
-   if not a['enabled'] and self.phase=='running' and self.die['vacuum_required']:raise ActionRejected('PRECONDITION_FAILED')
+   if not a['enabled'] and self.phase=='running' and self.die['vacuum_required']:raise _rejected('PRECONDITION_FAILED','this die needs the vacuum during the pressing')
    self.vacuum=a['enabled'];out=a
   elif capability=='pump.stroke':
-   if not self._ready() or self.pump_active or self.phase not in ['idle','running']:raise ActionRejected('PRECONDITION_FAILED')
+   why=self._not_ready() or ('a pump stroke is still running' if self.pump_active else 'the pressing has ended (%s)'%self.phase if self.phase not in ['idle','running'] else None)
+   if why:raise _rejected('PRECONDITION_FAILED',why)
    self.pump_active=True;self.stroke_elapsed=0.;out=dict(queued=True)
   elif capability=='acquisition.start':
-   if not self._ready() or self.phase!='idle' or self.method['target_load_N']>min(self.relief_limit,self.die['maximum_load_N']):raise ActionRejected('PRECONDITION_FAILED')
+   why=self._not_ready() or ('the press is not idle (%s)'%self.phase if self.phase!='idle' else None)
+   if not why and self.method['target_load_N']>min(self.relief_limit,self.die['maximum_load_N']):
+    why='the method target load %.0f N exceeds the %s %.0f N'%(self.method['target_load_N'],'relief-valve limit' if self.relief_limit<=self.die['maximum_load_N'] else 'die maximum load',min(self.relief_limit,self.die['maximum_load_N']))
+   if why:raise _rejected('PRECONDITION_FAILED',why)
    self._operation_count+=1;self.operation_id=self.instance_id+':'+str(self._operation_count);self.phase='running';self.stage='awaiting_manual_pump';out=dict(phase=self.phase,operation_id=self.operation_id)
   elif capability=='acquisition.stop':
-   if self.phase!='running':raise ActionRejected('PRECONDITION_FAILED')
+   if self.phase!='running':raise _rejected('PRECONDITION_FAILED','no pressing is in progress')
    self.phase='cancelled';self.stage='cancelled_under_load' if self.force>10 else 'cancelled';self.pump_active=False;out=dict(phase=self.phase)
   elif capability=='press.measure':return dict(phase=self.phase,stage=self.stage,indicated_load_N=self.indicated,hold_elapsed_s=self.hold_s,evidence='synthetic_ideal_lagged_force_gauge;NOT_pressure_or_electronic_sensor',template_source=TEMPLATE_REL)
   elif capability=='product.read':return self._product()
   elif capability=='product.collect':
-   if self.phase!='succeeded' or self.force>10 or self.ram>1e-6 or self.guard_lifts['front']<.179 or not a['accept_external_manual_ejection']:raise ActionRejected('PRECONDITION_FAILED')
+   why=('no completed pressing (phase %s)'%self.phase if self.phase!='succeeded' else 'release the load and let the ram return (valve.set_open true)' if self.force>10 or self.ram>1e-6 else
+        'raise the front guard fully first' if self.guard_lifts['front']<.179 else 'accept_external_manual_ejection must be true' if not a['accept_external_manual_ejection'] else None)
+   if why:raise _rejected('PRECONDITION_FAILED',why)
    ms=(self.sample['mass_kg']-self.collected_s)*a['fraction'];mb=(self.sample['binder_kg']-self.collected_b)*a['fraction'];self.collected_s+=ms;self.collected_b+=mb;out=dict(transferred_kg=ms+mb,recipient_id=a['recipient_id'])
   elif capability=='reference.lookup':
    if a['substance_id'] not in self.templates:raise ActionRejected('UNKNOWN_REFERENCE')
@@ -185,7 +212,7 @@ class SpecacAtlasmanualSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta=export_specac_atlasmanual_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',
+        return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,
           capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},
           state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
 
@@ -202,7 +229,7 @@ class SpecacAtlasmanualSession:
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,
                 status='rejected',state_revision=self._host.revision,clock={'domain':'simulation','time_s':self._host.time_s},
-                result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+                result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host

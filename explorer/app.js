@@ -645,7 +645,7 @@ function mapComponents(b) {
   model.traverse((o) => { if (o.name) { byName.set(o.name, o); if (!byName.has(baseName(o.name))) byName.set(baseName(o.name), o); } });
   for (const c of b.components) {
     const objs = [];
-    for (const n of c.objects) { const o = byName.get(n) || byName.get(baseName(n)); if (o) objs.push(o); }
+    for (const n of c.objects) { const o = byName.get(n) || byName.get(baseName(n)) || byName.get(n + '_glb'); if (o) objs.push(o); }   // GLB export renames curve/text parts <name>_glb
     const tops = objs.filter((o) => !objs.some((p) => p !== o && isAncestor(p, o)));   // keep only top-most nodes
     const ms = [];
     for (const t of tops) t.traverse((o) => { if (o.isMesh) ms.push(o); });

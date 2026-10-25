@@ -1,0 +1,1391 @@
+{
+ "class": "extraction",
+ "adapter": "chemlab.compile.classes.extraction:ExtractionAdapter",
+ "about": "Extraction and membrane separation: pressurized solvent extraction, solid-phase extraction, supercritical fluid extraction, flow liquid-liquid extraction, tangential-flow ultrafiltration, electrodialysis.",
+ "membership": {
+  "primary": [
+   "buchi_speedextractore",
+   "biotage_extrahera_classic",
+   "sft_sft110",
+   "syrris_asiafllex",
+   "sartorius_vivaflow200",
+   "pccell_ed64002"
+  ],
+  "secondary": {},
+  "excluded": {
+   "biotage_selekt": "a flash chromatography system: its run (gradient, fractions, detector) is the chromatography class; an extraction view would duplicate it",
+   "gilson_cpc250": "centrifugal partition chromatography: a chromatography run (mobile phase, rotor, fractions), primary in chromatography"
+  }
+ },
+ "members": {
+  "buchi_speedextractore": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "pressure": {
+       "arg": "pressure_gauge_pa",
+       "kind": "pressure"
+      },
+      "cycles": {
+       "arg": "cycles"
+      },
+      "hold": {
+       "arg": "hold_s",
+       "kind": "duration"
+      },
+      "discharge": {
+       "arg": "discharge_s",
+       "kind": "duration"
+      },
+      "flow": {
+       "arg": "pump_total_m3_s",
+       "kind": "flow"
+      },
+      "solvents": {
+       "arg": "solvent_fractions",
+       "kind": "fractions"
+      },
+      "flush": {
+       "arg": "solvent_flush_s",
+       "kind": "duration"
+      },
+      "nitrogen": {
+       "arg": "nitrogen_flush_s",
+       "kind": "duration"
+      },
+      "vial": {
+       "arg": "vial"
+      },
+      "cell": {
+       "arg": "cell_volume_m3",
+       "kind": "volume"
+      }
+     },
+     "keep": {
+      "method.configure": {
+       "temperature_k": {
+        "slot": "method.current",
+        "key": "temperature_k"
+       },
+       "pressure_gauge_pa": {
+        "slot": "method.current",
+        "key": "pressure_gauge_pa"
+       },
+       "cycles": {
+        "slot": "method.current",
+        "key": "cycles"
+       },
+       "hold_s": {
+        "slot": "method.current",
+        "key": "hold_s"
+       },
+       "discharge_s": {
+        "slot": "method.current",
+        "key": "discharge_s"
+       },
+       "pump_total_m3_s": {
+        "slot": "method.current",
+        "key": "pump_total_m3_s"
+       },
+       "solvent_fractions": {
+        "slot": "method.current",
+        "key": "solvent_fractions"
+       },
+       "solvent_flush_s": {
+        "slot": "method.current",
+        "key": "solvent_flush_s"
+       },
+       "nitrogen_flush_s": {
+        "slot": "method.current",
+        "key": "nitrogen_flush_s"
+       },
+       "vial": {
+        "slot": "method.current",
+        "key": "vial"
+       },
+       "cell_volume_m3": {
+        "slot": "method.current",
+        "key": "cell_volume_m3"
+       },
+       "solvent_names": {
+        "slot": "method.current",
+        "key": "solvent_names"
+       }
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.preheat",
+     "arg": "temperature_k",
+     "args": {
+      "enabled": true
+     },
+     "off": {
+      "cap": "thermal.preheat",
+      "args": {
+       "enabled": false
+      }
+     }
+    },
+    "pressure": {
+     "cap": "method.configure",
+     "arg": "pressure_gauge_pa",
+     "keep_from": {
+      "slot": "method.current"
+     },
+     "keep_skip": [
+      "cycle_steps"
+     ]
+    },
+    "prime": {
+     "mode": "flush",
+     "cap": "flush.start",
+     "config_cap": "flush.configure",
+     "time_arg": "solvent_s",
+     "job": "state",
+     "state": {
+      "slot": "flush.status",
+      "key": "active",
+      "done": [
+       false
+      ],
+      "fault_key": "fault"
+     },
+     "max_s": 3600,
+     "poll_s": 1
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "extraction.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "fault": "cycle.fault",
+    "temp": "thermal.indicated_k",
+    "temp_set": "method.current#temperature_k",
+    "pressure": "pressure.max_gauge_pa",
+    "pressure_set": "method.current#pressure_gauge_pa",
+    "progress": "cycle.index"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "sample.configured",
+      "code": "METHOD_LOCKED",
+      "message": "the method of {inst} is fixed once the sample is loaded (this instrument takes a method only before loading).",
+      "fix": "change only what has its own verb now (set-temp / pressure / flow); a new method needs a new sample from the lab.",
+      "value": false
+     }
+    ],
+    "pressure": [
+     {
+      "slot": "sample.configured",
+      "code": "METHOD_LOCKED",
+      "message": "the method of {inst} is fixed once the sample is loaded (this instrument takes a method only before loading).",
+      "fix": "change only what has its own verb now (set-temp / pressure / flow); a new method needs a new sample from the lab.",
+      "value": false
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "CELLS_LOADED",
+      "message": "the cells are already in {inst}; preheating is set before loading.",
+      "fix": "the heating follows the method temperature now (`chemlab run {inst} status`).",
+      "value": false
+     },
+     {
+      "slot": "heater.lift_m",
+      "code": "HEATER_RAISED",
+      "message": "the heating block of {inst} is raised (cells sealed).",
+      "fix": "wait until the run has ended.",
+      "max": 0.0
+     }
+    ],
+    "prime": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "shield.lift_m",
+      "code": "SHIELD_OPEN",
+      "message": "the protective shield of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close shield`.",
+      "max": 0.0
+     },
+     {
+      "slot": "drawer.extension_m",
+      "code": "DRAWER_OPEN",
+      "message": "the drawer (heating block) of {inst} is pulled out.",
+      "fix": "close it: `chemlab run {inst} close drawer`.",
+      "max": 0.0
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "RUNNING",
+      "message": "{inst} is extracting.",
+      "fix": "flush after the run.",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample cells are loaded in {inst} (loading is the lab's set-up).",
+      "fix": "ask the lab to load the cells.",
+      "value": true
+     },
+     {
+      "slot": "shield.lift_m",
+      "code": "SHIELD_OPEN",
+      "message": "the protective shield of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close shield`.",
+      "max": 0.0
+     },
+     {
+      "slot": "drawer.extension_m",
+      "code": "DRAWER_OPEN",
+      "message": "the drawer (heating block) of {inst} is pulled out.",
+      "fix": "close it: `chemlab run {inst} close drawer`.",
+      "max": 0.0
+     },
+     {
+      "slot": "thermal.indicated_k",
+      "code": "NOT_AT_TEMPERATURE",
+      "message": "the heating block of {inst} is not at the method temperature (block {value}).",
+      "fix": "preheat to it (`chemlab run {inst} set-temp T` with T = the method temperature) and wait.",
+      "near": {
+       "slot": "method.current",
+       "key": "temperature_k"
+      },
+      "tol": 1.0
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and reload before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:PRECONDITION_FAILED": {
+     "code": "METHOD_LOCKED",
+     "message": "the method of {inst} cannot change now (cells loaded, a process ran, or a flush / test is active).",
+     "fix": "a new method needs new cells from the lab."
+    },
+    "method.configure:LIQUID_PHASE_GUARD": {
+     "kind": "usage",
+     "code": "PRESSURE_TOO_LOW",
+     "message": "at that temperature the solvent would boil at this pressure in {inst}.",
+     "fix": "raise the pressure or lower the temperature."
+    },
+    "flush.start:NO_POSITION_SELECTED": {
+     "code": "NO_POSITION",
+     "message": "no cell position of {inst} is selected for the flush.",
+     "fix": "select one: `chemlab call {inst} positions.set --position 1 --enabled true`."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "extraction.measure"
+   ],
+   "unsupported": {
+    "flow": "the extraction flow is a method setting (method flow=...); the free-running service pump needs a manual valve path",
+    "vent": "no vent function: each cycle depressurises the cells itself (discharge and gas flush)"
+   },
+   "alternatives": {
+    "flow": "`chemlab run INST method flow=2mL/min` (the service pump: `chemlab call INST pump.run`)."
+   },
+   "params": {
+    "labels": {
+     "temp": "heating block",
+     "temp_set": "method temperature",
+     "pressure": "highest cell pressure (gauge)",
+     "pressure_set": "method pressure (gauge)",
+     "progress": "cycle"
+    }
+   },
+   "notes": {
+    "method": [
+     "a setting left out is kept from the current method (the per-cycle step list is rebuilt from cycles / hold / discharge); the method can change only before the lab loads the cells.",
+     "manual: operating manual pp. 50-60 (creating methods, parameters)"
+    ],
+    "set-temp": [
+     "preheats the heating block (before loading the cells); the run needs the block at the method temperature.",
+     "manual: operating manual pp. 36-45 (preheating)"
+    ],
+    "pressure": [
+     "the pressure is a method setting: this sets the method pressure and keeps the rest of the method.",
+     "manual: operating manual pp. 50-60"
+    ],
+    "prime": [
+     "flushes the solvent lines of the selected cell positions (flush settings: --time = solvent flush time).",
+     "manual: operating manual pp. 36-45 (activating positions, flushing)"
+    ],
+    "start": [
+     "manual: operating manual pp. 50-60 (extraction cycle stages)"
+    ]
+   }
+  },
+  "biotage_extrahera_classic": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "mode": "spe",
+     "cap": "method.configure",
+     "arg": "steps",
+     "positions_slot": "deck.solvent_positions"
+    },
+    "pressure": {
+     "cap": "pressure.set",
+     "arg": "pressure_pa",
+     "step_si": 10000,
+     "off": {
+      "cap": "pressure.set",
+      "args": {
+       "pressure_pa": 0
+      }
+     }
+    },
+    "prime": {
+     "cap": "run.prime",
+     "inlet_arg": "inlet",
+     "volume_arg": "volume_m3",
+     "default_volume_m3": 1.5e-05,
+     "assign_cap": "solvent.lock",
+     "assign_arg": "locks",
+     "inlets_slot": "inlets.state",
+     "library_slot": "library.entries"
+    },
+    "start": {
+     "cap": "method.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "method.stop"
+    },
+    "result": {
+     "reads": [
+      "method.status",
+      "method.phase",
+      "method.completed_strokes"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "method.status",
+    "stage": "method.phase",
+    "pressure_set": "pressure.target_pa",
+    "progress": "method.completed_strokes",
+    "state": "system.state"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "deck.format",
+      "code": "NO_DECK",
+      "message": "the deck of {inst} is not configured (format, collection plate, solvent positions).",
+      "fix": "configure it: `chemlab call {inst} deck.configure --format cartridges24 --cartridge_volume_m3 3e-6 --collection_plate plate1 --solvent_positions '[\"load\",\"wash\",\"elute\"]'`.",
+      "not": [
+       null
+      ]
+     },
+     {
+      "slot": "method.status",
+      "code": "BUSY",
+      "message": "{inst} is running a method.",
+      "fix": "wait for it or stop it first.",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "pressure": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "manifold.z_m",
+      "code": "MANIFOLD_UP",
+      "message": "the pressure manifold of {inst} is not lowered onto the columns.",
+      "fix": "lower it: `chemlab call {inst} manifold.set_position --z_m 0`.",
+      "max": 0.0
+     },
+     {
+      "slot": "utilities.compressed_air_ready",
+      "code": "NO_GAS",
+      "message": "the compressed-air supply of {inst} is not ready (a lab utility).",
+      "fix": "ask the lab to open the air supply.",
+      "value": true
+     },
+     {
+      "slot": "utilities.nitrogen_ready",
+      "code": "NO_GAS",
+      "message": "the nitrogen supply of {inst} is not ready (a lab utility).",
+      "fix": "ask the lab to open the nitrogen supply.",
+      "value": true
+     },
+     {
+      "slot": "method.status",
+      "code": "BUSY",
+      "message": "{inst} is running a method; the pressure is set between runs.",
+      "fix": "wait for it or stop it first.",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "prime": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "manual.state",
+      "code": "DOOR_OPEN",
+      "message": "the door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close door`.",
+      "key": "door",
+      "not": [
+       "open"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "deck.format",
+      "code": "NO_DECK",
+      "message": "the deck of {inst} is not configured.",
+      "fix": "configure it (`chemlab call {inst} deck.configure ...`), then set the method.",
+      "not": [
+       null
+      ]
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no SPE method.",
+      "fix": "set it: `chemlab run {inst} method load=1mL wash=1mL elute=1mL flow=6mL/min drain=6mL/min`.",
+      "value": true
+     },
+     {
+      "slot": "utilities.vacuum_ready",
+      "code": "NO_UTILITIES",
+      "message": "the vacuum supply of {inst} is not ready (a lab utility).",
+      "fix": "ask the lab to connect the vacuum.",
+      "value": true
+     },
+     {
+      "slot": "utilities.compressed_air_ready",
+      "code": "NO_UTILITIES",
+      "message": "the compressed-air supply of {inst} is not ready (a lab utility).",
+      "fix": "ask the lab to open the air supply.",
+      "value": true
+     },
+     {
+      "slot": "utilities.nitrogen_ready",
+      "code": "NO_UTILITIES",
+      "message": "the nitrogen supply of {inst} is not ready (a lab utility).",
+      "fix": "ask the lab to open the nitrogen supply.",
+      "value": true
+     },
+     {
+      "slot": "manifold.z_m",
+      "code": "MANIFOLD_UP",
+      "message": "the pressure manifold of {inst} is not lowered onto the columns.",
+      "fix": "lower it: `chemlab call {inst} manifold.set_position --z_m 0`.",
+      "max": 0.0
+     },
+     {
+      "slot": "pressure.target_pa",
+      "code": "NO_PRESSURE",
+      "message": "{inst} has no positive-pressure set point (it pushes the liquids through the columns).",
+      "fix": "set one: `chemlab run {inst} pressure 1bar`.",
+      "min": 1.0
+     },
+     {
+      "slot": "method.status",
+      "code": "BUSY",
+      "message": "{inst} is already running a method.",
+      "fix": "follow it with `chemlab wait JOB`.",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "method.start:PRECONDITION_FAILED": {
+     "code": "NOT_ENOUGH_LIQUID",
+     "message": "{inst} refused the start although deck, method, utilities, manifold and pressure are ready: the solvent reservoirs do not hold enough for every stroke, or liquid is left in the pipette / extraction position.",
+     "fix": "ask the lab to refill the reservoirs (or use smaller volumes / fewer repetitions in the method)."
+    },
+    "run.prime:NOT_ENOUGH_SOLVENT": {
+     "code": "NOT_ENOUGH_SOLVENT",
+     "message": "the reservoir of that inlet on {inst} does not hold the prime volume.",
+     "fix": "prime a smaller volume, or ask the lab to refill it."
+    },
+    "run.prime:INVALID_ARGUMENT": {
+     "code": "NO_SOLVENT",
+     "message": "that inlet of {inst} has no solvent assigned.",
+     "fix": "add --solvent ID to assign one (see `chemlab help {inst} prime`)."
+    },
+    "pressure.set:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "NOT_ON_STEP",
+     "message": "{inst} takes pressure set points in 0.1 bar steps only.",
+     "fix": "give a multiple of 100 mbar."
+    }
+   },
+   "path": "method",
+   "unsupported": {
+    "set-temp": "runs at room temperature (no heater)",
+    "flow": "flows belong to each SPE step (method flow=... drain=...)",
+    "vent": "nothing to vent: the positive-pressure manifold releases itself (`pressure off` sets it to 0)"
+   },
+   "alternatives": {
+    "flow": "`chemlab run INST method load=1mL wash=1mL elute=1mL flow=6mL/min drain=6mL/min`.",
+    "vent": "`chemlab run INST pressure off`."
+   },
+   "params": {
+    "labels": {
+     "phase": "method",
+     "stage": "step",
+     "pressure_set": "pressure set point",
+     "progress": "strokes done",
+     "state": "system"
+    }
+   },
+   "notes": {
+    "method": [
+     "an SPE method is three steps: load, wash, elute (volume per stroke, at most 1 mL); flow / drain / reps apply to all steps, PHASE.flow etc. to one; each step draws from the deck solvent position of its name unless PHASE.solvent= says otherwise.",
+     "manual: user manual pp. 28-34 (method operations and parameters)"
+    ],
+    "prime": [
+     "primes one solvent inlet (S1-S5) with --volume (default 15 mL; about 2 x 15 mL replace a line); --solvent assigns a library solvent first (an inlet without one cannot be primed).",
+     "manual: user manual pp. 35-42 (assign solvents and prime)"
+    ],
+    "start": [
+     "the method run path (method.start); the touch-screen Prepare Run dialog (run.prepare / run.setup / run.start) stays available with `chemlab call`.",
+     "manual: user manual pp. 35-48 (start, monitor and control a run)"
+    ],
+    "pressure": [
+     "manual: user manual pp. 35-42 (adjust air pressure)"
+    ]
+   }
+  },
+  "sft_sft110": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "pressure": {
+       "arg": "pressure_gauge_pa",
+       "kind": "pressure"
+      },
+      "flow": {
+       "arg": "liquid_flow_m3_s",
+       "kind": "flow"
+      },
+      "static": {
+       "arg": "static_s",
+       "kind": "duration"
+      },
+      "dynamic": {
+       "arg": "dynamic_s",
+       "kind": "duration"
+      },
+      "restrictor": {
+       "arg": "restrictor_temperature_k",
+       "kind": "temperature"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      },
+      "modifier": {
+       "arg": "modifier_fraction",
+       "kind": "fraction"
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "setpoint.set",
+     "arg": "value",
+     "args": {
+      "setpoint": "temperature_k"
+     },
+     "unit": "K",
+     "range_from": {
+      "cap": "method.configure",
+      "arg": "temperature_k"
+     }
+    },
+    "pressure": {
+     "cap": "setpoint.set",
+     "arg": "value",
+     "args": {
+      "setpoint": "pressure_gauge_pa"
+     },
+     "unit": "Pa",
+     "range_from": {
+      "cap": "method.configure",
+      "arg": "pressure_gauge_pa"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "extraction.measure"
+    },
+    "vent": {
+     "cap": "pressure.vent",
+     "job": "operation"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "fault": "cycle.fault",
+    "temp": "thermal.temperature_k",
+    "temp_set": "thermal.target_k",
+    "pressure": "pressure.indicated_gauge_pa",
+    "flow": "flow.liquid_inlet_m3_s"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "sample.configured",
+      "code": "METHOD_LOCKED",
+      "message": "the method of {inst} is fixed once the sample is loaded (this instrument takes a method only before loading).",
+      "fix": "change only what has its own verb now (set-temp / pressure / flow); a new method needs a new sample from the lab.",
+      "value": false
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "pressure": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading is the lab's set-up, not an agent action).",
+      "fix": "ask the lab to load the sample; `chemlab run {inst} status` shows when it is there.",
+      "value": true
+     },
+     {
+      "slot": "door.angle_rad",
+      "code": "DOOR_OPEN",
+      "message": "the oven door of {inst} is open.",
+      "fix": "ask the lab to close the vessel and the door.",
+      "max": 0.0
+     },
+     {
+      "slot": "cap.lift_m",
+      "code": "VESSEL_OPEN",
+      "message": "the extraction vessel cap of {inst} is not closed.",
+      "fix": "ask the lab to close the vessel.",
+      "max": 0.0
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and reload before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     }
+    ],
+    "vent": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "RUNNING",
+      "message": "{inst} is extracting; venting comes after the run.",
+      "fix": "stop the run first: `chemlab run {inst} stop`.",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "pressure.indicated_gauge_pa",
+      "code": "NOTHING_TO_VENT",
+      "message": "{inst} has no pressure to release (gauge {value} Pa).",
+      "fix": "nothing to do.",
+      "min": 1.0001
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:RECONDITION_REQUIRED": {
+     "code": "RECONDITION_REQUIRED",
+     "message": "the oven of {inst} is not back at its set point after the stop.",
+     "fix": "wait until the oven is at the set point (`chemlab run {inst} status`), then start again."
+    },
+    "setpoint.set:TEMPLATE_RANGE_UNAVAILABLE": {
+     "code": "OUTSIDE_SOLUBILITY_DATA",
+     "message": "the solubility data of the loaded sample in {inst} do not cover that temperature / pressure.",
+     "fix": "stay closer to the method set points (`chemlab run {inst} status`)."
+    },
+    "setpoint.set:PUMP_PRESSURE_ENVELOPE": {
+     "kind": "usage",
+     "code": "PRESSURE_ENVELOPE",
+     "message": "that pressure plus the bed pressure drop is above what the pump of {inst} delivers.",
+     "fix": "give a lower pressure."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "extraction.measure"
+   ],
+   "unsupported": {
+    "flow": "the CO2 pump flow is a method setting (method flow=...)",
+    "prime": "no solvent lines to prime (liquid CO2 comes from the dip-tube cylinder)"
+   },
+   "alternatives": {
+    "flow": "`chemlab run INST method flow=10mL/min` before the sample is loaded."
+   },
+   "params": {
+    "labels": {
+     "temp": "oven",
+     "temp_set": "oven set point",
+     "flow": "CO2 pump"
+    }
+   },
+   "notes": {
+    "set-temp": [
+     "changes the oven set point of the method (allowed during a run)",
+     "manual: spec sheet pp. 1-2 (PID temperature control)"
+    ],
+    "pressure": [
+     "changes the extraction pressure (gauge) of the method (allowed during a run)",
+     "manual: spec sheet pp. 1-2 (PID pressure control)"
+    ],
+    "vent": [
+     "releases the residual pressure after a stopped run (a job; the vessel can be opened when it is done).",
+     "manual: brochure p. 4 (vent in the flow diagram)"
+    ],
+    "method": [
+     "manual: spec sheet pp. 1-2, brochure p. 3"
+    ],
+    "start": [
+     "manual: technical FAQ (static and dynamic extraction)"
+    ]
+   }
+  },
+  "syrris_asiafllex": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "aqueous": {
+       "arg": "aqueous_flow_m3_s",
+       "kind": "flow"
+      },
+      "organic": {
+       "arg": "organic_flow_m3_s",
+       "kind": "flow"
+      },
+      "bpr": {
+       "arg": "bpr_gauge_pa",
+       "kind": "pressure"
+      },
+      "cmp": {
+       "arg": "cross_membrane_pa",
+       "kind": "pressure"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      },
+      "stop_on_breakthrough": {
+       "arg": "stop_on_breakthrough"
+      }
+     }
+    },
+    "pressure": {
+     "cap": "pressure.setpoint",
+     "arg": "value_pa",
+     "step_si": {
+      "main": 10000,
+      "cmp": 1000,
+      "*": 10000
+     },
+     "off": {
+      "cap": "pressure.setpoint",
+      "args": {
+       "setpoint": "main",
+       "value_pa": 0
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "separation.measure"
+    },
+    "vent": {
+     "cap": "pressure.release",
+     "job": "operation"
+    }
+   },
+   "targets": {
+    "channel": {
+     "arg": "setpoint",
+     "values": {
+      "bpr": "main",
+      "cmp": "cmp"
+     },
+     "default": "bpr"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "fault": "cycle.fault",
+    "pressure": "pressure.bpr_gauge_pa",
+    "pressure_set": "pressure.bpr_target_pa",
+    "pressure2": "pressure.cmp_pa",
+    "flow": "flow.aqueous_m3_s",
+    "flow2": "flow.organic_m3_s",
+    "state": "separation.state"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "sample.configured",
+      "code": "METHOD_LOCKED",
+      "message": "the method of {inst} is fixed once the sample is loaded (this instrument takes a method only before loading).",
+      "fix": "change only what has its own verb now (set-temp / pressure / flow); a new method needs a new sample from the lab.",
+      "value": false
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading is the lab's set-up, not an agent action).",
+      "fix": "ask the lab to load the sample; `chemlab run {inst} status` shows when it is there.",
+      "value": true
+     },
+     {
+      "slot": "tray.extension_m",
+      "code": "TRAY_OUT",
+      "message": "the tray of {inst} is pulled out.",
+      "fix": "ask the lab to close the tray.",
+      "max": 0.0
+     },
+     {
+      "slot": "separator.opening_m",
+      "code": "SEPARATOR_OPEN",
+      "message": "the membrane separator of {inst} is open.",
+      "fix": "ask the lab to close it.",
+      "max": 0.0
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and reload before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     }
+    ],
+    "vent": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "RUNNING",
+      "message": "{inst} is running; release the pressure after the run.",
+      "fix": "stop the run first: `chemlab run {inst} stop`.",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "pressure.bpr_gauge_pa",
+      "code": "NOTHING_TO_VENT",
+      "message": "{inst} has no residual pressure (back pressure {value} Pa).",
+      "fix": "nothing to do.",
+      "min": 1.0001
+     }
+    ]
+   },
+   "codes": {
+    "pressure.setpoint:GAS_PRESSURE_MARGIN": {
+     "kind": "usage",
+     "code": "ABOVE_GAS_SUPPLY",
+     "message": "that back pressure is above what the gas supply of {inst} allows.",
+     "fix": "give a lower pressure."
+    },
+    "pressure.setpoint:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "BAD_PRESSURE",
+     "message": "{inst} takes the back pressure from 1 bar in 0.1 bar steps (or 0), and the cross-membrane pressure in 10 mbar steps within its limit.",
+     "fix": "give a value on those steps."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "separation.measure"
+   ],
+   "unsupported": {
+    "set-temp": "runs at room temperature (no heater)",
+    "flow": "the two phase flows come from the external pumps of the method (method aqueous=... organic=...)",
+    "prime": "the external pumps and the pre-wetted membrane are the lab's set-up (no prime function)"
+   },
+   "alternatives": {
+    "flow": "`chemlab run INST method aqueous=0.1mL/min organic=0.1mL/min ...` before the sample is connected."
+   },
+   "params": {
+    "labels": {
+     "pressure": "back pressure (gauge)",
+     "pressure_set": "back-pressure set point",
+     "pressure2": "cross-membrane",
+     "flow": "aqueous",
+     "flow2": "organic",
+     "state": "separation"
+    }
+   },
+   "notes": {
+    "pressure": [
+     "--channel bpr (default): the back-pressure regulator, 1-9 bar in 0.1 bar steps; --channel cmp: the cross-membrane pressure in 10 mbar steps.",
+     "manual: operating manual pp. 18-26 (main pressure and CMP)"
+    ],
+    "vent": [
+     "releases the residual back pressure after a run (a job)."
+    ],
+    "method": [
+     "manual: operating manual pp. 16-26"
+    ],
+    "start": [
+     "manual: operating manual pp. 16-17 (quick start)"
+    ]
+   }
+  },
+  "sartorius_vivaflow200": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "circulation": {
+       "arg": "circulation_m3_s",
+       "kind": "flow"
+      },
+      "tmp": {
+       "arg": "tmp_pa",
+       "kind": "pressure"
+      },
+      "retentate": {
+       "arg": "target_retentate_m3",
+       "kind": "volume"
+      },
+      "diavolumes": {
+       "arg": "target_diavolumes"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "filtration.measure"
+    }
+   },
+   "slots": {
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "fault": "cycle.fault",
+    "pressure": "pressure.tmp_pa",
+    "pressure2": "pressure.feed_gauge_pa",
+    "flow": "flow.permeate_m3_s",
+    "flow2": "flow.circulation_m3_s",
+    "volume": "volume.retentate_m3",
+    "volume2": "volume.permeate_m3",
+    "progress": "process.diavolumes",
+    "state": "method.mode"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "sample.configured",
+      "code": "METHOD_LOCKED",
+      "message": "the method of {inst} is fixed once the sample is loaded (this instrument takes a method only before loading).",
+      "fix": "change only what has its own verb now (set-temp / pressure / flow); a new method needs a new sample from the lab.",
+      "value": false
+     }
+    ],
+    "start": [
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading is the lab's set-up, not an agent action).",
+      "fix": "ask the lab to load the sample; `chemlab run {inst} status` shows when it is there.",
+      "value": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and reload before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:PRESSURE_ENVELOPE": {
+     "kind": "usage",
+     "code": "PRESSURE_ENVELOPE",
+     "message": "at that flow and transmembrane pressure the feed or retentate pressure of {inst} would leave the cassette limits.",
+     "fix": "lower the transmembrane pressure or the circulation flow."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "filtration.measure"
+   ],
+   "unsupported": {
+    "set-temp": "a passive cassette at room temperature (no heater)",
+    "pressure": "the transmembrane pressure is a method setting (method tmp=...), set before the sample is attached; the cassette has no pressure controller",
+    "flow": "the circulation flow comes from the external peristaltic pump of the method (method circulation=...)",
+    "prime": "flushing the cassette is the lab's set-up (it is attached wet)",
+    "vent": "an open system: nothing to vent"
+   },
+   "alternatives": {
+    "pressure": "`chemlab run INST method tmp=2bar ...` before the sample is attached.",
+    "flow": "`chemlab run INST method circulation=300mL/min ...`."
+   },
+   "params": {
+    "labels": {
+     "pressure": "transmembrane",
+     "pressure2": "feed (gauge)",
+     "flow": "permeate flow",
+     "flow2": "circulation",
+     "volume": "retentate",
+     "volume2": "permeate collected",
+     "progress": "diavolumes",
+     "state": "mode"
+    }
+   },
+   "notes": {
+    "method": [
+     "all of mode (concentrate|diafilter), circulation, tmp, retentate (target retentate volume), diavolumes, timeout; only before the lab attaches the sample.",
+     "manual: operating manual pp. 15-20 (set-up), pp. 21-24 (concentration, diafiltration)"
+    ],
+    "start": [
+     "manual: operating manual pp. 21-24"
+    ]
+   }
+  },
+  "pccell_ed64002": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "voltage": {
+       "arg": "voltage_v",
+       "kind": "voltage"
+      },
+      "current": {
+       "arg": "current_a",
+       "kind": "current"
+      },
+      "flow": {
+       "arg": "flow_m3_s",
+       "kind": "flow"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      },
+      "endpoint": {
+       "arg": "endpoint_conductivity_s_m",
+       "kind": "conductivity"
+      }
+     }
+    },
+    "flow": {
+     "cap": "flow.set_rate",
+     "arg": "flow_m3_s"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "electrodialysis.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault",
+    "voltage": "electrical.voltage_v",
+    "current": "electrical.current_a",
+    "flow": "flow.actual_m3_s",
+    "conductivity": "conductivity.diluate_s_m"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "sample.configured",
+      "code": "METHOD_LOCKED",
+      "message": "the method of {inst} is fixed once the sample is loaded (this instrument takes a method only before loading).",
+      "fix": "change only what has its own verb now (set-temp / pressure / flow); a new method needs a new sample from the lab.",
+      "value": false
+     }
+    ],
+    "flow": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading is the lab's set-up, not an agent action).",
+      "fix": "ask the lab to load the sample; `chemlab run {inst} status` shows when it is there.",
+      "value": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and reload before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "flow.set_rate:HOST_ENVELOPE": {
+     "kind": "usage",
+     "code": "ABOVE_PUMP_LIMIT",
+     "message": "that flow is above what the pumps of {inst} deliver.",
+     "fix": "give a lower flow."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "electrodialysis.measure"
+   ],
+   "unsupported": {
+    "set-temp": "no temperature control (the stack runs at the solution temperature)",
+    "pressure": "no pressure setting (the loops run at the pump pressure)",
+    "prime": "the diluate, concentrate and electrode loops are filled by the lab",
+    "vent": "an open loop system: nothing to vent"
+   },
+   "params": {
+    "labels": {
+     "conductivity": "diluate conductivity"
+    }
+   },
+   "notes": {
+    "method": [
+     "all of mode (constant_current|constant_voltage), voltage, current, flow, time, timeout, endpoint (diluate conductivity); only before the lab fills the loops.",
+     "manual: technical manual pp. 10-22 (max voltage / current), pp. 28-37 (batch desalination)"
+    ],
+    "flow": [
+     "the loop flow; voltage and current outside the method: `chemlab call INST electrical.set_voltage` / `electrical.set_current`.",
+     "manual: technical manual pp. 4-9 (BED pump)"
+    ],
+    "start": [
+     "manual: technical manual pp. 28-37"
+    ]
+   }
+  }
+ }
+}

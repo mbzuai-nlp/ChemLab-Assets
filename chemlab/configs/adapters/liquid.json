@@ -1,0 +1,365 @@
+{
+ "class": "liquid",
+ "adapter": "chemlab.compile.classes.liquid:LiquidAdapter",
+ "about": "Liquid handling (the Flex pilot gate moved into the compile framework). The deck (labware, tips, trash) is lab-config data in the instrument's entry: \"deck\": {...} (chemlab/compile/deck.py), and the trusted host side is the entry's \"scene\": \"chemlab.compile.scenes.flex:FlexScene\". Without a deck only power, home, lights, status, protocols and the admin verbs work.",
+ "membership": {
+  "decided": "2026-10-22",
+  "members": [
+   "opentrons_flex_single_5_1000ul",
+   "newera_ne1000"
+  ],
+  "newera_ne1000": "added 2026-10-22: syringe pump with its own adapter (classes/syringe_pump.py); the Flex verbs are unchanged"
+ },
+ "members": {
+  "opentrons_flex_single_5_1000ul": {
+   "role": "primary",
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "home": {
+     "cap": "robot.home"
+    },
+    "lights": {
+     "cap": "robot.set_lights",
+     "arg": "on"
+    },
+    "labware": {
+     "reads": [
+      "deck.fixtures"
+     ]
+    },
+    "move-to": {
+     "cap": "motion.move"
+    },
+    "pick-up-tip": {
+     "move_cap": "motion.move",
+     "cap": "tip.attach",
+     "arg": "tip_id"
+    },
+    "drop-tip": {
+     "move_cap": "motion.move",
+     "cap": "tip.release",
+     "arg": "target_slot_id"
+    },
+    "return-tip": {
+     "move_cap": "motion.move",
+     "cap": "tip.release",
+     "arg": "target_slot_id"
+    },
+    "aspirate": {
+     "move_cap": "motion.move",
+     "cap": "sample.aspirate",
+     "container_arg": "container_id",
+     "volume_arg": "volume_m3"
+    },
+    "dispense": {
+     "move_cap": "motion.move",
+     "cap": "sample.dispense",
+     "container_arg": "container_id",
+     "volume_arg": "volume_m3"
+    },
+    "transfer": {
+     "caps": [
+      "motion.move",
+      "tip.attach",
+      "sample.aspirate",
+      "sample.dispense",
+      "tip.release"
+     ]
+    },
+    "protocols": {
+     "reads": [
+      "protocols.list"
+     ]
+    },
+    "run-protocol": {
+     "setup_cap": "run.setup",
+     "parameter_cap": "run.set_parameter",
+     "confirm_cap": "run.confirm_parameters",
+     "update_deck_cap": "run.update_deck",
+     "offsets_cap": "run.apply_offsets",
+     "play_cap": "run.play",
+     "stop_cap": "run.stop"
+    },
+    "job": {
+     "reads": [
+      "run.state",
+      "run.history"
+     ]
+    },
+    "pause": {
+     "cap": "run.pause"
+    },
+    "resume": {
+     "cap": "run.play"
+    },
+    "cancel": {
+     "cap": "run.stop"
+    },
+    "recover": {
+     "cap": "run.recover",
+     "arg": "action"
+    },
+    "pipettes": {
+     "reads": [
+      "instruments.mounts"
+     ]
+    },
+    "calibrate-pipette": {
+     "cap": "instrument.calibrate"
+    },
+    "attach-pipette": {
+     "cap": "instrument.attach"
+    },
+    "detach-pipette": {
+     "cap": "instrument.detach"
+    },
+    "deck-config": {
+     "cap": "deck.configure"
+    },
+    "settings": {
+     "cap": "robot.configure"
+    },
+    "set-name": {
+     "cap": "robot.set_name"
+    },
+    "restart": {
+     "cap": "robot.restart"
+    },
+    "shutdown": {
+     "cap": "robot.shutdown"
+    },
+    "protocol-pin": {
+     "cap": "protocol.pin"
+    },
+    "protocol-delete": {
+     "cap": "protocol.delete"
+    },
+    "device-reset": {
+     "cap": "robot.device_reset"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "tip": "tip.attached_id",
+    "run": "run.state"
+   },
+   "unsupported": {
+    "mix": "mixing is not modelled in this twin (sample.mix is unsupported); mixing after each addition is assumed ideal",
+    "detect-liquid": "there is no liquid-level sensing in this twin (liquid_level.detect is unsupported); a refused aspirate tells you the source is short",
+    "set-flow-rate": "flow rates are not modelled (velocity.set is unsupported); leave the defaults",
+    "blow-out": "blow-out is not modelled: the volume ledger leaves no residue in the tip",
+    "touch-tip": "touch-tip is not modelled and not needed in this twin",
+    "air-gap": "air gaps are not modelled and not needed in this twin",
+    "move-labware": "this Flex has no gripper; labware stays where the deck registry says (`labware`)",
+    "distribute": "use `transfer` with one source and several destinations",
+    "consolidate": "use `transfer` with several sources and one destination"
+   },
+   "alternatives": {
+    "distribute": "chemlab run INST transfer --from reservoir:A1 --to plate:A1-A6 --volume 50",
+    "consolidate": "chemlab run INST transfer --from plate:A1,plate:A2 --to tuberack:A1 --volume 50",
+    "mix": "repeat aspirate / dispense in the same well if you must; the twin treats mixing as ideal"
+   },
+   "params": {
+    "fixture_slots": {
+     "trash_bin": [
+      "A1",
+      "B1",
+      "C1",
+      "D1",
+      "A3",
+      "B3",
+      "C3",
+      "D3"
+     ],
+     "staging_area": [
+      "A3",
+      "B3",
+      "C3",
+      "D3"
+     ],
+     "waste_chute": [
+      "D3"
+     ],
+     "waste_chute_staging": [
+      "D3"
+     ]
+    },
+    "setting_values": {
+     "brightness_level": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ],
+     "sleep_min": [
+      "never",
+      3,
+      5,
+      10,
+      15,
+      30,
+      60
+     ],
+     "language": [
+      "English",
+      "Chinese"
+     ],
+     "update_channel": [
+      "stable",
+      "beta"
+     ]
+    }
+   },
+   "notes": {
+    "transfer": [
+     "chunks larger than the tip are split into equal trips; a tip lost on the way is reported, never silently replaced"
+    ],
+    "run-protocol": [
+     "the run is a job: chemlab status|wait|cancel job-N; tips used by the run are confirmed by the lab's scene"
+    ]
+   }
+  },
+  "newera_ne1000": {
+   "role": "primary",
+   "adapter": "chemlab.compile.classes.syringe_pump:SyringePumpAdapter",
+   "verbs": {
+    "syringe": {
+     "cap": "syringe.set_diameter",
+     "arg": "diameter_m"
+    },
+    "rate": {
+     "cap": "rate.set",
+     "arg": "rate_m3_s",
+     "units_arg": "units"
+    },
+    "volume": {
+     "cap": "volume.set",
+     "arg": "volume_m3",
+     "clear_cap": "volume.clear",
+     "clear_arg": "direction"
+    },
+    "direction": {
+     "cap": "direction.set",
+     "arg": "direction"
+    },
+    "run": {
+     "cap": "pump.run",
+     "phase_arg": "phase"
+    },
+    "stop": {
+     "cap": "pump.stop"
+    },
+    "purge": {
+     "cap": "pump.purge",
+     "arg": "on"
+    },
+    "phase": {
+     "select_cap": "phase.select",
+     "select_arg": "phase",
+     "cap": "phase.set_function",
+     "clear_cap": "program.clear"
+    }
+   },
+   "path": "pump",
+   "slots": {
+    "power": "power.on",
+    "configured": "plant.configured",
+    "run": "run.state",
+    "phase": "run.phase",
+    "alarm": "alarm.state",
+    "diameter": "syringe.diameter_m",
+    "rate": "pump.rate_m3_s",
+    "direction": "pump.direction",
+    "dispensed": "volume.dispensed",
+    "syringe": "syringe.state",
+    "program": "program.state"
+   },
+   "params": {
+    "syringe_inside_diameter_m": {
+     "bd_10ml": 0.01443,
+     "bd_1ml": 0.004699,
+     "bd_20ml": 0.01905,
+     "bd_30ml": 0.02159,
+     "bd_3ml": 0.008585,
+     "bd_5ml": 0.01199,
+     "bd_60ml": 0.02659,
+     "hamilton_0p5ul": 0.000103,
+     "hamilton_100ml": 0.03499,
+     "hamilton_10ml": 0.014570000000000001,
+     "hamilton_1ul": 0.000146,
+     "hamilton_25ml": 0.023030000000000002,
+     "hamilton_2ul": 0.000206,
+     "hamilton_50ml": 0.0275,
+     "hamilton_5ul": 0.000326,
+     "hsw_1ml": 0.004690000000000001,
+     "monoject_12ml": 0.01572,
+     "monoject_140ml": 0.038,
+     "monoject_1ml": 0.00574,
+     "monoject_20ml": 0.020120000000000002,
+     "monoject_35ml": 0.02352,
+     "monoject_3ml": 0.008941000000000001,
+     "monoject_60ml": 0.02664,
+     "monoject_6ml": 0.0127,
+     "normject_10ml": 0.0159,
+     "normject_20ml": 0.020050000000000002,
+     "normject_30ml": 0.0229,
+     "normject_3ml": 0.00965,
+     "normject_50ml": 0.0292,
+     "normject_5ml": 0.01245,
+     "poulten_10ml": 0.01467,
+     "poulten_1ml": 0.0067,
+     "poulten_20ml": 0.019620000000000002,
+     "poulten_2ml": 0.00891,
+     "poulten_30ml": 0.022690000000000002,
+     "poulten_3ml": 0.00906,
+     "poulten_50ml": 0.02696,
+     "poulten_5ml": 0.01175,
+     "sge_0p25ml": 0.002303,
+     "sge_0p5ml": 0.0032570000000000003,
+     "sge_100ul": 0.0014570000000000002,
+     "sge_10ul": 0.00048499999999999997,
+     "sge_1ml": 0.004606,
+     "sge_25ul": 0.000728,
+     "sge_2p5ml": 0.007284,
+     "sge_50ul": 0.00103,
+     "sge_5ml": 0.0103,
+     "sge_5ul": 0.00034300000000000004,
+     "steel_1ml": 0.009538,
+     "steel_20ml": 0.019129999999999998,
+     "steel_3ml": 0.009538,
+     "steel_50ml": 0.0286,
+     "steel_5ml": 0.0127,
+     "steel_8ml": 0.009538,
+     "terumo_10ml": 0.0158,
+     "terumo_1ml": 0.0047,
+     "terumo_20ml": 0.020149999999999998,
+     "terumo_30ml": 0.023100000000000002,
+     "terumo_3ml": 0.00895,
+     "terumo_5ml": 0.013000000000000001,
+     "terumo_60ml": 0.0297
+    },
+    "min_plunger_speed_m_s": 1.1680555555555555e-08,
+    "max_plunger_speed_m_s": 0.0008500833333333333,
+    "max_run_s": 7200.0,
+    "poll_s": 1.0
+   },
+   "notes": {
+    "syringe": [
+     "inside diameters of the syringe types: manual 12.7 p.50 (the asset syringe library)"
+    ],
+    "rate": [
+     "rate range = plunger speed 0.004205 cm/h .. 5.1005 cm/min times the syringe area (manual 12.5 p.49)"
+    ],
+    "run": [
+     "the job ends when run.state is stopped again (volume done, program STP) or an alarm shows (failed)"
+    ]
+   },
+   "unsupported": {}
+  }
+ }
+}

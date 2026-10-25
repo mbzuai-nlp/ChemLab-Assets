@@ -228,4 +228,12 @@ class TestDSC2500(unittest.TestCase):
    self.assertEqual(set(state_values),set(meta['state_slots']))
    for k,v in state_values.items():self.assertEqual(tool.validate_value(v,meta['state_slots'][k]['value_schema'],path=k),[]);checked+=1
   SCHEMA_REPORT.update(actual_capability_calls=len(OBSERVED),state_snapshots=len(STATES),schema_checks=checked,capability_counts=counts)
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): the cell settled about 0.2 K below the set point (proportional droop G(T-Ta)/K)."""
+ def test_cell_settles_on_the_set_point(self):
+  for T in (400.,500.,320.):
+   h=setup(warm=False,method=quick());call(h,'thermal.set_temperature',temperature_k=T,rate_k_s=.5)
+   step(h,(T-298.15)/.5+600.)
+   self.assertLess(abs(h.furnace-T),1e-6,(T,h.furnace))
+   self.assertLess(abs(h.read()['furnace.indicated_k']-T),1e-3)
 if __name__=='__main__':unittest.main()

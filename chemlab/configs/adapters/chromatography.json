@@ -1,0 +1,1841 @@
+{
+ "class": "chromatography",
+ "adapter": "chemlab.compile.classes.chromatography:ChromatographyAdapter",
+ "about": "Chromatography and electrophoresis: method (class keys: flow, inj, column-temp, oven, inlet, det, split, inlet-mode, run, wl, gradient, pmax, rate, speed, eluent, voltage, current, constant, lamp, plus native names), load, run (job), stop, chromatogram (trace + peak table), quantify, flow on|off, set-temp --zone, status. power / open / close come from the shared layer.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "agilent_gc8890b",
+   "agilent_7890b_ssl_fid",
+   "agilent_hplc1260",
+   "agilent_1260infinity",
+   "agilent_1290infinity",
+   "thermo_dionexintegrion",
+   "gas_flavourspec25gc",
+   "wyatt_eclipseaf4",
+   "sciex_pa800",
+   "camag_tlcscanner",
+   "biotage_selekt",
+   "gilson_cpc250",
+   "biorad_miniprotean"
+  ],
+  "secondary": {},
+  "not_in_this_class": {
+   "agilent_hs8697, markes_unityxr, frontier_egapy, teledyne_atomxxyz": "GC front ends (headspace, thermal desorption, pyrolysis, purge and trap): primary in sample_intro; they inject into a GC but run no separation themselves"
+  },
+  "verbs_changed_from_the_first_draft": {
+   "quantify": "kept for concentration from external standards (SFC, IC, GC-IMS); TLC (track amounts), GPC and AF4 (molar mass) answer not-supported with their own capability as the alternative",
+   "load": "IC (valve load position), Selekt (run.setup dialog) and the 7890B (syringe) are not sample loading on these twins: the sample comes from the lab, or `run` draws and injects it (7890B)",
+   "flow": "CPC rotor.start/stop is the rotor in local control, not the mobile phase: not supported; 8890 column carrier on/off (method.configure column on) and HPLC mobile-phase availability were added",
+   "chromatogram": "7890B (live FID current only) is not supported; 8890 reads the last run of the run path (gc.last_run) instead of the instant chromatography.measure fixture (one native path per verb); Selekt and CPC read the run history (a trace) instead of the live snapshot query"
+  },
+  "shared_verbs_redefined": {
+   "method": "one canonical dictionary over 1-6 native calls per member (oven programs, settings objects, per-zone temperatures, required arguments kept from the current method); the shared method maps one capability only",
+   "stop": "must use the same native path as run and chromatogram (one path per verb group, §5.2) and refuses NOT_RUNNING before sending"
+  }
+ },
+ "members": {
+  "agilent_gc8890b": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "style": "program",
+       "keys": {
+        "oven": "program"
+       },
+       "temp_cap": "thermal.set_temperature",
+       "temp_args": {
+        "zone": "oven"
+       },
+       "temp_arg": "temperature_K",
+       "prog_cap": "method.configure",
+       "prog_args": {
+        "component": "oven"
+       },
+       "object": "settings",
+       "hold0": "initial_time_s",
+       "rate": "ramp_{n}_rate_K_s",
+       "final": "ramp_{n}_final_K",
+       "hold": "ramp_{n}_final_time_s"
+      },
+      {
+       "cap": "thermal.set_temperature",
+       "args": {
+        "zone": "inlet"
+       },
+       "keys": {
+        "inlet": "temperature_K"
+       },
+       "passthrough": false
+      },
+      {
+       "cap": "thermal.set_temperature",
+       "args": {
+        "zone": "fid"
+       },
+       "keys": {
+        "det": "temperature_K"
+       },
+       "passthrough": false
+      },
+      {
+       "cap": "method.configure",
+       "args": {
+        "component": "inlet"
+       },
+       "object": "settings",
+       "keys": {
+        "split": {
+         "field": "split_ratio",
+         "kind": "number"
+        },
+        "inlet-mode": {
+         "field": "mode",
+         "kind": "choice",
+         "values": {
+          "split": "Split",
+          "splitless": "Splitless"
+         }
+        }
+       }
+      },
+      {
+       "cap": "method.configure",
+       "args": {
+        "component": "column"
+       },
+       "object": "settings",
+       "keys": {
+        "flow": {
+         "field": "flow_m3_s"
+        }
+       }
+      }
+     ]
+    },
+    "load": {
+     "cap": "sample.load",
+     "sample_arg": "sample_id",
+     "before": [
+      {
+       "cap": "lid.set_angle",
+       "args": {
+        "angle_rad": "$max"
+       },
+       "if": {
+        "state": "lid.angle_rad",
+        "lt": "$max"
+       },
+       "step": "open the oven lid (vial position)"
+      }
+     ],
+     "after": [
+      {
+       "cap": "lid.set_angle",
+       "args": {
+        "angle_rad": "$min"
+       },
+       "if": {
+        "state": "lid.angle_rad",
+        "gt": "$min"
+       },
+       "step": "close the oven lid"
+      }
+     ]
+    },
+    "run": {
+     "cap": "run.start",
+     "before": [
+      {
+       "cap": "run.prep",
+       "if": {
+        "state": "gc.status#ready",
+        "eq": false
+       },
+       "step": "Prep Run"
+      }
+     ],
+     "ready": {
+      "state": "gc.status#reasons",
+      "empty": true,
+      "reasons": "gc.status#reasons"
+     }
+    },
+    "stop": {
+     "cap": "run.stop"
+    },
+    "chromatogram": {
+     "reads": [
+      "gc.last_run",
+      "gc.run"
+     ],
+     "peaks": "gc.last_run#peaks",
+     "complete": "gc.last_run#",
+     "extra": [
+      "gc.last_run#sample_id",
+      "gc.last_run#elapsed_s",
+      "gc.last_run#aborted"
+     ],
+     "x_unit": "s",
+     "y_unit": "A"
+    },
+    "flow": {
+     "cap": "method.configure",
+     "args": {
+      "component": "column"
+     },
+     "object": "settings",
+     "key": "on"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K",
+     "default_zone": "oven"
+    }
+   },
+   "targets": {
+    "zone": {
+     "arg": "zone",
+     "values": {
+      "oven": "oven",
+      "inlet": "inlet",
+      "detector": "fid"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "gc.run",
+    "last_run": "gc.last_run",
+    "sample": "sample.loaded",
+    "sample_id": "sample.id",
+    "flow": "gc.method#column.on",
+    "temps": [
+     "thermal.oven.indicated_k",
+     "thermal.inlet.indicated_k",
+     "thermal.fid.indicated_k"
+    ]
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample loaded",
+      "message": "no sample is loaded in {inst}.",
+      "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "quantify": "it has no calibration / quantification capability; the peak areas are in `chromatogram`"
+   },
+   "path": "run",
+   "params": {
+    "running_when_set": true,
+    "method_needs_power": true,
+    "oven_ramps": 32,
+    "poll_s": 5.0
+   },
+   "notes": {
+    "run": [
+     "run sends Prep Run first when the GC is not READY yet (no Not-Ready reasons left), then Start; the run follows the oven program"
+    ],
+    "load": [
+     "the 8890 twin loads a virtual vial with the oven lid open (>= 60 deg) - the class opens and closes the lid"
+    ],
+    "method": [
+     "oven=... sets the oven start temperature (thermal.set_temperature) and the ramp table (method.configure oven); the ramp after the last one gets rate 0 so the program ends there"
+    ]
+   }
+  },
+  "agilent_7890b_ssl_fid": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "style": "program",
+       "keys": {
+        "oven": "program"
+       },
+       "temp_cap": "thermal.set_temperature",
+       "temp_args": {
+        "zone": "oven"
+       },
+       "temp_arg": "temperature_k",
+       "time_cap": "oven.set_initial_time",
+       "time_arg": "time_s",
+       "ramp_cap": "oven.set_ramp",
+       "index_arg": "index",
+       "rate_arg": "rate_k_s",
+       "final_arg": "final_k",
+       "hold_arg": "final_time_s"
+      },
+      {
+       "cap": "thermal.set_temperature",
+       "args": {
+        "zone": "inlet"
+       },
+       "keys": {
+        "inlet": "temperature_k"
+       },
+       "passthrough": false
+      },
+      {
+       "cap": "thermal.set_temperature",
+       "args": {
+        "zone": "detector"
+       },
+       "keys": {
+        "det": "temperature_k"
+       },
+       "passthrough": false
+      },
+      {
+       "cap": "inlet.configure",
+       "keys": {
+        "split": "split_ratio",
+        "inlet-mode": {
+         "arg": "mode",
+         "kind": "choice"
+        }
+       }
+      },
+      {
+       "cap": "column.configure",
+       "keys": {
+        "flow": "flow_m3_s"
+       }
+      },
+      {
+       "cap": "detector.configure",
+       "keys": {}
+      }
+     ]
+    },
+    "run": {
+     "cap": "run.start",
+     "before": [
+      {
+       "cap": "sample.aspirate",
+       "args": {
+        "fraction": "$param:aspirate_fraction"
+       },
+       "step": "draw the sample into the syringe"
+      }
+     ],
+     "after": [
+      {
+       "cap": "syringe.insert",
+       "step": "insert the needle into the inlet"
+      },
+      {
+       "cap": "syringe.depress",
+       "args": {
+        "fraction": 1.0
+       },
+       "step": "inject (depress the plunger)"
+      },
+      {
+       "cap": "syringe.retract",
+       "step": "withdraw the needle"
+      }
+     ],
+     "ready": {
+      "state": "run.ready",
+      "eq": true,
+      "reasons": "status.lines"
+     }
+    },
+    "stop": {
+     "cap": "run.stop"
+    },
+    "flow": {
+     "cap": "inlet.set_gas",
+     "arg": "on"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "default_zone": "oven"
+    }
+   },
+   "targets": {
+    "zone": {
+     "arg": "zone",
+     "values": {
+      "oven": "oven",
+      "inlet": "inlet",
+      "detector": "detector"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "run": "run.state",
+    "flow": "inlet.method#gas_on",
+    "temps": [
+     "oven.temperature_k",
+     "inlet.temperature_k",
+     "detector.temperature_k"
+    ]
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "oven.program_length_s",
+      "code": "NO_PROGRAM",
+      "label": "oven program set",
+      "message": "the oven program of {inst} has no length (initial time 0 and no ramp), so the run would never end.",
+      "fix": "set an oven program: `chemlab run {inst} method oven=50C:1min..250C@20C/min:2min`.",
+      "not": [
+       0,
+       null
+      ]
+     },
+     {
+      "slot": "syringe.inserted",
+      "code": "SYRINGE_IN_INLET",
+      "label": "syringe at the vial",
+      "message": "the syringe needle of {inst} is still in the inlet.",
+      "fix": "withdraw it: `chemlab call {inst} syringe.retract`.",
+      "value": false
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "manual syringe injection: `run` draws the sample from the vial into the syringe and injects it after Start",
+    "chromatogram": "the 7890B keeps no trace (the FID signal goes to a data system); read the live signal with `chemlab read agilent_7890b_ssl_fid detector.output_a run.state run.time_s`",
+    "quantify": "it has no calibration / quantification capability"
+   },
+   "alternatives": {
+    "chromatogram": "`chemlab read agilent_7890b_ssl_fid detector.output_a run.state run.time_s` (live FID current), `chemlab call agilent_7890b_ssl_fid logs.read --log run` (run log)"
+   },
+   "path": "run",
+   "path_exceptions": [
+    "sample.aspirate",
+    "syringe.insert",
+    "syringe.depress",
+    "syringe.retract"
+   ],
+   "params": {
+    "running": [
+     "run"
+    ],
+    "failed": [],
+    "aspirate_fraction": 0.01,
+    "method_needs_power": true,
+    "poll_s": 5.0
+   },
+   "notes": {
+    "run": [
+     "manual injection as on the instrument: draw the sample, press Start, insert the needle, inject, withdraw; the run ends at the end of the oven program"
+    ],
+    "method": [
+     "oven=... sets the oven start temperature, the initial time and one oven.set_ramp per ramp; the ramp after the last one gets rate 0 so the program ends there"
+    ]
+   }
+  },
+  "agilent_hplc1260": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "chromatography.set_method",
+       "keys": {
+        "flow": "flow_m3_s",
+        "inj": "injection_volume_m3",
+        "column-temp": "column_temperature_K",
+        "pmax": "pressure_limit_Pa",
+        "wl": "wavelength_m",
+        "gradient": {
+         "arg": "gradient",
+         "fraction": "fraction_b"
+        },
+        "run": "run_duration_s"
+       },
+       "keep": {
+        "flow_m3_s": "method.flow_m3_s",
+        "injection_volume_m3": "method.injection_volume_m3",
+        "column_temperature_K": "method.column_temperature_k",
+        "pressure_limit_Pa": "method.pressure_limit_pa",
+        "wavelength_m": "method.wavelength_m",
+        "gradient": "method.gradient",
+        "run_duration_s": "method.run_duration_s",
+        "sample_interval_s": "method.sample_interval_s",
+        "integration_method": "method.integration_method"
+       }
+      }
+     ]
+    },
+    "load": {
+     "cap": "sample.load",
+     "sample_arg": "sample_id",
+     "before": [
+      {
+       "cap": "door.set_angle",
+       "args": {
+        "angle_rad": "$max"
+       },
+       "if": {
+        "state": "door.angle_rad",
+        "lt": "$max"
+       },
+       "step": "open the injector door"
+      }
+     ],
+     "after": [
+      {
+       "cap": "door.set_angle",
+       "args": {
+        "angle_rad": "$min"
+       },
+       "if": {
+        "state": "door.angle_rad",
+        "gt": "$min"
+       },
+       "step": "close the injector door"
+      }
+     ]
+    },
+    "run": {
+     "cap": "chromatography.measure"
+    },
+    "stop": {
+     "cap": "chromatography.stop"
+    },
+    "chromatogram": {
+     "cap": "chromatography.get_chromatogram",
+     "base": "chromatogram",
+     "x": "time_s",
+     "y": "signal",
+     "complete": "complete",
+     "x_unit": "s",
+     "y_unit": "1"
+    },
+    "flow": {
+     "cap": "mobile_phase.set_available",
+     "arg": "available"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "run.status",
+    "method": "method.configured",
+    "sample": "sample.loaded",
+    "sample_id": "sample.id",
+    "flow": "mobile_phase.available"
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample loaded",
+      "message": "no sample is loaded in {inst}.",
+      "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+      "value": true
+     },
+     {
+      "slot": "mobile_phase.available",
+      "code": "FLOW_OFF",
+      "label": "flow on",
+      "message": "the mobile phase of {inst} is off.",
+      "fix": "switch it on: `chemlab run {inst} flow on`.",
+      "value": true
+     },
+     {
+      "slot": "door.closed",
+      "code": "DOOR_OPEN",
+      "label": "door closed",
+      "message": "the injector door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close door` (or `chemlab call {inst} door.set_angle --angle_rad 0`).",
+      "value": true
+     }
+    ]
+   },
+   "codes": {
+    "chromatography.get_chromatogram:PRECONDITION_FAILED": {
+     "code": "NO_RUN",
+     "message": "{inst} has no run yet, so there is no chromatogram.",
+     "fix": "start one: `chemlab run {inst} run`."
+    }
+   },
+   "unsupported": {
+    "quantify": "it has no calibration / quantification capability; the peak areas are in `chromatogram`",
+    "set-temp": "it has no separate temperature command: the column temperature is part of the method (`method column-temp=40C`)"
+   },
+   "path": "chromatography",
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "method_needs_power": true
+   },
+   "notes": {
+    "flow": [
+     "the twin models the mobile phase only as \"available\" (no reservoir volume); flow on sets it"
+    ],
+    "method": [
+     "chromatography.set_method needs every setting; settings you do not give keep their current value, or the default method (contract example) the first time"
+    ]
+   }
+  },
+  "agilent_1260infinity": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keys": {
+        "flow": "flow_m3_s",
+        "inj": "injection_volume_m3",
+        "column-temp": "column_temperature_k",
+        "wl": "wavelength_m",
+        "run": "run_time_s",
+        "rate": "data_rate_hz",
+        "gradient": {
+         "arg": "program",
+         "fraction": "modifier_fraction"
+        }
+       },
+       "keep": {
+        "flow_m3_s": "pump.flow_target_m3_s",
+        "bpr_pa": "bpr.target_pa",
+        "bpr_temperature_k": "bpr.temperature_target_k",
+        "column_temperature_k": "column.target_k",
+        "column_position": "column.selected",
+        "wavelength_m": "detector.wavelength_m"
+       }
+      }
+     ]
+    },
+    "run": {
+     "cap": "run.start",
+     "pos": {
+      "args": [
+       "drawer",
+       "position"
+      ]
+     },
+     "ready": {
+      "state": "system.ready",
+      "eq": true
+     }
+    },
+    "stop": {
+     "cap": "run.abort"
+    },
+    "chromatogram": {
+     "cap": "chromatogram.read",
+     "x": "time_s",
+     "y": "absorbance_au",
+     "peaks": "peaks",
+     "complete": "complete",
+     "x_unit": "s",
+     "y_unit": "AU",
+     "extra": [
+      "run_id",
+      "wavelength_m"
+     ]
+    },
+    "quantify": {
+     "style": "pairs",
+     "cap": "peaks.quantify",
+     "cal_arg": "calibration",
+     "conc_key": "concentration_mol_m3",
+     "area_key": "area_au_s",
+     "window_arg": "retention_window_s",
+     "min_standards": 2
+    },
+    "flow": {
+     "cap": "pump.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "run.phase",
+    "method": "method.configured",
+    "flow": "pump.enabled",
+    "temps": [
+     "column.indicated_k"
+    ]
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "pump.enabled",
+      "code": "FLOW_OFF",
+      "label": "flow on",
+      "message": "the pump of {inst} is off.",
+      "fix": "switch it on: `chemlab run {inst} flow on`.",
+      "value": true
+     }
+    ],
+    "flow": [
+     {
+      "slot": "co2.ready",
+      "code": "CO2_NOT_READY",
+      "label": "CO2 ready",
+      "message": "the CO2 supply of {inst} is not ready (supply pressure or the chiller is not there yet).",
+      "fix": "wait for the chiller (`chemlab wait 5min`) and check `chemlab read {inst} co2.ready supply.pressure_pa`; ask the lab operator if the supply is off.",
+      "value": true
+     }
+    ]
+   },
+   "codes": {
+    "pump.set:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start the pump: it needs all modules on, the CO2 ready, a method, a column at the method's position and modifier in the bottle.",
+     "fix": "check `chemlab run {inst} status` and `chemlab read {inst} column.installed solvent.b1`."
+    }
+   },
+   "unsupported": {
+    "load": "vials sit in the sampler drawers (placed by the lab); `run --pos DRAWER:POSITION` injects from one",
+    "set-temp": "it has no separate temperature command: the column temperature is part of the method (`method column-temp=40C`)"
+   },
+   "path": "run",
+   "path_exceptions": [
+    "chromatogram.read"
+   ],
+   "params": {
+    "running": [
+     "injecting",
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "poll_s": 5.0
+   },
+   "notes": {
+    "run": [
+     "the SFC injects from a vial in a drawer: --pos DRAWER:POSITION, e.g. --pos 1:1; it starts when the flow, back pressure and column temperature are at the method (system.ready) - use --wait-ready"
+    ],
+    "quantify": [
+     "peaks.quantify fits the standards (concentration vs peak area) and returns the concentration of the largest peak in the window"
+    ]
+   }
+  },
+  "agilent_1290infinity": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keys": {
+        "flow": "flow_m3_s",
+        "inj": "injection_m3",
+        "run": "run_s",
+        "column-temp": {
+         "arg": "zone_targets_k",
+         "like_example": true
+        }
+       },
+       "keep": {
+        "flow_m3_s": "pump.target_m3_s",
+        "column_index": "column.selected",
+        "zone_targets_k": [
+         "zone1.target_k",
+         "zone2.target_k"
+        ]
+       }
+      }
+     ]
+    },
+    "run": {
+     "cap": "acquisition.start",
+     "ready": {
+      "near": [
+       [
+        "zone1.indicated_k",
+        "zone1.target_k"
+       ],
+       [
+        "zone2.indicated_k",
+        "zone2.target_k"
+       ]
+      ]
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "chromatogram": {
+     "cap": "process.measure",
+     "records": "points",
+     "x": "time_s",
+     "y": "delta_n",
+     "complete": "complete",
+     "x_unit": "s",
+     "y_unit": "RIU (delta n)"
+    },
+    "flow": {
+     "cap": "pump.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "acquisition.phase",
+    "method": "method.configured",
+    "sample": "sample.loaded",
+    "flow": "pump.enabled",
+    "temps": [
+     "zone1.indicated_k",
+     "zone2.indicated_k"
+    ]
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample loaded",
+      "message": "no sample is loaded in {inst}.",
+      "fix": "ask the lab operator to place the sample (this instrument takes samples from the lab, not from a chemlab verb).",
+      "value": true
+     },
+     {
+      "slot": "pump.enabled",
+      "code": "FLOW_OFF",
+      "label": "flow on",
+      "message": "the pump of {inst} is off.",
+      "fix": "switch it on: `chemlab run {inst} flow on`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the sample is placed by the lab (host), not by an agent capability (vial in the drawer)",
+    "quantify": "GPC calibrates molar mass, not concentration: `chemlab call agilent_1290infinity calibration.fit` then `molecular_weight.analyze`",
+    "set-temp": "the two column zones are set by the method (`method column-temp=40C`)"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "ready_tol_k": 0.5,
+    "poll_s": 5.0
+   },
+   "notes": {
+    "run": [
+     "starts when both column zones are within 0.5 K of the method (use --wait-ready)"
+    ]
+   }
+  },
+  "thermo_dionexintegrion": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.update",
+       "keys": {
+        "flow": "flow_m3_s",
+        "eluent": "eluent_mol_m3"
+       }
+      },
+      {
+       "cap": "method.configure",
+       "keys": {
+        "column-temp": "column_k",
+        "inj": "injection_m3",
+        "run": "run_s"
+       },
+       "keep": {
+        "flow_m3_s": "pump.target_m3_s",
+        "eluent_mol_m3": "eluent.target_mol_m3",
+        "column_k": "column.target_k",
+        "suppression_current_a": "suppressor.current_a"
+       }
+      }
+     ]
+    },
+    "run": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "chromatogram": {
+     "cap": "process.measure",
+     "records": "points",
+     "x": "time_s",
+     "y": "conductivity_s_m",
+     "complete": "complete",
+     "x_unit": "s",
+     "y_unit": "S/m"
+    },
+    "quantify": {
+     "style": "slope",
+     "cap": "quantification.integrate",
+     "start_arg": "start_s",
+     "stop_arg": "stop_s",
+     "slope_arg": "calibration_s_m_s_per_mol_m3",
+     "min_standards": 1
+    },
+    "flow": {
+     "cap": "pump.set",
+     "arg": "enabled"
+    },
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "setpoint_k",
+     "args": {
+      "enabled": true
+     },
+     "default_zone": "column"
+    }
+   },
+   "targets": {
+    "zone": {
+     "arg": "zone",
+     "values": {
+      "column": "column",
+      "compartment": "compartment",
+      "cell": "cd_cell"
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "acquisition.phase",
+    "method": "method.configured",
+    "sample": "sample.loaded",
+    "flow": "pump.enabled",
+    "temps": [
+     "column.indicated_k",
+     "temperature.compartment_k",
+     "temperature.cd_cell_k"
+    ]
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample loaded",
+      "message": "no sample is loaded in {inst}.",
+      "fix": "ask the lab operator to place the sample (this instrument takes samples from the lab, not from a chemlab verb).",
+      "value": true
+     },
+     {
+      "slot": "pump.enabled",
+      "code": "FLOW_OFF",
+      "label": "flow on",
+      "message": "the pump of {inst} is off.",
+      "fix": "switch it on: `chemlab run {inst} flow on`.",
+      "value": true
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:BUSY": {
+     "code": "SAMPLE_LOADED",
+     "message": "{inst} takes a full method (column temperature, injection, run time, mode) only before the sample is loaded, with the pump off and the column flushed.",
+     "fix": "change flow and eluent with `chemlab run {inst} method flow=... eluent=...` (method.update); the rest needs a new sample from the lab."
+    }
+   },
+   "unsupported": {
+    "load": "the sample loop is filled by the lab's autosampler (host); the run switches the injection valve itself"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "poll_s": 2.0
+   },
+   "notes": {
+    "quantify": [
+     "the response factor (area per concentration) is fitted through the origin from the standards and passed to quantification.integrate with the window"
+    ],
+    "run": [
+     "the pump stops at the end of a run: switch the flow on again before the next one"
+    ]
+   }
+  },
+  "gas_flavourspec25gc": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keys": {
+        "column-temp": "gc_k",
+        "det": "ims_k",
+        "inlet": "injector_k",
+        "inj": "injection_m3",
+        "run": "run_s"
+       },
+       "keep": {
+        "gc_k": "gc.target_k",
+        "ims_k": "ims.target_k",
+        "injector_k": "injector.target_k",
+        "incubator_k": "incubator.target_k"
+       }
+      }
+     ]
+    },
+    "run": {
+     "cap": "acquisition.start",
+     "ready": {
+      "near": [
+       [
+        "gc.indicated_k",
+        "gc.target_k"
+       ],
+       [
+        "ims.indicated_k",
+        "ims.target_k"
+       ],
+       [
+        "injector.indicated_k",
+        "injector.target_k"
+       ],
+       [
+        "incubator.indicated_k",
+        "incubator.target_k"
+       ]
+      ]
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "chromatogram": {
+     "cap": "process.measure",
+     "records": "points",
+     "x": "time_s",
+     "y": "signal",
+     "complete": "complete",
+     "x_unit": "s",
+     "y_unit": "IMS signal summed over drift time"
+    },
+    "quantify": {
+     "style": "fit",
+     "cap": "calibration.fit",
+     "analyze_cap": "concentration.analyze",
+     "roi_arg": "roi",
+     "start_key": "start_s",
+     "stop_key": "stop_s",
+     "drift_lo": "drift_min_ratio",
+     "drift_hi": "drift_max_ratio",
+     "std_arg": "standards",
+     "conc_key": "concentration_mol_m3",
+     "area_key": "area_s",
+     "label_arg": "label",
+     "min_standards": 2
+    },
+    "flow": {
+     "cap": "gas.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "acquisition.phase",
+    "method": "method.configured",
+    "sample": "sample.loaded",
+    "flow": "gas.enabled",
+    "temps": [
+     "gc.indicated_k",
+     "ims.indicated_k",
+     "injector.indicated_k",
+     "incubator.indicated_k"
+    ]
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample loaded",
+      "message": "no sample is loaded in {inst}.",
+      "fix": "ask the lab operator to place the sample (this instrument takes samples from the lab, not from a chemlab verb).",
+      "value": true
+     },
+     {
+      "slot": "gas.enabled",
+      "code": "FLOW_OFF",
+      "label": "flow on",
+      "message": "the drift / carrier gas of {inst} is off.",
+      "fix": "switch it on: `chemlab run {inst} flow on`.",
+      "value": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "gas.enabled",
+      "code": "GAS_ON",
+      "label": "gas off",
+      "message": "{inst} takes a new method only with the gas off.",
+      "fix": "switch it off first (`chemlab run {inst} flow off`), set the method, then `flow on` again.",
+      "value": false
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready to start: a temperature is not at the method yet, the cover is open, or the column still holds the last injection.",
+     "fix": "wait (`chemlab run {inst} run --wait-ready 10min`); after a stopped run let the gas flush the column for a few minutes (`chemlab wait 5min`)."
+    }
+   },
+   "unsupported": {
+    "load": "the sample is placed by the lab (host), not by an agent capability (headspace vial in the autosampler)",
+    "set-temp": "it has no separate temperature command: the GC, IMS, injector and incubator temperatures is part of the method (`method column-temp=40C`)"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "poll_s": 5.0,
+    "ready_tol_k": 1.0
+   },
+   "notes": {
+    "quantify": [
+     "calibration.fit over the retention window (and the drift-ratio window, --drift) then concentration.analyze"
+    ],
+    "run": [
+     "the gas switches off at the end of a run: `flow on` before the next one"
+    ]
+   }
+  },
+  "wyatt_eclipseaf4": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.set",
+       "keys": {
+        "flow": "detector_flow_m3_s"
+       }
+      }
+     ]
+    },
+    "load": {
+     "cap": "sample.load",
+     "sample_arg": "sample_id",
+     "provided_arg": "provided_id",
+     "volume_arg": "volume_m3"
+    },
+    "run": {
+     "cap": "run.start"
+    },
+    "stop": {
+     "cap": "run.abort"
+    },
+    "chromatogram": {
+     "cap": "fractogram.read",
+     "table": "rows",
+     "columns": "columns",
+     "x": "time_s",
+     "y": "dri_riu",
+     "x_unit": "s",
+     "y_unit": "RIU",
+     "extra": [
+      "run_id"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "run": "run.state",
+    "method": "method.summary",
+    "sample": "sample.loaded"
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.summary",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method flow=1mL/min steps=[...]` (see `chemlab help {inst} method`).",
+      "not": [
+       null
+      ]
+     }
+    ]
+   },
+   "unsupported": {
+    "quantify": "AF4 gives absolute molar mass and size from the light-scattering and dRI detectors, not a concentration calibration: `chemlab call wyatt_eclipseaf4 peaks.analyze`",
+    "flow": "the cross flow and the detector flow are steps of the method (method.set), not a separate switch",
+    "set-temp": "the twin has no temperature control"
+   },
+   "path": "run",
+   "path_exceptions": [
+    "fractogram.read"
+   ],
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "aborted"
+    ],
+    "poll_s": 10.0
+   },
+   "notes": {
+    "load": [
+     "loads a sample the lab provided, by its id, into the injection loop: --volume is the injected volume"
+    ],
+    "chromatogram": [
+     "the trace is the dRI signal; --signal uv_au or ls90_per_m picks another detector"
+    ],
+    "method": [
+     "the elution programme is the native steps=[...] list (focus, focus_inject, elution with cross flows); flow= is the detector flow"
+    ]
+   }
+  },
+  "sciex_pa800": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keys": {}
+      },
+      {
+       "cap": "detector.configure",
+       "keys": {
+        "wl": "wavelength_m",
+        "rate": "data_rate_hz"
+       },
+       "keep": {
+        "module": "detector.module",
+        "mode": "detector.mode",
+        "wavelength_m": "detector.wavelength_m",
+        "data_rate_hz": "detector.data_rate_hz"
+       }
+      },
+      {
+       "cap": "lamp.set",
+       "keys": {
+        "lamp": {
+         "arg": "on",
+         "kind": "choice",
+         "values": {
+          "on": true,
+          "off": false
+         }
+        }
+       },
+       "passthrough": false
+      }
+     ]
+    },
+    "run": {
+     "cap": "run.start",
+     "ready": {
+      "state": "lamp.ready",
+      "eq": true,
+      "strict": false,
+      "fix": "switch the deuterium lamp on (`chemlab run {inst} method lamp=on`) and let it warm up: `chemlab run {inst} run --wait-ready 10min` waits and then starts."
+     }
+    },
+    "stop": {
+     "cap": "run.stop"
+    },
+    "chromatogram": {
+     "cap": "electropherogram.read",
+     "x": "time_s",
+     "y": "absorbance_au",
+     "peaks": "peaks",
+     "complete": "available",
+     "x_unit": "s",
+     "y_unit": "AU",
+     "extra": [
+      "separation_voltage_v",
+      "mean_current_a",
+      "detection"
+     ]
+    },
+    "set-temp": {
+     "zones": {
+      "capillary": {
+       "cap": "capillary.set_temperature",
+       "arg": "temperature_k"
+      },
+      "sample": {
+       "cap": "sample_storage.set_temperature",
+       "arg": "temperature_k"
+      }
+     },
+     "default_zone": "capillary"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "cycle.phase",
+    "method": "method.configured",
+    "temps": [
+     "capillary.temperature_k",
+     "sample_storage.temperature_k"
+    ]
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "cartridge.installed",
+      "code": "NO_CARTRIDGE",
+      "label": "cartridge installed",
+      "message": "no capillary cartridge is installed in {inst}.",
+      "fix": "ask the lab operator to install one.",
+      "value": true
+     }
+    ]
+   },
+   "codes": {
+    "run.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs the covers closed and the insertion bar down, a cartridge, a method, every vial the method names in the trays and (with a separation step) a warm lamp.",
+     "fix": "check `chemlab run {inst} status`, `chemlab read {inst} lamp.ready trays.vials`; switch the lamp on with `chemlab call {inst} lamp.set --on true` and wait 5 min."
+    }
+   },
+   "unsupported": {
+    "load": "vials sit in the buffer and sample trays (placed by the lab); the method's inject step names the vial, e.g. SI:A1",
+    "quantify": "no calibration capability; corrected peak areas and area % are in `chromatogram`",
+    "flow": "rinse pressure and separation voltage are steps of the method, not a separate switch"
+   },
+   "path": "run",
+   "path_exceptions": [
+    "electropherogram.read"
+   ],
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "poll_s": 5.0
+   },
+   "notes": {
+    "method": [
+     "the CE programme is the native steps=[...] list (rinse, inject, separate, wait); wl= and rate= set the detector; lamp=on|off switches the deuterium lamp"
+    ],
+    "run": [
+     "a method with a separation step needs the deuterium lamp on and warm (5 min): --wait-ready waits for it"
+    ]
+   }
+  },
+  "camag_tlcscanner": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keys": {
+        "wl": "wavelengths_m"
+       },
+       "keep": {
+        "bandwidth_m": "method.bandwidth_m",
+        "mode": "method.mode"
+       }
+      },
+      {
+       "cap": "lamp.select",
+       "keys": {
+        "lamp": {
+         "arg": "source",
+         "kind": "choice"
+        }
+       }
+      }
+     ]
+    },
+    "run": {
+     "cap": "scan.start",
+     "ready": {
+      "state": "lamp.ready",
+      "eq": true,
+      "fix": "select a lamp (`chemlab run {inst} method lamp=deuterium`) and let it warm up: `chemlab run {inst} run --wait-ready 10min` waits and then starts."
+     }
+    },
+    "stop": {
+     "cap": "scan.stop"
+    },
+    "chromatogram": {
+     "cap": "results.read",
+     "traces": "traces",
+     "label": "track_index",
+     "x": "y_m",
+     "y": "signal",
+     "trace_peaks": "peaks",
+     "complete": "complete",
+     "x_unit": "m (plate position)",
+     "y_unit": "AU"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "scan.phase",
+    "method": "method.configured",
+    "sample": "plate.loaded"
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "plate.loaded",
+      "code": "NO_PLATE",
+      "label": "plate on the stage",
+      "message": "no plate is on the stage of {inst}.",
+      "fix": "ask the lab operator to place the developed plate.",
+      "value": true
+     },
+     {
+      "slot": "door.closed",
+      "code": "DOOR_OPEN",
+      "label": "door closed",
+      "message": "the door of {inst} is open.",
+      "fix": "close it: `chemlab call {inst} door.set --opened false`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the developed plate is placed on the stage by the lab (host)",
+    "quantify": "TLC quantifies by standard tracks and amounts (not concentration standards): `chemlab call camag_tlcscanner quantify.fit`",
+    "flow": "a scanner has no mobile phase (the plate is already developed)",
+    "set-temp": "the scanner has no temperature control"
+   },
+   "path": "scan",
+   "path_exceptions": [
+    "results.read"
+   ],
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "poll_s": 2.0
+   },
+   "notes": {
+    "method": [
+     "method.configure needs the full track and scan geometry: what you do not give comes from the current method or the default; lamp=deuterium|halogen_tungsten|led_366|auto selects the lamp (it then warms up)"
+    ],
+    "chromatogram": [
+     "one densitogram per track: --pos TRACK picks the track (default: the first); positions are on the plate (m)"
+    ]
+   }
+  },
+  "biotage_selekt": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keys": {
+        "flow": "flow_m3_s",
+        "gradient": {
+         "arg": "gradient",
+         "fraction": "strong_fraction"
+        },
+        "wl": "wavelengths_m"
+       },
+       "keep": {
+        "channel": "channel.selected"
+       }
+      }
+     ]
+    },
+    "run": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "chromatogram": {
+     "cap": "history.read",
+     "records": "records",
+     "x": "elapsed_s",
+     "y": "uv1",
+     "filter": [
+      "stage",
+      [
+       "standby"
+      ]
+     ],
+     "last_run_by": "elapsed_s",
+     "x_unit": "s",
+     "y_unit": "AU",
+     "live": []
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "cycle.phase"
+   },
+   "unsupported": {
+    "load": "the cartridge and the sample are loaded by the lab (host)",
+    "quantify": "a preparative system: it collects fractions instead of quantifying",
+    "flow": "the pump runs only inside a gradient run",
+    "set-temp": "the system has no temperature control"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "history.read"
+   ],
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "poll_s": 5.0
+   },
+   "notes": {
+    "run": [
+     "the acquisition core is used (acquisition.start); the touch-screen run path (run.begin) stays on `chemlab call`"
+    ],
+    "chromatogram": [
+     "the trace is UV channel 1 from the run history; --signal uv2 picks channel 2"
+    ]
+   }
+  },
+  "gilson_cpc250": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keys": {
+        "flow": "flow_m3_s",
+        "speed": "speed_rad_s",
+        "run": "duration_s"
+       }
+      }
+     ]
+    },
+    "run": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "chromatogram": {
+     "cap": "history.read",
+     "records": "records",
+     "x": "elution_time_s",
+     "y": "total_concentration_kg_m3",
+     "last_run_by": "elution_time_s",
+     "x_unit": "s",
+     "y_unit": "kg/m3"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "cycle.phase",
+    "method": "method.configured",
+    "sample": "sample.configured"
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method set.",
+      "fix": "set one: `chemlab run {inst} method KEY=VALUE ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "label": "sample loaded",
+      "message": "no sample is loaded in {inst}.",
+      "fix": "ask the lab operator to place the sample (this instrument takes samples from the lab, not from a chemlab verb).",
+      "value": true
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:PRECONDITION_FAILED": {
+     "code": "METHOD_LOCKED",
+     "message": "{inst} refused the method: it takes a new method only before the sample is configured, with the fraction collection inside the run time and speeds above 2000 rpm reviewed.",
+     "fix": "run with the current method (`chemlab run {inst} run`), or keep collection_end_s <= run time; a new sample set-up needs the lab operator."
+    }
+   },
+   "unsupported": {
+    "load": "the injection is configured by the lab (host)",
+    "quantify": "a preparative system: it collects fractions instead of quantifying",
+    "flow": "the pump runs only inside an acquisition; the rotor (rotor.start in local control) is not the mobile phase",
+    "set-temp": "the CPC has no temperature control"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "history.read"
+   ],
+   "params": {
+    "running": [
+     "running"
+    ],
+    "failed": [
+     "failed",
+     "cancelled"
+    ],
+    "poll_s": 10.0
+   },
+   "notes": {
+    "method": [
+     "method.configure needs every setting; what you do not give comes from the default method (contract example)"
+    ]
+   }
+  },
+  "biorad_miniprotean": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "psu.program",
+       "keys": {
+        "voltage": "voltage_v",
+        "current": "current_a",
+        "run": "time_s",
+        "constant": {
+         "arg": "constant",
+         "kind": "choice"
+        }
+       },
+       "keep": {
+        "constant": "psu.constant",
+        "voltage_v": "psu.voltage_set_v",
+        "current_a": "psu.current_set_a",
+        "time_s": "psu.time_set_s",
+        "power_failure_detection": "psu.power_failure_detection"
+       }
+      }
+     ]
+    },
+    "load": {
+     "cap": "sample.load",
+     "sample_arg": "sample_id",
+     "pos_arg": "position",
+     "lane_arg": "lane",
+     "volume_arg": "volume_m3",
+     "single": false,
+     "before": [
+      {
+       "cap": "leads.disconnect",
+       "if": {
+        "state": "leads.state",
+        "ne": "disconnected"
+       },
+       "step": "unplug the leads"
+      },
+      {
+       "cap": "lid.remove",
+       "if": {
+        "state": "lid.on",
+        "eq": true
+       },
+       "step": "take the lid off"
+      }
+     ]
+    },
+    "run": {
+     "cap": "psu.start",
+     "before": [
+      {
+       "cap": "lid.place",
+       "if": {
+        "state": "lid.on",
+        "eq": false
+       },
+       "step": "put the lid on"
+      },
+      {
+       "cap": "leads.connect",
+       "args": {
+        "polarity": "normal"
+       },
+       "if": {
+        "state": "leads.state",
+        "eq": "disconnected"
+       },
+       "step": "plug the leads into the power supply"
+      }
+     ]
+    },
+    "stop": {
+     "cap": "psu.stop"
+    },
+    "chromatogram": {
+     "cap": "gel.observe",
+     "pos_arg": "position",
+     "peaks": "visible_bands",
+     "complete": "dye_front_m",
+     "extra": [
+      "gel_id",
+      "dye_front_m"
+     ],
+     "x_unit": "m (migration distance)"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "run": "psu.state"
+   },
+   "requires": {
+    "run": [
+     {
+      "slot": "buffer.inner_m3",
+      "code": "NO_BUFFER",
+      "label": "buffer filled",
+      "message": "the inner buffer chamber of {inst} is empty.",
+      "fix": "ask the lab operator to fill the tank.",
+      "not": [
+       0,
+       0.0,
+       null
+      ]
+     }
+    ]
+   },
+   "unsupported": {
+    "quantify": "bands are only observed here; quantify on a gel imager (imaging class)",
+    "flow": "a gel has no flow",
+    "set-temp": "the buffer temperature is set when the tank is filled"
+   },
+   "path": "psu",
+   "path_exceptions": [
+    "lid.place",
+    "leads.connect",
+    "gel.observe"
+   ],
+   "params": {
+    "running": [
+     "running",
+     "paused"
+    ],
+    "failed": [
+     "error"
+    ],
+    "default_pos": 1,
+    "poll_s": 10.0
+   },
+   "notes": {
+    "load": [
+     "loads a prepared sample into a well: --pos GEL_POSITION --lane WELL --volume V; takes the lid off (leads unplugged) if it is on"
+    ],
+    "run": [
+     "puts the lid on and plugs the leads in (normal polarity) when needed, then starts the programme"
+    ],
+    "chromatogram": [
+     "the gel observation: dye front and the visible (pre-stained) bands per lane; --pos picks the gel position"
+    ],
+    "method": [
+     "voltage=200V run=35min constant=voltage programs the power supply (psu.program)"
+    ]
+   }
+  }
+ }
+}

@@ -118,7 +118,7 @@ slot('method.mode',TEXT,'1','TC/IC/TOC/NPOC模式','setpoint');slot('blank.valid
 # Main power switch, standalone shutdown, catalyst type and syringe washes, the Maintenance items (bubble removal, TC catalyst regeneration,
 # IC reagent delivery, residue removal, syringe zero point, TC blank check) with their counters, the Background Monitor / READY lamp and
 # clearing of the measurement log.  The panel layer (panel_ui.json) drives these and the 1.0.x commands; CAPS keep their meaning.
-ASSET_VERSION='1.3.0'
+ASSET_VERSION='1.3.1'
 CATALYSTS=['regular','high'];MAINT_ITEMS=['bubble_removal','catalyst_regeneration','ic_regeneration','residue_removal','syringe_zero']
 MAINT_S={'bubble_removal':60.,'catalyst_regeneration':300.,'ic_regeneration':10.,'residue_removal':120.,'syringe_zero':20.}
 BUBBLE_DILUENT_M3=1e-6;BUBBLE_ACID_M3=1e-7;REGEN_ACID_M3=5e-7;RESIDUE_FLUSH_M3=2e-6;IC_REAGENT_STEP=.25
@@ -260,7 +260,8 @@ class ShimadzuToclRuntime:
   if visibility not in ('agent','debug','evaluator'):raise ActionRejected('ACCESS_DENIED')
   v={'plant.configured':self.plant is not None,'sample.loaded':self.sample is not None,'power.enabled':self.powered,'cover.opened':self.opened,'cover.angle_rad':1.60 if self.opened else 0.,'top_cover.opened':self.top_opened,'top_cover.lift_m':.15 if self.top_opened else 0.,'syringe.position_m':min(SYRINGE_STROKE_M,max(0.,self._syringe_v/SYRINGE_MAX_M3*SYRINGE_STROKE_M)),'valve.angle_rad':self.valve,'ic_pump.angle_rad':self.pump,'furnace.target_k':self.target,'furnace.actual_k':self.temperature,'furnace.ready':self._ready(),'measurement.phase':self.phase,'measurement.stage':self.stage,'measurement.elapsed_s':self.elapsed_s,'measurement.progress':len(self.assays)/len(self._plan) if self._plan else 0.,'measurement.channel':self._channel,'measurement.completed_aliquots':len(self.assays),'detector.ndir_signal':self._signal,'detector.last_sample_time_s':self._last_point['time_s'] if self._last_point else None,'method.mode':self.method['mode'] if self.method else '', 'blank.valid':self._blank_valid(),'calibration.ready':self._calibration_ready(),'storage.result_count':len(self._records),'storage.curve_count':len(self._curves),'safety.warning':self.warning,'truth.ledger':self._ledger()}
   v.update({'result.'+q.lower()+'_kg_m3':self._summary[q] for q in QUANTITIES});v.update(self._key_values())
-  if visibility=='agent':v.pop('truth.ledger')
+  if visibility=='agent':                                                 # agents see only agent slots (truth.ledger, fault.injected: evaluator; 1.3.1)
+   for k in [k for k in v if SLOTS[k][3]!='agent']:v.pop(k)
   return copy.deepcopy(v)
  def invoke(self,k,**a):
   if k in PANEL_CAPS:                                                     # panel gestures: optional arguments, checked by the engine's validator

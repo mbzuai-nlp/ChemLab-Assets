@@ -1,0 +1,1983 @@
+{
+ "class": "reactor",
+ "adapter": "chemlab.compile.classes.reactor:ReactorAdapter",
+ "about": "Reactors and reaction stations: set-temp (per zone / jacket / ramp), heat, temp, wait-temp, stir, flow, pressure, light, current, voltage, dose, program, safety-limit, method, start / stop / result with jobs, open / close with safety checks.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "antonpaar_monowave400",
+   "ika_electrasyn2",
+   "hepatochem_photoredoxbox",
+   "parr_4591",
+   "syrris_asiadiscovery",
+   "thalesnano_hcube",
+   "radleys_mya4",
+   "mt_rc1mxhfcal"
+  ],
+  "secondary": {},
+  "excluded": {},
+  "not_here": {
+   "cem_libertyblue": "peptide synthesizer: thin class (its contract has no reactor set points to map)",
+   "cytiva_ktaoligosynt": "oligo synthesizer: thin class",
+   "ika_plate_rctdigital": "hot-plate reactions are covered by its thermal class (set-temp, heat, stir); no reactor verb would add anything"
+  }
+ },
+ "members": {
+  "antonpaar_monowave400": {
+   "role": "primary",
+   "verbs": {
+    "temp": {
+     "reads": [
+      "thermal.indicated_k"
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "temp": {
+       "arg": "target_k",
+       "kind": "temperature"
+      },
+      "ramp": {
+       "arg": "ramp_s",
+       "kind": "duration"
+      },
+      "hold": {
+       "arg": "hold_s",
+       "kind": "duration"
+      },
+      "cool": {
+       "arg": "cool_to_k",
+       "kind": "temperature"
+      },
+      "stir": {
+       "arg": "stir_rpm",
+       "kind": "rotation"
+      },
+      "power": {
+       "arg": "power_limit_w",
+       "kind": "power"
+      },
+      "pressure": {
+       "arg": "pressure_limit_pa",
+       "kind": "pressure"
+      }
+     },
+     "keep": {
+      "target_k": "method.target_k",
+      "stir_rpm": "method.stir_rpm",
+      "power_limit_w": "method.power_limit_w",
+      "pressure_limit_pa": "method.pressure_limit_pa"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "microwave programme"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "reaction.measure"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "open": [
+        {
+         "cap": "lock.set_travel",
+         "args": {
+          "travel_m": 0.0
+         },
+         "skip_if": {
+          "slot": "lock.travel_m",
+          "value": 0.0
+         },
+         "step": "unlock the lid"
+        },
+        {
+         "cap": "lid.set_lift",
+         "args": {
+          "lift_m": 0.15
+         },
+         "step": "open the lid"
+        }
+       ],
+       "close": [
+        {
+         "cap": "lid.set_lift",
+         "args": {
+          "lift_m": 0.0
+         },
+         "skip_if": {
+          "slot": "lid.lift_m",
+          "value": 0.0
+         },
+         "step": "close the lid"
+        },
+        {
+         "cap": "lock.set_travel",
+         "args": {
+          "travel_m": 0.01
+         },
+         "step": "lock the lid"
+        }
+       ],
+       "state_open": "lid.lift_m",
+       "state_closed": "lock.travel_m"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_k",
+    "set": "method.target_k",
+    "pressure": "pressure.indicated_pa",
+    "stir": "stir.actual_rpm",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no sealed G30 vial is loaded in {inst}.",
+      "fix": "ask the lab operator to load the sample vial.",
+      "truthy": true
+     },
+     {
+      "slot": "lid.lift_m",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close and lock it: `chemlab run {inst} close lid`.",
+      "max": 0.0
+     },
+     {
+      "slot": "lock.travel_m",
+      "code": "LID_NOT_LOCKED",
+      "message": "the lid of {inst} is closed but not locked.",
+      "fix": "lock it: `chemlab run {inst} close lid`.",
+      "min": 0.009
+     },
+     {
+      "slot": "gas.ready",
+      "code": "NO_COOLING_AIR",
+      "message": "the cooling air of {inst} is not connected or not at 5.5-6 bar.",
+      "fix": "ask the lab operator to connect it.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "open:lid": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "thermal.indicated_k",
+      "code": "HOT",
+      "message": "the vial in {inst} is still hot ({value}); the lid unlocks only at 50 °C or below.",
+      "fix": "let it cool; check `chemlab run {inst} status` until it shows 50 °C or below.",
+      "max": 323.15,
+      "none_ok": true,
+      "kind": "temperature"
+     },
+     {
+      "slot": "pressure.indicated_pa",
+      "code": "PRESSURISED",
+      "message": "the vial in {inst} is still under pressure ({value}); the lid unlocks only at 1.2 bar or below.",
+      "fix": "let it cool down and check `chemlab run {inst} status`.",
+      "max": 120000.0,
+      "none_ok": true,
+      "kind": "pressure"
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:PRECONDITION_FAILED": {
+     "code": "OUTSIDE_SAMPLE_MODEL",
+     "message": "{inst} refused the programme: its temperatures must lie inside the range the loaded sample's vapour-pressure model covers, and it cannot cool below 25 °C.",
+     "fix": "choose temperatures inside that range (`chemlab call {inst} template.read --substance_id ID` lists it; ethanol, for example, up to about 90 °C) and cool to 25 °C or more."
+    },
+    "method.configure:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "BAD_PROGRAMME",
+     "message": "{inst} refused the programme: cool-to is above the target, or ramp + hold is longer than 100 h.",
+     "fix": "give cool <= temp and a shorter programme."
+    },
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, a sealed G30 vial, the lid closed and locked, cooling air, and a programme the sample allows (the vial must not already be above the target, its pressure under the limit).",
+     "fix": "check `chemlab run {inst} status`; `chemlab run {inst} close lid` closes and locks the lid."
+    },
+    "lock.set_travel:PRECONDITION_FAILED": {
+     "code": "HOT_OR_PRESSURISED",
+     "message": "the lid of {inst} stays locked while the vial is hot or under pressure (above 50 °C or 1.2 bar), or while a run is going.",
+     "fix": "wait until it has cooled (`chemlab run {inst} status`)."
+    }
+   },
+   "unsupported": {
+    "set-temp": "the reaction temperature is part of the heating programme (target, ramp, hold, cool), which this instrument takes only as a whole",
+    "heat": "microwave heating runs only inside a programme (`start`)",
+    "wait-temp": "the temperature follows the programme; follow the run with `start` and `wait` instead",
+    "stir": "the stirring speed is a programme setting",
+    "flow": "batch microwave reactor: no pump",
+    "pressure": "no pressure set point: the vial pressure follows the temperature (its limit is the method key pressure)",
+    "light": "no light source",
+    "current": "no electrolysis",
+    "voltage": "no electrolysis",
+    "dose": "no dosing unit",
+    "program": "one programme per run: set it with `method`",
+    "safety-limit": "the safety limits are the programme's power and pressure limits (`method power=... pressure=...`)"
+   },
+   "alternatives": {
+    "set-temp": "`chemlab run INST method temp=80C ramp=2min hold=10min cool=50C`, then `chemlab run INST start`.",
+    "stir": "`chemlab run INST method stir=600rpm ramp=... hold=... cool=...`.",
+    "heat": "`chemlab run INST start` runs the programme set with `method`.",
+    "wait-temp": "`chemlab run INST start` gives a job; `chemlab wait job-N`."
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "reaction.measure"
+   ],
+   "params": {
+    "tolerance_k": 2.0
+   },
+   "notes": {
+    "method": [
+     "ramp, hold and cool are not shown by the instrument, so give them every time; temp, stir, power and pressure are kept from the last programme when left out",
+     "the IR sensor reads only from 30 °C up; below that the temperature shows n/a"
+    ],
+    "close": [
+     "closing the lid also locks it (the run needs the lid locked)"
+    ],
+    "open": [
+     "the lid unlocks only when the vial is at 50 °C or below and 1.2 bar or below"
+    ]
+   }
+  },
+  "ika_electrasyn2": {
+   "role": "primary",
+   "verbs": {
+    "stir": {
+     "set": [
+      {
+       "cap": "stir.set_speed",
+       "arg": "speed_rad_s"
+      }
+     ],
+     "off": [
+      {
+       "cap": "stir.set_speed",
+       "value": 0.0,
+       "arg": "speed_rad_s"
+      }
+     ],
+     "word": "stirring"
+    },
+    "current": {
+     "set": [
+      {
+       "cap": "method.configure",
+       "arg": "current_a",
+       "args": {
+        "mode": "constant_current"
+       },
+       "keep": {
+        "cell_voltage_v": "method.cell_voltage_v",
+        "voltage_limit_v": "method.voltage_limit_v",
+        "stop_by": "method.stop_by",
+        "duration_s": "method.duration_s",
+        "charge_target_c": "method.charge_target_c"
+       }
+      }
+     ],
+     "word": "constant current",
+     "power": false
+    },
+    "voltage": {
+     "set": [
+      {
+       "cap": "method.configure",
+       "arg": "cell_voltage_v",
+       "args": {
+        "mode": "constant_cell_voltage"
+       },
+       "keep": {
+        "current_a": "method.current_a",
+        "voltage_limit_v": "method.voltage_limit_v",
+        "stop_by": "method.stop_by",
+        "duration_s": "method.duration_s",
+        "charge_target_c": "method.charge_target_c"
+       }
+      }
+     ],
+     "word": "constant cell voltage",
+     "power": false
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "current": {
+       "arg": "current_a",
+       "kind": "current"
+      },
+      "voltage": {
+       "arg": "cell_voltage_v",
+       "kind": "voltage"
+      },
+      "voltage-limit": {
+       "arg": "voltage_limit_v",
+       "kind": "voltage"
+      },
+      "stop-by": {
+       "arg": "stop_by"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "charge": {
+       "arg": "charge_target_c"
+      }
+     },
+     "keep": {
+      "mode": "method.mode",
+      "current_a": "method.current_a",
+      "cell_voltage_v": "method.cell_voltage_v",
+      "voltage_limit_v": "method.voltage_limit_v",
+      "stop_by": "method.stop_by",
+      "duration_s": "method.duration_s",
+      "charge_target_c": "method.charge_target_c"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "electrolysis"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "electrochem.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "stir": "stir.actual_rad_s",
+    "current": "electrochem.indicated_current_a",
+    "voltage": "electrochem.indicated_cell_voltage_v",
+    "mode": "method.mode",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no reaction vial is loaded in {inst}.",
+      "fix": "ask the lab operator to load the vial.",
+      "truthy": true
+     },
+     {
+      "slot": "cap.lift_m",
+      "code": "CAP_OPEN",
+      "message": "the vial cap (electrode head) of {inst} is raised.",
+      "fix": "lower it: `chemlab run {inst} close cap`.",
+      "max": 0.0
+     },
+     {
+      "slot": "electrodes.connected",
+      "code": "NO_ELECTRODES",
+      "message": "no electrodes are connected to {inst}.",
+      "fix": "ask the lab operator to fit the electrodes.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "current": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "voltage": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the vial loaded with its cap lowered, electrodes connected, and enough substrate and electrode capacity for the charge.",
+     "fix": "check `chemlab run {inst} status` and `chemlab run {inst} power on`."
+    }
+   },
+   "unsupported": {
+    "set-temp": "no temperature control (room-temperature electrolysis cell)",
+    "heat": "no heater",
+    "temp": "no temperature sensor",
+    "wait-temp": "no temperature sensor",
+    "flow": "batch cell: no pump",
+    "pressure": "open cell: no pressure control",
+    "light": "no light source",
+    "dose": "no dosing unit",
+    "program": "no temperature programme (the electrolysis settings are the method)",
+    "safety-limit": "no temperature limit (the compliance voltage is the method key voltage-limit)",
+    "open": "handled by the shared verbs (open cap)",
+    "close": "handled by the shared verbs (close cap)"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "electrochem.measure"
+   ],
+   "notes": {
+    "current": [
+     "sets constant-current mode and the current; the other electrolysis settings stay as they are (`status`)"
+    ],
+    "voltage": [
+     "sets constant-cell-voltage mode and the voltage; the other settings stay"
+    ],
+    "stir": [
+     "the speed is set in 10 rpm steps"
+    ]
+   },
+   "shared_fallthrough": [
+    "open",
+    "close"
+   ]
+  },
+  "hepatochem_photoredoxbox": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "temperature.set",
+       "arg": "target_k"
+      }
+     ]
+    },
+    "temp": {
+     "reads": [
+      "temperature.indicated_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "temperature.indicated_k"
+     ]
+    },
+    "stir": {
+     "set": [
+      {
+       "cap": "stir.set_speed",
+       "arg": "speed_rad_s"
+      }
+     ],
+     "off": [
+      {
+       "cap": "stir.set_speed",
+       "value": 0.0,
+       "arg": "speed_rad_s"
+      }
+     ],
+     "word": "stirring"
+    },
+    "light": {
+     "set": [
+      {
+       "cap": "led.set_intensity",
+       "arg": "intensity"
+      }
+     ],
+     "off": [
+      {
+       "cap": "led.set_intensity",
+       "value": 0.0,
+       "arg": "intensity"
+      }
+     ],
+     "word": "LED intensity"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "irradiation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "irradiation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "temperature.indicated_k",
+    "set": "temperature.target_k",
+    "stir": "stir.actual_rad_s",
+    "light": "optics.intensities",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "thermal.configured",
+      "code": "NOT_SET_UP",
+      "message": "the chamber of {inst} is not set up in this lab.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     }
+    ],
+    "light": [
+     {
+      "slot": "optics.configured",
+      "code": "NO_LEDS",
+      "message": "the LED modules of {inst} are not fitted in this lab.",
+      "fix": "ask the lab operator to fit them.",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "lid.lift_m",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "max": 0.0
+     },
+     {
+      "slot": "sample.loaded_count",
+      "code": "NO_SAMPLE",
+      "message": "no vial is loaded in {inst}.",
+      "fix": "ask the lab operator to load the vials.",
+      "min": 1
+     },
+     {
+      "slot": "optics.configured",
+      "code": "NO_LEDS",
+      "message": "the LED modules of {inst} are not fitted.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "temperature.set:PRECONDITION_FAILED": {
+     "code": "BELOW_AMBIENT",
+     "message": "{inst} has no heater or chiller: its fan only keeps the chamber under the set point, so the set point cannot be below the room temperature.",
+     "fix": "give a set point at or above room temperature (25 °C or more)."
+    },
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the lid closed, vials loaded and LEDs fitted.",
+     "fix": "check `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "heat": "no heater switch: the LEDs warm the chamber and the fan holds it under the set point",
+    "flow": "batch vials: no pump",
+    "pressure": "open vials: no pressure control",
+    "current": "no electrolysis",
+    "voltage": "no electrolysis",
+    "dose": "no dosing unit",
+    "program": "no temperature programme",
+    "safety-limit": "the set point is the chamber maximum (fan cooling)",
+    "open": "handled by the shared verbs (open lid)",
+    "close": "handled by the shared verbs (close lid)"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "irradiation.measure"
+   ],
+   "params": {
+    "tolerance_k": 1.0
+   },
+   "notes": {
+    "set-temp": [
+     "the set point is a maximum: the fan cools the chamber towards room temperature; only the LEDs warm it"
+    ],
+    "light": [
+     "one intensity for all four LED modules (0-100 %)"
+    ]
+   },
+   "shared_fallthrough": [
+    "open",
+    "close"
+   ]
+  },
+  "parr_4591": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "thermal.set_temperature",
+       "arg": "temperature_K"
+      }
+     ]
+    },
+    "heat": {
+     "on": [
+      {
+       "cap": "heater.set_enabled",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "heater.set_enabled",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "heater.enabled",
+     "word": "heater"
+    },
+    "temp": {
+     "reads": [
+      "thermal.indicated_temperature_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "thermal.indicated_temperature_k"
+     ]
+    },
+    "stir": {
+     "set": [
+      {
+       "cap": "stirrer.set_speed",
+       "arg": "speed_rad_s"
+      }
+     ],
+     "off": [
+      {
+       "cap": "stirrer.set_speed",
+       "value": 0.0,
+       "arg": "speed_rad_s"
+      }
+     ],
+     "word": "stirring"
+    },
+    "stop": {
+     "steps": [
+      {
+       "cap": "heater.set_enabled",
+       "args": {
+        "enabled": false
+       },
+       "skip_if": {
+        "slot": "heater.enabled",
+        "falsy": true
+       },
+       "step": "heater off"
+      },
+      {
+       "cap": "stirrer.set_speed",
+       "args": {
+        "speed_rad_s": 0.0
+       },
+       "skip_if": {
+        "slot": "stirrer.speed_rad_s",
+        "value": 0.0
+       },
+       "step": "stirrer off"
+      }
+     ]
+    },
+    "result": {
+     "reads": [
+      "thermal.indicated_temperature_k",
+      "thermal.target_k",
+      "pressure.indicated_pressure_pa",
+      "stirrer.speed_rad_s",
+      "heater.enabled",
+      "heater.delivered_power_w"
+     ]
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "open": [
+        {
+         "cap": "lid.open",
+         "step": "open the lid"
+        }
+       ],
+       "close": [
+        {
+         "cap": "lid.close",
+         "step": "close the lid"
+        }
+       ],
+       "state_closed": "lid.closed"
+      },
+      "vent": {
+       "open": [
+        {
+         "cap": "vent.set_open",
+         "args": {
+          "open": true
+         },
+         "step": "open the vent valve"
+        }
+       ],
+       "close": [
+        {
+         "cap": "vent.set_open",
+         "args": {
+          "open": false
+         },
+         "step": "close the vent valve"
+        }
+       ],
+       "state_open": "vent.open"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "heat": "heater.enabled",
+    "stir": "stirrer.speed_rad_s",
+    "pressure": "pressure.indicated_pressure_pa",
+    "vent": "vent.open"
+   },
+   "requires": {
+    "heat": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_OPEN",
+      "message": "the vessel of {inst} is open; it heats only closed.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "truthy": true
+     }
+    ],
+    "stir": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_OPEN",
+      "message": "the vessel of {inst} is open; the magnetic drive runs only with the head on.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "truthy": true
+     }
+    ],
+    "open:lid": [
+     {
+      "slot": "heater.enabled",
+      "code": "HEATER_ON",
+      "message": "the heater of {inst} is on.",
+      "fix": "switch it off first: `chemlab run {inst} heat off`.",
+      "falsy": true
+     },
+     {
+      "slot": "stirrer.speed_rad_s",
+      "code": "STIRRING",
+      "message": "the stirrer of {inst} is running.",
+      "fix": "stop it first: `chemlab run {inst} stir off`.",
+      "max": 0.0
+     },
+     {
+      "slot": "thermal.indicated_temperature_k",
+      "code": "HOT",
+      "message": "the vessel of {inst} is at {value}; it may be opened only at 50 °C or below.",
+      "fix": "switch the heater off and let it cool: `chemlab run {inst} wait-temp --to 45C --max 2h`.",
+      "max": 323.15,
+      "kind": "temperature"
+     },
+     {
+      "slot": "pressure.indicated_pressure_pa",
+      "code": "PRESSURISED",
+      "message": "the vessel of {inst} is at {value}, not at ambient pressure.",
+      "fix": "release it first: `chemlab run {inst} open vent` (then wait a few seconds).",
+      "min": 99325.0,
+      "max": 103325.0,
+      "kind": "pressure"
+     }
+    ]
+   },
+   "codes": {
+    "thermal.set_temperature:PRECONDITION_FAILED": {
+     "code": "PRESSURE_FORECAST",
+     "message": "{inst} refused the set point: it must be at least room temperature, and the pressure the closed vessel would reach there must stay under its 207 bar rating.",
+     "fix": "choose a lower temperature, or vent first (`chemlab run {inst} open vent`)."
+    },
+    "lid.open:PRECONDITION_FAILED": {
+     "code": "NOT_SAFE_TO_OPEN",
+     "message": "{inst} may be opened only with the heater off, the stirrer stopped, at 50 °C or below and at ambient pressure.",
+     "fix": "see `chemlab run {inst} status`; vent with `chemlab run {inst} open vent`."
+    }
+   },
+   "unsupported": {
+    "flow": "batch vessel: no pump",
+    "pressure": "no pressure set point: the pressure follows the temperature and the gas in the closed vessel",
+    "light": "no light source",
+    "current": "no electrolysis",
+    "voltage": "no electrolysis",
+    "dose": "no dosing unit",
+    "program": "the 4848 controller holds one set point (no ramp / soak programme in this twin)",
+    "safety-limit": "the pressure rating is fixed by the vessel (rupture disc); the twin has no settable cut-off",
+    "method": "manual controller: no run programme; use set-temp, heat and stir",
+    "start": "manual controller: heating starts with `heat on`"
+   },
+   "alternatives": {
+    "pressure": "watch it with `chemlab run INST status`; release it with `chemlab run INST open vent`.",
+    "start": "`chemlab run INST set-temp 100C`, `chemlab run INST heat on`, `chemlab run INST stir 500rpm`.",
+    "method": "`chemlab run INST set-temp ...`, `heat on`, `stir ...`."
+   },
+   "path": "heater",
+   "path_exceptions": [
+    "stirrer.set_speed"
+   ],
+   "params": {
+    "tolerance_k": 1.0
+   },
+   "notes": {
+    "stop": [
+     "stop switches the heater off and stops the stirrer (the vessel stays closed and under pressure)"
+    ],
+    "open": [
+     "the lid opens only with the heater off, the stirrer stopped, at 50 °C or below and at ambient pressure (vent first)"
+    ]
+   }
+  },
+  "syrris_asiadiscovery": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "temperature.set",
+       "arg": "target_k"
+      }
+     ]
+    },
+    "heat": {
+     "on": [
+      {
+       "cap": "temperature.enable",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "temperature.enable",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "temperature.enabled",
+     "word": "chip temperature control"
+    },
+    "temp": {
+     "reads": [
+      "temperature.indicated_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "temperature.indicated_k"
+     ]
+    },
+    "flow": {
+     "set": [
+      {
+       "cap": "pump.set_flow",
+       "arg": "flow_m3_s",
+       "target": true
+      }
+     ],
+     "off": [
+      {
+       "cap": "pump.set_flow",
+       "arg": "flow_m3_s",
+       "value": 0.0,
+       "target": true
+      }
+     ],
+     "word": "pump flow"
+    },
+    "pressure": {
+     "set": [
+      {
+       "cap": "pressure.set",
+       "arg": "backpressure_pa"
+      }
+     ],
+     "on": [
+      {
+       "cap": "pressure.enable",
+       "args": {
+        "enabled": true
+       }
+      }
+     ],
+     "off": [
+      {
+       "cap": "pressure.enable",
+       "args": {
+        "enabled": false
+       }
+      }
+     ],
+     "state": "pressure.enabled",
+     "word": "back-pressure"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "flows": {
+       "arg": "flow_rates_m3_s",
+       "kind": "flow"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "inject": {
+       "arg": "injection_times_s",
+       "kind": "duration"
+      },
+      "collect": {
+       "arg": "collection_windows"
+      }
+     },
+     "keep": {
+      "flow_rates_m3_s": "flow.targets_m3_s",
+      "duration_s": "method.duration_s"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "flow run"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "flow.measure"
+    }
+   },
+   "targets": {
+    "channel": {
+     "arg": "channel",
+     "values": {
+      "1": "P1",
+      "2": "P2"
+     },
+     "required": true,
+     "verbs": [
+      "flow"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "temperature.indicated_k",
+    "set": "temperature.target_k",
+    "heat": "temperature.enabled",
+    "flow": "flow.actual_m3_s",
+    "pressure": "pressure.indicated_pa",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault"
+   },
+   "requires": {
+    "flow": [
+     {
+      "slot": "plant.configured",
+      "code": "NOT_SET_UP",
+      "message": "the chip and reagents of {inst} are not set up in this lab.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "clamp.lift_m",
+      "code": "CLAMP_OPEN",
+      "message": "the chip clamp of {inst} is open.",
+      "fix": "ask the lab operator to clamp the chip (`chemlab call {inst} clamp.set_lift --lift_m 0`).",
+      "max": 0.0
+     }
+    ],
+    "start": [
+     {
+      "slot": "plant.configured",
+      "code": "NOT_SET_UP",
+      "message": "the chip and reagents of {inst} are not set up in this lab.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "clamp.lift_m",
+      "code": "CLAMP_OPEN",
+      "message": "the chip clamp of {inst} is open.",
+      "fix": "clamp the chip first (`chemlab call {inst} clamp.set_lift --lift_m 0`).",
+      "max": 0.0
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "pump.set_flow:PRECONDITION_FAILED": {
+     "code": "PUMP_NOT_READY",
+     "message": "{inst} refused the flow: the pump channel must be initialised and idle (not in a method run), the flow inside the fitted syringe's range, the reagent bottle not empty, and the liquid must not boil at the chip temperature and back-pressure.",
+     "fix": "check `chemlab run {inst} status`; raise the back-pressure (`chemlab run {inst} pressure 5bar`) or lower the temperature."
+    },
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the chip clamped, the system primed, a method, and pump pressure and boiling margins that allow it.",
+     "fix": "check `chemlab run {inst} status`; raise the back-pressure if the solvent would boil."
+    },
+    "method.configure:PRECONDITION_FAILED": {
+     "code": "BAD_METHOD",
+     "message": "{inst} refused the method: the pumps must be stopped and the flows and collection windows valid for the fitted syringes and collector.",
+     "fix": "stop the pumps (`chemlab run {inst} flow off --channel N`) and check the values."
+    }
+   },
+   "unsupported": {
+    "stir": "flow reactor: mixing happens in the chip",
+    "light": "no light source",
+    "current": "no electrolysis",
+    "voltage": "no electrolysis",
+    "dose": "reagents are pumped (`flow`), not dosed",
+    "program": "no temperature programme",
+    "safety-limit": "no settable temperature limit in this twin",
+    "open": "no lid (the chip clamp is a set-up step: `chemlab call INST clamp.set_lift`)",
+    "close": "no lid"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "flow.measure"
+   ],
+   "params": {
+    "tolerance_k": 1.0
+   },
+   "notes": {
+    "flow": [
+     "a flow on one pump starts manual pumping; flow off (or 0) stops that pump",
+     "--channel 1 is pump P1, --channel 2 is P2"
+    ],
+    "pressure": [
+     "the value is the back-pressure regulator setting (1-20 bar); pressure on|off switches the regulator"
+    ],
+    "method": [
+     "flows, inject and collect are lists: flows=0.5mL/min,0.5mL/min inject=0s,0s collect=[{\"start_s\":30,\"end_s\":120,\"slot\":0}]",
+     "the collector holds about 5 mL per run"
+    ]
+   }
+  },
+  "thalesnano_hcube": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "method.configure",
+       "arg": "temperature_k",
+       "keep": {
+        "liquid_flow_m3_s": "flow.target_m3_s",
+        "hydrogen_reference_flow_m3_s": "hydrogen.target_reference_m3_s",
+        "pressure_abs_pa": "pressure.target_abs_pa",
+        "duration_s": "method.duration_s"
+       }
+      }
+     ]
+    },
+    "temp": {
+     "reads": [
+      "temperature.indicated_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "temperature.indicated_k"
+     ]
+    },
+    "flow": {
+     "set": [
+      {
+       "cap": "method.configure",
+       "arg": "liquid_flow_m3_s",
+       "keep": {
+        "hydrogen_reference_flow_m3_s": "hydrogen.target_reference_m3_s",
+        "temperature_k": "temperature.target_k",
+        "pressure_abs_pa": "pressure.target_abs_pa",
+        "duration_s": "method.duration_s"
+       }
+      }
+     ],
+     "word": "liquid flow",
+     "switch_fix": "the pump runs only during a run: `chemlab run INST start` / `chemlab run INST stop`."
+    },
+    "pressure": {
+     "set": [
+      {
+       "cap": "method.configure",
+       "arg": "pressure_abs_pa",
+       "keep": {
+        "liquid_flow_m3_s": "flow.target_m3_s",
+        "hydrogen_reference_flow_m3_s": "hydrogen.target_reference_m3_s",
+        "temperature_k": "temperature.target_k",
+        "duration_s": "method.duration_s"
+       }
+      }
+     ],
+     "word": "system pressure (absolute)",
+     "switch_fix": "the pressure is held only during a run; give a value, e.g. `chemlab run INST pressure 30bar`."
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "flow": {
+       "arg": "liquid_flow_m3_s",
+       "kind": "flow"
+      },
+      "h2": {
+       "arg": "hydrogen_reference_flow_m3_s",
+       "kind": "flow"
+      },
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "pressure": {
+       "arg": "pressure_abs_pa",
+       "kind": "pressure"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      }
+     },
+     "keep": {
+      "liquid_flow_m3_s": "flow.target_m3_s",
+      "hydrogen_reference_flow_m3_s": "hydrogen.target_reference_m3_s",
+      "temperature_k": "temperature.target_k",
+      "pressure_abs_pa": "pressure.target_abs_pa",
+      "duration_s": "method.duration_s"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation",
+     "what": "hydrogenation run"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "hydrogenation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "temperature.indicated_k",
+    "set": "temperature.target_k",
+    "flow": "flow.indicated_m3_s",
+    "pressure": "pressure.indicated_abs_pa",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "flow": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "pressure": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "plant.configured",
+      "code": "NOT_SET_UP",
+      "message": "the cartridge, pump and recipe of {inst} are not set up in this lab.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "kinetics.configured",
+      "code": "NOT_SET_UP",
+      "message": "the catalyst model of {inst} is not set up in this lab.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "clamp.lift_m",
+      "code": "CLAMP_OPEN",
+      "message": "the cartridge clamp of {inst} is open.",
+      "fix": "ask the lab operator to close it.",
+      "max": 0.0
+     },
+     {
+      "slot": "water_lid.lift_m",
+      "code": "WATER_LID_OPEN",
+      "message": "the water reservoir lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close water_lid`.",
+      "max": 0.0
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "BUSY",
+      "message": "{inst} is running; it takes no new settings now.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`).",
+      "not": [
+       "running"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "OUT_OF_RANGE",
+     "message": "{inst} refused the method values (flow, hydrogen, temperature or pressure outside what the cartridge and pump allow).",
+     "fix": "see `chemlab help {inst} method` for the ranges (liquid flow up to 3 mL/min)."
+    },
+    "method.configure:PRECONDITION_FAILED": {
+     "code": "BUSY_OR_UNSUPPORTED",
+     "message": "{inst} refused the method: the pump must be stopped and the carrier's model must cover the temperature.",
+     "fix": "stop the run first; choose a lower temperature."
+    },
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the cartridge clamped, the water lid closed, the set-up confirmed, and a pressure drop and boiling margin that allow it.",
+     "fix": "check `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "heat": "the column heater follows the set point; there is no separate switch",
+    "stir": "flow reactor: no stirrer",
+    "light": "no light source",
+    "current": "no electrolysis",
+    "voltage": "no electrolysis",
+    "dose": "the substrate is pumped, not dosed",
+    "program": "no temperature programme",
+    "safety-limit": "no settable temperature limit in this twin",
+    "open": "handled by the shared verbs (open water_lid)",
+    "close": "handled by the shared verbs (close water_lid)"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "hydrogenation.measure"
+   ],
+   "params": {
+    "tolerance_k": 1.0
+   },
+   "notes": {
+    "set-temp": [
+     "the H-Cube takes temperature, flow, pressure and time together; the others stay as they are"
+    ],
+    "pressure": [
+     "the value is the absolute system pressure (e.g. 30bar = 30 bar absolute)"
+    ],
+    "temp": [
+     "the cartridge clamp opens only at 50 °C or below: lower the set point after a hot run"
+    ]
+   },
+   "shared_fallthrough": [
+    "open",
+    "close"
+   ]
+  },
+  "radleys_mya4": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "thermal.set_temperature",
+       "arg": "temperature_K",
+       "target": true
+      }
+     ]
+    },
+    "heat": {
+     "on": [
+      {
+       "cap": "thermal.set_enabled",
+       "args": {
+        "enabled": true
+       },
+       "target": true
+      }
+     ],
+     "off": [
+      {
+       "cap": "thermal.set_enabled",
+       "args": {
+        "enabled": false
+       },
+       "target": true
+      }
+     ],
+     "state": {
+      "slot": "zone_1.thermal.enabled",
+      "per": "zone_{zone}.thermal.enabled"
+     },
+     "word": "zone temperature control"
+    },
+    "temp": {
+     "reads": [
+      "zone_1.thermal.indicated_temperature_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "zone_1.thermal.indicated_temperature_k"
+     ]
+    },
+    "stir": {
+     "set": [
+      {
+       "cap": "stirring.set_speed",
+       "arg": "angular_speed_rad_s",
+       "target": true
+      },
+      {
+       "cap": "stirring.set_enabled",
+       "args": {
+        "enabled": true
+       },
+       "target": true,
+       "skip_if": {
+        "slot": "zone_1.stirring.enabled",
+        "per": "zone_{zone}.stirring.enabled",
+        "value": true
+       },
+       "step": "start stirring"
+      }
+     ],
+     "off": [
+      {
+       "cap": "stirring.set_enabled",
+       "args": {
+        "enabled": false
+       },
+       "target": true
+      }
+     ],
+     "word": "stirring"
+    },
+    "program": {
+     "cap": "thermal.configure_program",
+     "arg": "segments",
+     "temp_key": "temperature_K",
+     "time_key": "hold_s",
+     "target": true
+    },
+    "start": {
+     "cap": "thermal.start_program",
+     "target": true,
+     "job": "state",
+     "what": "temperature programme",
+     "state": {
+      "slot": "zone_1.program.phase",
+      "per": "zone_{zone}.program.phase",
+      "done": [
+       "completed"
+      ],
+      "failed": [
+       "interrupted_cooling",
+       "stopped",
+       "aborted",
+       "failed",
+       "idle"
+      ]
+     }
+    },
+    "stop": {
+     "cap": "thermal.stop_program",
+     "target": true
+    },
+    "result": {
+     "roles": [
+      "temp",
+      "temp2",
+      "set",
+      "heat",
+      "stir",
+      "program",
+      "program_step",
+      "program_time"
+     ]
+    }
+   },
+   "targets": {
+    "zone": {
+     "arg": "zone_index",
+     "values": {
+      "1": 0,
+      "2": 1,
+      "3": 2,
+      "4": 3
+     },
+     "required": true,
+     "optional_for": [
+      "temp",
+      "status"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": {
+     "slot": "zone_1.thermal.indicated_temperature_k",
+     "per": "zone_{zone}.thermal.indicated_temperature_k"
+    },
+    "temp2": {
+     "slot": "zone_1.thermal.indicated_liquid_temperature_k",
+     "per": "zone_{zone}.thermal.indicated_liquid_temperature_k"
+    },
+    "set": {
+     "slot": "zone_1.thermal.target_k",
+     "per": "zone_{zone}.thermal.target_k"
+    },
+    "heat": {
+     "slot": "zone_1.thermal.enabled",
+     "per": "zone_{zone}.thermal.enabled"
+    },
+    "stir": {
+     "slot": "zone_1.stirring.actual_rad_s",
+     "per": "zone_{zone}.stirring.actual_rad_s"
+    },
+    "stir_on": {
+     "slot": "zone_1.stirring.enabled",
+     "per": "zone_{zone}.stirring.enabled"
+    },
+    "program": {
+     "slot": "zone_1.program.phase",
+     "per": "zone_{zone}.program.phase"
+    },
+    "program_step": {
+     "slot": "zone_1.program.segment_index",
+     "per": "zone_{zone}.program.segment_index"
+    },
+    "program_time": {
+     "slot": "zone_1.program.reaction_elapsed_s",
+     "per": "zone_{zone}.program.reaction_elapsed_s"
+    }
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "zone_1.program.running",
+      "code": "PROGRAM_RUNNING",
+      "message": "a programme is running in {target} of {inst}; it owns the set point.",
+      "fix": "stop it first: `chemlab run {inst} stop --zone N`.",
+      "per": "zone_{zone}.program.running",
+      "falsy": true
+     }
+    ],
+    "heat": [
+     {
+      "slot": "cooling.available",
+      "code": "NO_COOLING",
+      "message": "{inst} heats or cools a zone only with its cooling water confirmed (2-5 L/min, 5-35 °C).",
+      "fix": "ask the lab operator to connect the cooling source, then retry.",
+      "truthy": true
+     }
+    ],
+    "program": [
+     {
+      "slot": "zone_1.program.running",
+      "code": "PROGRAM_RUNNING",
+      "message": "a programme is already running in {target} of {inst}.",
+      "fix": "stop it first: `chemlab run {inst} stop --zone N`.",
+      "per": "zone_{zone}.program.running",
+      "falsy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "cooling.available",
+      "code": "NO_COOLING",
+      "message": "{inst} runs a programme only with its cooling water confirmed.",
+      "fix": "ask the lab operator.",
+      "truthy": true
+     },
+     {
+      "slot": "zone_1.program.segments",
+      "code": "NO_PROGRAM",
+      "message": "no programme is loaded in {target} of {inst}.",
+      "fix": "load one: `chemlab run {inst} program 80C@30min,25C@0s --zone N`.",
+      "per": "zone_{zone}.program.segments",
+      "not": [
+       [],
+       null
+      ]
+     },
+     {
+      "slot": "zone_1.program.running",
+      "code": "PROGRAM_RUNNING",
+      "message": "the programme in {target} of {inst} is already running.",
+      "fix": "follow it with `chemlab run {inst} wait`.",
+      "per": "zone_{zone}.program.running",
+      "falsy": true
+     }
+    ]
+   },
+   "codes": {
+    "thermal.set_temperature:PRECONDITION_FAILED": {
+     "code": "NOT_POSSIBLE_NOW",
+     "message": "{inst} refused the zone set point: below room temperature it needs the cooling water cold enough, all four zone targets must lie within 200 K of each other, and the machine must be on.",
+     "fix": "check `chemlab run {inst} status`; choose a set point closer to the other zones."
+    },
+    "thermal.set_enabled:PRECONDITION_FAILED": {
+     "code": "NOT_POSSIBLE_NOW",
+     "message": "{inst} refused to switch the zone control on: it needs power, the cooling water confirmed and a set point the cooling allows.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "thermal.start_program:PRECONDITION_FAILED": {
+     "code": "NOT_POSSIBLE_NOW",
+     "message": "{inst} cannot start that programme: it needs power, the cooling water, a loaded programme and no programme running.",
+     "fix": "load one with `program`."
+    }
+   },
+   "unsupported": {
+    "flow": "batch station: no pump",
+    "pressure": "open vessels: no pressure control",
+    "light": "no light source",
+    "current": "no electrolysis",
+    "voltage": "no electrolysis",
+    "dose": "no dosing unit",
+    "safety-limit": "the zone limits belong to the touch-pad experiments (pad.set_limits) and do not guard the direct set points",
+    "method": "no single method: the zone settings are separate (set-temp, stir) and the temperature profile is `program`",
+    "open": "no lid",
+    "close": "no lid"
+   },
+   "alternatives": {
+    "method": "`chemlab run INST program 80C@30min,25C@0s --zone 1`, then `chemlab run INST start --zone 1`."
+   },
+   "path": "thermal",
+   "params": {
+    "tolerance_k": 1.0,
+    "temp2_word": "liquid"
+   },
+   "notes": {
+    "set-temp": [
+     "every zone is separate: --zone 1..4"
+    ],
+    "start": [
+     "start runs the zone's loaded programme (`program`) and gives a job"
+    ],
+    "heat": [
+     "heat on needs the cooling water confirmed by the lab (heating and cooling share the Peltier block)"
+    ]
+   }
+  },
+  "mt_rc1mxhfcal": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "set": [
+      {
+       "cap": "thermostat.set_tr",
+       "arg": "end_k"
+      }
+     ],
+     "ramp_arg": "ramp_s",
+     "controller_arg": "controller",
+     "jacket": {
+      "set": [
+       {
+        "cap": "thermostat.set_tj",
+        "arg": "end_k"
+       }
+      ],
+      "ramp_arg": "ramp_s",
+      "set_slot": "thermostat.tj_setpoint_k"
+     }
+    },
+    "temp": {
+     "reads": [
+      "reactor.indicated_k",
+      "jacket.indicated_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "reactor.indicated_k"
+     ]
+    },
+    "stir": {
+     "set": [
+      {
+       "cap": "stirrer.set",
+       "arg": "rpm"
+      }
+     ],
+     "off": [
+      {
+       "cap": "stirrer.set",
+       "arg": "rpm",
+       "value": 0.0
+      }
+     ],
+     "word": "stirrer",
+     "min": "30rpm",
+     "max_slot": "safety.rmax_rpm"
+    },
+    "dose": {
+     "cap": "dosing.start",
+     "substance_arg": "substance_id",
+     "rate_arg": "rate_kg_s",
+     "mass_arg": "total_mass_kg",
+     "feed_arg": "feed_temperature_k",
+     "stop_cap": "dosing.stop",
+     "state": "dosing.active"
+    },
+    "safety-limit": {
+     "set": [
+      {
+       "cap": "safety.configure",
+       "arg": "tr_max_k",
+       "keep": {
+        "tsafe_k": "safety.tsafe_k",
+        "tr_min_k": "safety.tr_min_k",
+        "tr_max_k": "safety.tr_max_k",
+        "tj_min_k": "safety.tj_min_k",
+        "tj_max_k": "safety.tj_max_k",
+        "tdiff_max_k": "safety.tdiff_max_k",
+        "rsafe_rpm": "safety.rsafe_rpm",
+        "rmin_rpm": "safety.rmin_rpm",
+        "rmax_rpm": "safety.rmax_rpm",
+        "tc_max_k": "safety.tc_max_k"
+       }
+      }
+     ],
+     "above_role": "tsafe",
+     "jacket": {
+      "arg": "tj_max_k",
+      "set_role": "jacket_set",
+      "limit_role": "jacket_limit",
+      "above_role": null
+     }
+    },
+    "start": {
+     "cap": "experiment.start",
+     "name_arg": "name",
+     "id_key": "experiment_id",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "experiment.end",
+     "args": {
+      "end_mode": "keep"
+     },
+     "cool_arg": "end_temperature_k",
+     "cool_args": {
+      "end_mode": "cool_to"
+     },
+     "skip_if": {
+      "slot": "experiment.running",
+      "falsy": true
+     }
+    },
+    "result": {
+     "cap": "experiment.data",
+     "id_arg": "experiment_id",
+     "id_slot": "experiment.id"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "reactor.indicated_k",
+    "set": "thermostat.tr_setpoint_k",
+    "jacket": "jacket.indicated_k",
+    "jacket_set": "thermostat.tj_setpoint_k",
+    "limit": "safety.tr_max_k",
+    "jacket_limit": "safety.tj_max_k",
+    "tsafe": "safety.tsafe_k",
+    "stir": "stirrer.indicated_rpm",
+    "mode": "thermostat.mode",
+    "dosing": "dosing.active",
+    "dosed": "dosing.indicated_mass_kg",
+    "record": "experiment.id"
+   },
+   "wait_while": "thermostat.ramp_active",
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "emergency.active",
+      "code": "EMERGENCY_ACTIVE",
+      "message": "the emergency programme of {inst} is active; it takes no new settings.",
+      "fix": "remove the cause, then reset it (`chemlab call {inst} emergency.reset`).",
+      "falsy": true
+     }
+    ],
+    "set-temp:jacket": [
+     {
+      "slot": "emergency.active",
+      "code": "EMERGENCY_ACTIVE",
+      "message": "the emergency programme of {inst} is active; it takes no new settings.",
+      "fix": "remove the cause, then reset it (`chemlab call {inst} emergency.reset`).",
+      "falsy": true
+     }
+    ],
+    "stir": [
+     {
+      "slot": "emergency.active",
+      "code": "EMERGENCY_ACTIVE",
+      "message": "the emergency programme of {inst} is active; it takes no new settings.",
+      "fix": "remove the cause, then reset it (`chemlab call {inst} emergency.reset`).",
+      "falsy": true
+     }
+    ],
+    "safety-limit": [
+     {
+      "slot": "emergency.active",
+      "code": "EMERGENCY_ACTIVE",
+      "message": "the emergency programme of {inst} is active; it takes no new settings.",
+      "fix": "remove the cause, then reset it (`chemlab call {inst} emergency.reset`).",
+      "falsy": true
+     }
+    ],
+    "dose": [
+     {
+      "slot": "emergency.active",
+      "code": "EMERGENCY_ACTIVE",
+      "message": "the emergency programme of {inst} is active; it takes no new settings.",
+      "fix": "remove the cause, then reset it (`chemlab call {inst} emergency.reset`).",
+      "falsy": true
+     },
+     {
+      "slot": "dosing.active",
+      "code": "DOSING_ACTIVE",
+      "message": "{inst} is already dosing.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} dose stop`).",
+      "falsy": true
+     },
+     {
+      "slot": "drain.open",
+      "code": "DRAIN_OPEN",
+      "message": "the bottom valve of {inst} is open.",
+      "fix": "ask the lab operator to close it.",
+      "falsy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "experiment.running",
+      "code": "EXPERIMENT_RUNNING",
+      "message": "an experiment is already recording on {inst}.",
+      "fix": "end it first: `chemlab run {inst} stop`.",
+      "falsy": true
+     }
+    ]
+   },
+   "codes": {
+    "dosing.start:PRECONDITION_FAILED": {
+     "code": "DOSING_NOT_POSSIBLE",
+     "message": "{inst} refused the dosing: the substance must be in its library and liquid at the feed temperature, the rate within the dosing unit, the filled volume at most 2 L, and the mixture must not boil near the current or safe temperature.",
+     "fix": "check the substance id and amounts; see `chemlab run {inst} status`."
+    },
+    "thermostat.set_tr:PRECONDITION_FAILED": {
+     "code": "NOT_POSSIBLE_NOW",
+     "message": "{inst} refused the Tr set point: it needs power, no emergency programme, at least 0.5 L in the reactor and an end value below the boiling point minus 2 K.",
+     "fix": "choose a lower temperature (`chemlab run {inst} status`)."
+    },
+    "safety.configure:PRECONDITION_FAILED": {
+     "code": "LIMITS_NOT_CONSISTENT",
+     "message": "{inst} refused the limits: Tr min < Tsafe <= Tr max, the current readings inside the new limits, and Tsafe below the boiling point minus 2 K.",
+     "fix": "choose a limit above the current temperatures and Tsafe."
+    }
+   },
+   "unsupported": {
+    "heat": "the thermostat controls whenever the instrument is on (Tr or Tj mode)",
+    "flow": "batch reactor: no pump",
+    "pressure": "no pressure control in this twin",
+    "light": "no light source",
+    "current": "no electrolysis",
+    "voltage": "no electrolysis",
+    "program": "no stored programme: ramps are given per set point (`set-temp T --ramp 30min`)",
+    "method": "no method: the RC1 runs its steps live (set-temp --ramp, stir, dose) while an experiment records (`start`)",
+    "open": "no lid to open from chemlab",
+    "close": "no lid"
+   },
+   "alternatives": {
+    "heat": "`chemlab run INST set-temp 50C` (Tr mode) or `chemlab run INST set-temp 40C --jacket` (Tj mode).",
+    "program": "`chemlab run INST set-temp 60C --ramp 30min`."
+   },
+   "path": "experiment",
+   "params": {
+    "tolerance_k": 0.5,
+    "controller": "aqueous",
+    "run_name": "chemlab run"
+   },
+   "notes": {
+    "set-temp": [
+     "without --jacket it sets the reaction temperature Tr (the jacket follows); --jacket sets the jacket Tj",
+     "--ramp reaches the end value over that time; --controller aqueous|organic|aqueous_pi|organic_pi (default aqueous)"
+    ],
+    "start": [
+     "start begins an experiment record (named with --name); the thermostat, stirrer and dosing keep running"
+    ],
+    "stop": [
+     "stop ends the experiment record; --cool-to T also cools the jacket to T"
+    ],
+    "dose": [
+     "dosing gives a job; `chemlab wait job-N` waits until the mass is dosed"
+    ]
+   }
+  }
+ }
+}

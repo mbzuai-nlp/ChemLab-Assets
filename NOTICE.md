@@ -1,6 +1,6 @@
 # NOTICE
 
-ChemLab-Assets, release 1.4.0 (October 2026). Copyright (c) 2026 Zirui Song, Jiadong Zhang, Jiahao Zhang, Xiaosong Ma, Xiaojun Chang, Xiuying Chen.
+ChemLab-Assets, release 1.5.0 (October 2026). Copyright (c) 2026 Zirui Song, Jiadong Zhang, Jiahao Zhang, Xiaosong Ma, Xiaojun Chang, Xiuying Chen.
 
 * Code: MIT (`LICENSE`). Assets and data: CC BY-NC 4.0 (`LICENSE-ASSETS.md`).
 * Third-party data keep their own terms. This file lists the sources behind every data file that needs attribution.
@@ -37,7 +37,8 @@ The following files are distributed under the terms of their source instead of C
 * `assets/reactions/spectral_library/nmr.json`: NMR peak lists from HMDB via PubChem; HMDB permits non-commercial use with citation (Wishart et al., Nucleic Acids Res. 2022).
 
 **Licence texts of open-source data and code** used to build some libraries are in `LICENSES/`
-(CoolProp, OPERA, chemicals, XrayDB, openpoly, teMatDb, Biopython, srsinst-rga, KiMoPack (GPL-3.0), COGNI (CC0)).
+(CoolProp, OPERA, chemicals, XrayDB, openpoly, teMatDb, Biopython, srsinst-rga, KiMoPack (GPL-3.0), COGNI (CC0), Opentrons
+labware definitions (Apache-2.0)).
 Libraries that already carry their source's licence file next to the data: `assets/reactions/cem_libertyblue_peptide_library/LICENSE`
 (Peptimizer, MIT), `assets/reactions/jasco_j1500_cd_library/LICENSE` (PCDDB, MIT), `assets/reactions/laboao_cvdltf12p50_thermo_library/LICENSE.txt` (Cantera, BSD-3-Clause).
 
@@ -448,3 +449,47 @@ stated licence), the record carries a licence flag. Each line below summarises o
 * `assets/expansion_batch05/t5_automation/newera_ne1000/syringe_templates.json` (updated in 1.4.0): 61 records; every record cites its source (see its source fields). Main sources: webbook.nist.gov; pubchem.ncbi.nlm.nih.gov; doi:10.1088/0026-1394/38/4/3. Licence notes found in the records: CC0.
 * `assets/reactions/antonpaar_dma5002_density_library/templates.json` (updated in 1.4.0): 69 records; every record cites its source (see its source fields). Main sources: pubchem.ncbi.nlm.nih.gov; nlm.nih.gov; chemicalsafety.ilo.org; ilo.org; iapws.org; doi:10.1088/0026-1394/38/4/3. Licence notes found in the records: COPYRIGHT.
 * `assets/reactions/antonpaar_monowave400_thermophysical_library/templates.json` (updated in 1.4.0): 86 records; every record cites its source (see its source fields). Main sources: webbook.nist.gov; pubchem.ncbi.nlm.nih.gov; cem.com; cdc.gov; doi:10.1088/0026-1394/38/4/3. Licence notes found in the records: CC0, UNKNOWN LICENCE, COPYRIGHT.
+
+## Labware and storage furniture added in release 1.5.0
+
+Release 1.5.0 adds `assets/labware/`: containers, consumables, racks, tools and storage furniture, each modelled on one
+specific commercial product, with a contract, geometry, grasp frames and interior volume, plus `assets/labware/catalog.json`.
+
+* Dimensions, capacities and masses come from the manufacturers' catalogues and data sheets (facts, cited per asset in the
+  `sources` of its contract). No manufacturer drawing, photo or text is reproduced.
+* SBS-format plates, tip racks and reservoirs follow the Opentrons labware definitions (Apache-2.0; licence text in
+  `LICENSES/Opentrons-Apache-2.0.txt`).
+* The safety signs and GHS pictograms on the storage furniture are public-domain images from Wikimedia Commons; each file's
+  source page and licence are recorded in `assets/labware/_textures/signs/LICENCES.json`. Colours are RAL Classic
+  approximations (values cited in the contracts).
+* `catalog.json` also lists 27 reused types from LabUtopia (MIT licence) and the Matterix simulation framework, marked
+  `external`. Their 3D files are not part of this release.
+
+
+## Data added or updated in release 1.5.0
+
+Release 1.5.0 (2026-10-25) added the labware catalog, safety and storage data for the substance table, IR reference standards, and added, extended or rebuilt template libraries. Every record in these files cites its source in its own
+source fields; where a source is not permissively licensed (CC BY-SA, CC BY-NC / NC-ND, publisher rights reserved or no
+stated licence), the record carries a licence flag. Each line below summarises one file.
+
+* `assets/labware/_textures/signs/LICENCES.json` (added in 1.5.0): 11 records; every record cites its source (see its source fields). Main sources: commons.wikimedia.org; upload.wikimedia.org; thumb.wikimedia.org; unece.org; iso.org. Licence notes found in the records: PUBLIC DOMAIN.
+* `assets/labware/catalog.json` (added in 1.5.0): 96 records; every record cites its source (see its source fields). Main sources: en.wikipedia.org; commons.wikimedia.org; asecos-configurator.com; dwk.com; parkesscientific.com; practicalmachinist.com. Licence notes found in the records: PUBLIC DOMAIN.
+* `assets/reactions/agilent_hs8697_headspace_library/templates.json` (updated in 1.5.0): 136 records; every record cites its source (see its source fields). Main sources: henrys-law.org; doi:10.5194/acp-23-10901-2023.
+* `assets/reactions/alicat_mc_gas_property_library/templates.json` (updated in 1.5.0): 136 records; every record cites its source (see its source fields). Main sources: alicat.com; webbook.nist.gov; doi.or; doi:10.18434/t4d303; doi:10.6028/nist.ir.8209; doi:10.1021/je050186n; doi:10.1021/ie0300880. Licence notes found in the records: COPYRIGHT.
+* `assets/reactions/biotage_extrahera_spe_library/templates.json` (updated in 1.5.0): 127 records; every record cites its source (see its source fields). Main sources: pubchem.ncbi.nlm.nih.gov; biotage.com; creativecommons.org; nlm.nih.gov; ebi.ac.uk; doi:10.1016/j.mex.2024.102728; doi:10.1186/s12199-020-00918-w. Licence notes found in the records: NONCOMMERCIAL, COPYRIGHT, ALL RIGHTS RESERVED, CC0, PUBLIC DOMAIN, CC BY NC.
+* `assets/reactions/buchi_lyovapor_l250_formulation_library/templates.json` (updated in 1.5.0): 101 records; every record cites its source (see its source fields). Main sources: doi:10.3390/pharmaceutics16101346; doi:10.3390/pharmaceutics16101280; doi:10.1016/j.ijpx.2026.100572; doi:10.1021/acs.molpharmaceut.3c00125. Licence notes found in the records: CC BY NC ND, CC0, COPYRIGHT.
+* `assets/reactions/ika_rv10_evaporation_library/templates.json` (updated in 1.5.0): 81 records; every record cites its source (see its source fields). Main sources: pubchem.ncbi.nlm.nih.gov; webbook.nist.gov; nlm.nih.gov. Licence notes found in the records: CC0.
+* `assets/reactions/ir_reference_standards.json` (added in 1.5.0): 14 records; every record cites its source (see its source fields). Main sources: webbook.nist.gov; tsapps.nist.gov. Licence notes found in the records: PUBLIC DOMAIN.
+* `assets/reactions/magritek_spinsolve80_nmr_library/templates.json` (updated in 1.5.0): 129 records; every record cites its source (see its source fields). Main sources: hmdb.ca; pubchem.ncbi.nlm.nih.gov.
+* `assets/reactions/metrohm_899_water_library/templates.json` (updated in 1.5.0): 111 records; every record cites its source (see its source fields). Main sources: ciaaw.org; pubchem.ncbi.nlm.nih.gov; srd.nist.gov; tsapps.nist.gov. Licence notes found in the records: PUBLIC DOMAIN, CC0.
+* `assets/reactions/metrohm_omnis_acidbase_library/templates.json` (updated in 1.5.0): 103 records; every record cites its source (see its source fields). Main sources: srd.nist.gov; raw.githubusercontent.com; tsapps.nist.gov; pubchem.ncbi.nlm.nih.gov. Licence notes found in the records: PUBLIC DOMAIN, CC0, CC BY NC.
+* `assets/reactions/rigaku_miniflex600_xrd_library/templates.json` (updated in 1.5.0): 86 records; every record cites its source (see its source fields). Main sources: rruff.net; pubchem.ncbi.nlm.nih.gov; crystallography.net; doi:10.1007/s002690050246; doi:10.1107/s0108768103009017; doi:10.1103/physrevb.59.750; doi:10.1107/s0567740878005907. Licence notes found in the records: CC0.
+* `assets/reactions/sciex_pa800_mobility_library/templates.json` (updated in 1.5.0): 427 records; every record cites its source (see its source fields). Main sources: raw.githubusercontent.com; pubchem.ncbi.nlm.nih.gov. Licence notes found in the records: PUBLIC DOMAIN.
+* `assets/reactions/spectral_library/compounds.json` (updated in 1.5.0): 209 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/reactions/spectral_library/gc_retention.json` (updated in 1.5.0): 209 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/reactions/spectral_library/hplc_uv.json` (updated in 1.5.0): 209 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/reactions/spectral_library/ir_spectra.json` (updated in 1.5.0): 4 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/reactions/spectral_library/ms_ei.json` (updated in 1.5.0): 209 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/reactions/spectral_library/nmr.json` (updated in 1.5.0): 209 records; every record cites its source (see its source fields). Main sources: nmrshiftdb.nmr.uni-koeln.de.
+* `assets/reactions/spectral_library/uv_vis.json` (updated in 1.5.0): 209 records; every record cites its source (see its source fields). Main sources: see the file.
+* `assets/reactions/substances.json` (updated in 1.5.0): 239 records; every record cites its source (see its source fields). Main sources: pubchem.ncbi.nlm.nih.gov; gbiosciences.com.

@@ -79,4 +79,19 @@ class Test4TE(unittest.TestCase):
         self.assertEqual(seen,set(CAPS))
         for k,v in h.read('evaluator').items():self.assertEqual(asset_tool.validate_value(v,SLOTS[k][0]),[],k)
         for c in export_aqualab_4te_contract_metadata()['capabilities'].values():self.assertEqual(asset_tool.lint_schema(c['input_schema']),[]);self.assertEqual(asset_tool.lint_schema(c['output_schema']),[])
+class FixRoundB(unittest.TestCase):
+    """chemlab finding (2026-10-22)."""
+    def test_sample_example_reads_the_cited_template_value(self):
+        h=Aqualab4teRuntime();ex=CAPS['sample.configure'][6];row=h.templates[ex['substance_id']]
+        rec=row['records'][ex['record_index']]
+        self.assertEqual((rec['value'],rec['composition']['value']),(row['value'],row['composition']['value']))   # the template's headline point (0.9002)
+        h.invoke('power.set',enabled=True);h.invoke('lid.set_angle',angle_rad=math.pi/2);h.invoke('sample.configure',**ex)
+        h.invoke('thermal.set_temperature',temperature_k=298.15);h.invoke('lid.set_angle',angle_rad=0.);h.invoke('latch.set_angle',angle_rad=math.pi/2)
+        h.invoke('acquisition.start');h.step(600)
+        self.assertAlmostEqual(h.invoke('water_activity.measure')['water_activity'],row['value'],delta=.003)
+    def test_start_refusal_names_the_cause(self):
+        h=Aqualab4teRuntime()
+        h.invoke('power.set',enabled=True)
+        with self.assertRaises(ActionRejected) as e:h.invoke('acquisition.start')
+        self.assertEqual(str(e.exception),'PRECONDITION_FAILED');self.assertIn('no sample cup',e.exception.detail)
 if __name__=='__main__':unittest.main()

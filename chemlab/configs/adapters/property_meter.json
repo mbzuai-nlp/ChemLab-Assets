@@ -1,0 +1,1915 @@
+{
+ "class": "property_meter",
+ "adapter": "chemlab.compile.classes.property_meter:PropertyMeterAdapter",
+ "about": "Benchtop property meters: set-temp, method, calibrate, check, zero, measure (job), result, clean, status. Power, lids, stop and wait come from the shared layer. Ranges, enums and units come from each member's contract.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "antonpaar_dma5002",
+   "antonpaar_abbematadvanced",
+   "jasco_p4200",
+   "metrohm_914",
+   "aqualab_4te",
+   "hach_tl2300epa",
+   "knauer_k7400s",
+   "mt_hx204",
+   "mt_mp70"
+  ],
+  "secondary": {},
+  "excluded": {},
+  "notes": {
+   "jasco_p4200": "polarimetry is optical (spectroscopy could list it as secondary)",
+   "mt_hx204": "built-in balance (balance class excluded it: weighing is a step of its drying run)",
+   "mt_mp70": "temperature program (thermal_analysis could list it as secondary)"
+  }
+ },
+ "members": {
+  "antonpaar_dma5002": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "density.measure"
+   ],
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "keys": {
+      "mode": {
+       "cap": "method.configure",
+       "arg": "mode"
+      }
+     },
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keep": {
+        "mode": {
+         "from_slot": "method.mode"
+        }
+       }
+      }
+     ]
+    },
+    "check": {
+     "reference": {
+      "kind": "density",
+      "required": true,
+      "help": "the density of the reference liquid at the set temperature",
+      "example": "0.99820g/cm3"
+     },
+     "steps": [
+      {
+       "cap": "calibration.check",
+       "with": {
+        "reference_density_kg_m3": "$reference",
+        "reference_temperature_k": "$set_point"
+       },
+       "step": "compare the last density with the reference"
+      }
+     ]
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 900
+    },
+    "result": {
+     "cap": "density.measure",
+     "value": "density_kg_m3",
+     "label": "density",
+     "extra": [
+      "temperature_k",
+      "bubble_warning"
+     ],
+     "decimals": 5
+    },
+    "clean": {
+     "cap": "cleaning.start",
+     "arg": "volume_m3",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "phase": "cycle.phase",
+    "value": "density.indicated_kg_m3",
+    "sample": "fill.detected"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "fill.detected",
+      "code": "NO_SAMPLE",
+      "message": "the U-tube of {inst} is not filled (fill.detected = {value}).",
+      "fix": "fill the sample bubble-free first - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "U-tube filled"
+     }
+    ],
+    "check": [
+     {
+      "slot": "density.indicated_kg_m3",
+      "code": "NO_READING",
+      "message": "{inst} has no finished density reading of the reference liquid.",
+      "fix": "measure the reference first: `chemlab run {inst} measure --wait`.",
+      "label": "a finished reading",
+      "not": [
+       null
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, a filled U-tube, the cell within 0.05 K of the set temperature and no other run.",
+     "fix": "check `chemlab run {inst} status`; wait for the temperature (`chemlab run {inst} set-temp T --wait`)."
+    },
+    "calibration.check:PRECONDITION_FAILED": {
+     "code": "NO_READING",
+     "message": "{inst} needs a finished density reading at the reference temperature to check against.",
+     "fix": "measure the reference liquid at its reference temperature first (`set-temp`, `measure --wait`)."
+    }
+   },
+   "unsupported": {
+    "calibrate": "every density adjustment of the DMA 5002 needs two fills exchanged by the operator during the procedure (air then water, or two standards; manual pp.24-33); a task has no operator mid-run",
+    "zero": "no blank or tare step: the U-tube is verified with air / water (`check`)"
+   },
+   "alternatives": {
+    "calibrate": "run `chemlab run antonpaar_dma5002 check --reference VALUE` with a reference liquid; the guided adjustment stays available with `chemlab call antonpaar_dma5002 adjustment.start` / `measurement.continue` / `adjustment.decide`."
+   },
+   "params": {
+    "value_label": "density",
+    "value_unit": "kg/m^3",
+    "value_decimals": 5,
+    "tolerance_k": 0.03,
+    "temp_ready_k": 0.05
+   },
+   "notes": {
+    "measure": [
+     "acquisition core (acquisition.start + density.measure); the touchscreen path measurement.start is not mixed in",
+     "the cell must be within 0.05 K of the set temperature (set-temp --wait first)"
+    ],
+    "check": [
+     "compares the last finished density with the reference at the set temperature (calibration.check); nothing is changed"
+    ]
+   }
+  },
+  "antonpaar_abbematadvanced": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "refractometry.measure"
+   ],
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "keys": {
+      "mode": {
+       "cap": "method.configure",
+       "arg": "mode"
+      }
+     },
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keep": {
+        "mode": {
+         "from_slot": "method.mode"
+        }
+       }
+      }
+     ]
+    },
+    "calibrate": {
+     "standard": {
+      "kind": "nd",
+      "required": true,
+      "help": "the certified refractive index nD of the standard at the set temperature",
+      "example": "1.33299"
+     },
+     "name": {
+      "default": "Standard",
+      "what": "standard"
+     },
+     "state_slot": "adjustment.state",
+     "steps": [
+      {
+       "cap": "adjustment.start",
+       "args": {
+        "type": "one_point"
+       },
+       "with": {
+        "standards": "$standards_one_point"
+       },
+       "step": "start the one-point adjustment on the standard"
+      },
+      {
+       "wait": {
+        "slot": "cycle.phase",
+        "done": [
+         "succeeded"
+        ]
+       },
+       "max_s": 900,
+       "step": "the adjustment reading"
+      },
+      {
+       "cap": "adjustment.decide",
+       "with": {
+        "apply": "$apply_if_recommended"
+       },
+       "step": "apply the adjustment"
+      },
+      {
+       "report_slot": "adjustment.correction"
+      }
+     ]
+    },
+    "check": {
+     "name": {
+      "list_slot": "checks.list",
+      "field": "name",
+      "required": true,
+      "what": "check"
+     },
+     "steps": [
+      {
+       "cap": "check.start",
+       "with": {
+        "check": "$name"
+       },
+       "step": "start the check"
+      },
+      {
+       "wait": {
+        "slot": "cycle.phase",
+        "done": [
+         "succeeded"
+        ]
+       },
+       "max_s": 900,
+       "step": "the check reading"
+      },
+      {
+       "report_slot": "data.checks",
+       "last": true
+      }
+     ],
+     "pass_key": "result",
+     "pass_value": "passed"
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 900
+    },
+    "result": {
+     "cap": "refractometry.measure",
+     "value": "index",
+     "label": "refractive index nD",
+     "extra": [
+      "temperature_k",
+      "mass_fraction"
+     ],
+     "decimals": 5
+    },
+    "clean": {
+     "cap": "cleaning.start",
+     "arg": "volume_m3",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "phase": "cycle.phase",
+    "value": "optical.indicated_index",
+    "sample": "sample.filled"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "sample.filled",
+      "code": "NO_SAMPLE",
+      "message": "the prism of {inst} has no sample (sample.filled = {value}).",
+      "fix": "the sample is put on the prism with the lid open - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "sample on the prism"
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open (angle {value} rad).",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set_angle --angle_rad 0`).",
+      "label": "lid closed",
+      "max": 0.01
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "sample.filled",
+      "code": "NO_SAMPLE",
+      "message": "the prism of {inst} has no sample (sample.filled = {value}).",
+      "fix": "the sample is put on the prism with the lid open - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "sample on the prism"
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open (angle {value} rad).",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set_angle --angle_rad 0`).",
+      "label": "lid closed",
+      "max": 0.01
+     }
+    ],
+    "check": [
+     {
+      "slot": "sample.filled",
+      "code": "NO_SAMPLE",
+      "message": "the prism of {inst} has no sample (sample.filled = {value}).",
+      "fix": "the sample is put on the prism with the lid open - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "sample on the prism"
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open (angle {value} rad).",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set_angle --angle_rad 0`).",
+      "label": "lid closed",
+      "max": 0.01
+     }
+    ],
+    "clean": [
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is closed; the prism is cleaned with the lid open.",
+      "fix": "open it: `chemlab run {inst} open lid` (or `chemlab call {inst} lid.set_angle --angle_rad 1.57`).",
+      "label": "lid open",
+      "min": 1.4
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the lid closed, enough sample on the prism, a constant cell temperature and a method that fits.",
+     "fix": "check `chemlab run {inst} status`; wait for the temperature (`chemlab run {inst} set-temp T --wait`)."
+    },
+    "adjustment.decide:NOT_ALLOWED": {
+     "code": "CALIBRATION_REJECTED",
+     "message": "the adjustment result of {inst} cannot be applied (no valid reading of the standard).",
+     "fix": "check that the standard is on the prism and the lid is closed; calibrate again."
+    }
+   },
+   "unsupported": {
+    "zero": "no blank or tare step: the prism is checked with a named check (`check \"Water Check\"`)"
+   },
+   "params": {
+    "value_label": "nD",
+    "value_decimals": 5,
+    "tolerance_k": 0.03
+   },
+   "notes": {
+    "calibrate": [
+     "one-point adjustment (adjustment.start type one_point) with the standard on the prism at the set temperature; applied only when the instrument recommends it (adjustment.decide)"
+    ],
+    "check": [
+     "NAME is one of the instrument's checks (checks.list, e.g. \"Water Check\"); the reference value belongs to the check"
+    ]
+   }
+  },
+  "jasco_p4200": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure",
+    "calibration.quartz",
+    "lamp.set"
+   ],
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "keys": {
+      "integration": {
+       "cap": "method.configure",
+       "arg": "integration_s"
+      },
+      "repeats": {
+       "cap": "method.configure",
+       "arg": "repeats"
+      },
+      "conc": {
+       "cap": "method.configure",
+       "arg": "declared_concentration_kg_m3",
+       "kind": "density"
+      },
+      "path": {
+       "cap": "method.configure",
+       "arg": "declared_path_m",
+       "kind": "length"
+      }
+     },
+     "calls": [
+      {
+       "cap": "method.configure",
+       "args": {
+        "lamp": "Na",
+        "wavelength_m": 5.89e-07
+       },
+       "keep": {
+        "integration_s": {
+         "from_slot": "method.integration_s"
+        }
+       },
+       "names": {
+        "integration_s": "integration",
+        "repeats": "repeats",
+        "declared_concentration_kg_m3": "conc",
+        "declared_path_m": "path"
+       }
+      }
+     ]
+    },
+    "zero": {
+     "steps": [
+      {
+       "cap": "lamp.set",
+       "args": {
+        "enabled": true
+       },
+       "skip_if_slot": "lamp.enabled",
+       "step": "switch the Na lamp on (the P-4200 switches it off after each reading)"
+      },
+      {
+       "cap": "acquisition.start",
+       "args": {
+        "kind": "blank"
+       },
+       "step": "read the blank cell"
+      },
+      {
+       "wait": {
+        "slot": "scan.phase",
+        "done": [
+         "succeeded"
+        ]
+       },
+       "max_s": 600,
+       "step": "the blank reading"
+      },
+      {
+       "report_slot": "blank.ready"
+      }
+     ]
+    },
+    "calibrate": {
+     "standard": {
+      "kind": "angle",
+      "required": true,
+      "help": "the certified rotation of the quartz control plate",
+      "example": "10.000deg"
+     },
+     "steps": [
+      {
+       "cap": "lamp.set",
+       "args": {
+        "enabled": true
+       },
+       "skip_if_slot": "lamp.enabled",
+       "step": "switch the Na lamp on (the P-4200 switches it off after each reading)"
+      },
+      {
+       "cap": "acquisition.start",
+       "args": {
+        "kind": "quartz"
+       },
+       "step": "read the quartz plate"
+      },
+      {
+       "wait": {
+        "slot": "scan.phase",
+        "done": [
+         "succeeded"
+        ]
+       },
+       "max_s": 600,
+       "step": "the quartz reading"
+      },
+      {
+       "cap": "calibration.quartz",
+       "args": {
+        "accept_simulated_standard": true
+       },
+       "with": {
+        "certified_angle_rad": "$standard"
+       },
+       "step": "set the gain from the quartz plate"
+      }
+     ]
+    },
+    "measure": {
+     "before": [
+      {
+       "cap": "lamp.set",
+       "args": {
+        "enabled": true
+       },
+       "skip_if_slot": "lamp.enabled",
+       "step": "switch the Na lamp on (the P-4200 switches it off after each reading)"
+      }
+     ],
+     "cap": "acquisition.start",
+     "args": {
+      "kind": "sample"
+     },
+     "state": {
+      "slot": "scan.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 1800
+    },
+    "result": {
+     "cap": "process.measure",
+     "value": "rotation_rad",
+     "label": "optical rotation",
+     "extra": [
+      "raw_rotation_rad"
+     ],
+     "decimals": 4
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.temperature_k",
+    "set": "thermal.setpoint_k",
+    "phase": "scan.phase",
+    "value": "scan.rotation_rad",
+    "sample": "sample.loaded",
+    "ready": "calibration.ready"
+   },
+   "requires": {
+    "zero": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set --opened false`).",
+      "label": "lid closed",
+      "falsy": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method (integration, repeats, declared concentration and path).",
+      "fix": "set it: `chemlab run {inst} method integration=1s repeats=3 conc=100g/L path=100mm`.",
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no cell is in the sample compartment of {inst}.",
+      "fix": "the cell (blank, quartz plate or sample) is put in by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "cell in place"
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set --opened false`).",
+      "label": "lid closed",
+      "falsy": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method (integration, repeats, declared concentration and path).",
+      "fix": "set it: `chemlab run {inst} method integration=1s repeats=3 conc=100g/L path=100mm`.",
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no cell is in the sample compartment of {inst}.",
+      "fix": "the cell (blank, quartz plate or sample) is put in by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "cell in place"
+     },
+     {
+      "slot": "blank.ready",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no blank reading at these conditions.",
+      "fix": "zero it on the blank cell first: `chemlab run {inst} zero`.",
+      "label": "blank read"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "lid.opened",
+      "code": "LID_OPEN",
+      "message": "the sample compartment lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set --opened false`).",
+      "label": "lid closed",
+      "falsy": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method (integration, repeats, declared concentration and path).",
+      "fix": "set it: `chemlab run {inst} method integration=1s repeats=3 conc=100g/L path=100mm`.",
+      "label": "method set"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no cell is in the sample compartment of {inst}.",
+      "fix": "the cell (blank, quartz plate or sample) is put in by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "cell in place"
+     },
+     {
+      "slot": "blank.ready",
+      "code": "BLANK_REQUIRED",
+      "message": "{inst} has no blank reading at these conditions.",
+      "fix": "zero it on the blank cell first: `chemlab run {inst} zero`.",
+      "label": "blank read"
+     },
+     {
+      "slot": "calibration.ready",
+      "code": "NOT_CALIBRATED",
+      "message": "{inst} has no quartz calibration at these conditions.",
+      "fix": "calibrate it with the quartz plate: `chemlab run {inst} calibrate --standard 10.000deg`.",
+      "label": "quartz calibration"
+     }
+    ]
+   },
+   "codes": {
+    "SAMPLE_KIND_MISMATCH": {
+     "code": "WRONG_CELL",
+     "message": "the cell in {inst} is not the kind this step needs (zero needs the blank cell, calibrate the quartz plate, measure the sample cell).",
+     "fix": "the lab operator puts the right cell in; then retry."
+    },
+    "REFERENCE_TEMPERATURE_MISMATCH": {
+     "code": "TEMPERATURE_MISMATCH",
+     "message": "the set temperature of {inst} is not the reference temperature of the cell in it, or the cell is not within 0.2 K of it yet.",
+     "fix": "set the reference temperature (`chemlab run {inst} set-temp 20C --wait`)."
+    },
+    "BLANK_REQUIRED": {
+     "code": "BLANK_REQUIRED",
+     "message": "{inst} needs a blank reading first.",
+     "fix": "`chemlab run {inst} zero` with the blank cell."
+    },
+    "QUARTZ_CALIBRATION_REQUIRED": {
+     "code": "NOT_CALIBRATED",
+     "message": "{inst} needs a fresh quartz-plate reading (and a blank) before this.",
+     "fix": "zero on the blank, then `calibrate --standard ...` on the quartz plate."
+    },
+    "OPTICS_NOT_READY": {
+     "code": "OPTICS_NOT_READY",
+     "message": "{inst} needs power, the lid closed and the Na lamp on.",
+     "fix": "close the lid and switch the lamp on (`chemlab call {inst} lamp.set --enabled true`)."
+    },
+    "SAMPLE_METHOD_REQUIRED": {
+     "code": "NO_METHOD",
+     "message": "{inst} needs a method and a cell in place.",
+     "fix": "`chemlab run {inst} method ...`; the cell is put in by the lab operator."
+    },
+    "INVALID_CALIBRATION": {
+     "code": "CALIBRATION_REJECTED",
+     "message": "the quartz factor of {inst} would be outside 0.1-10.",
+     "fix": "check the certified angle of the plate (sign and unit)."
+    }
+   },
+   "unsupported": {
+    "check": "the daily check runs on the touch-panel measurement path with registered jigs (daily_check.start, P-4000 application note pp.1-2); the class verbs use the acquisition core",
+    "clean": "no cell cleaning function (cells are cleaned off the instrument)"
+   },
+   "alternatives": {
+    "check": "`chemlab call jasco_p4200 daily_check.start --jig_id ...` on the touch-panel path."
+   },
+   "params": {
+    "value_label": "optical rotation",
+    "value_unit": "rad",
+    "value_decimals": 4,
+    "tolerance_k": 0.2,
+    "ready_word": "quartz calibration",
+    "sample_word": "cell in place"
+   },
+   "notes": {
+    "zero": [
+     "reads the blank cell (acquisition.start kind blank); a new blank clears the quartz calibration"
+    ],
+    "calibrate": [
+     "reads the quartz plate (acquisition.start kind quartz) and sets the gain (calibration.quartz); the simulated plate is acknowledged (accept_simulated_standard true)"
+    ]
+   }
+  },
+  "metrohm_914": {
+   "role": "primary",
+   "path": "electrochemistry",
+   "verbs": {
+    "method": {
+     "keys": {
+      "probe": {
+       "cap": "electrochemistry.select_probe",
+       "arg": "slot"
+      },
+      "hold": {
+       "cap": "electrochemistry.configure_endpoint",
+       "arg": "hold_s"
+      },
+      "tolerance": {
+       "cap": "electrochemistry.configure_endpoint",
+       "arg": "tolerance_fraction",
+       "kind": "fraction"
+      },
+      "temp": {
+       "cap": "electrochemistry.configure_temperature",
+       "arg": "manual_temperature_k",
+       "kind": "temperature",
+       "also": {
+        "mode": "manual"
+       },
+       "special": {
+        "auto": {
+         "mode": "automatic",
+         "manual_temperature_k": null
+        }
+       }
+      },
+      "interval": {
+       "cap": "acquisition.set_interval",
+       "arg": "interval_s"
+      }
+     },
+     "passthrough": false,
+     "calls": [
+      {
+       "cap": "electrochemistry.select_probe"
+      },
+      {
+       "cap": "electrochemistry.configure_endpoint",
+       "keep": {
+        "hold_s": {
+         "from_slot": "endpoint.hold_s"
+        },
+        "tolerance_fraction": {
+         "from_slot": "endpoint.tolerance_fraction"
+        }
+       },
+       "names": {
+        "hold_s": "hold",
+        "tolerance_fraction": "tolerance"
+       }
+      },
+      {
+       "cap": "electrochemistry.configure_temperature"
+      },
+      {
+       "cap": "acquisition.set_interval"
+      }
+     ]
+    },
+    "calibrate": {
+     "standard": {
+      "kind_slot": "probe.selected",
+      "kinds": {
+       "ph": "ph",
+       "conductance": "conductance",
+       "do": "density"
+      },
+      "required": true,
+      "help": "the certified value of the standard at its temperature (pH, or conductance in S)",
+      "example": "6.865"
+     },
+     "steps": [
+      {
+       "cap": "electrochemistry.calibrate",
+       "with": [
+        [
+         "slot",
+         "$probe"
+        ],
+        [
+         "standard_value",
+         "$standard"
+        ]
+       ],
+       "step": "calibrate the selected channel"
+      }
+     ]
+    },
+    "measure": {
+     "until": {
+      "slot": "endpoint.stable",
+      "value": true
+     },
+     "max_s": 900
+    },
+    "result": {
+     "cap": "electrochemistry.reading",
+     "value": "ph",
+     "value_keys": {
+      "ph": "ph",
+      "conductance": "conductance_s",
+      "do": "do_kg_m3"
+     },
+     "value_key_field": "slot",
+     "label": "reading",
+     "extra": [
+      "status",
+      "stable",
+      "potential_v",
+      "calibrated"
+     ],
+     "phase_key": "status"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "value": "measurement.ph",
+    "probe": "probe.selected",
+    "ready": "endpoint.stable"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "acquisition.running",
+      "code": "RECORDING",
+      "message": "{inst} is recording measured values.",
+      "fix": "stop the recording first: `chemlab run {inst} stop`.",
+      "label": "not recording",
+      "falsy": true
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "acquisition.running",
+      "code": "RECORDING",
+      "message": "{inst} is recording measured values.",
+      "fix": "stop the recording first: `chemlab run {inst} stop`.",
+      "label": "not recording",
+      "falsy": true
+     },
+     {
+      "slot": "endpoint.stable",
+      "code": "UNSTABLE",
+      "message": "the reading of {inst} is not stable yet.",
+      "fix": "wait for the endpoint: `chemlab run {inst} measure --wait`, then calibrate.",
+      "label": "stable reading"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "endpoint.hold_s",
+      "code": "NO_ENDPOINT",
+      "message": "{inst} has no endpoint criterion (hold time and tolerance).",
+      "fix": "set it: `chemlab run {inst} method hold=5s tolerance=0.1%`.",
+      "label": "endpoint set",
+      "not": [
+       null
+      ]
+     },
+     {
+      "slot": "measurement.status",
+      "code": "NO_PROBE",
+      "message": "the selected probe of {inst} is not installed or the meter is off (status {value}).",
+      "fix": "select an installed channel (`chemlab run {inst} method probe=ph`); probes are installed by the lab operator.",
+      "label": "probe installed",
+      "not": [
+       "OFF",
+       "PROBE_MISSING"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "electrochemistry.calibrate:PRECONDITION_FAILED": {
+     "code": "CALIBRATION_REJECTED",
+     "message": "{inst} did not calibrate: the value must be the certified value of the standard the probe stands in, for its channel and temperature (the meter recognises it within ±0.002 pH, or ±0.5 % for conductance and dissolved oxygen; manual p.88), with a fresh stable reading and no recording.",
+     "fix": "give the certified value of the buffer at its temperature (manual p.88 buffer tables) and check that the probe is in that standard; after a calibration measure again (`chemlab run {inst} measure --wait`), then retry."
+    }
+   },
+   "unsupported": {
+    "set-temp": "no temperature control: the 914 only compensates its readings to a temperature (`method temp=25C` or `temp=auto`)",
+    "check": "no verification function: measure a second buffer and compare (`measure --wait`)",
+    "zero": "no blank step",
+    "clean": "no cleaning function"
+   },
+   "params": {
+    "value_label": "pH",
+    "ready_word": "endpoint stable"
+   },
+   "notes": {
+    "measure": [
+     "the 914 measures continuously: measure waits until the endpoint criterion (method hold= tolerance=) is met; no native call"
+    ],
+    "calibrate": [
+     "one-point calibration of the selected channel (electrochemistry.calibrate); the value is the standard's certified value at its temperature (accepted within ±0.002 pH or ±0.5 %); a calibration resets the endpoint, so measure again before the next one"
+    ]
+   }
+  },
+  "aqualab_4te": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "water_activity.measure"
+   ],
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "keys": {
+      "mode": {
+       "cap": "method.configure",
+       "arg": "mode"
+      },
+      "stability": {
+       "cap": "method.configure",
+       "arg": "stability_delta"
+      },
+      "tolerance": {
+       "cap": "method.configure",
+       "arg": "temperature_tolerance_k",
+       "kind": "temperature_delta"
+      },
+      "readings": {
+       "cap": "method.configure",
+       "arg": "consecutive_readings"
+      }
+     },
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keep": {
+        "mode": {
+         "from_slot": "method.mode"
+        }
+       },
+       "names": {
+        "stability_delta": "stability",
+        "temperature_tolerance_k": "tolerance",
+        "consecutive_readings": "readings"
+       }
+      }
+     ]
+    },
+    "calibrate": {
+     "standard": {
+      "kind": "aw",
+      "required": true,
+      "help": "the certified water activity of the verification standard at the set temperature",
+      "example": "0.760"
+     },
+     "reading_slot": "water_activity.indicated",
+     "offset_slot": "calibration.offset_aw",
+     "steps": [
+      {
+       "cap": "calibration.configure",
+       "with": {
+        "offset_aw": "$offset_to_standard",
+        "source": "$source"
+       },
+       "step": "set the linear offset"
+      }
+     ]
+    },
+    "check": {
+     "reference": {
+      "kind": "aw",
+      "required": true,
+      "help": "the certified water activity of the verification standard",
+      "example": "0.760"
+     },
+     "steps": [
+      {
+       "cap": "calibration.verify",
+       "with": {
+        "reference_aw": "$reference"
+       },
+       "step": "compare the reading with the standard"
+      }
+     ],
+     "pass_key": "within_vendor_tolerance"
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 1800
+    },
+    "result": {
+     "cap": "water_activity.measure",
+     "value": "water_activity",
+     "label": "water activity aw",
+     "extra": [
+      "temperature_k",
+      "equilibrated",
+      "quality"
+     ],
+     "decimals": 4
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "phase": "cycle.phase",
+    "value": "water_activity.indicated",
+    "sample": "sample.loaded",
+    "ready": "warmup.ready"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no sample cup is in the chamber of {inst}.",
+      "fix": "the cup is put in by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "sample cup in"
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_OPEN",
+      "message": "the chamber lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set_angle --angle_rad 0`).",
+      "label": "lid closed",
+      "max": 0.0001
+     },
+     {
+      "slot": "latch.angle_rad",
+      "code": "NOT_LATCHED",
+      "message": "the chamber lever of {inst} is not in the READ position.",
+      "fix": "turn it to READ: `chemlab call {inst} latch.set_angle --angle_rad 1.57`.",
+      "label": "lever at READ",
+      "min": 1.4
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "equilibrium.stable",
+      "code": "NO_READING",
+      "message": "{inst} has no equilibrium reading of the standard.",
+      "fix": "measure the standard first: `chemlab run {inst} measure --wait`.",
+      "label": "equilibrium reading"
+     }
+    ],
+    "check": [
+     {
+      "slot": "warmup.elapsed_s",
+      "code": "WARMING_UP",
+      "message": "{inst} has been on for {value} s; verification needs 15 min of warm-up.",
+      "fix": "wait (`chemlab wait 900`) and measure the standard again.",
+      "label": "warmed up",
+      "min": 900
+     },
+     {
+      "slot": "equilibrium.stable",
+      "code": "NO_READING",
+      "message": "{inst} has no equilibrium reading of the standard.",
+      "fix": "measure the standard first: `chemlab run {inst} measure --wait`.",
+      "label": "equilibrium reading"
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the lid closed and latched, a sample, and the set temperature equal to the sample's reference temperature.",
+     "fix": "check `chemlab run {inst} status`; set the temperature the sample was prepared for (e.g. `set-temp 25C`)."
+    }
+   },
+   "unsupported": {
+    "zero": "no blank step (the offset is set by calibrate)",
+    "clean": "no cleaning function (the chamber is cleaned by hand)"
+   },
+   "params": {
+    "value_label": "water activity",
+    "value_decimals": 4,
+    "tolerance_k": 0.1,
+    "ready_word": "warmed up"
+   },
+   "notes": {
+    "calibrate": [
+     "measure the verification standard first; calibrate sets the linear offset so it reads the certified value (calibration.configure); measure again to read with it"
+    ],
+    "check": [
+     "compares the last equilibrium reading with the reference (calibration.verify); needs 15 min of warm-up"
+    ]
+   }
+  },
+  "hach_tl2300epa": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "turbidity.measure",
+    "calibration.rapid"
+   ],
+   "verbs": {
+    "method": {
+     "keys": {
+      "ratio": {
+       "cap": "method.configure",
+       "arg": "ratio_enabled",
+       "bool": true
+      },
+      "average": {
+       "cap": "method.configure",
+       "arg": "average_count"
+      },
+      "mode": {
+       "cap": "method.configure",
+       "arg": "mode"
+      }
+     },
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keep": {
+        "ratio_enabled": {
+         "from_slot": "method.ratio_enabled"
+        },
+        "average_count": {
+         "from_slot": "method.average_count"
+        },
+        "mode": {
+         "from_slot": "method.mode"
+        }
+       }
+      }
+     ]
+    },
+    "calibrate": {
+     "standard": {
+      "kind": "ntu",
+      "fixed": 20.0,
+      "fixed_text": "20NTU"
+     },
+     "steps": [
+      {
+       "cap": "calibration.rapid",
+       "step": "single-point calibration on the 20 NTU standard"
+      }
+     ]
+    },
+    "check": {
+     "reference": {
+      "kind": "ntu",
+      "required": true,
+      "help": "the value of the verification standard",
+      "example": "20NTU"
+     },
+     "steps": [
+      {
+       "cap": "calibration.verify",
+       "with": {
+        "reference_ntu": "$reference"
+       },
+       "step": "compare the reading with the standard"
+      }
+     ],
+     "pass_key": "within_five_percent"
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 600
+    },
+    "result": {
+     "cap": "turbidity.measure",
+     "value": "ntu",
+     "label": "turbidity",
+     "extra": [
+      "stable",
+      "calibration_status"
+     ],
+     "decimals": 2
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "value": "turbidity.indicated_ntu",
+    "sample": "sample.loaded",
+    "ready": "warmup.ready"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "warmup.ready",
+      "code": "WARMING_UP",
+      "message": "{inst} is still warming up (30 min with ratio on, 60 min with ratio off).",
+      "fix": "wait (`chemlab wait 600`) and retry.",
+      "label": "warmed up"
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set_angle --angle_rad 0`).",
+      "label": "lid closed",
+      "max": 0.01
+     },
+     {
+      "slot": "filter.installed",
+      "code": "NO_FILTER",
+      "message": "the EPA filter of {inst} is not installed.",
+      "fix": "the filter is installed by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "EPA filter"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no sample cell is in {inst}.",
+      "fix": "the cell is put in by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "sample cell in"
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "warmup.elapsed_s",
+      "code": "WARMING_UP",
+      "message": "{inst} has been on for {value} s; calibration needs 60 min of warm-up.",
+      "fix": "wait (`chemlab wait 1800`) and retry.",
+      "label": "warmed up 60 min",
+      "min": 3600
+     },
+     {
+      "slot": "turbidity.stable",
+      "code": "UNSTABLE",
+      "message": "{inst} has no stable reading of the 20 NTU standard.",
+      "fix": "measure the standard first: `chemlab run {inst} measure --wait`.",
+      "label": "stable reading"
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "label": "lid closed",
+      "max": 0.01
+     }
+    ],
+    "check": [
+     {
+      "slot": "warmup.elapsed_s",
+      "code": "WARMING_UP",
+      "message": "{inst} has been on for {value} s; verification needs 60 min of warm-up.",
+      "fix": "wait (`chemlab wait 1800`) and retry.",
+      "label": "warmed up 60 min",
+      "min": 3600
+     },
+     {
+      "slot": "turbidity.stable",
+      "code": "UNSTABLE",
+      "message": "{inst} has no stable reading of the standard.",
+      "fix": "measure the standard first: `chemlab run {inst} measure --wait`.",
+      "label": "stable reading"
+     }
+    ]
+   },
+   "unsupported": {
+    "set-temp": "no temperature control",
+    "zero": "no blank step",
+    "clean": "no cleaning function (sample cells are cleaned by hand)"
+   },
+   "params": {
+    "value_label": "turbidity",
+    "value_unit": "NTU",
+    "value_decimals": 2,
+    "ready_word": "warmed up"
+   },
+   "notes": {
+    "calibrate": [
+     "RapidCal: single-point calibration on a stable reading of the 20 NTU StablCal standard (calibration.rapid, 0-40 NTU); the full-curve calibration (calibration.start / read / store, the operator swaps several standards) stays available with chemlab call"
+    ]
+   }
+  },
+  "knauer_k7400s": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure",
+    "calibration.accept"
+   ],
+   "verbs": {
+    "method": {
+     "keys": {
+      "volume": {
+       "cap": "method.configure",
+       "arg": "sample_volume_m3",
+       "kind": "volume"
+      },
+      "freeze": {
+       "cap": "method.configure",
+       "arg": "freeze_k",
+       "kind": "temperature"
+      },
+      "cool": {
+       "cap": "method.configure",
+       "arg": "cooling_limit_k",
+       "kind": "temperature"
+      },
+      "interval": {
+       "cap": "method.configure",
+       "arg": "sample_interval_s"
+      }
+     },
+     "calls": [
+      {
+       "cap": "method.configure",
+       "names": {
+        "sample_volume_m3": "volume",
+        "freeze_k": "freeze",
+        "cooling_limit_k": "cool",
+        "sample_interval_s": "interval"
+       }
+      }
+     ]
+    },
+    "calibrate": {
+     "standard": {
+      "kind": "osmolality",
+      "required": true,
+      "grid": 0.05,
+      "help": "the osmolality of the standard (0 for pure water, then e.g. 400mOsmol/kg)",
+      "example": "400mOsmol/kg"
+     },
+     "steps": [
+      {
+       "cap": "acquisition.start",
+       "args": {
+        "purpose": "calibration"
+       },
+       "step": "freeze the standard (calibration run)"
+      },
+      {
+       "wait": {
+        "slot": "acquisition.phase",
+        "done": [
+         "succeeded"
+        ]
+       },
+       "max_s": 600,
+       "step": "the calibration run"
+      },
+      {
+       "cap": "calibration.accept",
+       "with": {
+        "known_osmolality_mol_kg": "$standard"
+       },
+       "step": "accept the standard value"
+      }
+     ]
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "args": {
+      "purpose": "sample"
+     },
+     "state": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 900
+    },
+    "result": {
+     "cap": "process.measure",
+     "value": "osmolality_mol_kg",
+     "label": "osmolality",
+     "extra": [
+      "freezing_temperature_k",
+      "complete"
+     ],
+     "decimals": 4
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "temperature.k",
+    "phase": "acquisition.phase",
+    "value": "osmolality.mol_kg",
+    "sample": "sample.loaded",
+    "ready": "calibration.valid"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "sample.loaded",
+      "code": "TUBE_ON_HEAD",
+      "message": "the method of {inst} changes only with no tube on the head.",
+      "fix": "the lab operator takes the tube off first - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "no tube on the head",
+      "falsy": true
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no sample tube is on the measuring head of {inst}.",
+      "fix": "the tube is put on by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "tube on the head"
+     },
+     {
+      "slot": "sample.thawed",
+      "code": "NOT_THAWED",
+      "message": "the sample on {inst} is still frozen from the last run.",
+      "fix": "wait until it has thawed (`chemlab wait 60`).",
+      "label": "sample thawed"
+     },
+     {
+      "slot": "head.position",
+      "code": "HEAD_NOT_DOWN",
+      "message": "the measuring head of {inst} is not in the measuring position ({value}).",
+      "fix": "lower it: `chemlab call {inst} head.position --position measuring`.",
+      "label": "head down",
+      "value": "measuring"
+     },
+     {
+      "slot": "power.warmup_s",
+      "code": "WARMING_UP",
+      "message": "{inst} has warmed up for {value} s of 300 s.",
+      "fix": "wait (`chemlab wait 300`) and retry.",
+      "label": "warmed up",
+      "min": 300
+     }
+    ],
+    "measure": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no sample tube is on the measuring head of {inst}.",
+      "fix": "the tube is put on by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "tube on the head"
+     },
+     {
+      "slot": "sample.thawed",
+      "code": "NOT_THAWED",
+      "message": "the sample on {inst} is still frozen from the last run.",
+      "fix": "wait until it has thawed (`chemlab wait 60`).",
+      "label": "sample thawed"
+     },
+     {
+      "slot": "head.position",
+      "code": "HEAD_NOT_DOWN",
+      "message": "the measuring head of {inst} is not in the measuring position ({value}).",
+      "fix": "lower it: `chemlab call {inst} head.position --position measuring`.",
+      "label": "head down",
+      "value": "measuring"
+     },
+     {
+      "slot": "power.warmup_s",
+      "code": "WARMING_UP",
+      "message": "{inst} has warmed up for {value} s of 300 s.",
+      "fix": "wait (`chemlab wait 300`) and retry.",
+      "label": "warmed up",
+      "min": 300
+     },
+     {
+      "slot": "calibration.valid",
+      "code": "NOT_CALIBRATED",
+      "message": "{inst} is not calibrated (water zero and at least one standard).",
+      "fix": "calibrate: `chemlab run {inst} calibrate --standard 0` on water, then on a standard.",
+      "label": "calibrated"
+     }
+    ]
+   },
+   "codes": {
+    "NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready: it needs power, 5 min warm-up, a method, a thawed sample tube on the head in the measuring position.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "NOT_CALIBRATED": {
+     "code": "NOT_CALIBRATED",
+     "message": "{inst} is not calibrated.",
+     "fix": "calibrate on water (--standard 0) and a standard first."
+    },
+    "CALIBRATION_GRID": {
+     "code": "BAD_STANDARD",
+     "message": "{inst} takes standard values in 50 mOsmol/kg steps.",
+     "fix": "give e.g. 400mOsmol/kg."
+    },
+    "CALIBRATION_INVALID": {
+     "code": "CALIBRATION_REJECTED",
+     "message": "the calibration points of {inst} would not be in order (a higher osmolality must freeze lower).",
+     "fix": "check the standard value and that the right standard is on the head."
+    },
+    "CALIBRATION_RUN_REQUIRED": {
+     "code": "NO_RUN",
+     "message": "{inst} has no finished calibration run to accept.",
+     "fix": "run calibrate again."
+    },
+    "METHOD_GRID": {
+     "code": "BAD_METHOD",
+     "message": "{inst} takes freezing and cooling temperatures in 0.5 °C steps (freeze above the cooling limit) and intervals in its time grid.",
+     "fix": "round them, e.g. freeze=-6C cool=-15C interval=1s."
+    },
+    "UNLOAD_REQUIRED": {
+     "code": "TUBE_ON_HEAD",
+     "message": "the method of {inst} changes only with no tube on the head.",
+     "fix": "the lab operator takes the tube off first."
+    }
+   },
+   "unsupported": {
+    "set-temp": "no cell temperature set point: freezing and cooling temperatures are part of the method (`method freeze=-6C cool=-15C`)",
+    "check": "no verification function: measure a standard as a sample and compare (`measure --wait`)",
+    "zero": "the water zero is a calibration point: `calibrate --standard 0`",
+    "clean": "no cleaning function"
+   },
+   "params": {
+    "value_label": "osmolality",
+    "value_unit": "mol/kg",
+    "value_decimals": 4,
+    "ready_word": "calibrated",
+    "busy_values": [
+     "running"
+    ]
+   },
+   "notes": {
+    "calibrate": [
+     "a calibration run freezes the standard on the head (acquisition.start purpose calibration), then accepts its value (calibration.accept); water first (--standard 0)"
+    ]
+   }
+  },
+  "mt_hx204": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "moisture.measure"
+   ],
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "keys": {
+      "mode": {
+       "cap": "method.configure",
+       "arg": "mode"
+      },
+      "time": {
+       "cap": "method.configure",
+       "arg": "duration_s"
+      },
+      "basis": {
+       "cap": "method.configure",
+       "arg": "basis"
+      }
+     },
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keep": {
+        "mode": {
+         "from_slot": "method.mode"
+        },
+        "duration_s": {
+         "from_slot": "method.duration_s"
+        },
+        "basis": {
+         "from_slot": "method.basis"
+        }
+       }
+      }
+     ]
+    },
+    "calibrate": {
+     "name": {
+      "choices": {
+       "weight": "weight_adjustment_internal",
+       "temperature": "temperature_adjustment"
+      },
+      "default": "weight",
+      "what": "adjustment"
+     },
+     "steps": [
+      {
+       "cap": "procedure.start",
+       "with": {
+        "kind": "$name"
+       },
+       "step": "run the adjustment"
+      },
+      {
+       "report_slot": "procedure.state",
+       "key": "result"
+      }
+     ],
+     "pass_key": "passed"
+    },
+    "check": {
+     "name": {
+      "choices": {
+       "weight": "weight_test_internal",
+       "temperature": "temperature_test"
+      },
+      "default": "weight",
+      "what": "test"
+     },
+     "steps": [
+      {
+       "cap": "procedure.start",
+       "with": {
+        "kind": "$name"
+       },
+       "step": "run the test"
+      },
+      {
+       "report_slot": "procedure.state",
+       "key": "result"
+      }
+     ],
+     "pass_key": "passed"
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 30000
+    },
+    "result": {
+     "cap": "moisture.measure",
+     "value": "reported_ratio",
+     "label": "moisture content",
+     "percent": true,
+     "extra": [
+      "mass_kg",
+      "basis",
+      "loss_fraction"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "phase": "cycle.phase",
+    "value": "balance.indicated_kg"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "lid.position_m",
+      "code": "LID_OPEN",
+      "message": "the drying unit of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid` (or `chemlab call {inst} lid.set_position --position_m 0`).",
+      "label": "drying unit closed",
+      "max": 0.001
+     },
+     {
+      "slot": "balance.indicated_kg",
+      "code": "NO_SAMPLE",
+      "message": "the pan of {inst} is empty ({value} kg).",
+      "fix": "the sample is spread on the pan by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "sample on the pan",
+      "min": 1e-05
+     }
+    ]
+   },
+   "codes": {
+    "PAN_NOT_CLEAR": {
+     "code": "PAN_NOT_CLEAR",
+     "message": "the pan of {inst} is not empty; tests and adjustments need an empty pan.",
+     "fix": "the lab operator removes the sample; then retry."
+    },
+    "NO_TEMPERATURE_KIT": {
+     "code": "NO_TEMPERATURE_KIT",
+     "message": "the temperature kit of {inst} is not inserted.",
+     "fix": "the lab operator inserts the temperature kit, or use the weight test / adjustment."
+    }
+   },
+   "unsupported": {
+    "zero": "in its drying run (acquisition core) the analyzer weighs the sample at the start itself; tare (measurement.tare) belongs to the touchscreen measurement path (measurement.open), which is not mixed with it",
+    "clean": "no cleaning function"
+   },
+   "params": {
+    "value_label": "mass on the pan",
+    "value_unit": "kg",
+    "step_c": 1,
+    "wait_ok": false,
+    "wait_reason": "the halogen heater is on only during a drying run"
+   },
+   "notes": {
+    "calibrate": [
+     "NAME weight (default): internal weight adjustment; temperature: temperature adjustment (needs the temperature kit); procedure.start"
+    ],
+    "check": [
+     "NAME weight (default): internal weight test; temperature: temperature test (needs the kit)"
+    ],
+    "measure": [
+     "a drying run (acquisition.start) with the method's time; result = moisture content on the method basis"
+    ]
+   }
+  },
+  "mt_mp70": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "melting.measure"
+   ],
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "keys": {
+      "start": {
+       "cap": "method.configure",
+       "arg": "start_k",
+       "kind": "temperature"
+      },
+      "end": {
+       "cap": "method.configure",
+       "arg": "end_k",
+       "kind": "temperature"
+      },
+      "rate": {
+       "cap": "method.configure",
+       "arg": "ramp_k_s",
+       "kind": "heating_rate"
+      },
+      "criterion": {
+       "cap": "method.configure",
+       "arg": "criterion"
+      },
+      "name": {
+       "cap": "method.configure",
+       "arg": "method_id"
+      }
+     },
+     "calls": [
+      {
+       "cap": "method.configure",
+       "args": {
+        "method_id": "chemlab"
+       },
+       "names": {
+        "start_k": "start",
+        "end_k": "end",
+        "ramp_k_s": "rate",
+        "criterion": "criterion",
+        "method_id": "name"
+       },
+       "then": [
+        {
+         "cap": "method.select",
+         "from_args": {
+          "method_id": "method_id"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 14400
+    },
+    "result": {
+     "cap": "melting.measure",
+     "value": "clear_k",
+     "label": "clear point",
+     "channels": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "channel_arg": "channel",
+     "channel_base": 1,
+     "extra": [
+      "onset_k"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "phase": "cycle.phase",
+    "value": "channel_0.clear_k",
+    "sample": "sample.loaded_count"
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "method.selected",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method selected.",
+      "fix": "set one: `chemlab run {inst} method start=110C end=130C rate=1K/min criterion=transmission`.",
+      "label": "method selected",
+      "not": [
+       "",
+       null
+      ]
+     },
+     {
+      "slot": "sample.loaded_count",
+      "code": "NO_SAMPLE",
+      "message": "no capillary is in the furnace of {inst}.",
+      "fix": "the capillaries are put in by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "capillary in",
+      "min": 1
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, a selected method, unused capillaries, and a start temperature below the expected melting point.",
+     "fix": "check the method start temperature and `chemlab run {inst} status`; used capillaries are replaced by the lab operator."
+    }
+   },
+   "unsupported": {
+    "calibrate": "the furnace adjustment needs stored calibration results of at least two reference substances 10 °C or more apart (touchscreen calibration analyses, user manual pp.17-23); use chemlab call analysis.* and adjustment.perform",
+    "check": "no verification function on the acquisition core: measure a reference substance and compare (`measure --wait`, `result`)",
+    "zero": "no blank step",
+    "clean": "no cleaning function (capillaries are single-use)"
+   },
+   "params": {
+    "value_label": "clear point (capillary 1)",
+    "value_unit": "K",
+    "tolerance_k": 0.5,
+    "sample_word": "capillaries"
+   },
+   "notes": {
+    "method": [
+     "stores the method (method.configure) and selects it (method.select); name= sets its id (default chemlab)"
+    ],
+    "result": [
+     "onset and clear point of each capillary (--channel 1..4; all four without it)"
+    ]
+   }
+  }
+ }
+}

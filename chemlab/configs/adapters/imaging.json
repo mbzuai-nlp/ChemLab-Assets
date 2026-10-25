@@ -1,0 +1,4395 @@
+{
+ "class": "imaging",
+ "adapter": "chemlab.compile.classes.imaging:ImagingAdapter",
+ "about": "Microscopy and imaging: load, unload, move, focus, zoom, source, acquire (job), result, vacuum, approach / retract, status. Composite verbs are step lists per member (native calls, checks, waits); ranges and units come from the contracts.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "jeol_jsmit200",
+   "jeol_jem1400flash",
+   "keyence_vkx3000",
+   "evident_bx53p",
+   "thermo_ibrightfl1500",
+   "park_nx10",
+   "nanosurf_naiostm",
+   "bruker_x4poseidon"
+  ],
+  "secondary": {},
+  "excluded": {},
+  "not_members": {
+   "biolin_thetaflex": "drop imaging is part of its contact-angle measurement (particle_surface primary); no separate image verb",
+   "antonpaar_litesizerdia": "particle images are part of its size measurement (particle_surface primary); no separate image verb"
+  }
+ },
+ "members": {
+  "jeol_jsmit200": {
+   "role": "primary",
+   "slots": {
+    "sample": "specimen.loaded_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "specimen.loaded_id",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the holder of {inst} already carries {slot:specimen.loaded_id}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "holder free"
+      },
+      {
+       "check": {
+        "slot": "specimen.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "specimen {sample} is not on the bench next to {inst} (bench: {slot:specimen.bench_ids}).",
+       "fix": "load one of the specimens on the bench; the lab operator puts new ones there.",
+       "label": "specimen on the bench"
+      },
+      {
+       "check": {
+        "slot": "vacuum.state",
+        "eq": "vented"
+       },
+       "code": "NOT_VENTED",
+       "message": "the chamber of {inst} is not vented (vacuum {slot:vacuum.state}), so the drawer cannot be pulled out.",
+       "fix": "vent it first: `chemlab run {inst} vacuum vent --wait` (it switches the beam off).",
+       "label": "chamber vented"
+      },
+      {
+       "cap": "chamber.draw_out",
+       "say": "pull the specimen drawer out",
+       "unless": {
+        "slot": "chamber.door_state",
+        "eq": "open"
+       }
+      },
+      {
+       "wait": {
+        "slot": "chamber.door_state",
+        "eq": "open"
+       },
+       "say": "the drawer is fully out",
+       "max_s": 30
+      },
+      {
+       "cap": "specimen.load",
+       "args": {
+        "specimen_id": "$sample"
+       },
+       "say": "put {sample} on the specimen holder"
+      },
+      {
+       "cap": "chamber.draw_in",
+       "say": "push the drawer back in"
+      },
+      {
+       "wait": {
+        "slot": "chamber.door_state",
+        "eq": "closed"
+       },
+       "say": "the drawer is closed",
+       "max_s": 60
+      }
+     ],
+     "done": "loaded {sample}; the drawer is closed",
+     "next": "pump the chamber down: `chemlab run {inst} vacuum pump --wait` (about 3 min), then `chemlab run {inst} source on --wait`."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "specimen.loaded_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no specimen in {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a specimen on the holder"
+      },
+      {
+       "check": {
+        "slot": "vacuum.state",
+        "eq": "vented"
+       },
+       "code": "NOT_VENTED",
+       "message": "the chamber of {inst} is not vented (vacuum {slot:vacuum.state}).",
+       "fix": "vent it first: `chemlab run {inst} vacuum vent --wait`.",
+       "label": "chamber vented"
+      },
+      {
+       "cap": "chamber.draw_out",
+       "say": "pull the specimen drawer out",
+       "unless": {
+        "slot": "chamber.door_state",
+        "eq": "open"
+       }
+      },
+      {
+       "wait": {
+        "slot": "chamber.door_state",
+        "eq": "open"
+       },
+       "say": "the drawer is fully out",
+       "max_s": 30
+      },
+      {
+       "cap": "specimen.unload",
+       "say": "take the specimen off the holder"
+      },
+      {
+       "cap": "chamber.draw_in",
+       "say": "push the drawer back in"
+      },
+      {
+       "wait": {
+        "slot": "chamber.door_state",
+        "eq": "closed"
+       },
+       "say": "the drawer is closed",
+       "max_s": 60
+      }
+     ],
+     "done": "unloaded the specimen back onto the bench"
+    },
+    "move": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "chamber.door_state",
+        "eq": "closed"
+       },
+       "code": "DOOR_OPEN",
+       "message": "the drawer of {inst} is out.",
+       "fix": "finish loading first (`chemlab run {inst} load SAMPLE` closes it).",
+       "label": "door closed"
+      },
+      {
+       "cap": "stage.move_xy",
+       "args": {
+        "x_m": "$x",
+        "y_m": "$y"
+       },
+       "say": "move the stage to {x}, {y}",
+       "if": {
+        "input": "x",
+        "given": true
+       }
+      },
+      {
+       "cap": "stage.set_z",
+       "args": {
+        "z_lift_m": "$opt:z"
+       },
+       "say": "move the stage Z lift to {opt:z}",
+       "if": {
+        "input": "opt:z",
+        "given": true
+       }
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the stage has stopped",
+       "max_s": 120
+      }
+     ]
+    },
+    "focus": {
+     "auto": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "beam.filament_state",
+         "eq": "saturated"
+        },
+        "code": "BEAM_NOT_READY",
+        "message": "the beam of {inst} is not ready (filament {slot:beam.filament_state}), so autofocus has no image.",
+        "fix": "switch it on: `chemlab run {inst} source on --wait`.",
+        "label": "beam ready"
+       },
+       {
+        "cap": "optics.autofocus",
+        "say": "autofocus"
+       }
+      ],
+      "done": "autofocus done"
+     },
+     "set": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "optics.set_focus",
+        "args": {
+         "focus_wd_m": "$value"
+        },
+        "say": "set the working distance to {value}"
+       }
+      ],
+      "done": "working distance set to {value}"
+     }
+    },
+    "zoom": {
+     "mag": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "scan.set_magnification",
+        "args": {
+         "magnification": "$value"
+        },
+        "say": "set the magnification"
+       }
+      ]
+     },
+     "why_objective": "an SEM has no objective turret; give a magnification: `zoom 2000x`."
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "check": {
+         "slot": "vacuum.state",
+         "in": [
+          "hv_ready",
+          "lv_ready"
+         ]
+        },
+        "code": "VACUUM_NOT_READY",
+        "message": "the chamber of {inst} is not under vacuum (vacuum {slot:vacuum.state}).",
+        "fix": "pump it down first: `chemlab run {inst} vacuum pump --wait`.",
+        "label": "vacuum ready"
+       },
+       {
+        "cap": "beam.set_voltage",
+        "args": {
+         "voltage_v": "$opt:kv"
+        },
+        "say": "set the accelerating voltage to {opt:kv}",
+        "if": {
+         "input": "opt:kv",
+         "given": true
+        }
+       },
+       {
+        "cap": "beam.observation_on",
+        "say": "start observation (high tension and filament)",
+        "unless": {
+         "slot": "beam.ht_on",
+         "truthy": true
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "beam.filament_state",
+        "eq": "saturated"
+       },
+       "what": "beam warm-up",
+       "max_s": 300,
+       "progress": [
+        "beam.filament_state"
+       ]
+      },
+      "what": "beam warm-up",
+      "done": "beam on"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "beam.observation_off",
+        "say": "stop observation",
+        "if": {
+         "slot": "beam.ht_on",
+         "truthy": true
+        }
+       }
+      ],
+      "done": "beam off"
+     }
+    },
+    "acquire": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "vacuum.state",
+        "in": [
+         "hv_ready",
+         "lv_ready"
+        ]
+       },
+       "code": "VACUUM_NOT_READY",
+       "message": "the chamber of {inst} is not under vacuum (vacuum {slot:vacuum.state}).",
+       "fix": "`chemlab run {inst} vacuum pump --wait`, then `chemlab run {inst} source on --wait`.",
+       "label": "vacuum ready"
+      },
+      {
+       "check": {
+        "slot": "beam.filament_state",
+        "eq": "saturated"
+       },
+       "code": "BEAM_NOT_READY",
+       "message": "the beam of {inst} is not ready (filament {slot:beam.filament_state}).",
+       "fix": "`chemlab run {inst} source on --wait`.",
+       "label": "beam ready"
+      },
+      {
+       "cap": "image.acquire",
+       "args": {
+        "pixels": "$opt:pixels",
+        "dwell_s": "$opt:dwell"
+       },
+       "say": "acquire an image ({opt:pixels}, dwell {opt:dwell})"
+      }
+     ],
+     "defaults": {
+      "pixels": "640x480",
+      "dwell": "20us"
+     },
+     "job": "operation",
+     "what": "image acquisition"
+    },
+    "result": {
+     "cap": "image.result",
+     "arg": "image_id",
+     "last_slot": "result.last_image_id",
+     "show": [
+      "image_id",
+      "status",
+      "detector",
+      "accelerating_voltage_v",
+      "magnification",
+      "pixels",
+      "field_of_view_m",
+      "pixel_size_m",
+      "working_distance_m",
+      "effective_resolution_m",
+      "regions",
+      "contrast",
+      "charging_artifacts"
+     ]
+    },
+    "vacuum": {
+     "pump": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "check": {
+         "slot": "chamber.door_state",
+         "eq": "closed"
+        },
+        "code": "DOOR_OPEN",
+        "message": "the drawer of {inst} is not closed.",
+        "fix": "`chemlab run {inst} load SAMPLE` closes it; or push it in.",
+        "label": "door closed"
+       },
+       {
+        "cap": "vacuum.evacuate",
+        "say": "pump the chamber down",
+        "unless": {
+         "slot": "vacuum.state",
+         "in": [
+          "roughing",
+          "hv_pumping",
+          "hv_ready",
+          "lv_pumping",
+          "lv_ready"
+         ]
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "vacuum.state",
+        "in": [
+         "hv_ready",
+         "lv_ready"
+        ]
+       },
+       "what": "pump-down",
+       "max_s": 900,
+       "progress": [
+        "vacuum.state",
+        "vacuum.chamber_pressure_indicated_pa"
+       ]
+      },
+      "what": "pump-down",
+      "done": "pumping the chamber down"
+     },
+     "vent": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "vacuum.vent",
+        "say": "vent the chamber (the beam goes off)",
+        "unless": {
+         "slot": "vacuum.state",
+         "in": [
+          "vented",
+          "venting"
+         ]
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "vacuum.state",
+        "eq": "vented"
+       },
+       "what": "venting",
+       "max_s": 900,
+       "progress": [
+        "vacuum.state",
+        "vacuum.chamber_pressure_indicated_pa"
+       ]
+      },
+      "what": "venting",
+      "done": "venting the chamber"
+     }
+    }
+   },
+   "unsupported": {
+    "approach": "not a scanning-probe microscope (no tip to approach)",
+    "retract": "not a scanning-probe microscope (no tip to approach)"
+   },
+   "view": [
+    {
+     "label": "vacuum",
+     "slot": "vacuum.state"
+    },
+    {
+     "label": "drawer",
+     "slot": "chamber.door_state"
+    },
+    {
+     "label": "specimen",
+     "slot": "specimen.loaded_id"
+    },
+    {
+     "label": "beam",
+     "slot": "beam.filament_state"
+    },
+    {
+     "label": "HV",
+     "slot": "beam.accelerating_voltage_v",
+     "fmt": "kv"
+    },
+    {
+     "label": "mag",
+     "slot": "scan.magnification",
+     "fmt": "x"
+    },
+    {
+     "label": "WD",
+     "slot": "optics.focus_wd_m",
+     "kind": "length"
+    },
+    {
+     "label": "stage x",
+     "slot": "stage.x_indicated_m",
+     "kind": "length"
+    },
+    {
+     "label": "stage y",
+     "slot": "stage.y_indicated_m",
+     "kind": "length"
+    },
+    {
+     "label": "detector",
+     "slot": "detector.selected"
+    },
+    {
+     "label": "acquiring",
+     "slot": "acquisition.kind"
+    },
+    {
+     "label": "last image",
+     "slot": "result.last_image_id"
+    }
+   ],
+   "path": "image",
+   "notes": {
+    "load": [
+     "on the JSM-IT200 the specimen goes in through the pull-out drawer: vent, draw out, mount, draw in (manual: specimen exchange); the drawer travel is waited for (seconds)",
+     "manual: JSM-IT200 operating instructions pp.3-5; JSM-IT300 instructions manual ch.3"
+    ],
+    "vacuum": [
+     "pump-down to high vacuum takes about 3 min; venting about 2.5 min",
+     "manual: JSM-IT200 operating instructions pp.3-5"
+    ],
+    "source": [
+     "observation on raises the high tension and heats the filament (about 15 s to saturation); --kv sets the accelerating voltage first",
+     "manual: JSM-IT300 instructions manual ch.4 (accelerating voltage, probe current)"
+    ],
+    "acquire": [
+     "--pixels one of 320x240, 640x480, 1280x960, 2560x1920, 5120x3840; --dwell per pixel (frame time = pixels x dwell)",
+     "manual: JSM-IT200 operating instructions p.7 (photo resolution / scan time)"
+    ],
+    "focus": [
+     "manual: JSM-IT200 operating instructions p.6; JSM-IT300 manual ch.4"
+    ]
+   }
+  },
+  "jeol_jem1400flash": {
+   "role": "primary",
+   "slots": {
+    "sample": "holder.grids"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "holder.position",
+        "eq": "bench"
+       },
+       "code": "OCCUPIED",
+       "message": "a specimen holder is already in {inst} (holder {slot:holder.position}).",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "goniometer free"
+      },
+      {
+       "check": {
+        "slot": "specimen.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "grid {sample} is not on the bench next to {inst} (bench: {slot:specimen.bench_ids}).",
+       "fix": "load one of the grids on the bench; the lab operator puts new ones there.",
+       "label": "grid on the bench"
+      },
+      {
+       "check": {
+        "slot": "filament.on",
+        "truthy": false
+       },
+       "code": "BEAM_ON",
+       "message": "the filament of {inst} is on; a holder may only go in with the filament off.",
+       "fix": "switch the beam off: `chemlab run {inst} source off`.",
+       "label": "filament off"
+      },
+      {
+       "cap": "stage.neutral",
+       "say": "send the stage to neutral",
+       "unless": {
+        "all": [
+         {
+          "slot": "stage.x_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.y_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.z_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.tilt_indicated_rad",
+          "near": 0.0,
+          "abs": 0.0087
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "stage.x_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.y_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.z_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.tilt_indicated_rad",
+          "near": 0.0,
+          "abs": 0.0087
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the stage is at neutral",
+       "max_s": 120
+      },
+      {
+       "cap": "holder.load_grid",
+       "args": {
+        "holder_id": "$opt:holder",
+        "specimen_id": "$sample"
+       },
+       "say": "put grid {sample} into the {opt:holder} holder"
+      },
+      {
+       "cap": "holder.insert_to_airlock",
+       "args": {
+        "holder_id": "$opt:holder"
+       },
+       "say": "push the holder into the airlock"
+      },
+      {
+       "wait": {
+        "slot": "holder.position",
+        "eq": "airlock"
+       },
+       "say": "the holder sits at the airlock stop",
+       "max_s": 60
+      },
+      {
+       "cap": "airlock.set_pump",
+       "args": {
+        "pump": true
+       },
+       "say": "pump the airlock (PUMP)"
+      },
+      {
+       "wait": {
+        "slot": "airlock.state",
+        "eq": "evacuated"
+       },
+       "say": "the airlock is pumped (Evac Ready)",
+       "max_s": 600,
+       "poll_s": 2.0
+      },
+      {
+       "cap": "holder.insert",
+       "say": "turn the holder into the column"
+      },
+      {
+       "wait": {
+        "slot": "holder.position",
+        "eq": "column"
+       },
+       "say": "the holder is in the column",
+       "max_s": 120
+      }
+     ],
+     "defaults": {
+      "holder": "quick_change"
+     },
+     "done": "loaded grid {sample} ({opt:holder} holder in the column)",
+     "next": "switch the beam on: `chemlab run {inst} source on --wait` (high tension ramps at about 1 kV/s, then the filament heats)."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.position",
+        "eq": "column"
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no holder in the column of {inst} (holder {slot:holder.position}).",
+       "fix": "nothing to unload.",
+       "label": "holder in the column"
+      },
+      {
+       "check": {
+        "slot": "filament.on",
+        "truthy": false
+       },
+       "code": "BEAM_ON",
+       "message": "the filament of {inst} is on; the holder may only come out with the filament off.",
+       "fix": "switch the beam off: `chemlab run {inst} source off`.",
+       "label": "filament off"
+      },
+      {
+       "cap": "stage.neutral",
+       "say": "send the stage to neutral",
+       "unless": {
+        "all": [
+         {
+          "slot": "stage.x_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.y_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.z_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.tilt_indicated_rad",
+          "near": 0.0,
+          "abs": 0.0087
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "stage.x_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.y_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.z_indicated_m",
+          "near": 0.0,
+          "abs": 5e-07
+         },
+         {
+          "slot": "stage.tilt_indicated_rad",
+          "near": 0.0,
+          "abs": 0.0087
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the stage is at neutral",
+       "max_s": 120
+      },
+      {
+       "cap": "holder.withdraw",
+       "say": "withdraw the holder to the airlock stop"
+      },
+      {
+       "wait": {
+        "slot": "holder.position",
+        "eq": "airlock"
+       },
+       "say": "the holder is back at the airlock stop",
+       "max_s": 120
+      },
+      {
+       "cap": "airlock.set_pump",
+       "args": {
+        "pump": false
+       },
+       "say": "vent the airlock (AIR)"
+      },
+      {
+       "wait": {
+        "slot": "airlock.state",
+        "eq": "vented"
+       },
+       "say": "the airlock is vented",
+       "max_s": 600,
+       "poll_s": 2.0
+      },
+      {
+       "cap": "holder.remove",
+       "say": "pull the holder out onto the bench"
+      },
+      {
+       "wait": {
+        "slot": "holder.position",
+        "eq": "bench"
+       },
+       "say": "the holder is on the bench",
+       "max_s": 60
+      },
+      {
+       "cap": "holder.unload_grid",
+       "args": {
+        "holder_id": "$slotkey:holder.grids"
+       },
+       "say": "take the grid out of the holder"
+      }
+     ],
+     "done": "unloaded: the grid is back on the bench"
+    },
+    "move": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.position",
+        "eq": "column"
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no holder in the column of {inst}.",
+       "fix": "load a grid first: `chemlab run {inst} load SAMPLE`.",
+       "label": "sample in place"
+      },
+      {
+       "cap": "stage.move_xy",
+       "args": {
+        "x_m": "$x",
+        "y_m": "$y"
+       },
+       "say": "move the stage to {x}, {y}",
+       "if": {
+        "input": "x",
+        "given": true
+       }
+      },
+      {
+       "cap": "stage.set_z",
+       "args": {
+        "z_m": "$opt:z"
+       },
+       "say": "move the stage Z to {opt:z}",
+       "if": {
+        "input": "opt:z",
+        "given": true
+       }
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the stage has stopped",
+       "max_s": 300
+      }
+     ]
+    },
+    "focus": {
+     "auto": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "filament.state",
+         "eq": "saturated"
+        },
+        "code": "BEAM_NOT_READY",
+        "message": "the beam of {inst} is not ready (filament {slot:filament.state}).",
+        "fix": "`chemlab run {inst} source on --wait`.",
+        "label": "beam ready"
+       },
+       {
+        "check": {
+         "slot": "optics.mode",
+         "eq": "MAG"
+        },
+        "code": "WRONG_MODE",
+        "message": "autofocus works in MAG mode; {inst} is in {slot:optics.mode}.",
+        "fix": "set an imaging magnification of 200x or more: `chemlab run {inst} zoom 30000x`.",
+        "label": "MAG mode"
+       },
+       {
+        "cap": "screen.set",
+        "args": {
+         "up": true
+        },
+        "say": "lift the viewing screen (camera below it)",
+        "unless": {
+         "slot": "screen.up",
+         "truthy": true
+        }
+       },
+       {
+        "wait": {
+         "all": [
+          {
+           "slot": "screen.up",
+           "truthy": true
+          },
+          {
+           "slot": "screen.moving",
+           "truthy": false
+          }
+         ]
+        },
+        "say": "the screen is up",
+        "max_s": 30
+       },
+       {
+        "cap": "optics.auto_focus",
+        "say": "autofocus"
+       }
+      ],
+      "done": "autofocus done"
+     },
+     "set": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "optics.set_defocus",
+        "args": {
+         "defocus_m": "$value"
+        },
+        "say": "set the defocus to {value}"
+       }
+      ],
+      "done": "defocus set to {value} (positive = underfocus)"
+     }
+    },
+    "zoom": {
+     "mag": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "optics.mode",
+         "ne": "DIFF"
+        },
+        "code": "WRONG_MODE",
+        "message": "{inst} is in diffraction mode (camera length, not magnification).",
+        "fix": "switch back to imaging (`chemlab call {inst} optics.set_mode --mode MAG`).",
+        "label": "imaging mode"
+       },
+       {
+        "cap": "optics.set_magnification",
+        "args": {
+         "magnification": "$value"
+        },
+        "say": "set the magnification (nearest step)"
+       }
+      ]
+     },
+     "why_objective": "a TEM has no objective turret; give a magnification: `zoom 30000x`."
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "check": {
+         "slot": "vacuum.state",
+         "eq": "ready"
+        },
+        "code": "VACUUM_NOT_READY",
+        "message": "the column of {inst} is not ready (vacuum {slot:vacuum.state}).",
+        "fix": "wait for the column vacuum (`chemlab wait 60`).",
+        "label": "column vacuum ready"
+       },
+       {
+        "check": {
+         "slot": "holder.position",
+         "in": [
+          "bench",
+          "column"
+         ]
+        },
+        "code": "HOLDER_MOVING",
+        "message": "the specimen holder of {inst} is being moved ({slot:holder.position}).",
+        "fix": "finish loading or unloading first.",
+        "label": "holder not moving"
+       },
+       {
+        "cap": "ht.set_voltage",
+        "args": {
+         "voltage_v": "$opt:kv"
+        },
+        "say": "set the high tension to {opt:kv}",
+        "if": {
+         "input": "opt:kv",
+         "given": true
+        }
+       },
+       {
+        "cap": "ht.set_on",
+        "args": {
+         "on": true
+        },
+        "say": "switch the high tension on",
+        "unless": {
+         "slot": "ht.on",
+         "truthy": true
+        }
+       },
+       {
+        "wait": {
+         "slot": "ht.voltage_indicated_v",
+         "near": "$slot:ht.voltage_setpoint_v",
+         "abs": 50.0
+        },
+        "say": "the high tension is at its set value (about 1 kV/s)",
+        "max_s": 600,
+        "poll_s": 2.0
+       },
+       {
+        "cap": "filament.set_on",
+        "args": {
+         "on": true
+        },
+        "say": "switch the filament on",
+        "unless": {
+         "slot": "filament.on",
+         "truthy": true
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "filament.state",
+        "eq": "saturated"
+       },
+       "what": "filament heating",
+       "max_s": 300,
+       "progress": [
+        "filament.state"
+       ]
+      },
+      "what": "filament heating",
+      "done": "high tension on and the filament lit"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "filament.set_on",
+        "args": {
+         "on": false
+        },
+        "say": "switch the filament off",
+        "if": {
+         "slot": "filament.on",
+         "truthy": true
+        }
+       }
+      ],
+      "done": "filament off (the high tension stays on, as at the end of a session)"
+     }
+    },
+    "acquire": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.position",
+        "eq": "column"
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no specimen in the column of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "holder in the column"
+      },
+      {
+       "check": {
+        "slot": "filament.state",
+        "eq": "saturated"
+       },
+       "code": "BEAM_NOT_READY",
+       "message": "the beam of {inst} is not ready (filament {slot:filament.state}).",
+       "fix": "`chemlab run {inst} source on --wait`.",
+       "label": "beam ready"
+      },
+      {
+       "check": {
+        "slot": "optics.mode",
+        "ne": "DIFF"
+       },
+       "code": "WRONG_MODE",
+       "message": "{inst} is in diffraction mode.",
+       "fix": "switch back to imaging (`chemlab call {inst} optics.set_mode --mode MAG`).",
+       "label": "imaging mode"
+      },
+      {
+       "cap": "screen.set",
+       "args": {
+        "up": true
+       },
+       "say": "lift the viewing screen (the camera is below it)",
+       "unless": {
+        "slot": "screen.up",
+        "truthy": true
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "screen.up",
+          "truthy": true
+         },
+         {
+          "slot": "screen.moving",
+          "truthy": false
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the screen is up and the stage still",
+       "max_s": 30
+      },
+      {
+       "cap": "image.acquire",
+       "args": {
+        "exposure_s": "$opt:exposure",
+        "binning": "$opt:binning"
+       },
+       "say": "expose the camera ({opt:exposure}, binning {opt:binning})"
+      }
+     ],
+     "defaults": {
+      "exposure": "1s",
+      "binning": "1"
+     },
+     "job": "operation",
+     "what": "camera exposure"
+    },
+    "result": {
+     "cap": "image.result",
+     "arg": "image_id",
+     "last_slot": "result.last_image_id",
+     "show": [
+      "image_id",
+      "status",
+      "mode",
+      "accelerating_voltage_v",
+      "magnification",
+      "exposure_s",
+      "binning",
+      "pixel_size_m",
+      "field_of_view_m",
+      "defocus_display_m",
+      "regions",
+      "lattice_fringes_m",
+      "thon_rings"
+     ]
+    }
+   },
+   "unsupported": {
+    "vacuum": "the column stays under vacuum by itself; the specimen airlock is pumped by `load` and vented by `unload`",
+    "approach": "not a scanning-probe microscope (no tip to approach)",
+    "retract": "not a scanning-probe microscope (no tip to approach)"
+   },
+   "view": [
+    {
+     "label": "holder",
+     "slot": "holder.position"
+    },
+    {
+     "label": "grids",
+     "slot": "holder.grids"
+    },
+    {
+     "label": "airlock",
+     "slot": "airlock.state"
+    },
+    {
+     "label": "HT on",
+     "slot": "ht.on"
+    },
+    {
+     "label": "HT",
+     "slot": "ht.voltage_indicated_v",
+     "fmt": "kv"
+    },
+    {
+     "label": "filament",
+     "slot": "filament.state"
+    },
+    {
+     "label": "mode",
+     "slot": "optics.mode"
+    },
+    {
+     "label": "mag",
+     "slot": "optics.magnification",
+     "fmt": "x"
+    },
+    {
+     "label": "defocus",
+     "slot": "optics.defocus_display_m",
+     "kind": "length"
+    },
+    {
+     "label": "screen up",
+     "slot": "screen.up"
+    },
+    {
+     "label": "acquiring",
+     "slot": "acquisition.kind"
+    },
+    {
+     "label": "last image",
+     "slot": "result.last_image_id"
+    }
+   ],
+   "path": "image",
+   "path_exceptions": [
+    "screen.set"
+   ],
+   "notes": {
+    "load": [
+     "grid into the holder, holder into the airlock, pump the airlock (about 1.5 min), turn it into the column (manual: specimen holder insertion); the stage goes to neutral first; waits are bounded by --max",
+     "manual: JEM-1400 SOP pp.9-17 (holder exchange via airlock); JEM-1400 usage notes pp.2-3"
+    ],
+    "source": [
+     "high tension on and ramped (about 1 kV/s from 0), then the filament (about 20 s to saturation); `source off` switches only the filament off",
+     "manual: JEM-1400 SOP pp.18-24 (filament heating)"
+    ],
+    "acquire": [
+     "the viewing screen is lifted first (the camera sits below it)",
+     "manual: JEM-1400 SOP pp.25-28"
+    ],
+    "focus": [
+     "manual: JEM-1400 usage notes pp.3-5"
+    ],
+    "unload": [
+     "manual: JEM-1400 SOP pp.29-31"
+    ]
+   }
+  },
+  "keyence_vkx3000": {
+   "role": "primary",
+   "slots": {
+    "sample": "sample.on_stage#sample_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the stage of {inst} already holds {slot:sample.on_stage}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "stage free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "sample {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the samples on the bench; the lab operator puts new ones there.",
+       "label": "sample on the bench"
+      },
+      {
+       "cap": "sample.place",
+       "args": {
+        "sample_id": "$sample",
+        "x_m": "$opt:at_x",
+        "y_m": "$opt:at_y"
+       },
+       "say": "put {sample} on the stage"
+      }
+     ],
+     "defaults": {
+      "at_x": "0mm",
+      "at_y": "0mm"
+     },
+     "done": "loaded {sample} on the stage",
+     "next": "choose a measuring objective (`zoom --objective 10x`), bring the surface near focus (`focus Z`) and `focus auto`."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample on the stage of {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a sample on the stage"
+      },
+      {
+       "cap": "sample.remove",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "take {sample} off the stage"
+      }
+     ],
+     "done": "unloaded {sample}"
+    },
+    "move": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "cap": "stage.move",
+       "args": {
+        "x_m": "$x",
+        "y_m": "$y"
+       },
+       "say": "move the stage to {x}, {y}"
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the stage has stopped",
+       "max_s": 120
+      }
+     ]
+    },
+    "focus": {
+     "auto": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "check": {
+         "slot": "sample.on_stage",
+         "ne": null
+        },
+        "code": "NO_SAMPLE",
+        "message": "there is no sample on the stage of {inst}.",
+        "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+        "label": "sample in place"
+       },
+       {
+        "check": {
+         "slot": "head.objective",
+         "ne": "2.5x"
+        },
+        "code": "LENS_NOT_FOR_MEASURING",
+        "message": "the 2.5x objective of {inst} is for viewing only; autofocus needs a measuring objective.",
+        "fix": "choose one: `chemlab run {inst} zoom --objective 10x` (10x, 20x, 50x, 150x).",
+        "label": "measuring objective"
+       },
+       {
+        "cap": "focus.auto",
+        "say": "autofocus (search near the current Z)"
+       }
+      ],
+      "job": "operation",
+      "what": "autofocus"
+     },
+     "set": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "focus.move",
+        "args": {
+         "z_m": "$value"
+        },
+        "say": "move the head Z to {value}"
+       },
+       {
+        "wait": {
+         "slot": "head.z_moving",
+         "truthy": false
+        },
+        "say": "the head has stopped",
+        "max_s": 120
+       }
+      ],
+      "done": "head Z at {value} (the focal plane moves down as Z grows)"
+     }
+    },
+    "zoom": {
+     "mag": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "zoom.set",
+        "args": {
+         "zoom": "$value"
+        },
+        "say": "set the optical zoom"
+       }
+      ]
+     },
+     "objective": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "lens.select",
+        "args": {
+         "slot": "$value"
+        },
+        "say": "turn the revolver"
+       },
+       {
+        "wait": {
+         "slot": "head.revolver_moving",
+         "truthy": false
+        },
+        "say": "the revolver has stopped",
+        "max_s": 60
+       }
+      ],
+      "table": {
+       "2.5x": 0,
+       "10x": 1,
+       "20x": 2,
+       "50x": 3,
+       "150x": 4,
+       "20x DI": 5
+      }
+     }
+    },
+    "acquire": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample on the stage of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "sample on the stage"
+      },
+      {
+       "check": {
+        "slot": "head.objective",
+        "ne": "2.5x"
+       },
+       "code": "LENS_NOT_FOR_MEASURING",
+       "message": "the 2.5x objective of {inst} cannot measure heights.",
+       "fix": "choose a measuring objective: `chemlab run {inst} zoom --objective 10x`.",
+       "label": "measuring objective"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "head.z_moving",
+          "truthy": false
+         },
+         {
+          "slot": "head.revolver_moving",
+          "truthy": false
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the head, revolver and stage are still",
+       "max_s": 60
+      },
+      {
+       "cap": "measurement.auto_range",
+       "say": "find the upper and lower scan limits (auto range)",
+       "if": {
+        "slot": "measurement.z_range_m",
+        "eq": null
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "measurement.kind",
+          "eq": null
+         },
+         {
+          "slot": "measurement.z_range_m",
+          "ne": null
+         }
+        ]
+       },
+       "say": "the auto range has finished",
+       "max_s": 600
+      },
+      {
+       "cap": "measurement.start",
+       "say": "measure the height map of the field"
+      }
+     ],
+     "job": "operation",
+     "what": "height-map measurement"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id"
+    }
+   },
+   "unsupported": {
+    "source": "the laser switches on by itself while measuring (no separate switch)",
+    "vacuum": "an ambient instrument (no chamber)",
+    "approach": "not a scanning-probe microscope (no tip to approach)",
+    "retract": "not a scanning-probe microscope (no tip to approach)"
+   },
+   "view": [
+    {
+     "label": "system",
+     "slot": "system.state"
+    },
+    {
+     "label": "sample",
+     "slot": "sample.on_stage",
+     "key": "sample_id"
+    },
+    {
+     "label": "objective",
+     "slot": "head.objective"
+    },
+    {
+     "label": "zoom",
+     "slot": "optics.zoom",
+     "fmt": "x"
+    },
+    {
+     "label": "total mag",
+     "slot": "optics.total_magnification",
+     "fmt": "x"
+    },
+    {
+     "label": "head Z",
+     "slot": "head.z_m",
+     "kind": "length"
+    },
+    {
+     "label": "stage x",
+     "slot": "stage.x_m",
+     "kind": "length"
+    },
+    {
+     "label": "stage y",
+     "slot": "stage.y_m",
+     "kind": "length"
+    },
+    {
+     "label": "measuring",
+     "slot": "measurement.kind"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    }
+   ],
+   "path": "measurement",
+   "notes": {
+    "focus": [
+     "autofocus searches about +-0.3 mm around the current head Z: bring the surface near focus first (`focus Z`)",
+     "manual: VK-X3000 user manual pp.51-60"
+    ],
+    "zoom": [
+     "MAG is the optical zoom 1-8x; --objective chooses the revolver lens (2.5x is for viewing only)",
+     "manual: VK-X3000 user manual pp.51-60 (objective lens selection)"
+    ],
+    "acquire": [
+     "sets the Z scan limits with auto range when none are set, then measures (laser confocal by default)",
+     "manual: VK-X3000 user manual pp.22-28 (measurement principles); viewer application manual pp.29-52"
+    ],
+    "load": [
+     "manual: VK-X3000 user manual pp.51-60"
+    ]
+   }
+  },
+  "evident_bx53p": {
+   "role": "primary",
+   "slots": {
+    "sample": "sample.on_stage"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the stage of {inst} already holds {slot:sample.on_stage}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "stage free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "slide {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the slides on the bench.",
+       "label": "slide on the bench"
+      },
+      {
+       "cap": "sample.place",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "put slide {sample} on the stage"
+      }
+     ],
+     "done": "loaded slide {sample}"
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no slide on the stage of {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a slide on the stage"
+      },
+      {
+       "cap": "sample.remove",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "take slide {sample} off the stage"
+      }
+     ],
+     "done": "unloaded {sample}"
+    },
+    "focus": {
+     "set": {
+      "steps": [
+       {
+        "cap": "focus.move",
+        "args": {
+         "stage_z_m": "$value"
+        },
+        "say": "move the stage height to {value}"
+       }
+      ],
+      "done": "stage height {value}"
+     },
+     "why_auto": "the BX53-P has no autofocus; set the stage height: `focus -4.9mm` (the coarse / fine knobs)"
+    },
+    "zoom": {
+     "objective": {
+      "steps": [
+       {
+        "cap": "objective.select",
+        "args": {
+         "index": "$value"
+        },
+        "say": "turn the nosepiece"
+       }
+      ],
+      "table": {
+       "4x": 0,
+       "10x": 1,
+       "40x": 2,
+       "100x": 3
+      }
+     },
+     "why_mag": "no zoom on this microscope; choose an objective: `zoom --objective 40x`"
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "illumination.set_level",
+        "args": {
+         "level": "$opt:level"
+        },
+        "say": "set the lamp to {opt:level}"
+       }
+      ],
+      "defaults": {
+       "level": "50%"
+      },
+      "done": "lamp on at {opt:level}"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "illumination.set_level",
+        "args": {
+         "level": 0.0
+        },
+        "say": "turn the lamp down to 0"
+       }
+      ],
+      "done": "lamp off"
+     }
+    },
+    "acquire": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "illumination.lamp_on",
+        "truthy": true
+       },
+       "code": "LAMP_OFF",
+       "message": "the lamp of {inst} is off, so the camera would see nothing.",
+       "fix": "`chemlab run {inst} source on`.",
+       "label": "lamp on"
+      },
+      {
+       "cap": "camera.configure",
+       "args": {
+        "exposure_s": "$opt:exposure",
+        "gain": "$slot:camera.gain"
+       },
+       "say": "set the camera exposure to {opt:exposure}",
+       "if": {
+        "input": "opt:exposure",
+        "given": true
+       }
+      },
+      {
+       "cap": "camera.acquire",
+       "say": "take a camera image"
+      }
+     ],
+     "job": "operation",
+     "what": "camera image"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id"
+    }
+   },
+   "unsupported": {
+    "move": "the stage only rotates (no XY drive from the computer)",
+    "vacuum": "an ambient instrument (no chamber)",
+    "approach": "not a scanning-probe microscope (no tip to approach)",
+    "retract": "not a scanning-probe microscope (no tip to approach)"
+   },
+   "alternatives": {
+    "move": "rotate the stage: `chemlab call evident_bx53p stage.rotate --angle_rad 0.785`"
+   },
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "slide",
+     "slot": "sample.on_stage"
+    },
+    {
+     "label": "objective",
+     "slot": "objective.name"
+    },
+    {
+     "label": "lamp on",
+     "slot": "illumination.lamp_on"
+    },
+    {
+     "label": "lamp level",
+     "slot": "illumination.level"
+    },
+    {
+     "label": "stage height",
+     "slot": "focus.stage_z_m",
+     "kind": "length"
+    },
+    {
+     "label": "crossed polars",
+     "slot": "optics.crossed"
+    },
+    {
+     "label": "stage angle",
+     "slot": "stage.angle_rad",
+     "fmt": "deg"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    }
+   ],
+   "path": "camera",
+   "path_exceptions": [
+    "measurement.result"
+   ],
+   "notes": {
+    "zoom": [
+     "objectives 4x, 10x, 40x, 100x oil (UPLFLN); --objective takes the position (0-3) or the magnification",
+     "manual: BX53/BX53M-P instructions p.5 (nomenclature: revolving nosepiece)"
+    ],
+    "source": [
+     "--level is the lamp level (0-100 %); off sets it to 0",
+     "manual: BX53-P brochure pp.2-4"
+    ]
+   }
+  },
+  "thermo_ibrightfl1500": {
+   "role": "primary",
+   "slots": {
+    "sample": "sample.on_stage"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the drawer of {inst} already holds {slot:sample.on_stage}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "drawer empty"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "sample {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the gels / blots on the bench.",
+       "label": "sample on the bench"
+      },
+      {
+       "wait": {
+        "slot": "operation.kind",
+        "eq": null
+       },
+       "say": "the imager is idle",
+       "max_s": 600
+      },
+      {
+       "cap": "drawer.open",
+       "say": "open the sample drawer",
+       "unless": {
+        "slot": "drawer.state",
+        "eq": "open"
+       }
+      },
+      {
+       "wait": {
+        "slot": "drawer.state",
+        "eq": "open"
+       },
+       "say": "the drawer is open",
+       "max_s": 60
+      },
+      {
+       "cap": "sample.place",
+       "args": {
+        "sample_id": "$sample",
+        "skew_rad": 0.0
+       },
+       "say": "put {sample} on the sample tray"
+      },
+      {
+       "cap": "drawer.close",
+       "say": "close the drawer"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "drawer.state",
+          "eq": "closed"
+         },
+         {
+          "slot": "operation.kind",
+          "eq": null
+         }
+        ]
+       },
+       "say": "the drawer is closed",
+       "max_s": 60
+      }
+     ],
+     "done": "loaded {sample}; the drawer is closed"
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample in {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a sample in the drawer"
+      },
+      {
+       "wait": {
+        "slot": "operation.kind",
+        "eq": null
+       },
+       "say": "the imager is idle",
+       "max_s": 600
+      },
+      {
+       "cap": "drawer.open",
+       "say": "open the sample drawer",
+       "unless": {
+        "slot": "drawer.state",
+        "eq": "open"
+       }
+      },
+      {
+       "wait": {
+        "slot": "drawer.state",
+        "eq": "open"
+       },
+       "say": "the drawer is open",
+       "max_s": 60
+      },
+      {
+       "cap": "sample.remove",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "take {sample} out"
+      },
+      {
+       "cap": "drawer.close",
+       "say": "close the drawer"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "drawer.state",
+          "eq": "closed"
+         },
+         {
+          "slot": "operation.kind",
+          "eq": null
+         }
+        ]
+       },
+       "say": "the drawer is closed",
+       "max_s": 60
+      }
+     ],
+     "done": "unloaded {sample}"
+    },
+    "focus": {
+     "auto": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "wait": {
+         "slot": "operation.kind",
+         "eq": null
+        },
+        "say": "the imager is idle",
+        "max_s": 600
+       },
+       {
+        "cap": "camera.set",
+        "args": {
+         "binning": "$slot:camera.binning",
+         "zoom": "$slot:camera.zoom",
+         "auto_focus": true,
+         "lock": "$slot:camera.locked"
+        },
+        "say": "switch the camera to auto focus"
+       }
+      ],
+      "done": "camera on auto focus"
+     },
+     "why_set": "the iBright camera focuses itself; use `focus auto`"
+    },
+    "zoom": {
+     "mag": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "wait": {
+         "slot": "operation.kind",
+         "eq": null
+        },
+        "say": "the imager is idle",
+        "max_s": 600
+       },
+       {
+        "cap": "camera.set",
+        "args": {
+         "binning": "$slot:camera.binning",
+         "zoom": "$value",
+         "auto_focus": true,
+         "lock": "$slot:camera.locked"
+        },
+        "say": "set the camera zoom (auto focus on)"
+       }
+      ]
+     },
+     "why_objective": "a fixed camera lens with digital zoom; give a zoom factor: `zoom 2x`"
+    },
+    "acquire": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no gel or blot in {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "sample in"
+      },
+      {
+       "check": {
+        "any": [
+         {
+          "slot": "mode",
+          "ne": null
+         },
+         {
+          "input": "opt:mode",
+          "given": true
+         }
+        ]
+       },
+       "code": "NO_MODE",
+       "message": "{inst} has no imaging mode selected.",
+       "fix": "give one: `chemlab run {inst} acquire --mode nucleic_acid_gels` (chemi_blots, fluorescent_blots, nucleic_acid_gels, protein_gels, universal).",
+       "label": "imaging mode"
+      },
+      {
+       "wait": {
+        "slot": "operation.kind",
+        "eq": null
+       },
+       "say": "the imager is idle",
+       "max_s": 600
+      },
+      {
+       "check": {
+        "any": [
+         {
+          "input": "opt:hdr",
+          "eq": false
+         },
+         {
+          "input": "opt:mode",
+          "eq": "chemi_blots"
+         },
+         {
+          "all": [
+           {
+            "input": "opt:mode",
+            "given": false
+           },
+           {
+            "slot": "mode",
+            "eq": "chemi_blots"
+           }
+          ]
+         }
+        ]
+       },
+       "code": "HDR_CHEMI_ONLY",
+       "message": "high dynamic range capture works only in the chemi_blots mode on {inst} (mode now {slot:mode}).",
+       "fix": "leave out --hdr, or use `--mode chemi_blots`.",
+       "label": "HDR only for chemiluminescence"
+      },
+      {
+       "cap": "mode.select",
+       "args": {
+        "mode": "$opt:mode"
+       },
+       "say": "select the {opt:mode} mode",
+       "if": {
+        "input": "opt:mode",
+        "given": true
+       }
+      },
+      {
+       "cap": "capture.run",
+       "args": {
+        "hdr": "$opt:hdr"
+       },
+       "say": "capture"
+      }
+     ],
+     "defaults": {
+      "hdr": false
+     },
+     "options": [
+      "mode"
+     ],
+     "job": "operation",
+     "what": "capture"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "arg": "image_id",
+     "last_slot": "result.last_image_id"
+    }
+   },
+   "unsupported": {
+    "move": "no stage (an optional turntable only)",
+    "source": "the light sources are switched by the capture itself, per channel",
+    "vacuum": "an ambient instrument (no chamber)",
+    "approach": "not a scanning-probe microscope (no tip to approach)",
+    "retract": "not a scanning-probe microscope (no tip to approach)"
+   },
+   "alternatives": {
+    "source": "the white-light transilluminator for the live view: `chemlab call thermo_ibrightfl1500 live.set_trans_light --enabled true`"
+   },
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "drawer",
+     "slot": "drawer.state"
+    },
+    {
+     "label": "sample",
+     "slot": "sample.on_stage"
+    },
+    {
+     "label": "mode",
+     "slot": "mode"
+    },
+    {
+     "label": "channels",
+     "slot": "channels.selected"
+    },
+    {
+     "label": "zoom",
+     "slot": "camera.zoom",
+     "fmt": "x"
+    },
+    {
+     "label": "binning",
+     "slot": "camera.binning"
+    },
+    {
+     "label": "busy with",
+     "slot": "operation.kind"
+    },
+    {
+     "label": "last image",
+     "slot": "result.last_image_id"
+    }
+   ],
+   "path": "capture",
+   "path_exceptions": [
+    "measurement.result",
+    "mode.select"
+   ],
+   "notes": {
+    "acquire": [
+     "--mode selects the imaging mode first (its default channels); --hdr for a high-dynamic-range capture",
+     "manual: iBright user guide pp.13-24 (imaging mode and capture)"
+    ],
+    "load": [
+     "manual: iBright user guide pp.13-24"
+    ]
+   }
+  },
+  "park_nx10": {
+   "role": "primary",
+   "slots": {
+    "sample": "sample.on_chuck#sample_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "sample.on_chuck",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the chuck of {inst} already holds {slot:sample.on_chuck#sample_id}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "chuck free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "sample {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the samples on the bench.",
+       "label": "sample on the bench"
+      },
+      {
+       "check": {
+        "slot": "engage.state",
+        "eq": "retracted"
+       },
+       "code": "TIP_ENGAGED",
+       "message": "the tip of {inst} is on the surface (engage {slot:engage.state}).",
+       "fix": "retract it first: `chemlab run {inst} retract`.",
+       "label": "tip retracted"
+      },
+      {
+       "cap": "sample.place",
+       "args": {
+        "sample_id": "$sample",
+        "offset_x_m": "$opt:at_x",
+        "offset_y_m": "$opt:at_y"
+       },
+       "say": "put {sample} on the sample chuck"
+      }
+     ],
+     "defaults": {
+      "at_x": "0mm",
+      "at_y": "0mm"
+     },
+     "done": "loaded {sample} on the chuck",
+     "next": "switch the laser on (`chemlab run {inst} source on`), then `chemlab run {inst} approach --wait`."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "sample.on_chuck",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample on the chuck of {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a sample on the chuck"
+      },
+      {
+       "check": {
+        "slot": "engage.state",
+        "eq": "retracted"
+       },
+       "code": "TIP_ENGAGED",
+       "message": "the tip of {inst} is on the surface (engage {slot:engage.state}).",
+       "fix": "retract it first: `chemlab run {inst} retract`.",
+       "label": "tip retracted"
+      },
+      {
+       "cap": "sample.remove",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "take {sample} off the chuck"
+      }
+     ],
+     "done": "unloaded {sample}"
+    },
+    "move": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "engage.state",
+        "eq": "retracted"
+       },
+       "code": "TIP_ENGAGED",
+       "message": "the tip of {inst} is on the surface (engage {slot:engage.state}).",
+       "fix": "retract it first: `chemlab run {inst} retract`.",
+       "label": "tip retracted"
+      },
+      {
+       "cap": "stage.move_xy",
+       "args": {
+        "x_m": "$x",
+        "y_m": "$y"
+       },
+       "say": "move the XY stage to {x}, {y}"
+      },
+      {
+       "wait": {
+        "slot": "stage.xy_moving",
+        "truthy": false
+       },
+       "say": "the stage has stopped",
+       "max_s": 120
+      }
+     ]
+    },
+    "focus": {
+     "set": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "focus.move",
+        "args": {
+         "position_m": "$value"
+        },
+        "say": "move the optical focus to {value}"
+       },
+       {
+        "wait": {
+         "slot": "focus.moving",
+         "truthy": false
+        },
+        "say": "the focus stage has stopped",
+        "max_s": 120
+       }
+      ],
+      "done": "optical (camera) focus at {value}"
+     },
+     "why_auto": "the NX10 camera has no autofocus; the tip finds the surface with `approach`"
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "beam.set",
+        "args": {
+         "on": true
+        },
+        "say": "switch the deflection laser on"
+       }
+      ],
+      "done": "deflection laser on"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "beam.set",
+        "args": {
+         "on": false
+        },
+        "say": "switch the deflection laser off"
+       }
+      ],
+      "done": "deflection laser off"
+     }
+    },
+    "approach": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "probe.mounted",
+        "ne": null
+       },
+       "code": "NO_PROBE",
+       "message": "there is no probe (cantilever) on {inst}.",
+       "fix": "ask the lab operator to mount one (probe exchange is set-up work).",
+       "label": "probe mounted"
+      },
+      {
+       "check": {
+        "slot": "sample.on_chuck",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample under the tip of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "sample on the chuck"
+      },
+      {
+       "check": {
+        "slot": "beam.emitting",
+        "truthy": true
+       },
+       "code": "LASER_OFF",
+       "message": "the deflection laser of {inst} is off, so the feedback cannot see the cantilever.",
+       "fix": "`chemlab run {inst} source on`.",
+       "label": "laser on"
+      },
+      {
+       "check": {
+        "slot": "engage.state",
+        "eq": "retracted"
+       },
+       "code": "ALREADY_ENGAGED",
+       "message": "the tip of {inst} is not retracted (engage {slot:engage.state}).",
+       "fix": "it is already on the surface; `acquire` scans, `retract` lifts it.",
+       "label": "tip retracted"
+      },
+      {
+       "cap": "approach",
+       "args": {
+        "setpoint_force_n": "$opt:setpoint",
+        "setpoint_amplitude_m": null,
+        "z_servo_gain": 1.0
+       },
+       "say": "approach in contact mode (set point {opt:setpoint})",
+       "if": {
+        "slot": "head.mode",
+        "eq": "contact"
+       }
+      },
+      {
+       "cap": "approach",
+       "args": {
+        "setpoint_force_n": null,
+        "setpoint_amplitude_m": "$opt:setpoint",
+        "z_servo_gain": 1.0
+       },
+       "say": "approach in {slot:head.mode} mode (set point {opt:setpoint})",
+       "if": {
+        "slot": "head.mode",
+        "in": [
+         "tapping",
+         "non_contact"
+        ]
+       }
+      }
+     ],
+     "defaults": {
+      "setpoint": [
+       {
+        "if": {
+         "slot": "head.mode",
+         "eq": "contact"
+        },
+        "value": "2nN"
+       },
+       {
+        "value": "20nm"
+       }
+      ]
+     },
+     "job": "operation",
+     "what": "tip approach"
+    },
+    "retract": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "cap": "retract",
+       "args": {
+        "distance_m": "$opt:distance"
+       },
+       "say": "retract the Z stage by {opt:distance}"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "engage.state",
+          "eq": "retracted"
+         },
+         {
+          "slot": "z_stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the tip is retracted and the Z stage still",
+       "max_s": 120
+      }
+     ],
+     "defaults": {
+      "distance": "3mm"
+     },
+     "done": "tip retracted by {opt:distance}"
+    },
+    "acquire": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "engage.state",
+        "eq": "engaged"
+       },
+       "code": "NOT_ENGAGED",
+       "message": "the tip of {inst} is not on the surface (engage {slot:engage.state}).",
+       "fix": "approach first: `chemlab run {inst} approach --wait`.",
+       "label": "tip engaged"
+      },
+      {
+       "cap": "scan.start",
+       "args": {
+        "size_m": "$opt:size",
+        "pixels_x": "$opt:pixels",
+        "pixels_y": "$opt:pixels",
+        "rate_hz": "$opt:rate",
+        "angle_rad": 0.0,
+        "offset_x_m": 0.0,
+        "offset_y_m": 0.0,
+        "setpoint_force_n": "$slot:feedback.setpoint#setpoint_force_n",
+        "setpoint_amplitude_m": "$slot:feedback.setpoint#setpoint_amplitude_m",
+        "z_servo_gain": "$slot:feedback.setpoint#z_servo_gain",
+        "save_retrace": false,
+        "retract_after": false
+       },
+       "say": "scan {opt:size} at {opt:rate} ({opt:pixels} lines)"
+      }
+     ],
+     "defaults": {
+      "size": "5um",
+      "pixels": "256",
+      "rate": "1Hz"
+     },
+     "job": "operation",
+     "what": "AFM scan"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id",
+     "args": {
+      "channel": null,
+      "direction": null,
+      "region_px": null,
+      "max_values": 4096
+     }
+    }
+   },
+   "unsupported": {
+    "zoom": "the field of view is the scan size (`acquire --size 5um`)",
+    "vacuum": "an ambient instrument (no chamber)"
+   },
+   "view": [
+    {
+     "label": "system",
+     "slot": "system.state"
+    },
+    {
+     "label": "sample",
+     "slot": "sample.on_chuck",
+     "key": "sample_id"
+    },
+    {
+     "label": "probe",
+     "slot": "probe.mounted",
+     "key": "probe_id"
+    },
+    {
+     "label": "mode",
+     "slot": "head.mode"
+    },
+    {
+     "label": "laser",
+     "slot": "beam.emitting"
+    },
+    {
+     "label": "tip",
+     "slot": "engage.state"
+    },
+    {
+     "label": "stage x",
+     "slot": "stage.x_m",
+     "kind": "length"
+    },
+    {
+     "label": "stage y",
+     "slot": "stage.y_m",
+     "kind": "length"
+    },
+    {
+     "label": "busy with",
+     "slot": "operation.kind"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    }
+   ],
+   "path": "scan",
+   "path_exceptions": [
+    "measurement.result"
+   ],
+   "notes": {
+    "approach": [
+     "contact mode takes a force set point (default 2nN), tapping / non-contact an amplitude (default 20nm); about 3 min",
+     "manual: NX10 user manual pp.98-129 (approach), pp.130-150 (contact / tapping)"
+    ],
+    "acquire": [
+     "--size scan size (up to 50 um), --pixels lines and points per line, --rate line rate; the set point of the approach is kept",
+     "manual: NX10 user manual pp.98-129 (scan)"
+    ],
+    "load": [
+     "manual: NX10 user manual p.113 (sample loading)"
+    ],
+    "source": [
+     "manual: NX10 user manual pp.98-129 (laser alignment)"
+    ]
+   }
+  },
+  "nanosurf_naiostm": {
+   "role": "primary",
+   "slots": {
+    "sample": "holder.sample_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.sample_id",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the sample holder of {inst} already carries {slot:holder.sample_id}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "holder free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "sample {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the samples on the bench.",
+       "label": "sample on the bench"
+      },
+      {
+       "check": {
+        "slot": "approach.state",
+        "eq": "retracted"
+       },
+       "code": "TIP_ENGAGED",
+       "message": "the tip of {inst} is not retracted ({slot:approach.state}).",
+       "fix": "`chemlab run {inst} retract` first.",
+       "label": "tip retracted"
+      },
+      {
+       "cap": "sample.mount",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "mount {sample} on the sample holder"
+      },
+      {
+       "cap": "cover.lift",
+       "say": "lift the magnifier cover",
+       "unless": {
+        "slot": "cover.lifted",
+        "truthy": true
+       }
+      },
+      {
+       "cap": "holder.insert",
+       "args": {
+        "position_m": "$param:insert_position_m",
+        "angle_rad": 0.0
+       },
+       "say": "slide the holder into the scan head"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "holder.location",
+          "eq": "head"
+         },
+         {
+          "slot": "holder.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the holder sits in the head",
+       "max_s": 60
+      },
+      {
+       "cap": "cover.place",
+       "say": "put the magnifier cover back"
+      }
+     ],
+     "done": "loaded {sample} into the scan head",
+     "next": "`chemlab run {inst} approach --wait` (coarse approach, about 5 min)."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.sample_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample in {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a sample in the holder"
+      },
+      {
+       "check": {
+        "slot": "approach.state",
+        "eq": "retracted"
+       },
+       "code": "TIP_ENGAGED",
+       "message": "the tip of {inst} is not retracted ({slot:approach.state}).",
+       "fix": "`chemlab run {inst} retract` first.",
+       "label": "tip retracted"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "approach.state",
+          "eq": "retracted"
+         },
+         {
+          "slot": "holder.moving",
+          "truthy": false
+         },
+         {
+          "slot": "operation.kind",
+          "eq": null
+         }
+        ]
+       },
+       "say": "the approach motor has stopped",
+       "max_s": 60
+      },
+      {
+       "cap": "cover.lift",
+       "say": "lift the magnifier cover",
+       "unless": {
+        "slot": "cover.lifted",
+        "truthy": true
+       }
+      },
+      {
+       "cap": "holder.remove",
+       "say": "take the holder out of the head",
+       "if": {
+        "slot": "holder.location",
+        "eq": "head"
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "holder.location",
+          "eq": "container"
+         },
+         {
+          "slot": "holder.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the holder is back in its container",
+       "max_s": 60
+      },
+      {
+       "cap": "sample.unmount",
+       "say": "take {sample} off the holder"
+      },
+      {
+       "cap": "cover.place",
+       "say": "put the magnifier cover back"
+      }
+     ],
+     "done": "unloaded {sample}"
+    },
+    "approach": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.location",
+        "eq": "head"
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample holder in the scan head of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "holder in the head"
+      },
+      {
+       "check": {
+        "slot": "tip.installed",
+        "truthy": true
+       },
+       "code": "NO_TIP",
+       "message": "there is no tip in {inst}.",
+       "fix": "ask the lab operator to prepare a tip (set-up work).",
+       "label": "tip installed"
+      },
+      {
+       "check": {
+        "slot": "approach.state",
+        "eq": "retracted"
+       },
+       "code": "ALREADY_ENGAGED",
+       "message": "the tip of {inst} is not retracted ({slot:approach.state}).",
+       "fix": "it is already in tunnelling range; `acquire` scans, `retract` withdraws it.",
+       "label": "tip retracted"
+      },
+      {
+       "cap": "cover.place",
+       "say": "put the magnifier cover back (shielding)",
+       "unless": {
+        "slot": "cover.lifted",
+        "truthy": false
+       }
+      },
+      {
+       "cap": "approach.start",
+       "args": {
+        "move_speed_percent": 100.0,
+        "max_steps": 200000
+       },
+       "say": "coarse approach until the tunnelling current is reached"
+      }
+     ],
+     "job": "operation",
+     "what": "tip approach"
+    },
+    "retract": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "cap": "approach.retract",
+       "args": {
+        "duration_s": 2.0
+       },
+       "say": "retract the tip for 2 s at full speed (about 0.5 mm)"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "approach.state",
+          "eq": "retracted"
+         },
+         {
+          "slot": "holder.moving",
+          "truthy": false
+         },
+         {
+          "slot": "operation.kind",
+          "eq": null
+         }
+        ]
+       },
+       "say": "the tip is retracted and the motor stopped",
+       "max_s": 120
+      }
+     ],
+     "done": "tip retracted (about 0.5 mm, enough to take the holder out)"
+    },
+    "acquire": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "approach.state",
+        "eq": "engaged"
+       },
+       "code": "NOT_ENGAGED",
+       "message": "the tip of {inst} is not in tunnelling range ({slot:approach.state}).",
+       "fix": "approach first: `chemlab run {inst} approach --wait`.",
+       "label": "tip engaged"
+      },
+      {
+       "cap": "scan.start",
+       "args": {
+        "image_size_m": "$opt:size",
+        "time_per_line_s": "$opt:line-time",
+        "points": "$opt:points",
+        "rotation_rad": 0.0,
+        "offset_x_m": 0.0,
+        "offset_y_m": 0.0,
+        "slope_x_rad": 0.0,
+        "slope_y_rad": 0.0
+       },
+       "say": "scan {opt:size} ({opt:points} points, {opt:line-time} per line)"
+      }
+     ],
+     "defaults": {
+      "size": "10nm",
+      "line-time": "0.2s",
+      "points": "128"
+     },
+     "job": "operation",
+     "what": "STM scan"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id",
+     "args": {
+      "channel": null,
+      "direction": null,
+      "region_px": null,
+      "max_values": 4096
+     }
+    }
+   },
+   "unsupported": {
+    "move": "no XY stage (only the scan offset moves the field)",
+    "focus": "no optics to focus: the tip finds the surface with `approach`",
+    "zoom": "the field of view is the scan size (`acquire --size 10nm`)",
+    "source": "no beam or light source (tunnelling current only)",
+    "vacuum": "an ambient instrument (no chamber)"
+   },
+   "params": {
+    "insert_position_m": 0.006
+   },
+   "view": [
+    {
+     "label": "system",
+     "slot": "system.state"
+    },
+    {
+     "label": "sample",
+     "slot": "holder.sample_id"
+    },
+    {
+     "label": "holder",
+     "slot": "holder.location"
+    },
+    {
+     "label": "cover lifted",
+     "slot": "cover.lifted"
+    },
+    {
+     "label": "tip",
+     "slot": "approach.state"
+    },
+    {
+     "label": "current",
+     "slot": "current.reading_a",
+     "kind": "current"
+    },
+    {
+     "label": "busy with",
+     "slot": "operation.kind"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    }
+   ],
+   "path": "scan",
+   "path_exceptions": [
+    "measurement.result"
+   ],
+   "notes": {
+    "load": [
+     "mount on the holder, lift the cover, slide the holder into the head (6 mm), put the cover back",
+     "manual: NaioSTM operating instructions pp.25-32 (installing the sample)"
+    ],
+    "approach": [
+     "coarse approach at full speed until the tunnelling set point (about 5 min)",
+     "manual: NaioSTM operating instructions pp.36-38, 87-96"
+    ],
+    "acquire": [
+     "--size image size (up to 500 nm), --points per line, --line-time per line",
+     "manual: NaioSTM operating instructions p.39, pp.97-112"
+    ],
+    "retract": [
+     "manual: NaioSTM operating instructions pp.59-61"
+    ]
+   }
+  },
+  "bruker_x4poseidon": {
+   "role": "primary",
+   "slots": {
+    "sample": "sample.on_stage#sample_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the chuck of {inst} already holds {slot:sample.on_stage#sample_id}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "chuck free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "sample {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the samples on the bench.",
+       "label": "sample on the bench"
+      },
+      {
+       "check": {
+        "slot": "measurement.id",
+        "eq": null
+       },
+       "code": "BUSY",
+       "message": "{inst} is measuring now.",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "not measuring"
+      },
+      {
+       "check": {
+        "slot": "xray.on",
+        "truthy": false
+       },
+       "code": "SOURCE_ON",
+       "message": "the X-rays of {inst} are on, so the door stays locked.",
+       "fix": "switch them off first: `chemlab run {inst} source off`.",
+       "label": "X-rays off"
+      },
+      {
+       "cap": "door.open",
+       "say": "open the sliding door",
+       "unless": {
+        "all": [
+         {
+          "slot": "door.closed",
+          "truthy": false
+         },
+         {
+          "slot": "door.moving",
+          "truthy": false
+         }
+        ]
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "door.closed",
+          "truthy": false
+         },
+         {
+          "slot": "door.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the door is open",
+       "max_s": 60
+      },
+      {
+       "cap": "stage.go_to",
+       "args": {
+        "position": "load"
+       },
+       "say": "bring the stage to the load position",
+       "unless": {
+        "slot": "stage.position_label",
+        "eq": "load"
+       }
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the stage is at the load position",
+       "max_s": 120
+      },
+      {
+       "cap": "sample.place",
+       "args": {
+        "sample_id": "$sample",
+        "offset_x_m": 0.0,
+        "offset_y_m": 0.0
+       },
+       "say": "put {sample} on the rotation chuck"
+      },
+      {
+       "cap": "door.close",
+       "say": "close the door"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "door.closed",
+          "truthy": true
+         },
+         {
+          "slot": "door.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the door is closed",
+       "max_s": 60
+      },
+      {
+       "cap": "stage.go_to",
+       "args": {
+        "position": "center"
+       },
+       "say": "bring the sample into the beam (centre position)"
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the stage is in place",
+       "max_s": 120
+      }
+     ],
+     "done": "loaded {sample}; the door is closed and the sample is in the beam",
+     "next": "bring the sample into the beam (`chemlab run {inst} move --z H`: the beam is 400 mm above the bench, so a short sample needs the chuck top just below it, e.g. 397mm for a 6 mm pellet), then `chemlab run {inst} source on --wait` (warm-up about 3 min)."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample in {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a sample on the chuck"
+      },
+      {
+       "check": {
+        "slot": "measurement.id",
+        "eq": null
+       },
+       "code": "BUSY",
+       "message": "{inst} is measuring now.",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "not measuring"
+      },
+      {
+       "check": {
+        "slot": "xray.on",
+        "truthy": false
+       },
+       "code": "SOURCE_ON",
+       "message": "the X-rays of {inst} are on, so the door stays locked.",
+       "fix": "switch them off first: `chemlab run {inst} source off`.",
+       "label": "X-rays off"
+      },
+      {
+       "cap": "door.open",
+       "say": "open the sliding door",
+       "unless": {
+        "all": [
+         {
+          "slot": "door.closed",
+          "truthy": false
+         },
+         {
+          "slot": "door.moving",
+          "truthy": false
+         }
+        ]
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "door.closed",
+          "truthy": false
+         },
+         {
+          "slot": "door.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the door is open",
+       "max_s": 60
+      },
+      {
+       "cap": "stage.go_to",
+       "args": {
+        "position": "load"
+       },
+       "say": "bring the stage to the load position",
+       "unless": {
+        "slot": "stage.position_label",
+        "eq": "load"
+       }
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the stage is at the load position",
+       "max_s": 120
+      },
+      {
+       "cap": "sample.remove",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "take {sample} off the chuck"
+      },
+      {
+       "cap": "door.close",
+       "say": "close the door"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "door.closed",
+          "truthy": true
+         },
+         {
+          "slot": "door.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the door is closed",
+       "max_s": 60
+      }
+     ],
+     "done": "unloaded {sample}"
+    },
+    "move": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "fail": "NO_LATERAL_STAGE",
+       "kind": "usage",
+       "message": "{inst} has no lateral (X Y) stage: the sample turns on a rotation chuck.",
+       "fix": "give only the chuck height: `chemlab run {inst} move --z 397mm` (the beam is 400 mm above the bench).",
+       "if": {
+        "input": "x",
+        "given": true
+       }
+      },
+      {
+       "check": {
+        "slot": "measurement.id",
+        "eq": null
+       },
+       "code": "BUSY",
+       "message": "{inst} is measuring now.",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "not measuring"
+      },
+      {
+       "cap": "stage.move",
+       "args": {
+        "sod_m": "$slot:stage.sod_m",
+        "chuck_z_m": "$opt:z"
+       },
+       "say": "move the chuck top to {opt:z} (beam at 400 mm)"
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the stage has stopped",
+       "max_s": 120
+      }
+     ]
+    },
+    "zoom": {
+     "mag": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "check": {
+         "slot": "measurement.id",
+         "eq": null
+        },
+        "code": "BUSY",
+        "message": "{inst} is measuring now.",
+        "fix": "wait for it (`chemlab status`).",
+        "label": "not measuring"
+       },
+       {
+        "cap": "stage.move",
+        "args": {
+         "sod_m": {
+          "$div": [
+           "$param:sdd_m",
+           "$value"
+          ],
+          "kind": "length"
+         },
+         "chuck_z_m": "$slot:stage.chuck_z_m"
+        },
+        "say": "move the sample along the beam (source-object distance) for {value}x"
+       },
+       {
+        "wait": {
+         "slot": "stage.moving",
+         "truthy": false
+        },
+        "say": "the stage has stopped",
+        "max_s": 120
+       }
+      ]
+     },
+     "why_objective": "geometric magnification only: `zoom 5x` sets the source-object distance"
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "check": {
+         "all": [
+          {
+           "slot": "door.closed",
+           "truthy": true
+          },
+          {
+           "slot": "door.moving",
+           "truthy": false
+          }
+         ]
+        },
+        "code": "DOOR_OPEN",
+        "message": "the door of {inst} is open; the X-rays are interlocked.",
+        "fix": "close it: `chemlab run {inst} close door`.",
+        "label": "door closed"
+       },
+       {
+        "cap": "xray.set",
+        "args": {
+         "voltage_v": {
+          "$or": [
+           "$opt:kv",
+           "$slot:xray.voltage_set_v"
+          ]
+         },
+         "current_a": {
+          "$or": [
+           "$opt:current",
+           "$slot:xray.current_set_a"
+          ]
+         }
+        },
+        "say": "set the tube to {slot:xray.voltage_set_v} V / {slot:xray.current_set_a} A",
+        "if": {
+         "any": [
+          {
+           "input": "opt:kv",
+           "given": true
+          },
+          {
+           "input": "opt:current",
+           "given": true
+          }
+         ]
+        }
+       },
+       {
+        "cap": "xray.enable",
+        "args": {
+         "enabled": true
+        },
+        "say": "switch the X-rays on",
+        "unless": {
+         "slot": "xray.enabled",
+         "truthy": true
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "xray.ready",
+        "truthy": true
+       },
+       "what": "X-ray warm-up",
+       "max_s": 1800,
+       "poll_s": 5.0,
+       "progress": [
+        "xray.warmup_remaining_s",
+        "xray.voltage_v"
+       ]
+      },
+      "what": "X-ray warm-up",
+      "done": "X-rays on and ready"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "xray.enable",
+        "args": {
+         "enabled": false
+        },
+        "say": "switch the X-rays off",
+        "if": {
+         "slot": "xray.enabled",
+         "truthy": true
+        }
+       }
+      ],
+      "done": "X-rays off"
+     }
+    },
+    "acquire": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample in {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "sample on the chuck"
+      },
+      {
+       "check": {
+        "slot": "xray.ready",
+        "truthy": true
+       },
+       "code": "SOURCE_NOT_READY",
+       "message": "the X-rays of {inst} are not ready (on {slot:xray.on}, warm-up left {slot:xray.warmup_remaining_s} s).",
+       "fix": "`chemlab run {inst} source on --wait`.",
+       "label": "X-rays ready"
+      },
+      {
+       "cap": "scan.configure",
+       "args": {
+        "range_deg": "$slot:scan.settings#range_deg",
+        "step_rad": "$slot:scan.settings#step_rad",
+        "exposure_s": {
+         "$or": [
+          "$opt:exposure",
+          "$slot:scan.settings#exposure_s"
+         ]
+        },
+        "averaging": "$slot:scan.settings#averaging",
+        "binning": {
+         "$or": [
+          "$opt:binning",
+          "$slot:scan.settings#binning"
+         ]
+        },
+        "random_movement": "$slot:scan.settings#random_movement"
+       },
+       "say": "set the scan settings (exposure / binning)",
+       "if": {
+        "any": [
+         {
+          "input": "opt:exposure",
+          "given": true
+         },
+         {
+          "input": "opt:binning",
+          "given": true
+         }
+        ]
+       }
+      },
+      {
+       "remember": "cz",
+       "value": "$slot:stage.chuck_z_m"
+      },
+      {
+       "cap": "stage.move",
+       "args": {
+        "sod_m": "$slot:stage.sod_m",
+        "chuck_z_m": "$param:reference_chuck_z_m"
+       },
+       "say": "lower the sample out of the beam for the references"
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the sample is out of the beam",
+       "max_s": 120
+      },
+      {
+       "cap": "calibration.flat_field",
+       "say": "take the dark / flat-field references for these settings"
+      },
+      {
+       "wait": {
+        "slot": "measurement.id",
+        "eq": null
+       },
+       "say": "the flat-field references are done",
+       "max_s": 600
+      },
+      {
+       "cap": "stage.move",
+       "args": {
+        "sod_m": "$slot:stage.sod_m",
+        "chuck_z_m": "$cz"
+       },
+       "say": "raise the sample back into the beam"
+      },
+      {
+       "wait": {
+        "slot": "stage.moving",
+        "truthy": false
+       },
+       "say": "the sample is back in the beam",
+       "max_s": 120
+      },
+      {
+       "cap": "scan.start",
+       "say": "start the tomography scan"
+      }
+     ],
+     "job": "operation",
+     "what": "CT scan"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id"
+    }
+   },
+   "unsupported": {
+    "focus": "no focusing optics: the magnification is geometric (`zoom 5x`)",
+    "vacuum": "an air-filled cabinet (no chamber vacuum)",
+    "approach": "not a scanning-probe microscope (no tip to approach)",
+    "retract": "not a scanning-probe microscope (no tip to approach)"
+   },
+   "params": {
+    "sdd_m": 0.45,
+    "reference_chuck_z_m": 0.25
+   },
+   "codes": {
+    "scan.start:SAMPLE_NOT_IN_FIELD": {
+     "code": "NOT_IN_FIELD",
+     "message": "the sample is not in the detector field of view of {inst}.",
+     "fix": "raise or lower it into the beam (`chemlab run {inst} move --z 397mm`: the beam is 400 mm above the bench) or lower the magnification (`zoom 2x`)."
+    }
+   },
+   "view": [
+    {
+     "label": "system",
+     "slot": "system.state"
+    },
+    {
+     "label": "door closed",
+     "slot": "door.closed"
+    },
+    {
+     "label": "sample",
+     "slot": "sample.on_stage",
+     "key": "sample_id"
+    },
+    {
+     "label": "chuck z",
+     "slot": "stage.chuck_z_m",
+     "kind": "length"
+    },
+    {
+     "label": "X-rays on",
+     "slot": "xray.on"
+    },
+    {
+     "label": "ready",
+     "slot": "xray.ready"
+    },
+    {
+     "label": "tube",
+     "slot": "xray.voltage_set_v",
+     "fmt": "kv"
+    },
+    {
+     "label": "current",
+     "slot": "xray.current_set_a",
+     "fmt": "ua"
+    },
+    {
+     "label": "magnification",
+     "slot": "geometry.magnification",
+     "fmt": "x"
+    },
+    {
+     "label": "voxel",
+     "slot": "geometry.voxel_size_m",
+     "kind": "length"
+    },
+    {
+     "label": "measuring",
+     "slot": "measurement.kind"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    }
+   ],
+   "path": "scan",
+   "path_exceptions": [
+    "calibration.flat_field",
+    "stage.move",
+    "measurement.result"
+   ],
+   "notes": {
+    "zoom": [
+     "magnification = source-detector distance (0.45 m, from the geometry slots) / source-object distance",
+     "manual: X4 POSEIDON brochure pp.8-15 (field of view vs resolution); SkyScan 1272 manual pp.20-25 (variable geometry)"
+    ],
+    "acquire": [
+     "takes fresh dark / flat-field references for the current settings first, with the sample lowered out of the beam (the scan refuses without them); --exposure per projection, --binning 1x1 / 2x2 / 4x4",
+     "manual: X4 POSEIDON brochure p.18 (3DxSUITE acquisition)"
+    ],
+    "source": [
+     "--kv 20-100 kV, --current 1-500 uA; warm-up about 3 min"
+    ]
+   }
+  }
+ }
+}

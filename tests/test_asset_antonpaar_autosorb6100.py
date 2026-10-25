@@ -107,4 +107,24 @@ class AutosorbTests(unittest.TestCase):
   h=configured();call(h,'acquisition.start',stations=[0]);h.step(400.);call(h,'acquisition.stop')
   with self.assertRaises(r.ActionRejected):h.invoke('dewar.set',lift_m=0.)
   h.step(600.);call(h,'dewar.set',lift_m=0.);balances(h)
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): after a run cancelled at a high loading the backfill stuck at ~105-110 kPa (the warming sample
+ kept releasing N2), the station stayed BUSY and the tube could not be released."""
+ def test_backfill_after_a_cancelled_run_finishes(self):
+  h=configured();call(h,'acquisition.start',stations=[0])
+  for _ in range(1200):
+   h.step(1.)
+   if len(h.stations[0]['points'])>=12:break
+  self.assertGreaterEqual(len(h.stations[0]['points']),12)
+  call(h,'acquisition.stop');h.step(5.);call(h,'dewar.set',lift_m=0.);h.step(5.)
+  call(h,'sample.backfill',station=0);peak=0.
+  for _ in range(3600):
+   h.step(1.);peak=max(peak,h.pressure(0))
+   if h.stations[0]['stage']!='backfill':break
+  self.assertEqual(h.stations[0]['stage'],'idle')
+  self.assertGreater(peak,101325.+10.)                                  # the desorbing sample did push above ambient on the way
+  self.assertAlmostEqual(h.pressure(0),101325.,delta=10.)
+  h.step(600.);self.assertAlmostEqual(h.pressure(0),101325.,delta=30.)   # what was left adsorbed stays inside the access window
+  call(h,'guard.set',angle_rad=1.5);call(h,'sample0.set',drop_m=.18);call(h,'sample.unload',station=0)   # the tube is released
+  balances(h)
 if __name__=='__main__':unittest.main()

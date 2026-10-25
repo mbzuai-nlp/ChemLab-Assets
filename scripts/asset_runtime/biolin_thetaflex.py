@@ -1,7 +1,7 @@
 """CHEM-121 finite optical sessile-drop imaging; explicit assumptions, literature references."""
 from pathlib import Path
 import copy,math,json,importlib.util
-PROTOCOL_VERSION='1.0.0';SLUG='biolin_thetaflex';CATALOG_ID='CHEM-121';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.1';SLUG='biolin_thetaflex';CATALOG_ID='CHEM-121';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t4_measure'/SLUG
 class ActionRejected(ValueError):pass
 def number(unit='1',lo=None,hi=None):
@@ -150,7 +150,7 @@ cap('stock.unload',obj({}),obj({'unloaded':BOOL}),['syringe'],'宿主回收剩�
 cap('drop.clean',obj({}),obj({'cleaned':BOOL}),['sample_plate'],'宿主吸走样片上的液滴入回收账本','configuration','evaluator',effects=['truth.drop_m3'])
 CAL=obj({'known_length_m':number('m',1e-5,.05),'observed_pixels':number('1',10,4096)})
 cap('camera.calibrate',CAL,obj({'pixel_pitch_m':number('m')}),['camera','calibration_socket'],'独立外部长度/图像像素标定；不代替C216证书','configuration',ex=dict(known_length_m=.001,observed_pixels=.001/(.0035/W)),effects=['camera.calibrated'])
-for k,i,e,c,z in [('stage.move',obj({'x_m':number('m',0,.08),'y_m':number('m',0,.04),'z_m':number('m',0,STAGE_Z_MAX_M)}),dict(x_m=.04,y_m=.02,z_m=.025),'stage_z','按受限速度移动手动XYZ台，过程代理'),('dispenser.move',obj({'position_m':number('m',0,.035)}),dict(position_m=.010),'dispenser','异步上下移动自动滴放支架'),('liquid.transfer',obj({'volume_m3':number('m^3',-1e-8,1e-8)}),dict(volume_m3=2e-10),'syringe','有限针筒滴放或回吸，动态模式保留针下液滴，体积守恒'),('acquisition.start',obj({}),{},'camera','按方法频率捕获有限帧数并独立拟合轮廓')]:cap(k,i,obj({'operation_id':TEXT}),[c],z,ex=e,effects=['acquisition.phase'])
+for k,i,e,c,z in [('stage.move',obj({'x_m':number('m',0,.08),'y_m':number('m',0,.04),'z_m':number('m',0,STAGE_Z_MAX_M)}),dict(x_m=.04,y_m=.02,z_m=.025),'stage_z','按受限速度移动手动XYZ台，过程代理'),('dispenser.move',obj({'position_m':number('m',0,.035)}),dict(position_m=.016),'dispenser','异步上下移动自动滴放支架'),('liquid.transfer',obj({'volume_m3':number('m^3',-1e-8,1e-8)}),dict(volume_m3=2e-10),'syringe','有限针筒滴放或回吸，动态模式保留针下液滴，体积守恒'),('acquisition.start',obj({}),{},'camera','按方法频率捕获有限帧数并独立拟合轮廓')]:cap(k,i,obj({'operation_id':TEXT}),[c],z,ex=e,effects=['acquisition.phase'])
 cap('acquisition.stop',obj({}),obj({'phase':PHASE}),['controller'],'取消保留已移动位置、已转移液体与图像',effects=['acquisition.phase'])
 cap('acquisition.result',obj({}),RESULT,['camera'],'只读最后异步操作结果与像素图像','query')
 cap('image.capture',obj({}),obj({'image_png_base64':TEXT,'baseline_px':INT(0,H),'pixel_pitch_m':number('m'),'measurement':FIT_RESULT}),['camera'],'返回由物理轮廓形成的像素图像及图像拟合；模拟图像明确标注','analysis')
@@ -383,7 +383,7 @@ class BiolinThetaFlexSession:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  m=export_biolin_thetaflex_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  m=export_biolin_thetaflex_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')

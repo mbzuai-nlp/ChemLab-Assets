@@ -8,7 +8,7 @@ import copy,functools,importlib.util,json,math,sys
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
 from asset_runtime.antonpaar_abbematadvanced import validate
-ROOT=Path(__file__).resolve().parents[2];ASSET_VERSION='1.1.2';SLUG='sft_sft110';OUT=ROOT/'outputs/expansion_batch03/t2_vacuum/sft_sft110';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-032';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/sft_sft110_solubility_library/templates.json';VMAX=100e-6;PMAX=68.9e6;MWCO2=.0440098
+ROOT=Path(__file__).resolve().parents[2];ASSET_VERSION='1.1.3';SLUG='sft_sft110';OUT=ROOT/'outputs/expansion_batch03/t2_vacuum/sft_sft110';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-032';PROTOCOL_VERSION='1.0.0';TEMPLATE_REL='assets/reactions/sft_sft110_solubility_library/templates.json';VMAX=100e-6;PMAX=68.9e6;MWCO2=.0440098
 def cp():
  sys.path.insert(0,str(OUT/'vendor')) if str(OUT/'vendor') not in sys.path else None
  import CoolProp.CoolProp as C
@@ -39,7 +39,7 @@ CAPS={
  'power.set':(obj({'enabled':BOOL}),obj({'enabled':BOOL}),['pump_housing','heater','restrictor'],'开关电；断电不自动放空，残压保留','device_command','agent',{'enabled':True},['power.enabled']),
  'acquisition.start':(obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['vessel','static_dynamic_valve','pump_head_0','restrictor'],'开始/取消续作教学升温加压静动放空序列','device_command','agent',{},['cycle.phase','cycle.stage']),
  'acquisition.stop':(obj({}),obj({'phase':PHASE}),['pump_head_0','static_dynamic_valve'],'停止模型泵/阀，保留残压和部分萃取效果','device_command','agent',{},['cycle.phase']),
- 'pressure.vent':(obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['static_dynamic_valve','restrictor','vent_port'],'宿主受控减压回收；不是急停或安全释放保证','device_command','agent',{},['cycle.phase','cycle.stage']),
+ 'pressure.vent':(obj({}),obj({'phase':PHASE,'operation_id':TEXT}),['static_dynamic_valve','restrictor','vent_port'],'宿主受控减压回收；不是急停或安全释放保证；本周期还没萃取时的放气（如预热残压）结束后回到idle（standby），之后照常开始萃取，该放气操作的poll为succeeded；萃取停止后的放气结束为succeeded/depressurized（周期结束）','device_command','agent',{},['cycle.phase','cycle.stage']),
  'extraction.measure':(obj({}),RESULT,['display_digits_temperature','display_digits_restrictor','display_digits_pressure','gas_flowmeter'],'模型派生温压流量与文献平衡参考，不是实测产率','query','agent',{},[]),
  'product.read':(obj({}),PRODUCT,['collection_vial','vessel','restrictor'],'萃取物/残余/溶解/沉积真值；非真实回收标定','query','evaluator',{},[]),
  'history.read':(obj({}),obj({'records':arr(POINT),'evidence':TEXT}),['display_digits_pressure'],'教学程序过程曲线','query','agent',{},[]),
@@ -138,6 +138,9 @@ class SftSft110Runtime:
    if capability=='pressure.vent':self.stage='venting';self.stage_elapsed=0.;self.fault=''
    elif self.phase=='idle':self.stage='conditioning';self.stage_elapsed=0.
    elif self.stage!='venting' and abs(self.temperature-self.method['temperature_k'])>.1:raise ActionRejected('RECONDITION_REQUIRED')
+   if capability=='pressure.vent':self._vent_alone=self.phase=='idle' or (self.phase=='cancelled' and getattr(self,'_vent_alone',False))   # 1.1.3: no extraction yet in this cycle
+   elif self.stage!='venting':self._vent_alone=False
+   self._vent_done_op=None
    self.phase='running';self._operation_count+=1;self.operation_id=f'{self.instance_id}:op{self._operation_count}';out=dict(phase=self.phase,operation_id=self.operation_id)
   elif capability=='acquisition.stop':
    if self.phase!='running':raise ActionRejected('PRECONDITION_FAILED')
@@ -226,7 +229,9 @@ class SftSft110Runtime:
    self._update_pressure()
    if self.pressure<=self._ambient()+1:
     # Residual dissolved solute precipitates back into bed; an explicit uncalibrated limit.
-    self.residue+=self.dissolved;self.dissolved=0.;self.phase='succeeded';self.stage='depressurized';self.qin=self.qgas=self.drop=0.
+    self.residue+=self.dissolved;self.dissolved=0.;self.qin=self.qgas=self.drop=0.
+    if getattr(self,'_vent_alone',False):self.phase='idle';self.stage='standby';self.elapsed_s=0.;self.stage_elapsed=0.;self._vent_alone=False;self._vent_done_op=self.operation_id   # 1.1.3: the cycle has not started: still idle
+    else:self.phase='succeeded';self.stage='depressurized'
  def step(self,dt_s):
   if isinstance(dt_s,bool) or not isinstance(dt_s,(int,float)) or not math.isfinite(dt_s) or dt_s<0:raise ActionRejected('INVALID_ARGUMENT')
   if dt_s==0:return
@@ -311,7 +316,7 @@ class SftSft110Session:
     def poll(self,operation_id):
         h=self._host
         if operation_id!=h.operation_id or h._owners.get(operation_id)!=self._principal: raise ActionRejected('ACCESS_DENIED')
-        return dict(operation_id=operation_id,status=h.phase,result=h.invoke('extraction.measure'))
+        return dict(operation_id=operation_id,status='succeeded' if operation_id==getattr(h,'_vent_done_op',None) else h.phase,result=h.invoke('extraction.measure'))
 
     def cancel(self,operation_id,request_id):
         self.poll(operation_id)

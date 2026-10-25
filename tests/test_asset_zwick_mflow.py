@@ -92,6 +92,36 @@ def reference_mvr():
     return next(m['mvr_m3_s'] for m in ref['measurements'] if m['mvr_m3_s'] is not None and abs(m['reference_temperature_K'] - 523.15) < 1e-9)
 
 
+class FixRoundB(unittest.TestCase):
+    """chemlab finding (2026-10-22)."""
+    def test_test_weight_goes_on_after_the_preheat(self):
+        # the weight used to act from the moment the piston went in, so the charge extruded under the full test load during the preheat
+        a, b = heated(), heated()
+        for h in (a, b):
+            call(h, 'sample.load', **SAMPLE_EXAMPLE)
+            call(h, 'piston.insert')
+            h.step(8.0)                                                          # the piston settles on the charge
+        call(a, 'weight.configure', total_load_kg=2.16)                         # the host has the weight ready at once
+        pre = METHOD_EXAMPLE['preheat_time_s']
+        for h in (a, b):
+            h.step(pre - 9.0)
+        self.assertEqual(a.applied_kg, PISTON_LOAD_KG)
+        self.assertEqual(a.strand_kg, b.strand_kg)                              # preheat: both only under the piston
+        self.assertEqual(a.read('debug')['weight.total_load_kg'], 2.16)
+        for h in (a, b):
+            h.step(2.0)
+        self.assertEqual(a.applied_kg, 2.16)
+        self.assertEqual(b.applied_kg, PISTON_LOAD_KG)
+        s0a, s0b = a.strand_kg, b.strand_kg
+        for h in (a, b):
+            h.step(20.0)
+        self.assertGreater(a.strand_kg - s0a, 5.0 * (b.strand_kg - s0b))          # the test load drives the flow after the preheat
+        for h in (a, b):
+            self.assertLess(abs(h.ledger()['energy_residual_j']), 1e-6 * max(1.0, h.ledger()['heater_input_j']))
+        call(a, 'acquisition.start')                                            # ready right after the preheat (no LOAD_MISMATCH)
+        self.assertEqual(a.phase, 'running')
+
+
 class MflowTest(unittest.TestCase):
     def check(self, condition, key, **data):
         self.assertTrue(condition, key)
@@ -727,7 +757,7 @@ class MflowTest(unittest.TestCase):
         self.check(True, 'manual_lift_and_weights_host_work')
 
     def test49_evaluator_started_operation_is_protected(self):
-        # lead decision 2026-10-19: an operation started by an evaluator session belongs to it like any owned run (Matterix now sends gestures
+        # 2026-10-19: an operation started by an evaluator session belongs to it like any owned run (Matterix now sends gestures
         # as the agent session); agents cannot read or stop it, the evaluator can
         h = charged()
         h.register_principal('panel', 'evaluator')

@@ -6,10 +6,12 @@ generic engine _panel_ui.py on top of the capabilities below (no second copy of 
 from pathlib import Path
 import copy,json,math,importlib.util,bisect,hashlib,os,tempfile,weakref
 import numpy as np
-PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.1';SLUG='ta_dma850';CATALOG_ID='CHEM-133';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.2';SLUG='ta_dma850';CATALOG_ID='CHEM-133';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch04/t1_thermal'/SLUG
 DT=.1;R_GAS=8.31446261815324
 class ActionRejected(ValueError):pass
+def _rejected(code,detail):
+ e=ActionRejected(code);e.detail=detail;return e   # 1.2.2: a refusal whose message names the cause
 def number(unit='1',lo=None,hi=None):
  s={'type':'number','x-unit':unit}
  if lo is not None:s['minimum']=lo
@@ -395,7 +397,10 @@ class TaDma850Runtime:
    self.furnace_target=.15 if a['opened'] else 0.;return {'opened':a['opened']}
   if k=='clamp.set':
    self._mechanical()
-   if self.furnace_lift<.15-1e-12 or not self.power or abs(self._force())>1e-4 or abs(self._strain())>1e-6:raise ActionRejected('CLAMP_UNDER_LOAD')
+   # 1.2.2: CLAMP_UNDER_LOAD only for a loaded clamp; power off / furnace not fully open are NOT_READY with the cause
+   if not self.power:raise _rejected('NOT_READY','the instrument is switched off')
+   if self.furnace_lift<.15-1e-12:raise _rejected('NOT_READY','open the furnace fully (furnace.set opened=true) before moving the clamp')
+   if abs(self._force())>1e-4 or abs(self._strain())>1e-6:raise _rejected('CLAMP_UNDER_LOAD','the clamp carries force or strain; release the load first')
    self.clamp_target=0. if a['locked'] else .002;return {'locked':a['locked']}
   if k=='drive.move':
    self._mechanical()
@@ -604,7 +609,7 @@ class TaDma850Session:
    if operation:h._owners[operation]=self._principal
    if capability_id in PANEL_CAPS and h.operation_id!=started:h._owners[h.operation_id]=self._principal  # Start on the touch screen: the run belongs to the operator who pressed it
    response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
-  except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+  except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
  def write(self,*,instance_id,state_id,value,request_id):
   self._target(instance_id);entry=SLOTS.get(state_id)
   if not entry or not entry['write']:raise ActionRejected('ACCESS_DENIED')

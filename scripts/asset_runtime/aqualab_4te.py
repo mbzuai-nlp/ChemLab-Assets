@@ -11,6 +11,8 @@ import copy,datetime,hashlib,json,math,os,tempfile,weakref
 from asset_runtime import _annotations as _ann
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT,PHASE
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.3.1: a refusal whose message names the cause
 from asset_runtime.antonpaar_abbematadvanced import validate
 ROOT=Path(__file__).resolve().parents[2];ASSET_TYPE_ID='instrument.aqualab_4te';CATALOG_ID='CHEM-007';PROTOCOL_VERSION='1.0.0'
 TEMPLATE_REL='assets/reactions/aqualab_4te_water_activity_library/templates.json'
@@ -22,7 +24,7 @@ CAPS={
  'thermal.set_temperature':(obj({'temperature_k':TEMP}),obj({'temperature_k':TEMP}),['sample_peltier','mirror_peltier'],'15–50C、0.1C步进目标，设置不推进温度','device_command','agent',{'temperature_k':298.15},['thermal.target_k','water_activity.indicated']),
  'lid.set_angle':(obj({'angle_rad':ANGLE}),obj({'angle_rad':ANGLE}),['lid'],'锁杆释放后才能开盖；被动盖宿主姿态，不是机器人技能','device_command','agent',{'angle_rad':math.pi/2},['lid.angle_rad']),
  'latch.set_angle':(obj({'angle_rad':ANGLE}),obj({'angle_rad':ANGLE}),['lever_lock'],'闭盖后锁定READ；释放锁杆取消采集','device_command','agent',{'angle_rad':0.},['latch.angle_rad','cycle.phase']),
- 'sample.configure':(obj({'substance_id':TEXT,'record_index':number('1',0),'mass_kg':number('kg',1e-5,.02),'volume_m3':number('m^3',1e-7,7e-6),'matrix_id':TEXT,'initial_temperature_k':TEMP,'equilibration_tau_s':number('s',5,600),'volatile_interference':BOOL}),obj({'configured':BOOL}),['sample_cup','cup_interface'],'宿主装样，选择实测溶液组成；质量和体积为独立输入，非隐含密度换算','configuration','evaluator',{'substance_id':'sodium_chloride','record_index':0,'mass_kg':.003,'volume_m3':3e-6,'matrix_id':'salt','initial_temperature_k':298.15,'equilibration_tau_s':35.,'volatile_interference':False},['sample.loaded','sample.input_kg','sample.retained_kg','water_activity.indicated']),
+ 'sample.configure':(obj({'substance_id':TEXT,'record_index':number('1',0),'mass_kg':number('kg',1e-5,.02),'volume_m3':number('m^3',1e-7,7e-6),'matrix_id':TEXT,'initial_temperature_k':TEMP,'equilibration_tau_s':number('s',5,600),'volatile_interference':BOOL}),obj({'configured':BOOL}),['sample_cup','cup_interface'],'宿主装样，选择实测溶液组成；质量和体积为独立输入，非隐含密度换算','configuration','evaluator',{'substance_id':'sodium_chloride','record_index':1,'mass_kg':.003,'volume_m3':3e-6,'matrix_id':'salt','initial_temperature_k':298.15,'equilibration_tau_s':35.,'volatile_interference':False},['sample.loaded','sample.input_kg','sample.retained_kg','water_activity.indicated']),
  'sample.unload':(obj({}),obj({'unloaded':BOOL}),['sample_cup','cup_interface'],'开盖后宿主移出样品，守恒账本保留实际水分交换','configuration','evaluator',{},['sample.loaded','sample.retained_kg','sample.removed_kg']),
  'method.configure':(obj({'mode':MODE,'stability_delta':number('1',.0003,.02),'temperature_tolerance_k':number('K',.1,4.),'consecutive_readings':number('1',1,9)}),obj({'configured':BOOL}),['display_digits'],'单次、连续、自定义与低释放模式的平衡代理，非厂家完整算法','configuration','agent',{'mode':'single','stability_delta':.0005,'temperature_tolerance_k':.5,'consecutive_readings':1},['method.mode','equilibrium.stable']),
  'calibration.configure':(obj({'offset_aw':number('1',-.03,.03),'source':TEXT}),obj({'offset_aw':number('1',-.03,.03)}),['chilled_mirror','display_digits'],'有来源的线性偏置代理，不宣称真实工厂校准','configuration','agent',{'offset_aw':0.,'source':'synthetic zero-offset example'},['calibration.offset_aw']),
@@ -64,7 +66,7 @@ SLOTS={
 # ---------------------------------------------------------------- 1.1.0 device layer: settings, clock, data store, models, users (aq p.25-38)
 def _fmt_date(iso,fmt):
     d=datetime.datetime.fromisoformat(iso);return f"{d:%m/%d/%y}" if fmt=='mm/dd/yy' else f"{d:%d/%m/%y}"
-ASSET_VERSION='1.3.0'
+ASSET_VERSION='1.3.1'   # 1.3.1 (2026-10-22): sample example = the template's headline record; refusal messages
 ASSET_DIR=ROOT/'assets/expansion_batch04/t4_measure/aqualab_4te'
 SERIAL='AL400000001'                                                    # assumption: serial number shown on About (format of aq p.37 Figure 44)
 LID_SERIAL='ALB00000001'
@@ -254,7 +256,11 @@ class Aqualab4teRuntime:
             if not a['source'].strip() or not a['matrix_id'].strip() or any(b['water_activity']<=x['water_activity'] or b['moisture_dry_basis']<x['moisture_dry_basis'] for x,b in zip(p,p[1:])):raise ActionRejected('INVALID_ARGUMENT')
             self.isotherm=dict(copy.deepcopy(a),offset=0.);self.models[a['matrix_id']]=self.isotherm;self.model_selected=a['matrix_id'];r={'configured':True}   # also stored as a model on the instrument
         elif capability=='acquisition.start':
-            if not self.powered or self.fault or not self.sample or self.lid_angle>1e-4 or self.latch_angle<1.4 or abs(self.target_k-self.sample['reference']['temperature_k'])>.050001:raise ActionRejected('PRECONDITION_FAILED')
+            why=('the instrument is switched off' if not self.powered else 'a fault is shown (%s)'%self.fault if self.fault else 'no sample cup is loaded' if not self.sample else
+                 'the drawer lid is open' if self.lid_angle>1e-4 else 'the drawer is not latched' if self.latch_angle<1.4 else
+                 'the block set point %.2f K differs from the sample reference temperature %.2f K by more than 0.05 K'%(self.target_k,self.sample['reference']['temperature_k'])
+                 if abs(self.target_k-self.sample['reference']['temperature_k'])>.050001 else None)
+            if why:raise _rejected('PRECONDITION_FAILED',why)   # 1.3.1: the message names the cause
             self._operation_count+=1;self.operation_id=f'{self.instance_id}:aw:{self._operation_count}';self.phase='running';self.elapsed_s=0.;self.history=[];self._stable_count=0;self.stable=False;self.indicated_aw=None;r={'phase':'running','operation_id':self.operation_id}
             self.last_reading=None;self._was_stable=False;self.beep_until=-1.;self.raw_aw=None
         elif capability=='acquisition.stop':
@@ -452,7 +458,7 @@ class Aqualab4teSession:
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,
                 status='rejected',state_revision=self._host.revision,clock={'domain':'simulation','time_s':self._host.time_s},
-                result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+                result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host

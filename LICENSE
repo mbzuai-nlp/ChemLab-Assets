@@ -21,5 +21,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 This licence covers the code in this repository: scripts/, tests/, examples/,
-tools/, skills/chemistry-lab-assets/scripts/ and the website and explorer
-sources. 3D models, asset contracts and data are covered by LICENSE-ASSETS.md.
+tools/, skills/chemistry-lab-assets/scripts/, chemlab/ (the agent command line
+with its configs and tests) and the website and explorer sources. 3D models,
+asset contracts and data are covered by LICENSE-ASSETS.md.

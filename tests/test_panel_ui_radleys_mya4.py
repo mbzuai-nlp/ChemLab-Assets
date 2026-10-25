@@ -446,6 +446,39 @@ class DeviceFunctions(unittest.TestCase):
         g.h.step(10.0)
         self.assertEqual((g.exp(1)['status'], g.exp(1)['result']), ('finished', 'error Z17'))
 
+    def test_set_limits_contract_example_from_factory_limits(self):
+        # 1.2.2: the example only lowered Max Tb to 120 C, below the factory Max Tr of 175 C (OM p.105: Max Tr cannot exceed Max Tb) - always refused
+        g = Rig()
+        example = json.loads((ASSET / 'asset.contract.json').read_text())['capabilities']['pad.set_limits']['example_arguments']
+        before = state_dump(g.h)
+        self.assertEqual(g.call(g.A, 'pad.set_limits', expect='rejected', zone_index=0, max_tb_C=120)['error']['code'], 'INVALID_ARGUMENT')
+        self.assertEqual(state_dump(g.h), before)
+        g.call(g.A, 'pad.set_limits', **example)
+        self.assertEqual((g.exp(1)['limits']['max_tb_C'], g.exp(1)['limits']['max_tr_C']), (120, 115))
+
+    def test_pad_safety_limits_bound_the_direct_setpoints(self):
+        # chemlab finding (2026-10-22): thermal.set_temperature ignored the zone's safety limits (OM p.101: once safety limits are
+        # set for a zone, values outside them cannot be entered)
+        g = Rig()
+        g.call(g.A, 'thermal.set_temperature', zone_index=0, temperature_K=273.15 + 150)       # factory limits: the full range
+        g.call(g.A, 'pad.set_limits', zone_index=0, max_tb_C=120, max_tr_C=115)
+        before = state_dump(g.h)
+        r = g.call(g.A, 'thermal.set_temperature', expect='rejected', zone_index=0, temperature_K=273.15 + 121)
+        self.assertEqual(r['error']['code'], 'PRECONDITION_FAILED')
+        self.assertIn('safety limits', r['error']['message'])
+        r = g.call(g.A, 'thermal.configure_program', expect='rejected', zone_index=0, segments=[{'temperature_K': 273.15 + 60, 'hold_s': 60}, {'temperature_K': 273.15 + 130, 'hold_s': 60}])
+        self.assertEqual(r['error']['code'], 'PRECONDITION_FAILED')
+        r = g.call(g.A, 'thermal.set_enabled', expect='rejected', zone_index=0, enabled=True)       # the 150 C target set before the limits
+        self.assertEqual(r['error']['code'], 'PRECONDITION_FAILED')
+        self.assertEqual(state_dump(g.h), before)
+        g.call(g.A, 'thermal.set_temperature', zone_index=0, temperature_K=273.15 + 118)
+        r = g.call(g.A, 'thermal.set_probe_mode', expect='rejected', zone_index=0, mode='liquid')    # Max Tr 115 C
+        self.assertEqual(r['error']['code'], 'PRECONDITION_FAILED')
+        g.call(g.A, 'thermal.set_temperature', zone_index=0, temperature_K=273.15 + 110)
+        g.call(g.A, 'thermal.set_probe_mode', zone_index=0, mode='liquid')
+        g.call(g.A, 'thermal.set_enabled', zone_index=0, enabled=True)
+        g.call(g.A, 'thermal.set_temperature', zone_index=1, temperature_K=273.15 + 150)       # another zone keeps its own (factory) limits
+
     def test_refusals_leave_state_unchanged(self):
         g = Rig()
         before = state_dump(g.h)

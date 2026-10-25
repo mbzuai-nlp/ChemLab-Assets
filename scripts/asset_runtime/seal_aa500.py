@@ -28,6 +28,7 @@ import zlib
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
+ASSET_VERSION = "1.0.1"   # 1.0.1 (2026-10-23): release_to_lab - a set-up's cups and standards become the lab's
 ASSET_TYPE_ID = "instrument.seal_aa500"
 CATALOG_ID = "CHEM-172"
 ROOT = Path(__file__).resolve().parents[2]
@@ -498,6 +499,22 @@ class SealAa500Runtime:
     def _own(self, object_id):
         if self._caller is not None:
             self._owners[object_id] = self._caller
+
+    def release_to_lab(self, principal=None):
+        """Trusted host (the lab's set-up), 1.0.1: the samples, standards and sampler cups that ``principal`` (default: every caller so far)
+        loaded become the lab's - usable by every caller, as cups a technician puts on the tray are in a real lab.  A lab set-up that runs
+        through an agent-level operator session (chemlab's ``chemlab_operator``) calls this at its end; what the evaluator / host loads is
+        the lab's already.  The owner rule (an agent cannot use another agent's samples, standards or cups) applies again to everything an
+        agent loads afterwards.  Opens no evaluator data (truth slots, faults and evaluator capabilities stay hidden).  Returns the
+        released object ids ('item:<id>', 'tube:<rack><position>')."""
+        if principal is not None and principal not in self._principals:
+            raise ActionRejected('INVALID_ARGUMENT')
+        released = sorted(k for k, v in self._owners.items() if principal is None or v == principal)
+        for k in released:
+            del self._owners[k]
+        if released:
+            self.revision += 1
+        return released
 
     def _need_plant(self):
         if self.plant is None:
@@ -1627,7 +1644,7 @@ class SealAa500Session:
                 c['execution']['completion_state_ids'] = [x for x in c['execution']['completion_state_ids'] if x in slots]
             for m in meta['mechanisms'].values():
                 m['state_ids'] = [x for x in m['state_ids'] if x in slots]
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities=caps, state_slots=slots)
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities=caps, state_slots=slots)
 
     def _foreign(self, object_id):
         owner = self._host._owners.get(object_id)
@@ -1887,7 +1904,8 @@ def _pre_slots(k):
 
 def _foreign_text(k):
     if k in ('sampler.unload', 'run.start', 'sampler.load', 'standard.prepare'):
-        return '；agent只能用自己的样品/标准与自己装的管（ACCESS_DENIED）'
+        return ('；agent不能用另一个agent的样品/标准与它装的管（ACCESS_DENIED）；评测者/宿主提供的与实验室准备后交给实验室的'
+                '（宿主release_to_lab）任何调用者可用')
     return ''
 
 

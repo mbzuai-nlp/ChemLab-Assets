@@ -311,5 +311,12 @@ class CrmTemplateTests(unittest.TestCase):
   h.invoke('sample.load',**dict(rt.SAMPLE_EXAMPLE,template_id='crm_nist_srm_1633c__hg',dilution_factor=2.));self.assertAlmostEqual(h.sample['concentration'],before['concentration_kg_m3']/2,places=18);self.assertEqual(h.templates['crm_nist_srm_1633c__hg'],before)
  def balance_ok(self,h):
   l=h.invoke('product.read');self.assertAlmostEqual(l['element_mass_kg']['residual'],0.,delta=1e-18);self.assertAlmostEqual(l['liquid_volume_m3']['residual'],0.,delta=1e-15)
+class FixRoundB(unittest.TestCase):
+ def test_records_list_names_the_curves(self):
+  """records.list gave only curve_count; it now also lists curve_ids (as the other analytical members)."""
+  h=make();self.assertEqual(h.invoke('records.list')['curve_ids'],[]);blank(h);calibrate(h)
+  r=h.invoke('records.list');self.assertEqual(r['curve_ids'],['observed_cu']);self.assertEqual(r['curve_count'],1);rt.validate(rt.CAPS['records.list'][1],r)
+  self.assertEqual(json.loads(h.invoke('calibration.read',curve_id=r['curve_ids'][0])['curve_json'])['key'],h._curves['observed_cu']['key']);self.assertEqual(rt.ASSET_VERSION,'1.1.1')
+
 
 if __name__=='__main__':unittest.main()

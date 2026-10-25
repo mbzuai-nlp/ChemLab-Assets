@@ -231,7 +231,7 @@ cap('power.set', obj(dict(enabled=BOOL)), obj(dict(enabled=BOOL)), dict(enabled=
 cap('thermal.set_temperature', obj(dict(target_k=number('K', *TEMPERATURE_RANGE_K))), obj(dict(target_k=number('K'))), dict(target_k=523.15), 'heater',
     '只写入料筒目标温度（50–450°C）；实际温度由PI控温随宿主step演化')
 cap('weight.configure', obj(dict(total_load_kg=number('kg', *LOAD_RANGE_KG))), obj(dict(total_load_kg=number('kg'))), dict(total_load_kg=2.16), 'test_weight',
-    '宿主手动在活塞上放/换砝码，设定总试验载荷（含0.325kg活塞，不重复加算）；砝码势能变化计入宿主功', 'evaluator')
+    '宿主手动放/换砝码，设定总试验载荷（含0.325kg活塞，不重复加算）；装料后的预热期内只有活塞压在料上，预热时间到时砝码放上活塞（ISO 1133-1；手册砝码支架/提升装置使预热期不受载）；砝码势能变化计入宿主功', 'evaluator')
 cap('sample.load', SAMPLE, obj(dict(present=BOOL, column_height_m=number('m'))), SAMPLE_EXAMPLE, 'barrel',
     '宿主经漏斗把颗粒/粉末装入料筒（活塞须已抽出）；绑定厂家MVR参考记录与显式熔体密度/比热/潜热/幂律/活化能/热历史先验', 'evaluator')
 cap('sample.remove', obj({}), obj(dict(removed_mass_kg=number('kg'))), {}, 'barrel', '宿主清筒带走剩余料及其焓；已挤出的挤出丝/切段不受影响', 'evaluator')
@@ -292,7 +292,7 @@ for k, c, m in [('plant.configured', 'heater', '工程过程参数已声明'), (
 slot('thermal.target_k', number('K'), 'K', 'setpoint', 'heater', '料筒目标温度，只是目标')
 slot('thermal.indicated_k', nullable(number('K')), 'K', 'sensor', 'heater', '料筒温度显示（0.01K量化）；断电为null；未按ISO 1133-2认证')
 slot('heater.output_fraction', number('1', 0.0, 1.0), '1', 'derived', 'heater', 'PI控温输出占加热器上限的比例', 'evaluator')
-slot('weight.total_load_kg', nullable(number('kg')), 'kg', 'setpoint', 'test_weight', '当前放在活塞上的总载荷（含0.325kg活塞）；未配置为null')
+slot('weight.total_load_kg', nullable(number('kg')), 'kg', 'setpoint', 'test_weight', '宿主备好的总试验载荷（含0.325kg活塞）；装料后预热期内只有活塞压在料上，预热结束时砝码放上；未配置为null')
 slot('method.test_load_kg', nullable(number('kg')), 'kg', 'setpoint', 'controller', '方法声明的试验载荷，采集开始时须与实际载荷一致')
 slot('preheat.elapsed_s', nullable(number('s')), 's', 'derived', 'barrel', '装料后经过的时间（预热计时）；无试样为null')
 slot('piston.position_m', number('m', 0.0, PISTON_TRAVEL_M), 'm', 'scene', 'piston', '活塞底面到口模上表面的精确距离（场景关节）；agent须通过位移传感器读数观测', 'evaluator',
@@ -334,7 +334,7 @@ for k, u, c, m, ref in [('truth.barrel_temperature_k', 'K', 'heater', '料筒/�
 # ---------------------------------------------------------------- touch operating unit (approximate: product information p.1-3 and the product page
 # describe the 7 in touch display - guided test configuration, parameter sets, live MVR graph, results stored and exported to a USB stick, a user
 # density for the MVR / MFR conversion; the operating instructions are not public)
-ASSET_VERSION = '1.1.2'
+ASSET_VERSION = '1.1.3'   # 1.1.3 (2026-10-22): the test weight goes on after the preheat (ISO 1133-1)
 FRONT_ERRORS = ['METHOD_REQUIRED', 'UNKNOWN_PARAMETER_SET', 'TOO_MANY_PARAMETER_SETS', 'NO_USB_STICK']
 MAX_PARAMETER_SETS = 200                     # product information p.3: more than 100 parameter sets
 RESULT_ROW = obj(dict(n=INT, operation_id=TEXT, phase=PHASE, validity=VALIDITY, test_temperature_k=nullable(number('K')), test_load_kg=nullable(number('kg')),
@@ -393,6 +393,7 @@ class ZwickMflowRuntime:
         self.integral_w = 0.0
         self.heater_w = 0.0
         self.load_kg = None
+        self.applied_kg = PISTON_LOAD_KG   # mass actually on the charge (1.1.3: the piston alone during the preheat, the test weight after it)
         # piston: position = height of the piston bottom above the die top
         self.x = PISTON_TRAVEL_M
         self.x_target = PISTON_TRAVEL_M
@@ -514,7 +515,23 @@ class ZwickMflowRuntime:
         return self.m_s * (self.pellet / s['bulk_density_kg_m3'] + (1.0 - self.pellet) / s['melt_density_kg_m3']) / STANDARD_AREA_M2
 
     def _load_mass(self):
-        return PISTON_LOAD_KG if self.load_kg is None else self.load_kg
+        return self.applied_kg
+
+    def _preheat_end_ns(self):
+        """End of the preheat of the loaded charge (method preheat time, else the ISO 1133-1 5 min), or None without a charge."""
+        if self.sample is None or self.load_ns is None:
+            return None
+        return self.load_ns + round((self.method['preheat_time_s'] if self.method else 300.0) * 1e9)
+
+    def _sync_load(self):
+        """1.1.3 (2026-10-22, ISO 1133-1; product information: weight lifting unit / weight support keep the test weight off the melt in the
+        preheating position): while a loaded charge preheats only the piston (0.325 kg) acts on it; the configured test weight goes on when
+        the preheat time is over.  A change of the mass on the piston at height x is host work (m g x), so the energy ledger stays closed."""
+        end = self._preheat_end_ns()
+        want = PISTON_LOAD_KG if self.load_kg is None or (end is not None and self.time_ns < end) else self.load_kg
+        if want != self.applied_kg:
+            self.book['host_work_j'] += (want - self.applied_kg) * GRAVITY * self.x
+            self.applied_kg = want
 
     def _flow(self, T, phi):
         """True melt volume flow through the die (m^3/s) for the loaded, contacting piston."""
@@ -916,6 +933,7 @@ class ZwickMflowRuntime:
             if a['duration_s'] / a['sample_interval_s'] + 2 > MAX_ROWS:
                 raise ActionRejected('TOO_MANY_SAMPLES')
             self.method = a
+            self._sync_load()                                                # a new preheat time moves the end of the preheat
             out = dict(configured=True)
         elif k == 'power.set':
             if self.plant is None:
@@ -941,9 +959,8 @@ class ZwickMflowRuntime:
                 raise ActionRejected('PLANT_REQUIRED')
             if self._move is not None:
                 raise ActionRejected('PISTON_MOVING')
-            old = self._load_mass()
             self.load_kg = a['total_load_kg']
-            self.book['host_work_j'] += (self._load_mass() - old) * GRAVITY * self.x
+            self._sync_load()
             out = dict(total_load_kg=self.load_kg)
         elif k == 'sample.load':
             if self.plant is None:
@@ -981,6 +998,7 @@ class ZwickMflowRuntime:
             self.book['loaded_mass_kg'] += a['mass_kg']
             self.book['loaded_enthalpy_j'] += self.H_s
             self.load_ns = self.time_ns
+            self._sync_load()                                                # the preheat starts: only the piston on the charge
             out = dict(present=True, column_height_m=height)
         elif k == 'sample.remove':
             if self.sample is None:
@@ -996,6 +1014,7 @@ class ZwickMflowRuntime:
             self.pellet = 0.0
             self.t_hist = 0.0
             self.load_ns = None
+            self._sync_load()
             out = dict(removed_mass_kg=removed)
         elif k in ('piston.withdraw', 'piston.insert'):
             if self.plant is None:
@@ -1121,6 +1140,9 @@ class ZwickMflowRuntime:
     # ------------------------------------------------------------ time integration
     def _next_events(self, end):
         ev = [end, self.time_ns + round(MAX_SUBSTEP_S * 1e9)]
+        pe = self._preheat_end_ns()
+        if pe is not None and pe > self.time_ns and self.applied_kg != (self.load_kg if self.load_kg is not None else PISTON_LOAD_KG):
+            ev.append(pe)                                                    # the test weight goes on at the end of the preheat
         if self._move is not None:
             m = self._move
             dist = abs(self.x_target - m['x0'])
@@ -1245,6 +1267,7 @@ class ZwickMflowRuntime:
                 frac = min(1.0, (nxt - c['start_ns']) / max(1, c['end_ns'] - c['start_ns']))
                 self.cutter_angle = c['a0'] + (c['a1'] - c['a0']) * frac
             self.time_ns = nxt
+            self._sync_load()
             if self._cut is not None:
                 c = self._cut
                 if not c['severed'] and self.time_ns >= c['mid_ns']:

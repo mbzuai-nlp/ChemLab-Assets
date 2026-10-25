@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy,hashlib,importlib.util,json,math
 from pathlib import Path
 import numpy as np
-ROOT=Path(__file__).resolve().parents[2];SLUG='jasco_j1500';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-065';PROTOCOL_VERSION='1.0.0'
+ROOT=Path(__file__).resolve().parents[2];SLUG='jasco_j1500';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-065';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.1'
 TEMPLATE_REL='assets/reactions/jasco_j1500_cd_library/templates.json'
 R=8.31446261815324;STD_T=273.15;STD_P=101325.;MDEG=math.pi/180000;CD_FACTOR=math.log(10)/4;CD_LIMIT=8000*MDEG
 BOOL={'type':'boolean'};TEXT={'type':'string'}
@@ -59,7 +59,7 @@ cap('plant.configure',PLANT,obj({'configured':BOOL}),['body'],'显式一次性�
 cap('solution.register',SOLUTION,obj({'registered':BOOL}),['cell_holder'],'宿主注册已填充样品池与独立UV输入','configuration','evaluator',SAMPLE_EXAMPLE)
 cap('sample.load',obj({'sample_id':TEXT}),obj({'loaded':BOOL,'attachment_event':TEXT}),['cell_holder','sample_cell'],'开盖由宿主挂接预填池，不自动移液','device_command','evaluator',{'sample_id':'sample_01'})
 cap('sample.unload',obj({'recipient_id':TEXT}),obj({'unloaded':BOOL,'attachment_event':TEXT}),['cell_holder','sample_cell'],'开盖卸下池，全部液体回外部账本','device_command','evaluator',{'recipient_id':'external_rack'})
-cap('method.configure',METHOD,obj({'configured':BOOL}),['monochromator','host_screen'],'波长/扫描/带宽/DIT/累积；修改使空白失效','configuration','agent',METHOD_EXAMPLE)
+cap('method.configure',METHOD,obj({'configured':BOOL}),['monochromator','host_screen'],'波长/扫描/带宽/DIT/累积；修改使空白失效；设置按仪器硬件范围163–950 nm接受，但仿真只覆盖CD模板数据175–240 nm：扫描端点加带宽高斯±3σ超出175–240 nm时acquisition.start返回TEMPLATE_RANGE','configuration','agent',METHOD_EXAMPLE)
 cap('power.set',obj({'enabled':BOOL}),obj({'enabled':BOOL}),['power_inlet'],'供电逻辑，关机停灯关快门并使空白失效',ex={'enabled':True})
 cap('purge.set',obj({'flow_std_m3_s':number('m^3/s',0,30e-3/60)}),obj({'flow_std_m3_s':number('m^3/s',0,30e-3/60)}),['nitrogen_inlet'],'有限氮气；标准体积参考273.15K/101325Pa为显式宿主假设',ex={'flow_std_m3_s':2e-3/60})
 cap('lid.set',obj({'opened':BOOL}),obj({'opened':BOOL}),['sample_lid'],'开盖取消扫描、关闭快门；单区吹扫污染重置',ex={'opened':False})
@@ -323,7 +323,7 @@ class JascoJ1500Session:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_jasco_j1500_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_jasco_j1500_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')

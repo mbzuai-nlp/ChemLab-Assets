@@ -6,7 +6,7 @@ of the capabilities below (no second copy of the logic)."""
 from pathlib import Path
 import copy,json,math,importlib.util,hashlib,os,tempfile,weakref
 import numpy as np
-PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.1';SLUG='ta_dsc2500';CATALOG_ID='CHEM-131';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.2';SLUG='ta_dsc2500';CATALOG_ID='CHEM-131';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG
 DT=.1;R_GAS=8.31446261815324
 SAMPLER_REGISTERED_XY=[(0.,0.),(.012,0.)]+[(round(.165+.020*c,12),round(y+.075,12)) for y in [-.075,-.055,-.035,-.005,.015,.035] for c in range(9)]
@@ -486,16 +486,18 @@ class TaDsc2500Runtime:
  def _heat_step(self,dt,target):
   target=self._control_k(target)   # the controller acts on the device's furnace reading
   p=self.plant;ambient=p['ambient_k'];cf=p['furnace_capacity_j_k'];cr=p['reference_pan_capacity_j_k'];gs=p['sample_conductance_w_k'];gr=p['reference_conductance_w_k'];oldf=self.furnace;oldr=self.reference_temperature;olds=self.sample_energy;cs=self._cp();latent=self._latent();tm=self._tm();width=self._width();active=self.power and self.thermal_enabled and not self.emergency
+  # 1.1.2: feed-forward of the steady ambient loss G*(T-Ta): proportional control toward aim = target + G*(target-Ta)/K settles on the target
+  aim=target+p['ambient_conductance_w_k']*(target-ambient)/p['controller_gain_w_k']
   # Endpoint implicit coupling, a monotone piecewise-affine scalar equation. Power saturates continuously.
   def evaluate(Tf):
-   Ts=enthalpy_temperature(olds+dt*gs*(Tf-ambient),ambient,cs+dt*gs,latent,tm,width);Tr=(cr*oldr+dt*gr*Tf)/(cr+dt*gr);command=p['controller_gain_w_k']*(target-Tf) if active else 0.;heat=min(p['heater_max_w'],max(0.,command));cool=0.
+   Ts=enthalpy_temperature(olds+dt*gs*(Tf-ambient),ambient,cs+dt*gs,latent,tm,width);Tr=(cr*oldr+dt*gr*Tf)/(cr+dt*gr);command=p['controller_gain_w_k']*(aim-Tf) if active else 0.;heat=min(p['heater_max_w'],max(0.,command));cool=0.
    if active and command<0:
     available=p['facs_conductance_w_k']*max(0.,Tf-ambient) if p['cooler']=='FACS' else p['cooler_max_w'] if p['cooler']!='LN2P' or self.ln2_level>0 else 0.
     cool=min(-command,p['cooler_max_w'],available)
    loss=p['ambient_conductance_w_k']*(Tf-ambient);qs=gs*(Tf-Ts);qr=gr*(Tf-Tr);residual=cf*(Tf-oldf)-dt*(heat-cool-loss-qs-qr)
    return residual,Ts,Tr,heat,cool,loss,qs,qr
   # all breakpoints are physical min/max temperatures; stable for arbitrarily stiff accepted G/C.
-  lo=min(oldf,oldr,self.sample_temperature,ambient,target);hi=max(oldf,oldr,self.sample_temperature,ambient,target)
+  lo=min(oldf,oldr,self.sample_temperature,ambient,target,aim);hi=max(oldf,oldr,self.sample_temperature,ambient,target,aim)
   if hi-lo<1e-12:Tf=lo
   else:
    from scipy.optimize import brentq
@@ -650,7 +652,7 @@ def export_ta_dsc2500_contract_metadata():
  mechanism=dict(component_ids=['controller','furnace','sample_pan','reference_pan','purge_inlet'],state_ids=list(slots),meaning_zh='保能三节点差示热量与真实物性锚定相变',implementation='lumped',equations=[
  'Ef=Cf*(Tf-Tamb); Es=(Csample_pan+m*Cp)*(Ts-Tamb)+m*Lf*f(Ts); Er=Cref*(Tr-Tamb). f=clip((Ts-(Tm-width/2))/width,0,1). Tm/Lf from explicit measured source; Cp/pan/G/width engineering inputs. Reversible equilibrium mushy interval is not nucleation, supercooling or Tg kinetics.',
  'Cf*dTf/dt=Pheat-Pcool-Gambient*(Tf-Tamb)-Gs*(Tf-Ts)-Gr*(Tf-Tr); dEs/dt=Gs*(Tf-Ts); Cr*dTr/dt=Gr*(Tf-Tr). All three are solved together by monotone implicit enthalpy inversion and a scalar furnace residual each<=0.01s. Equal/opposite pan fluxes conserve energy for arbitrarily stiff accepted capacities/conductances.',
- 'Pcommand=Kcontroller*(Tcontrol-Tf) with Tcontrol=(Tprogram*temperature_gain_correction+temperature_zero_k-temperature_offset_k)/temperature_gain: the controller holds the device reading (same affine map as the indicated temperatures) at the program temperature, so sensor errors and the stored temperature calibration move the cell; identity with the default zero errors and no calibration. Bounded by explicit heating/cooling powers. FACS Pcool<=Gfacs*max(Tf-Tamb,0), so it cannot extract heat below ambient. External RCS/LN2P use explicit engineering power but distinct manufacturer temperature domains; no OEM full-range cooling-rate curve or external hardware geometry is claimed.',
+ 'Pcommand=Kcontroller*(Tcontrol-Tf)+G_ambient*(Tcontrol-T_ambient) (1.1.2: feed-forward of the steady ambient loss, so the cell settles on the set point instead of the proportional droop G(T-Ta)/K, about 0.2 K at 400 K) with Tcontrol=(Tprogram*temperature_gain_correction+temperature_zero_k-temperature_offset_k)/temperature_gain: the controller holds the device reading (same affine map as the indicated temperatures) at the program temperature, so sensor errors and the stored temperature calibration move the cell; identity with the default zero errors and no calibration. Bounded by explicit heating/cooling powers. FACS Pcool<=Gfacs*max(Tf-Tamb,0), so it cannot extract heat below ambient. External RCS/LN2P use explicit engineering power but distinct manufacturer temperature domains; no OEM full-range cooling-rate curve or external hardware geometry is claimed.',
  'Program targets use actual elapsed host time, piecewise linear ramps then holds, with optional A*sin(2*pi*t/period). Combined |ramp|+A*omega must respect explicit engineering program-rate limit. Actual furnace never becomes target instantaneously.',
  'Independent sample/reference heatflow gain/offset and first-order observations give calibrated qobs_s-qobs_r, endothermic positive. No direct latent-fraction or true enthalpy is returned to agents; no random noise or certified accuracy is fabricated.',
  'analysis.integrate uses externally supplied observed times/heatflows/temperatures/baseline/measured mass: DeltaH_obs=trapz(qobs-baseline,time)/mass. Peak temperature is the sampled heatflow peak, not an extrapolated onset or certified melting temperature. Partial windows remain partial.',

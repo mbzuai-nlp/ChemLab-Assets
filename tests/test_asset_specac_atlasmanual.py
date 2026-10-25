@@ -81,4 +81,17 @@ class AtlasTests(unittest.TestCase):
   a=configured();b=configured();a.invoke('pump.stroke');a.step(.8);self.assertEqual(b.oil,0)
  def test_schema_rejects_extra(self):
   with self.assertRaises(ActionRejected):configured().invoke('pump.stroke',unexpected=True)
+class FixRoundB(unittest.TestCase):
+ def test_press_refusals_name_the_cause(self):
+  """PRECONDITION_FAILED keeps its code (no finer code is declared); the message names the unmet press condition."""
+  r=configured();ag=r.session();n=[0]
+  def why(cap='acquisition.start',**args):
+   n[0]+=1;old=r.debug_snapshot();x=ag.invoke(instance_id=r.instance_id,capability_id=cap,arguments=args,request_id='p2_%d'%n[0])
+   self.assertEqual(x['error']['code'],'PRECONDITION_FAILED',x);self.assertEqual(old,r.debug_snapshot());return x['error']['message']
+  self.assertIn('no pressing is in progress',why('acquisition.stop'))
+  r.invoke('valve.set_open',open=True);self.assertIn('release valve',why());self.assertIn('release valve',why('pump.stroke'));r.invoke('valve.set_open',open=False);r.step(5)
+  r.invoke('guard.set_raised',side='rear',raised=True);self.assertIn('safety guards',why());r.invoke('guard.set_raised',side='rear',raised=False);r.step(5)
+  r.invoke('relief.set_limit',load_N=5*TF);m=why();self.assertIn('target load 68647 N exceeds the relief-valve limit 49033 N',m)
+  r=configured();ag=r.session();run_manual(r);self.assertEqual(r.phase,'succeeded')
+  self.assertIn('pressing has ended',why('pump.stroke'));self.assertEqual(ASSET_VERSION,'1.0.1')
 if __name__=='__main__':unittest.main()

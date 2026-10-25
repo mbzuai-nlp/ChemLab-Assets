@@ -71,4 +71,28 @@ class TestSft110(unittest.TestCase):
   h=configured();h.invoke('acquisition.start');until(h,'static');h.invoke('acquisition.stop');h.invoke('pressure.vent');h.step(300);self.assertEqual(h.phase,'succeeded');self.ledger(h)
  def test_17_method_only_sets_target(self):
   h=configured();self.assertEqual(h.temperature,EXAMPLE['ambient_k']);self.assertEqual(h.pressure,EXAMPLE['ambient_pa']);self.assertEqual(h.elapsed_s,0)
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): a vent before the first run (warm-up overpressure) ended the cycle (succeeded / depressurized)
+ and acquisition.start was refused for good."""
+ def test_vent_before_the_first_run_keeps_the_cycle_open(self):
+  h=configured();h.invoke('power.set',enabled=True)
+  for _ in range(2400):
+   if h.pressure>h._ambient()+1:break
+   h.step(.5)
+  self.assertGreater(h.pressure,h._ambient()+1)                          # warming the sealed vessel builds a small overpressure
+  s=h.session();op=s.invoke(instance_id=h.instance_id,capability_id='pressure.vent',arguments={},request_id='fixb_vent')['operation_id']
+  for _ in range(2400):
+   if h.phase!='running':break
+   h.step(.5)
+  self.assertEqual((h.phase,h.stage),('idle','standby'))
+  self.assertEqual(h.elapsed_s,0.)
+  self.assertEqual(s.poll(op)['status'],'succeeded')                      # the vent operation itself succeeded
+  h.invoke('acquisition.start');self.assertEqual((h.phase,h.stage),('running','conditioning'))
+  for _ in range(6000):
+   if h.phase!='running':break
+   h.step(.5)
+  self.assertEqual(h.phase,'succeeded')
+ def test_vent_after_a_stopped_extraction_still_ends_the_cycle(self):
+  h=configured();h.invoke('acquisition.start');until(h,'static');h.invoke('acquisition.stop');h.invoke('pressure.vent');h.step(300)
+  self.assertEqual((h.phase,h.stage),('succeeded','depressurized'))
 if __name__=='__main__':unittest.main()

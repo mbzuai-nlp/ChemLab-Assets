@@ -1069,5 +1069,21 @@ class Rc1mxRuntimeTests(unittest.TestCase):
             rt.MAX_POINTS = saved
 
 
+
+class FixRoundB(unittest.TestCase):
+    """chemlab finding (2026-10-22): experiment.end cleared experiment.id, which experiment.data needs."""
+    def test_last_experiment_id_stays_readable(self):
+        h = with_water(**QUIET)
+        self.assertIsNone(state(h)['experiment.id'])                            # never started
+        e = call(h, 'experiment.start', name='x')['experiment_id']
+        h.step(30.0)
+        call(h, 'experiment.end', end_mode='keep', end_temperature_k=None)
+        st = state(h)
+        self.assertEqual((st['experiment.id'], st['experiment.running']), (e, False))
+        data = call(h, 'experiment.data', experiment_id=st['experiment.id'])
+        self.assertEqual((data['experiment_id'], data['running']), (e, False))
+        e2 = call(h, 'experiment.start', name='y')['experiment_id']
+        self.assertEqual((state(h)['experiment.id'], state(h)['experiment.running']), (e2, True))
+
 if __name__ == '__main__':
     unittest.main()

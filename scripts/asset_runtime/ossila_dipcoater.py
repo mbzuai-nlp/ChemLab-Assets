@@ -4,7 +4,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='ossila_dipcoater'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-054'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.3.1'
+SLUG='ossila_dipcoater'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-054'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.3.2'
 ASSET_DIR=ROOT/'assets/expansion_batch04/t5_automation/ossila_dipcoater'
 TEMPLATE_REL='assets/reactions/ossila_dipcoater_film_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
@@ -284,7 +284,7 @@ class OssilaDipcoaterRuntime:
     def _stop(self,result='cancelled'):
         if self.phase=='running':self.phase=result;self.stage='stopped';self.target=self.q;self.speed=0.
     def _new_operation(self,stage,target):
-        self.phase='running';self.stage=stage;self.target=target;self.elapsed_s=0.;self.wait_elapsed=0.;self._operation_count+=1
+        self._archive_op();self.phase='running';self.stage=stage;self.target=target;self.elapsed_s=0.;self.wait_elapsed=0.;self._operation_count+=1
         self.operation_id=self.instance_id+':motion:'+str(self._operation_count);return dict(phase=self.phase,operation_id=self.operation_id)
     def invoke(self,capability,**a):
         if capability not in ALL_CAPS:raise ActionRejected('UNKNOWN_CAPABILITY')
@@ -429,6 +429,11 @@ class OssilaDipcoaterRuntime:
             if self.cycle_index>=self.method['cycles']:self.phase='succeeded';self.stage='idle'
             else:self.cycle_index+=1;self.stage='immersing';self.target=self._targets()[0]
         self.speed=0.
+    def _archive_op(self):
+        # 2026-10-22 (chemlab findings B D4): the final record (status and coating.measure) of a finished operation is kept, so an older operation of a
+        # caller stays pollable after a newer one started (poll used to accept only the latest operation)
+        op=self.operation_id;arch=self.__dict__.setdefault('_op_final',{})
+        if op and self.phase not in ('running',) and op not in arch:arch[op]=dict(status=self.phase,result=self.invoke('coating.measure'))
     def step(self,dt_s):
         validate(number('s',1e-12,1000),dt_s);left=float(dt_s)
         while left>1e-12:
@@ -466,7 +471,7 @@ class OssilaDipcoaterRuntime:
                 self.elapsed_s+=dt
                 if self.phase=='running' and self.stage in ['dwelling','drying']:self.wait_elapsed+=dt
                 if self.phase=='running' and moving and abs(self.q-self.target)<1e-11:self._next_stage()
-            self.time_s+=dt;left-=dt
+            self.time_s+=dt;left-=dt;self._archive_op()
         self.revision+=1;return self.read('evaluator')
 
 class OssilaDipcoaterSession:
@@ -501,6 +506,7 @@ class OssilaDipcoaterSession:
             before=h.operation_id;h._caller=self._principal
             try:result=h.invoke(capability_id,**arguments)
             finally:h._caller=None
+            if ALL_CAPS[capability_id][4]!='query':h._archive_op()
             op=result.get('operation_id')
             if op:h._owners[op]=self._principal
             elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a run, homing or jog started by a key belongs to the caller
@@ -512,10 +518,16 @@ class OssilaDipcoaterSession:
         cap,arg=SLOTS[state_id][5];return self.invoke(instance_id=instance_id,capability_id=cap,arguments={arg:value},request_id=request_id)
     def poll(self,operation_id):
         h=self._host
-        if operation_id!=h.operation_id or h._owners.get(operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
+        if h._owners.get(operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
+        if operation_id!=h.operation_id:                                    # an older operation of this caller: its final record (2026-10-22)
+            rec=h.__dict__.get('_op_final',{}).get(operation_id)
+            if rec is None:raise ActionRejected('ACCESS_DENIED')
+            return dict(operation_id=operation_id,status=rec['status'],result=copy.deepcopy(rec['result']))
         return dict(operation_id=operation_id,status=h.phase,result=h.invoke('coating.measure'))
     def cancel(self,operation_id,request_id):
-        self.poll(operation_id);return self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
+        r=self.poll(operation_id)
+        if operation_id!=self._host.operation_id:return r                 # finished before a newer operation started: nothing to cancel
+        return self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
 
 
 

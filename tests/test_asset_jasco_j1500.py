@@ -173,5 +173,12 @@ class TestJ1500(unittest.TestCase):
   h=ready();a=copy.deepcopy(SAMPLE_EXAMPLE);a['sample_id']='new';h.invoke('solution.register',**a);a['mean_epsilon_m2_mol'][0]=999.;self.assertEqual(h.samples['new']['mean_epsilon_m2_mol'][0],600.)
  def test_same_solvent_id_cannot_have_conflicting_definition(self):
   h=ready();self.unchanged_reject(h,'solution.register',**dict(SAMPLE_EXAMPLE,sample_id='bad_buffer',solvent_alpha_m_inv=[100.]*66))
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): method.configure accepts the hardware range while the twin simulates only 175-240 nm; the
+ contract now states where TEMPLATE_RANGE comes."""
+ def test_template_range_is_stated(self):
+  caps=export_jasco_j1500_contract_metadata()['capabilities']
+  self.assertIn('175–240 nm',caps['method.configure']['function_zh']);self.assertIn('TEMPLATE_RANGE',caps['method.configure']['function_zh'])
+  self.assertIn('TEMPLATE_RANGE',[e['code'] for e in caps['acquisition.start']['errors']])
 if __name__=='__main__':unittest.main()
 

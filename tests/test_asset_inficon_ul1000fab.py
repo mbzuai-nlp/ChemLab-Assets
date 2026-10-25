@@ -685,6 +685,22 @@ class ReviewR3(unittest.TestCase):
         self.assertIn('CAL_ABORTED', [e['code'] for e in g.call(g.E, 'events.read', since_s=0.0)['events']])
 
 
+class FixRoundB(unittest.TestCase):
+    """chemlab findings (2026-10-22)."""
+    def test_read_after_evacuating_an_empty_inlet(self):
+        # W1: with nothing on the inlet p1 decays towards 0 Pa (5e-324 after 90 s); read() crashed on log10(0) in the recorder output
+        g = Rig()
+        g.ready()
+        g.call(g.A, 'measure.start')
+        g.step(90.0)
+        out = g.read()
+        self.assertLess(g.h.p1, rt.TPR265_CHART_MIN_PA)
+        self.assertEqual(g.read('menu.settings')['recorder_2'], 'p1')
+        self.assertEqual(out['recorder.output_v'][1], 1.5)                       # TPR265 chart end: 1e-4 mbar = 1.5 V
+        g.h.menu['recorder_1'] = 'p2'                                           # foreline gauge: still on its chart
+        self.assertGreater(g.read('recorder.output_v')[0], 1.5)
+
+
 class ZCoverage(unittest.TestCase):
     def test_all_capabilities_exercised(self):
         implemented = {k for k in rt.CAPS if k not in rt.UNSUPPORTED}

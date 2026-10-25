@@ -1,0 +1,1522 @@
+{
+ "class": "evaporation",
+ "adapter": "chemlab.compile.classes.evaporation:EvaporationAdapter",
+ "about": "Evaporation, drying and distillation: rotary evaporator, freeze dryer, spray dryer, critical point dryer, centrifugal concentrator, fractional distillation, wiped-film still.",
+ "membership": {
+  "primary": [
+   "ika_rv10_digital_v",
+   "buchi_lyovapor_l250_pro",
+   "buchi_minispray",
+   "tousimis_autosamdri815",
+   "genevac_mivac2",
+   "pilodist_pilodist104",
+   "uic_kdl1basic"
+  ],
+  "secondary": {},
+  "excluded": {
+   "binder_vd56": "a vacuum drying oven: its temperature control is in the thermal class and its vacuum valves are shared open/close parts; it has no drying run (start/stop/result) to put here",
+   "vacuubrand_pc3001_vario_select": "a vacuum source, primary in gas_fluid (setpoint pressure, start, stop, vent); the rotavap points to it as the vacuum source"
+  }
+ },
+ "members": {
+  "ika_rv10_digital_v": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "heat_cap": "thermal.start",
+     "heat_skip_if": {
+      "slot": "thermal.enabled",
+      "value": true
+     },
+     "off": {
+      "cap": "thermal.stop"
+     }
+    },
+    "rotate": {
+     "speed_cap": "rotation.set_speed",
+     "speed_arg": "speed_rad_s",
+     "on": {
+      "cap": "rotation.start",
+      "step": "start rotating",
+      "skip_if": {
+       "slot": "rotation.running",
+       "value": true
+      }
+     },
+     "off": {
+      "cap": "rotation.stop"
+     }
+    },
+    "method": {
+     "keys": {
+      "time": {
+       "cap": "timer.set_duration",
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "cap": "interval.set",
+       "arg": "interval_s",
+       "kind": "duration"
+      },
+      "temp": {
+       "cap": "thermal.set_temperature",
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "speed": {
+       "cap": "rotation.set_speed",
+       "arg": "speed_rad_s",
+       "kind": "rotation"
+      }
+     }
+    },
+    "start": {
+     "calls": [
+      {
+       "cap": "thermal.start",
+       "step": "switch the bath heating on",
+       "skip_if": {
+        "slot": "thermal.enabled",
+        "value": true
+       }
+      },
+      {
+       "cap": "rotation.start",
+       "step": "start rotating",
+       "skip_if": {
+        "slot": "rotation.running",
+        "value": true
+       }
+      }
+     ],
+     "job": "until",
+     "until": {
+      "slot": "rotation.running",
+      "value": false,
+      "when": {
+       "slot": "timer.setting_s",
+       "min": 1
+      }
+     },
+     "max_s": 12000
+    },
+    "stop": {
+     "calls": [
+      {
+       "cap": "rotation.stop",
+       "step": "stop rotating"
+      },
+      {
+       "cap": "thermal.stop",
+       "step": "switch the bath heating off"
+      }
+     ]
+    },
+    "result": {
+     "reads": [
+      "evaporation.running",
+      "rotation.indicated_speed_rad_s",
+      "thermal.indicated_temperature_k",
+      "vacuum.indicated_pressure_pa",
+      "recovery.indicated_condensate_mass_kg",
+      "recovery.condensate_volume_m3",
+      "timer.remaining_s"
+     ]
+    },
+    "lift": {
+     "cap": "lift.set_position",
+     "arg": "position_m",
+     "moving": "lift.moving"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "temp_set": "thermal.target_temperature_k",
+    "heating": "thermal.enabled",
+    "pressure": "vacuum.indicated_pressure_pa",
+    "speed": "rotation.indicated_speed_rad_s",
+    "speed_set": "rotation.target_speed_rad_s",
+    "rotating": "rotation.running",
+    "lift": "lift.indicated_position_m",
+    "timer": "timer.remaining_s",
+    "collected": "recovery.indicated_condensate_mass_kg"
+   },
+   "requires": {
+    "set-temp:heat": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "thermal.indicated_temperature_k",
+      "code": "NO_BATH",
+      "message": "the heating bath of {inst} is not ready (no bath fluid registered by the lab; the bath temperature is unknown).",
+      "fix": "ask the lab to fill the bath; meanwhile `chemlab run {inst} rotate SPEED` works without heating.",
+      "not": [
+       null
+      ]
+     }
+    ],
+    "rotate": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "thermal.indicated_temperature_k",
+      "code": "NO_BATH",
+      "message": "the heating bath of {inst} is not ready (no bath fluid registered by the lab; the bath temperature is unknown).",
+      "fix": "ask the lab to fill the bath; meanwhile `chemlab run {inst} rotate SPEED` rotates without heating.",
+      "not": [
+       null
+      ]
+     }
+    ],
+    "lift": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ]
+   },
+   "codes": {
+    "thermal.set_temperature:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "BELOW_AMBIENT",
+     "message": "{inst} heats only: the bath set point must be at least room temperature.",
+     "fix": "give a set point at or above room temperature (about 20 °C)."
+    },
+    "timer.set_duration:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "WHOLE_MINUTES",
+     "message": "the timer of {inst} takes whole minutes only.",
+     "fix": "give the time in whole minutes, e.g. time=30min."
+    },
+    "thermal.start:PRECONDITION_FAILED": {
+     "code": "NO_BATH",
+     "message": "the heating bath of {inst} is not ready (switched off, or no bath fluid registered).",
+     "fix": "switch {inst} on; if the bath temperature reads null, ask the lab to fill the bath."
+    }
+   },
+   "path": "rotation",
+   "path_exceptions": [
+    "thermal.start",
+    "thermal.stop"
+   ],
+   "unsupported": {
+    "vacuum": "the vacuum comes from an external pump (the vacuum source is a VACUUBRAND PC 3001 VARIO select); the RV 10 itself has no vacuum controller",
+    "endpoint": "no drying endpoint (a rotary evaporator runs until stopped or until its timer ends)",
+    "fraction": "no fraction collector",
+    "reflux": "no reflux head",
+    "condenser": "the condenser is cooled by an external chiller (no set point here)",
+    "feed": "no feed pump (the flask is charged by hand)",
+    "preheat": "no separate preheat (use `set-temp T --heat`)"
+   },
+   "alternatives": {
+    "vacuum": "set the pressure on the pump: `chemlab run vacuubrand_pc3001_vario_select` lists its verbs (or `chemlab call vacuubrand_pc3001_vario_select vacuum.set_pressure --pressure_pa 17500`); the rotavap reads it back as vacuum.indicated_pressure_pa.",
+    "preheat": "`chemlab run INST set-temp 40C --heat` switches the bath heating on."
+   },
+   "params": {
+    "labels": {
+     "temp": "bath",
+     "temp_set": "bath set point",
+     "heating": "bath heating",
+     "collected": "condensate"
+    }
+   },
+   "notes": {
+    "start": [
+     "start = bath heating on + rotation on (no single run object on the RV 10); with a timer set (method time=30min) it gives a job that ends when the timer stops the rotation.",
+     "manual: operating manual p. 22, p. 21 (START_X / STOP_X)"
+    ],
+    "method": [
+     "the RV 10 has no method object: keys time (timer, whole minutes; 0 = off), interval (rotation reversal, 0-60 s), temp, speed are sent to their own set points.",
+     "manual: operating manual p. 22 (interval, timer)"
+    ],
+    "lift": [
+     "up = flask raised out of the bath, down = lowest position (into the bath).",
+     "manual: operating manual p. 22 (lift)"
+    ],
+    "set-temp": [
+     "manual: operating manual pp. 18-20 (heating bath), p. 21 (NAMUR commands)"
+    ],
+    "rotate": [
+     "manual: operating manual p. 22 (speed)"
+    ]
+   }
+  },
+  "buchi_lyovapor_l250_pro": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "vacuum": {
+     "cap": "vacuum.set_pressure",
+     "arg": "pressure_pa"
+    },
+    "method": {
+     "keys": {
+      "freeze": {
+       "cap": "lyophilization.set_recipe",
+       "arg": "recipe",
+       "key": "pre_freeze_s",
+       "kind": "duration"
+      },
+      "primary": {
+       "cap": "lyophilization.set_recipe",
+       "arg": "recipe",
+       "key": "primary_drying_s",
+       "kind": "duration"
+      },
+      "secondary": {
+       "cap": "lyophilization.set_recipe",
+       "arg": "recipe",
+       "key": "secondary_drying_s",
+       "kind": "duration"
+      },
+      "shelf": {
+       "cap": "thermal.set_temperature",
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "pressure": {
+       "cap": "vacuum.set_pressure",
+       "arg": "pressure_pa",
+       "kind": "pressure"
+      },
+      "protect": {
+       "cap": "thermal.set_protection_temperature",
+       "arg": "temperature_k",
+       "kind": "temperature"
+      }
+     },
+     "keep": {
+      "lyophilization.set_recipe": {
+       "recipe": {
+        "slot": "cycle.recipe"
+       }
+      }
+     }
+    },
+    "start": {
+     "cap": "lyophilization.start",
+     "job": "state",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "complete"
+      ],
+      "failed": [
+       "stopped",
+       "aborted"
+      ]
+     }
+    },
+    "stop": {
+     "cap": "lyophilization.stop"
+    },
+    "result": {
+     "reads": [
+      "cycle.phase",
+      "cycle.elapsed_s",
+      "cycle.phase_elapsed_s",
+      "cycle.endpoint_status",
+      "cycle.wait_reason"
+     ]
+    },
+    "endpoint": {
+     "cap": "lyophilization.set_endpoint",
+     "mode_arg": "mode",
+     "threshold_arg": "moisture_threshold",
+     "modes": {
+      "schedule": "schedule_only",
+      "moisture": "model_moisture"
+     },
+     "keep_slot": "cycle.moisture_threshold"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.wait_reason",
+    "temp": "thermal.indicated_shelf_temperature_k",
+    "temp_set": "thermal.target_shelf_temperature_k",
+    "temp2": "condenser.indicated_temperature_k",
+    "pressure": "vacuum.indicated_pressure_pa",
+    "pressure_set": "vacuum.target_pressure_pa",
+    "progress": "cycle.endpoint_status"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "cycle.running",
+      "code": "CYCLE_RUNNING",
+      "message": "a freeze-drying cycle is running on {inst}; it takes this setting only between cycles.",
+      "fix": "wait for the cycle to end (`chemlab wait JOB`) or stop it: `chemlab run {inst} stop`.",
+      "falsy": true
+     }
+    ],
+    "vacuum": [
+     {
+      "slot": "cycle.running",
+      "code": "CYCLE_RUNNING",
+      "message": "a freeze-drying cycle is running on {inst}; it takes this setting only between cycles.",
+      "fix": "wait for the cycle to end (`chemlab wait JOB`) or stop it: `chemlab run {inst} stop`.",
+      "falsy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "cycle.running",
+      "code": "CYCLE_RUNNING",
+      "message": "a freeze-drying cycle is running on {inst}; it takes this setting only between cycles.",
+      "fix": "wait for the cycle to end (`chemlab wait JOB`) or stop it: `chemlab run {inst} stop`.",
+      "falsy": true
+     }
+    ],
+    "endpoint": [
+     {
+      "slot": "cycle.running",
+      "code": "CYCLE_RUNNING",
+      "message": "a freeze-drying cycle is running on {inst}; it takes this setting only between cycles.",
+      "fix": "wait for the cycle to end (`chemlab wait JOB`) or stop it: `chemlab run {inst} stop`.",
+      "falsy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "chamber.open",
+      "code": "CHAMBER_OPEN",
+      "message": "the drying chamber of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close chamber`.",
+      "falsy": true
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading frozen samples is the lab's set-up).",
+      "fix": "ask the lab to load the pre-frozen samples.",
+      "value": true
+     },
+     {
+      "slot": "sample.pre_frozen",
+      "code": "NOT_FROZEN",
+      "message": "the sample in {inst} is not confirmed pre-frozen.",
+      "fix": "the samples must be frozen before loading; ask the lab.",
+      "value": true
+     },
+     {
+      "slot": "cycle.recipe",
+      "code": "NO_RECIPE",
+      "message": "{inst} has no recipe (phase durations) yet.",
+      "fix": "set it: `chemlab run {inst} method freeze=2h primary=20h secondary=4h`.",
+      "not": [
+       null
+      ]
+     },
+     {
+      "slot": "vacuum.compatible",
+      "code": "VACUUM_UNREACHABLE",
+      "message": "the vacuum source of {inst} cannot reach the vacuum set point (or no source is connected).",
+      "fix": "raise the set point within what the pump reaches (`chemlab run {inst} vacuum 100Pa`), or ask the lab to connect a suitable pump.",
+      "value": true
+     },
+     {
+      "slot": "cycle.running",
+      "code": "CYCLE_RUNNING",
+      "message": "a cycle is already running on {inst}.",
+      "fix": "follow it with `chemlab wait JOB`, or stop it first.",
+      "falsy": true
+     }
+    ]
+   },
+   "unsupported": {
+    "rotate": "no rotation (the shelves are static)",
+    "lift": "no lift",
+    "fraction": "no fraction collector",
+    "reflux": "no reflux",
+    "condenser": "the ice condenser runs at its own fixed temperature (no set point)",
+    "feed": "no feed pump",
+    "preheat": "no preheat (shelf temperature: `set-temp`)"
+   },
+   "params": {
+    "labels": {
+     "temp": "shelf",
+     "temp_set": "shelf set point",
+     "temp2": "condenser",
+     "stage": "waiting for",
+     "progress": "endpoint"
+    }
+   },
+   "notes": {
+    "method": [
+     "keys freeze / primary / secondary (phase durations) make the recipe; a phase left out keeps the stored recipe; shelf, pressure, protect go to their own set points.",
+     "manual: operating manual pp. 43-51 (methods, steps and phases)"
+    ],
+    "start": [
+     "the cycle runs pre-freeze, primary and secondary drying and ends \"complete\"; it waits (cycle.wait_reason) while the vacuum or temperatures are not there.",
+     "manual: operating manual pp. 40-42 (manual freeze-drying), pp. 52-56 (method-based)"
+    ],
+    "endpoint": [
+     "manual: operating manual pp. 43-51 (end point definition)"
+    ],
+    "set-temp": [
+     "manual: operating manual pp. 40-42"
+    ],
+    "vacuum": [
+     "manual: operating manual pp. 40-42"
+    ]
+   },
+   "codes": {
+    "lyophilization.start:PRECONDITION_FAILED": {
+     "code": "NO_MOISTURE_MODEL",
+     "message": "{inst} refused the start although power, chamber, sample, recipe and vacuum are ready: the moisture endpoint needs a drying-rate model the lab has not configured.",
+     "fix": "end on schedule instead (`chemlab run {inst} endpoint schedule`), or ask the lab for the drying model."
+    },
+    "lyophilization.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no cycle to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   }
+  },
+  "buchi_minispray": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "cap": "heating.set",
+     "arg": "inlet_target_k",
+     "heat_arg": "enabled",
+     "off": {
+      "cap": "heating.set",
+      "args": {
+       "enabled": false
+      }
+     }
+    },
+    "method": {
+     "keys": {
+      "inlet": {
+       "cap": "heating.set",
+       "arg": "inlet_target_k",
+       "kind": "temperature"
+      },
+      "temp": {
+       "cap": "heating.set",
+       "arg": "inlet_target_k",
+       "kind": "temperature"
+      },
+      "feed": {
+       "cap": "pump.set",
+       "arg": "feed_m3_s",
+       "kind": "flow"
+      },
+      "aspirator": {
+       "cap": "drying_gas.set",
+       "arg": "drying_gas_m3_s",
+       "kind": "flow"
+      },
+      "spray": {
+       "cap": "dispersion_gas.set",
+       "arg": "spray_gas_m3_s",
+       "kind": "flow"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "drying.measure"
+    },
+    "feed": {
+     "cap": "pump.set",
+     "arg": "feed_m3_s"
+    },
+    "preheat": {
+     "on": {
+      "cap": "drying.prepare",
+      "step": "aspirator, heater and spray gas on"
+     },
+     "off": {
+      "cap": "drying.shutdown",
+      "step": "shut down (heater off, then cool and stop the aspirator)"
+     },
+     "wait": {
+      "slot": "thermal.inlet_k",
+      "target": "tiles.setpoints#inlet_target_k",
+      "tol_k": 3.0
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault",
+    "temp": "thermal.inlet_k",
+    "temp_set": "tiles.setpoints#inlet_target_k",
+    "heating": "heater.enabled",
+    "temp2": "thermal.outlet_k",
+    "flow": "flow.feed_m3_s"
+   },
+   "requires": {
+    "set-temp:heat": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "airflow.enabled",
+      "code": "NO_AIRFLOW",
+      "message": "the heater of {inst} runs only with the aspirator (drying gas) on.",
+      "fix": "`chemlab run {inst} preheat on` switches the aspirator, heater and spray gas on together.",
+      "value": true
+     }
+    ],
+    "preheat:on": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_RECIPE",
+      "message": "{inst} has no drying recipe loaded by the lab.",
+      "fix": "ask the lab to load the recipe.",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no feed is connected to {inst} (the feed is the lab's set-up).",
+      "fix": "ask the lab to connect the feed.",
+      "value": true
+     },
+     {
+      "slot": "airflow.enabled",
+      "code": "NOT_PREHEATED",
+      "message": "{inst} is not preheated (aspirator off).",
+      "fix": "run `chemlab run {inst} preheat on --wait` first.",
+      "value": true
+     },
+     {
+      "slot": "heater.enabled",
+      "code": "NOT_PREHEATED",
+      "message": "the heater of {inst} is off.",
+      "fix": "run `chemlab run {inst} preheat on --wait` first.",
+      "value": true
+     },
+     {
+      "slot": "thermal.inlet_k",
+      "code": "NOT_AT_TEMPERATURE",
+      "message": "the inlet of {inst} is not at its set point yet (inlet {value}).",
+      "fix": "wait for it: `chemlab run {inst} preheat on --wait`.",
+      "near": {
+       "slot": "tiles.setpoints",
+       "key": "inlet_target_k"
+      },
+      "tol": 3.0
+     }
+    ]
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "drying.measure"
+   ],
+   "unsupported": {
+    "vacuum": "an open-loop spray dryer: the aspirator draws the drying gas at near-atmospheric pressure (no vacuum set point)",
+    "rotate": "no rotation",
+    "lift": "no lift",
+    "endpoint": "no endpoint setting (the run ends when the feed is used up or on stop)",
+    "fraction": "one product collection vessel (no fraction collector)",
+    "reflux": "no reflux",
+    "condenser": "no condenser in the open-loop set-up"
+   },
+   "alternatives": {
+    "vacuum": "set the aspirator (drying gas) flow instead: `chemlab run INST method aspirator=25L/min`."
+   },
+   "params": {
+    "labels": {
+     "temp": "inlet",
+     "temp_set": "inlet set point",
+     "temp2": "outlet",
+     "flow": "feed"
+    }
+   },
+   "notes": {
+    "method": [
+     "the drying recipe itself is the lab's set-up; method keys inlet (or temp), feed, aspirator, spray set the running set points.",
+     "manual: operating manual pp. 47-54 (drying gas, inlet temperature, dispersion gas, pump)"
+    ],
+    "start": [
+     "before start: `preheat on --wait` (aspirator, heater, spray gas on; inlet within 3 K of its set point).",
+     "manual: operating manual pp. 55-60"
+    ],
+    "preheat": [
+     "manual: operating manual pp. 55-60 (start, end, shut down)"
+    ],
+    "feed": [
+     "manual: operating manual pp. 35-46 (peristaltic pump)"
+    ],
+    "set-temp": [
+     "manual: operating manual pp. 47-54"
+    ]
+   }
+  },
+  "tousimis_autosamdri815": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "purge": {
+       "arg": "purge_time_s",
+       "kind": "duration"
+      },
+      "bleed": {
+       "arg": "bleed_rate_pa_s"
+      }
+     },
+     "keep": {
+      "method.configure": {
+       "purge_time_s": {
+        "slot": "method.purge_time_s"
+       }
+      }
+     },
+     "keep_when": {
+      "slot": "method.configured",
+      "value": true
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "cpd.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "fault": "cycle.fault",
+    "temp": "thermal.indicated_k",
+    "pressure": "pressure.indicated_abs_pa",
+    "progress": "co2.phase"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading is the lab's set-up, not an agent action).",
+      "fix": "ask the lab to load the sample; `chemlab run {inst} status` shows when it is there.",
+      "value": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method (purge time, bleed rate) yet.",
+      "fix": "set it: `chemlab run {inst} method purge=10min bleed=14364`.",
+      "value": true
+     },
+     {
+      "slot": "lid.lift_m",
+      "code": "LID_OPEN",
+      "message": "the chamber lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "max": 0.0
+     },
+     {
+      "slot": "holder.lift_m",
+      "code": "HOLDER_UP",
+      "message": "the sample holder of {inst} is raised.",
+      "fix": "lower it: `chemlab call {inst} holder.set_lift --lift_m 0`, then close the lid.",
+      "max": 0.0
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and recharge before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:PRECONDITION_FAILED": {
+     "code": "METHOD_LOCKED",
+     "message": "the method of {inst} cannot change after this sample has been run.",
+     "fix": "a new method needs a new sample from the lab."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "cpd.measure"
+   ],
+   "unsupported": {
+    "set-temp": "the chamber temperature follows the CO2 critical-point cycle (cooled for filling, heated past the critical point); there is no set point",
+    "vacuum": "the chamber pressure follows the CO2 cycle; only the bleed rate is set (method bleed=...)",
+    "rotate": "no rotation",
+    "lift": "no lift (the sample holder is part of the lab's loading)",
+    "endpoint": "the cycle ends after the bleed to atmosphere",
+    "fraction": "no fraction collector",
+    "reflux": "no reflux",
+    "condenser": "no condenser",
+    "feed": "no feed pump",
+    "preheat": "no preheat (the cycle heats itself)"
+   },
+   "params": {
+    "labels": {
+     "temp": "chamber",
+     "pressure": "chamber pressure (absolute)",
+     "progress": "CO2 state"
+    }
+   },
+   "notes": {
+    "method": [
+     "purge = purge time (0-45 min), bleed = bleed rate in Pa/s (a plain number); the method can change until the first run of a sample.",
+     "manual: operating manual pp. 15-20 (purge), pp. 39-43 (bleed rate)"
+    ],
+    "start": [
+     "manual: operating manual pp. 15-20 (automatic CPD cycle)"
+    ]
+   }
+  },
+  "genevac_mivac2": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "heat_time": {
+       "arg": "heating_time_s",
+       "kind": "duration"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      },
+      "program": {
+       "arg": "program"
+      },
+      "pressure": {
+       "arg": "target_pressure_pa",
+       "kind": "pressure"
+      },
+      "endpoint": {
+       "arg": "endpoint_remaining_fraction",
+       "kind": "fraction"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "evaporation.measure"
+    },
+    "preheat": {
+     "on": {
+      "cap": "preheat.set",
+      "args": {
+       "on": true
+      }
+     },
+     "off": {
+      "cap": "preheat.set",
+      "args": {
+       "on": false
+      }
+     },
+     "wait": {
+      "slot": "thermal.temperature_k",
+      "target": "thermal.target_k",
+      "tol_k": 1.0
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault",
+    "temp": "thermal.temperature_k",
+    "temp_set": "thermal.target_k",
+    "pressure": "vacuum.pressure_pa",
+    "speed": "rotor.speed_rad_s",
+    "progress": "output.remaining_fraction",
+    "collected": "output.captured_mass_kg"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "sample.configured",
+      "code": "METHOD_LOCKED",
+      "message": "the method of {inst} is fixed once the sample is charged (this instrument takes a method only before charging).",
+      "fix": "change only what has its own verb now (e.g. `chemlab run {inst} set-temp ...`); a new method needs a new charge from the lab.",
+      "value": false
+     }
+    ],
+    "preheat:on": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading is the lab's set-up, not an agent action).",
+      "fix": "ask the lab to load the sample; `chemlab run {inst} status` shows when it is there.",
+      "value": true
+     },
+     {
+      "slot": "lid.open",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "falsy": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and recharge before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:ROTOR_IMBALANCE": {
+     "code": "ROTOR_IMBALANCE",
+     "message": "the rotor of {inst} is not balanced.",
+     "fix": "ask the lab to balance the rotor load."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "evaporation.measure"
+   ],
+   "unsupported": {
+    "vacuum": "the built-in pump always pumps down fully; a target pressure is a method setting (method pressure=...) and needs the optional pressure controller",
+    "rotate": "the rotor spins at its fixed speed during a run (no speed setting)",
+    "lift": "no lift",
+    "endpoint": "the end point is a method setting (method endpoint=...)",
+    "fraction": "no fraction collector",
+    "reflux": "no reflux",
+    "condenser": "the cold trap is external",
+    "feed": "no feed pump"
+   },
+   "params": {
+    "labels": {
+     "temp": "chamber",
+     "temp_set": "set point",
+     "speed": "rotor",
+     "progress": "solvent left (fraction)",
+     "collected": "captured solvent"
+    }
+   },
+   "notes": {
+    "method": [
+     "the method needs all of temp, heat_time, time, timeout, program (water|alcohol|other), pressure (or null), endpoint; it can change only before the lab loads the samples.",
+     "manual: operating manual (predecessor model) pp. 9-12 (temperature, run type, run time, heat time)"
+    ],
+    "set-temp": [
+     "manual: operating manual pp. 9-12"
+    ],
+    "preheat": [
+     "manual: operating manual pp. 9-12"
+    ],
+    "start": [
+     "manual: operating manual pp. 9-12"
+    ]
+   }
+  },
+  "pilodist_pilodist104": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "temp": {
+       "arg": "bath_target_k",
+       "kind": "temperature"
+      },
+      "pressure": {
+       "arg": "pressure_pa",
+       "kind": "pressure"
+      },
+      "reflux": {
+       "arg": "reflux_ratio"
+      },
+      "total_reflux": {
+       "arg": "total_reflux"
+      },
+      "cut": {
+       "arg": "cut_volume_m3",
+       "kind": "volume"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      },
+      "min_boiler": {
+       "arg": "min_boiler_volume_m3",
+       "kind": "volume"
+      }
+     },
+     "keep": {
+      "method.configure": {
+       "bath_target_k": {
+        "slot": "thermal.target_k"
+       },
+       "reflux_ratio": {
+        "slot": "reflux.target_ratio"
+       },
+       "total_reflux": {
+        "slot": "reflux.total_reflux"
+       }
+      }
+     },
+     "keep_when": {
+      "slot": "method.configured",
+      "value": true
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "distillation.measure"
+    },
+    "fraction": {
+     "cap": "fraction.select",
+     "arg": "index"
+    },
+    "reflux": {
+     "cap": "reflux.set",
+     "ratio_arg": "ratio",
+     "total_arg": "total_reflux",
+     "keep_slot": "reflux.target_ratio"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault",
+    "temp": "thermal.bath_temperature_k",
+    "temp_set": "thermal.target_k",
+    "temp2": "thermal.top_temperature_k",
+    "pressure": "vacuum.pressure_pa",
+    "fraction": "fraction.index",
+    "progress": "reflux.fraction"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "sample.configured",
+      "code": "METHOD_LOCKED",
+      "message": "the method of {inst} is fixed once the sample is charged (this instrument takes a method only before charging).",
+      "fix": "change only what has its own verb now (e.g. `chemlab run {inst} set-temp ...`); a new method needs a new charge from the lab.",
+      "value": false
+     }
+    ],
+    "reflux": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "fraction": [
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "nothing is being distilled on {inst} (no charge).",
+      "fix": "ask the lab to charge the boiler.",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading is the lab's set-up, not an agent action).",
+      "fix": "ask the lab to load the sample; `chemlab run {inst} status` shows when it is there.",
+      "value": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "bath.lift_m",
+      "code": "BATH_DOWN",
+      "message": "the heating bath of {inst} is not raised to the boiler (bath lift {value} m).",
+      "fix": "ask the lab to raise the bath lift (a manual stand), then retry.",
+      "min": 0.1499
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and recharge before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     }
+    ]
+   },
+   "codes": {
+    "fraction.select:RECEIVER_FULL": {
+     "code": "RECEIVER_FULL",
+     "message": "that receiver of {inst} already holds a full cut.",
+     "fix": "choose an empty receiver (see `chemlab run {inst} result`)."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "distillation.measure"
+   ],
+   "unsupported": {
+    "vacuum": "the column-head pressure is a method setting (method pressure=...), fixed before the charge; there is no separate vacuum set point",
+    "rotate": "no rotation",
+    "lift": "the bath lift is a manual stand (the lab's set-up)",
+    "endpoint": "the run ends by time, minimum boiler volume or full receivers (method time / min_boiler / cut)",
+    "condenser": "the condenser coolant is external",
+    "feed": "batch distillation (no feed pump)",
+    "preheat": "no separate preheat"
+   },
+   "params": {
+    "labels": {
+     "temp": "bath",
+     "temp_set": "bath set point",
+     "temp2": "column head",
+     "fraction": "receiver",
+     "progress": "reflux fraction (L/V)"
+    }
+   },
+   "notes": {
+    "method": [
+     "all of temp, pressure, reflux, total_reflux, cut, time, timeout, min_boiler are needed (a stored temp / reflux is kept); the method can change only before the lab charges the boiler.",
+     "manual: data sheet p. 2 (DCD4001 control functions)"
+    ],
+    "fraction": [
+     "receivers are numbered 0-5 as on the instrument; the selector moves in total reflux.",
+     "manual: data sheet p. 2 (fraction collector)"
+    ],
+    "reflux": [
+     "manual: data sheet p. 2 (reflux)"
+    ],
+    "set-temp": [
+     "manual: data sheet p. 2 (oil bath)"
+    ]
+   }
+  },
+  "uic_kdl1basic": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "temperature_k"
+    },
+    "vacuum": {
+     "cap": "vacuum.set",
+     "arg": "pressure_pa"
+    },
+    "rotate": {
+     "speed_cap": "wiper.set",
+     "speed_arg": "speed_rad_s",
+     "off": {
+      "cap": "wiper.set",
+      "args": {
+       "speed_rad_s": 0
+      }
+     }
+    },
+    "condenser": {
+     "cap": "condenser.set",
+     "arg": "temperature_k"
+    },
+    "method": {
+     "cap": "method.configure",
+     "passthrough": true,
+     "keys": {
+      "temp": {
+       "arg": "wall_temperature_k",
+       "kind": "temperature"
+      },
+      "condenser": {
+       "arg": "condenser_temperature_k",
+       "kind": "temperature"
+      },
+      "pressure": {
+       "arg": "pressure_pa",
+       "kind": "pressure"
+      },
+      "feed": {
+       "arg": "feed_rate_kg_s",
+       "kind": "mass_flow"
+      },
+      "speed": {
+       "arg": "wiper_speed_rad_s",
+       "kind": "rotation"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "timeout": {
+       "arg": "timeout_s",
+       "kind": "duration"
+      }
+     },
+     "keep": {
+      "method.configure": {
+       "wall_temperature_k": {
+        "slot": "thermal.wall_target_k"
+       },
+       "condenser_temperature_k": {
+        "slot": "thermal.condenser_target_k"
+       },
+       "pressure_pa": {
+        "slot": "vacuum.target_pa"
+       },
+       "wiper_speed_rad_s": {
+        "slot": "wiper.target_rad_s"
+       }
+      }
+     },
+     "keep_when": {
+      "slot": "method.configured",
+      "value": true
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "distillation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "fault": "cycle.fault",
+    "temp": "thermal.wall_temperature_k",
+    "temp_set": "thermal.wall_target_k",
+    "temp2": "thermal.condenser_temperature_k",
+    "pressure": "vacuum.pressure_pa",
+    "pressure_set": "vacuum.target_pa",
+    "speed": "wiper.speed_rad_s",
+    "speed_set": "wiper.target_rad_s"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "vacuum": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "rotate": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "rotate:off": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "condenser": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample is loaded in {inst} (loading is the lab's set-up, not an agent action).",
+      "fix": "ask the lab to load the sample; `chemlab run {inst} status` shows when it is there.",
+      "value": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet.",
+      "fix": "set one first: `chemlab run {inst} method ...` (see `chemlab help {inst} method`).",
+      "value": true
+     },
+     {
+      "slot": "cycle.phase",
+      "code": "NOT_IDLE",
+      "message": "{inst} is not ready for a new run (run state {value}).",
+      "fix": "a running run: `chemlab run {inst} stop` first; a finished run: the lab must unload and recharge before the next run.",
+      "in": [
+       "idle",
+       "cancelled"
+      ]
+     },
+     {
+      "slot": "wiper.target_rad_s",
+      "code": "WIPER_OFF",
+      "message": "the wiper of {inst} is set to 0 (the film needs the wiper).",
+      "fix": "set it: `chemlab run {inst} rotate 300rpm`.",
+      "min": 1e-06
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} has no run to stop.",
+     "fix": "nothing to do; see `chemlab run {inst} status`."
+    },
+    "REFERENCE_RANGE": {
+     "code": "OUTSIDE_SUBSTANCE_DATA",
+     "message": "that wall temperature is outside the vapour-pressure data of the charged substances in {inst}.",
+     "fix": "choose a wall temperature closer to the current one (`chemlab run {inst} status`); the lab can tell the valid range of the charge."
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "distillation.measure"
+   ],
+   "unsupported": {
+    "lift": "no lift",
+    "endpoint": "the run ends by time or when the feed is used up (method time=...)",
+    "fraction": "distillate and residue receivers are exchanged by the lab",
+    "reflux": "short-path still (no reflux)",
+    "feed": "the feed rate is a method setting (method feed=2g/min)",
+    "preheat": "no separate preheat"
+   },
+   "alternatives": {
+    "feed": "`chemlab run INST method feed=2g/min`."
+   },
+   "params": {
+    "labels": {
+     "temp": "wall",
+     "temp_set": "wall set point",
+     "temp2": "condenser",
+     "speed": "wiper",
+     "speed_set": "wiper set point"
+    }
+   },
+   "notes": {
+    "method": [
+     "the first method needs all of temp, condenser, pressure, feed, speed, time, timeout; later ones keep the stored temperatures, pressure and wiper speed.",
+     "manual: brochure p. 3 (KDL 1 BASIC features)"
+    ],
+    "rotate": [
+     "rotate sets the wiper speed (the film wiper of the still).",
+     "manual: brochure p. 2 (wiped film principle)"
+    ],
+    "set-temp": [
+     "manual: brochure p. 3"
+    ],
+    "vacuum": [
+     "manual: brochure p. 3"
+    ]
+   }
+  }
+ }
+}

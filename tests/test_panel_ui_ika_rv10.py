@@ -458,5 +458,18 @@ class Sweep20261019(unittest.TestCase):
         self.assertNotIn('run_owners', r.h._instances[INST].g03)
 
 
+
+class FixRoundB(unittest.TestCase):
+    """chemlab finding (2026-10-22): vacuum.set_pressure was agent-visible and 'declared' (planned) but this instrument has no
+    pressure controller; it is 'unsupported' now, in the runtime metadata and the contract."""
+    def test_set_pressure_is_unsupported(self):
+        meta = rt.export_rv10_contract_metadata()['asset_types'][rt.RV10_ASSET_TYPE_ID]['capabilities']['vacuum.set_pressure']
+        self.assertEqual(meta['availability'], 'unsupported')
+        c = json.loads((ROOT / 'assets/basic40_batch02/t2_vacuum/ika_rv10/asset.contract.json').read_text())
+        self.assertEqual(c['capabilities']['vacuum.set_pressure']['availability'], 'unsupported')
+        g = Rig()
+        r = g.A.invoke(instance_id=INST, capability_id='vacuum.set_pressure', arguments={'pressure_pa': 5000.0}, request_id='fixb_vp')
+        self.assertEqual((r['status'], r['error']['code']), ('unsupported', 'UNSUPPORTED'))
+
 if __name__ == '__main__':
     unittest.main()

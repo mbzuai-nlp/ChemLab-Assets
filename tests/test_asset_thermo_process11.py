@@ -326,4 +326,11 @@ class LibraryTests(Process11Tests.__mro__[1]):
         self.rejected(h,'drive.set_enabled',{'enabled':True})
         self.assertEqual(h.invoke('fault.clear',code='ME004'),{'latched':[]});h.invoke('drive.set_enabled',enabled=True);self.assertTrue(h.drive)
         s=h.session();self.assertEqual(s.invoke(instance_id=h.instance_id,capability_id='fault.inject',arguments={'code':'HE001'},request_id='f')['error']['code'],'ACCESS_DENIED')
+class FixRoundB(unittest.TestCase):
+    """chemlab finding (2026-10-22): method.configure answers BUSY while the screws turn; the contract text says so now."""
+    def test_method_configure_busy_while_screws_turn_is_stated(self):
+        self.assertIn('BUSY',r.export_thermo_process11_contract_metadata()['capabilities']['method.configure']['function_zh'])
+        h=configured(hot=True);h.invoke('drive.set_enabled',enabled=True)
+        with self.assertRaisesRegex(r.ActionRejected,'BUSY'):h.invoke('method.configure',**r.METHOD_EXAMPLE)
+        h.invoke('drive.set_enabled',enabled=False);h.invoke('method.configure',**r.METHOD_EXAMPLE)
 if __name__=='__main__':unittest.main()

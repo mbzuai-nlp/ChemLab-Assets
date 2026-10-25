@@ -582,7 +582,8 @@ class PanelRules(unittest.TestCase):
             self.assertIn(sid, c['state_slots'])
         for k in rt.FAULT_CAPS:
             self.assertEqual(c['capabilities'][k]['visibility'], 'evaluator')
-        self.assertEqual(sorted(f['id'] for f in c['extensions']['chemistry_lab.fixes']), ['crash_warning_fault', 'panel_caller_rules', 'sweep_hard_power_switch'])
+        self.assertEqual(sorted(f['id'] for f in c['extensions']['chemistry_lab.fixes']), ['crash_warning_fault', 'older_operations_pollable', 'panel_caller_rules',
+                                                                                             'schema_grids', 'sweep_hard_power_switch'])
         for cid in ('led_coating', 'gauge_keys_left', 'gauge_keys_right'):
             self.assertEqual(c['components'][cid]['geometry_status'], 'absent')
         self.assertIsNone(c['artifacts']['panel_engine']['sha256'])

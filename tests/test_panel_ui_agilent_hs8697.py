@@ -306,6 +306,19 @@ class SequenceEngine(unittest.TestCase):
         self.assertEqual(r.val('hs.emf')['run_count']['value'], 2)
         self.assertIn('Sequence completed', [e['text'] for e in r.val('hs.logs')['event']])
 
+    def test_sequence_start_declares_its_measurement_effects(self):
+        # chemlab finding (2026-10-22): a sequence injects through measure, so measurement.count / chromatogram and injection.log
+        # change while it runs; sequence.start did not list them
+        c = json.loads(CONTRACT.read_text())
+        fx = {e['state_id']: e['timing'] for e in c['capabilities']['sequence.start']['state_effects']}
+        for sid in ('measurement.count', 'measurement.chromatogram', 'injection.log'):
+            self.assertEqual(fx.get(sid), 'on_step', sid)
+        r = Rig()
+        r.call(r.A, 'sequence.start', vials=[1])
+        r.step(900)
+        self.assertEqual(r.val('measurement.count'), 1)
+        self.assertIsNotNone(r.val('measurement.chromatogram'))
+
     def test_sequence_actions_missing_wrong_size_leak_and_park(self):
         r = Rig(vials=2)
         r.call(r.A, 'lid.set_angle', angle_rad=rt.AGILENT_HS8697_LID_MAX_RAD)

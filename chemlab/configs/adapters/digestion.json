@@ -1,0 +1,736 @@
+{
+ "class": "digestion",
+ "adapter": "chemlab.compile.classes.digestion:DigestionAdapter",
+ "about": "Digestion and hydrolysis: method (temp / ramp / hold / program with units), load vessels at rack positions, set-temp, preheat, start (job), stop, result, status. power, open/close, ack and wait come from the shared layer. Ranges come from each member's contract in the unit the argument declares.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "multiwave_7101",
+   "scp_digiprepms",
+   "metrohm_909uv",
+   "buchi_hydrolexh"
+  ],
+  "secondary": {},
+  "excluded": {
+   "velp_udk159": "Kjeldahl distillation unit: its job is distillation and titration after a digestion done elsewhere (its primary class is titration); it has no digestion programme of its own, so it stays in the titration package"
+  }
+ },
+ "members": {
+  "multiwave_7101": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "build": "editor",
+     "create_cap": "methods.create",
+     "step_cap": "methods.set_step",
+     "add_cap": "methods.add_step",
+     "select_cap": "methods.select",
+     "delete_cap": "methods.delete"
+    },
+    "load": {
+     "build": "template",
+     "slot_cap": "rack.set_slot",
+     "template_cap": "digestion.load_template",
+     "positions": 24
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "multiwave",
+     "max_s": 14400
+    },
+    "stop": {
+     "cap": "run.abort"
+    },
+    "result": {
+     "cap": "digestion.evaluate",
+     "slot_arg": "slot_index"
+    }
+   },
+   "path": "run",
+   "path_exceptions": [
+    "digestion.evaluate"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "phase": "run.status",
+    "elapsed": "run.elapsed_s",
+    "remaining": "run.remaining_s",
+    "door": "door.closed",
+    "selected": "methods.selected",
+    "library": "methods.library",
+    "occupied": "rack.occupied_slots",
+    "records": "data.experiments"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "users.current",
+      "not": [
+       null
+      ],
+      "code": "NOT_LOGGED_IN",
+      "label": "a user logged in",
+      "message": "nobody is logged in on {inst}; methods are edited by a logged-in user.",
+      "fix": "log in: `chemlab call {inst} user.login --user_name chemist`."
+     },
+     {
+      "slot": "run.status",
+      "not": [
+       "running",
+       "cooling"
+      ],
+      "code": "BUSY",
+      "label": "no run going on",
+      "message": "{inst} is running a method ({value}); the method library is locked.",
+      "fix": "wait for the run (`chemlab run {inst} status`), or `chemlab run {inst} stop`."
+     }
+    ],
+    "load": [
+     {
+      "slot": "door.closed",
+      "value": false,
+      "code": "DOOR_CLOSED",
+      "label": "door open",
+      "message": "the door of {inst} is closed; vessels go into the rack with the door open.",
+      "fix": "open it: `chemlab run {inst} open door`, then load."
+     },
+     {
+      "slot": "microwave.enabled",
+      "value": false,
+      "code": "HEATING",
+      "label": "microwave off",
+      "message": "the microwave of {inst} is on.",
+      "fix": "wait until the run has ended (`chemlab run {inst} status`)."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "door.closed",
+      "value": true,
+      "code": "DOOR_OPEN",
+      "label": "door closed",
+      "message": "the door of {inst} is open; a method starts only with the door closed.",
+      "fix": "close it: `chemlab run {inst} close door`, then start."
+     },
+     {
+      "slot": "error.code",
+      "value": null,
+      "code": "ERROR_SHOWN",
+      "label": "no error shown",
+      "message": "{inst} shows error {value}.",
+      "fix": "acknowledge it (`chemlab run {inst} ack`); if it stays, switch the instrument off and on."
+     },
+     {
+      "slot": "users.current",
+      "not": [
+       null
+      ],
+      "code": "NOT_LOGGED_IN",
+      "label": "a user logged in",
+      "message": "nobody is logged in on {inst}.",
+      "fix": "log in: `chemlab call {inst} user.login --user_name chemist`."
+     }
+    ]
+   },
+   "codes": {
+    "run.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power on, a logged-in user with run rights, the door closed, no error and no run going on.",
+     "fix": "check `chemlab run {inst} status`; log in as chemist or administrator if needed."
+    },
+    "methods.create:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "BAD_METHOD",
+     "message": "{inst} did not accept the method name (empty, longer than 40 characters, or already used).",
+     "fix": "give another name= (up to 40 characters)."
+    },
+    "methods.set_step:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "BAD_STEP",
+     "message": "{inst} did not accept a step (above the method's temperature or power limit).",
+     "fix": "lower the step temperature or raise power=."
+    },
+    "digestion.load_template:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} declares vessel contents only with the door open, the microwave off and a vessel at the position.",
+     "fix": "`chemlab run {inst} open door`, then load again."
+    },
+    "rack.set_slot:PRECONDITION_FAILED": {
+     "code": "DOOR_CLOSED",
+     "message": "the rack of {inst} is reached only with the door open and the microwave off.",
+     "fix": "`chemlab run {inst} open door`."
+    }
+   },
+   "unsupported": {
+    "set-temp": "the Multiwave has no stand-alone set point: the temperature comes from the steps of the method it runs (manual p.49-51); use `method temp=... ramp=... hold=...`",
+    "preheat": "no preheating step: the microwave heats from the first step of the method"
+   },
+   "alternatives": {
+    "set-temp": "set the temperature in the method: `chemlab run multiwave_7101 method temp=180C ramp=15min hold=15min`, then `start`."
+   },
+   "params": {
+    "busy_phases": [
+     "running",
+     "cooling"
+    ],
+    "running_phases": [
+     "running"
+    ],
+    "cooling_phases": [
+     "cooling"
+    ],
+    "run_word": "method run",
+    "result_word": "vessel evaluation",
+    "result_lines": 12
+   },
+   "notes": {
+    "method": [
+     "creates (or replaces) a user temperature method: step 1 ramps to temp within ramp=, step 2 holds for hold=; the limits default to the maximum values (Create Method, manual p.49-50); name=NAME alone selects a library method (e.g. name=\"EPA 3051A HNO3\")",
+     "pre-installed methods cannot be changed (manual p.48); give your own name="
+    ],
+    "load": [
+     "positions 1-24 are slot indexes 0-23; --material/--method/--mass/--acid declare the vessel contents (reference material, EPA method id) for `result --slot N`"
+    ],
+    "start": [
+     "the run ends with the safety cooling to 60 °C (manual p.50-52); the job succeeds when the run record says completed"
+    ],
+    "result": [
+     "evaluates one vessel against the EPA method window, ramp and hold (`--slot N`)"
+    ]
+   }
+  },
+  "scp_digiprepms": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "build": "knots",
+     "cap": "method.configure",
+     "knots_arg": "knots",
+     "hold_arg": "hold_s",
+     "timeout_arg": "timeout_s"
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "digestion.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "digestion.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "phase": "cycle.phase",
+    "elapsed": "cycle.elapsed_s",
+    "method": "method.configured",
+    "sample": "sample.configured"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not running",
+      "message": "{inst} is running its programme.",
+      "fix": "stop it first: `chemlab run {inst} stop`."
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no programme yet; set-temp changes the temperature of a configured programme.",
+      "fix": "set one: `chemlab run {inst} method temp=95C ramp=10min hold=30min`."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not running",
+      "message": "{inst} is running its programme.",
+      "fix": "stop it first: `chemlab run {inst} stop`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no programme.",
+      "fix": "set one: `chemlab run {inst} method temp=95C ramp=10min hold=30min`."
+     },
+     {
+      "slot": "rack_left.lift_m",
+      "max": 0,
+      "code": "RACK_LIFTED",
+      "label": "left rack down",
+      "message": "the left tube rack of {inst} is lifted.",
+      "fix": "ask the lab operator to lower the racks."
+     },
+     {
+      "slot": "rack_right.lift_m",
+      "max": 0,
+      "code": "RACK_LIFTED",
+      "label": "right rack down",
+      "message": "the right tube rack of {inst} is lifted.",
+      "fix": "ask the lab operator to lower the racks."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, a programme, an idle block (one cycle per programme) and both racks down.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "method.configure:PRECONDITION_FAILED": {
+     "code": "NOT_SET_UP",
+     "message": "{inst} is not set up in this lab (no controller and tube review declared by the lab).",
+     "fix": "ask the lab operator."
+    },
+    "thermal.set_temperature:PRECONDITION_FAILED": {
+     "code": "NO_METHOD",
+     "message": "{inst} changes the temperature only of a configured programme that has not run yet.",
+     "fix": "`chemlab run {inst} method temp=95C hold=30min`."
+    }
+   },
+   "unsupported": {
+    "load": "the 48 tubes are placed in the block by the lab operator; the twin has no agent capability for it",
+    "preheat": "no separate preheating: the programme starts from the current block temperature (use ramp=)"
+   },
+   "params": {
+    "busy_phases": [
+     "running"
+    ],
+    "running_phases": [
+     "running"
+    ],
+    "run_word": "digestion cycle",
+    "result_word": "cycle record",
+    "timeout_margin_s": 7200
+   },
+   "notes": {
+    "method": [
+     "the programme starts at the current block temperature and ramps linearly to temp within ramp=; the cycle ends after hold= within 1 K of the last temperature (controller profiles of ramp/hold steps: manual p.2, catalogue p.14-15)",
+     "timeout= defaults to the programme + hold + 2 h"
+    ],
+    "set-temp": [
+     "makes the configured programme a constant temperature (keeps hold and timeout)"
+    ]
+   }
+  },
+  "metrohm_909uv": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "build": "keys",
+     "cap": "method.configure",
+     "keys": {
+      "temp": "temperature_K",
+      "hold": "duration_s"
+     },
+     "required": [
+      "temp",
+      "hold"
+     ],
+     "steps": {
+      "temperature_K": [
+       1,
+       "C"
+      ],
+      "duration_s": [
+       60,
+       "s"
+      ]
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K",
+     "steps": {
+      "temperature_K": [
+       1,
+       "C"
+      ]
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "digestion.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "digestion.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_temperature_k",
+    "set": "thermal.target_k",
+    "phase": "cycle.phase",
+    "elapsed": "cycle.elapsed_s",
+    "remaining": "cycle.remaining_s",
+    "method": "method.configured",
+    "sample": "sample.configured",
+    "shield": "shield.open_target"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method (temperature and radiation time).",
+      "fix": "set one: `chemlab run {inst} method temp=90C hold=90min`."
+     },
+     {
+      "slot": "sample.configured",
+      "value": true,
+      "code": "NO_SAMPLE",
+      "label": "samples in the holder",
+      "message": "no sample tubes are in the holder of {inst}.",
+      "fix": "ask the lab operator to place the sample tubes (with the shield open)."
+     },
+     {
+      "slot": "sensor.connected",
+      "value": true,
+      "code": "NO_SENSOR",
+      "label": "temperature sensor connected",
+      "message": "the temperature sensor of {inst} is not connected.",
+      "fix": "ask the lab operator to connect the sensor."
+     },
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "failed"
+      ],
+      "code": "FAULT",
+      "label": "no fault",
+      "message": "{inst} shows a fault ({value}).",
+      "fix": "acknowledge it: `chemlab run {inst} ack`, then start."
+     },
+     {
+      "slot": "shield.open_target",
+      "value": false,
+      "code": "SHIELD_OPEN",
+      "label": "shield closed",
+      "message": "the UV protective shield of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close shield`, give it a second (`chemlab wait 2`), then start."
+     },
+     {
+      "slot": "shield.angle_rad",
+      "max": 0,
+      "code": "SHIELD_MOVING",
+      "label": "shield fully closed",
+      "message": "the protective shield of {inst} is still closing.",
+      "fix": "give it a second: `chemlab wait 2`, then start."
+     },
+     {
+      "slot": "cycle.cooldown_s",
+      "max": 0,
+      "code": "COOLING",
+      "label": "lamp cooled down",
+      "message": "{inst} is cooling the samples after the last run ({value} left).",
+      "fix": "wait for it: `chemlab wait 600` (the fan cools for 10 min), then start.",
+      "show": "duration"
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: it needs power, a method, sample tubes, the sensor, the shield closed, no lamp cooling, a lamp within its lifetime and the samples below 105 °C.",
+     "fix": "check `chemlab run {inst} status`."
+    },
+    "method.configure:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "BAD_STEP",
+     "message": "{inst} takes the temperature in whole °C and the time in whole minutes.",
+     "fix": "round them, e.g. temp=90C hold=90min."
+    },
+    "thermal.set_temperature:INVALID_ARGUMENT": {
+     "kind": "usage",
+     "code": "BAD_STEP",
+     "message": "{inst} takes the temperature in whole °C.",
+     "fix": "round it, e.g. 90C."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} is not running.",
+     "fix": "nothing to stop."
+    }
+   },
+   "unsupported": {
+    "load": "the sample tubes go into the holder by hand with the shield open (lab operator); the twin has no agent capability for it",
+    "preheat": "no preheating: the UV lamp heats the samples during the run"
+   },
+   "params": {
+    "busy_phases": [
+     "running"
+    ],
+    "running_phases": [
+     "running"
+    ],
+    "run_word": "UV digestion",
+    "result_word": "digestion status",
+    "method_example": "temp=90C hold=90min"
+   },
+   "notes": {
+    "method": [
+     "temperature 80-100 °C in whole degrees, radiation time in whole minutes (manual p.28-33); the fan then cools the samples for 10 min"
+    ],
+    "start": [
+     "close the protective shield first (`close shield`); the samples are placed by the lab operator (manual p.34-38)"
+    ]
+   }
+  },
+  "buchi_hydrolexh": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "build": "keys",
+     "cap": "method.configure",
+     "keys": {
+      "hold": "hydrolysis_s",
+      "rinse-temp": "rinse_water_K",
+      "rinse-cycles": "minimum_rinse_cycles",
+      "rinse-volume": "minimum_rinse_m3"
+     },
+     "args": {
+      "accept_host_manual_sequence_automation": true
+     },
+     "required": [
+      "hold"
+     ],
+     "defaults": "example"
+    },
+    "load": {
+     "build": "valves",
+     "valve_cap": "valve.set",
+     "rack_cap": "rack.set_raised",
+     "positions": 6
+    },
+    "preheat": {
+     "cap": "thermal.set_mode",
+     "arg": "mode",
+     "on": "preheat",
+     "off": "off"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "hydrolysis.measure"
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "hydrolysis.measure"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "phase": "cycle.phase",
+    "stage": "cycle.stage",
+    "elapsed": "cycle.elapsed_s",
+    "method": "method.configured",
+    "mode": "thermal.mode",
+    "preheat": "thermal.preheat_s",
+    "rack": "rack.lift_m"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "cycle.phase",
+      "in": [
+       "idle"
+      ],
+      "code": "NOT_IDLE",
+      "label": "before a run",
+      "message": "{inst} takes a method only before a run (now {value}).",
+      "fix": "read the record (`chemlab run {inst} result`)."
+     }
+    ],
+    "load": [
+     {
+      "slot": "cycle.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "not running",
+      "message": "{inst} is running.",
+      "fix": "wait for the job or `chemlab run {inst} stop`."
+     }
+    ],
+    "preheat": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "a method set",
+      "message": "{inst} has no method (hydrolysis time, rinse settings).",
+      "fix": "set one: `chemlab run {inst} method hold=30min`."
+     },
+     {
+      "slot": "cycle.phase",
+      "in": [
+       "idle"
+      ],
+      "code": "NOT_IDLE",
+      "label": "idle",
+      "message": "{inst} is not idle ({value}).",
+      "fix": "read the record (`chemlab run {inst} result`)."
+     },
+     {
+      "slot": "thermal.preheat_s",
+      "min": 600,
+      "code": "NOT_PREHEATED",
+      "label": "preheated 10 min",
+      "message": "{inst} has preheated only {value}; it needs 10 min before a hydrolysis.",
+      "fix": "`chemlab run {inst} preheat on --wait`, then start.",
+      "show": "duration"
+     },
+     {
+      "slot": "rack.lift_m",
+      "max": 0,
+      "code": "RACK_UP",
+      "label": "rack down",
+      "message": "the sample rack of {inst} is up.",
+      "fix": "load: `chemlab run {inst} load POSITIONS` (opens the stopcocks of the positions with samples and lowers the rack)."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} did not start: the stopcocks must be open exactly at the positions that hold sample beakers (and closed elsewhere), with power on, a method, 10 min preheating, the rack down and the fume extraction of the lab running.",
+     "fix": "load the right positions (`chemlab run {inst} load 1,3` for samples at 1 and 3), then start."
+    },
+    "thermal.set_mode:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} heats only with power on, before or during a run, and with the fume extraction of the lab running.",
+     "fix": "`chemlab run {inst} power on`; ask the lab operator about the fume extraction."
+    },
+    "rack.set_raised:PRECONDITION_FAILED": {
+     "code": "HEATING",
+     "message": "the rack of {inst} is lifted only with the heater off and no run going on.",
+     "fix": "`chemlab run {inst} preheat off` first."
+    },
+    "acquisition.stop:PRECONDITION_FAILED": {
+     "code": "NOT_RUNNING",
+     "message": "{inst} is not running.",
+     "fix": "nothing to stop."
+    }
+   },
+   "unsupported": {
+    "set-temp": "no temperature set point: the heater has fixed power steps (off / preheat / work) and the samples boil at the acid's boiling point (manual p.10-13); use `preheat on`, the run switches to work by itself"
+   },
+   "alternatives": {
+    "set-temp": "`chemlab run buchi_hydrolexh preheat on --wait`, then `start` (the run heats at the work step)."
+   },
+   "params": {
+    "busy_phases": [
+     "running"
+    ],
+    "running_phases": [
+     "running"
+    ],
+    "run_word": "hydrolysis",
+    "result_word": "hydrolysis status",
+    "preheat_s": 600,
+    "method_example": "hold=30min"
+   },
+   "notes": {
+    "method": [
+     "hold= is the hydrolysis time at boiling; the rinse settings default to the documented example when left out (manual p.19-22)"
+    ],
+    "load": [
+     "opens the stopcocks of the given positions (1-6, the beakers the lab operator filled), closes the others and lowers the rack onto the heater"
+    ],
+    "preheat": [
+     "preheat for 10 min before the hydrolysis (manual p.19-22)"
+    ]
+   }
+  }
+ }
+}

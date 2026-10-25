@@ -13,7 +13,7 @@ import copy,importlib.util,json,math,os
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
 from asset_runtime.pccell_ed64002 import validate
-ROOT=Path(__file__).resolve().parents[2];SLUG='metrohm_909uv';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-046';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.1';ASSET_DIR=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG;TEMPLATE_REL='assets/reactions/metrohm_909uv_digestion_library/templates.json'
+ROOT=Path(__file__).resolve().parents[2];SLUG='metrohm_909uv';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-046';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.2';ASSET_DIR=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG;TEMPLATE_REL='assets/reactions/metrohm_909uv_digestion_library/templates.json'
 PHASE=dict(type='string',enum=['idle','running','succeeded','cancelled','failed'])
 CONTRAST_STEPS=10;CONTRAST_DEFAULT=6;LIFETIME_DEFAULT_H=750
 # instrument defects of manual p.45-46 that only an evaluator can cause (fault.inject); the firmware's "no increase in temperature" check of
@@ -26,7 +26,7 @@ def nullable(s):return dict(anyOf=[s,dict(type='null')])
 def array(s,n=None):return dict(type='array',items=s,minItems=n or 0,**({'maxItems':n} if n else {}))
 PLANT=obj({'ambient_K':number('K',283.15,308.15),'density_kg_m3':number('kg/m^3',950,1100),'liquid_cp_J_kg_K':number('J/(kg*K)',3800,4500),'dry_heat_capacity_J_K':number('J/K',10,5000),'absorbed_electrical_fraction':number('1',0,1),'passive_UA_W_K':number('W/K',0,10),'fan_UA_W_K':number('W/K',1,30),'lamp_power_limit_W':number('W',300,600),'oh_concentration_mol_m3':number('mol/m^3',0,1e-5),'site_weights':array(number('1',0,2),12),'temperature_rate_factor':number('1',0,100),'shield_speed_rad_s':number('rad/s',.1,5),'reviewed_aqueous_uv_h2o2_compatibility':BOOL,'accept_unverified_thermal_kinetics':BOOL,'coefficient_evidence':TEXT})
 PLANT_EXAMPLE=dict(ambient_K=298.15,density_kg_m3=1000.,liquid_cp_J_kg_K=4180.,dry_heat_capacity_J_K=200.,absorbed_electrical_fraction=.7,passive_UA_W_K=.4,fan_UA_W_K=8.,lamp_power_limit_W=600.,oh_concentration_mol_m3=1e-9,site_weights=[1.]*12,temperature_rate_factor=1.,shield_speed_rad_s=math.pi,reviewed_aqueous_uv_h2o2_compatibility=True,accept_unverified_thermal_kinetics=True,coefficient_evidence='explicit_host_teaching_assumptions_not_device_calibration')
-METHOD=obj({'temperature_K':number('K',353.15,373.15),'duration_s':number('s',60,59940)})
+METHOD=obj({'temperature_K':dict(number('K',353.15,373.15),description='whole degrees Celsius: temperature_K - 273.15 is an integer (the panel sets 1 degC steps); other values are refused (INVALID_ARGUMENT)'),'duration_s':dict(number('s',60,59940),multipleOf=60)})   # 1.2.2: the whole-degree / whole-minute grids in the schema
 METHOD_EXAMPLE=dict(temperature_K=363.15,duration_s=120.)
 TUBE=obj({'sample_id':TEXT,'substance_id':TEXT,'volume_m3':number('m^3',1e-6,12e-6),'parent_mol':number('mol',0,1e-5),'pH':nullable(number('1',0,14)),'accept_unknown_reference_pH':BOOL})
 SAMPLE=obj({'tubes':array(TUBE,12),'temperature_K':number('K',283.15,308.15),'sensor_connected':BOOL,'sensor_position':dict(type='integer',const=6,**{'x-unit':'1'})})
@@ -36,7 +36,7 @@ PRODUCT=obj({'parent_mol':array(number('mol',0),12),'transformed_parent_equivale
 CAPS={
  'plant.configure':(PLANT,obj({'configured':BOOL}),['body','lamp','fan'],'宿主光化学/热模型输入；没有从灯电功率虚构光强','configuration','evaluator',PLANT_EXAMPLE),
  'method.configure':(METHOD,obj({'configured':BOOL}),['display_digits','button_set'],'80–100°C整度、1–999整分钟；照射期间可修改','configuration','agent',METHOD_EXAMPLE),
- 'thermal.set_temperature':(obj({'temperature_K':number('K',353.15,373.15)}),obj({'temperature_K':number('K',353.15,373.15)}),['display_digits','button_up','button_down'],'仅写温度目标，step推进实际温度','device_command','agent',dict(temperature_K=363.15)),
+ 'thermal.set_temperature':(obj({'temperature_K':dict(number('K',353.15,373.15),description='whole degrees Celsius: temperature_K - 273.15 is an integer (the panel sets 1 degC steps); other values are refused (INVALID_ARGUMENT)')}),obj({'temperature_K':number('K',353.15,373.15)}),['display_digits','button_up','button_down'],'仅写温度目标，step推进实际温度','device_command','agent',dict(temperature_K=363.15)),
  'sample.configure':(SAMPLE,obj({'configured':BOOL,'attachment_event':TEXT}),['sample_holder','pt1000'],'12支石英管装样，空位必须有水；Pt1000固定6号位','configuration','evaluator',example_sample()),
  'power.set':(obj({'enabled':BOOL}),obj({'enabled':BOOL}),['button_power','power_inlet'],'供电；正常关机须完成冷却','device_command','agent',dict(enabled=True)),
  'power.interrupt':(obj({}),obj({'phase':PHASE}),['power_inlet'],'意外断电保留已反应样品，冷却计时暂停','simulation','evaluator',{}),

@@ -1,0 +1,1502 @@
+{
+ "class": "electrical",
+ "adapter": "chemlab.compile.classes.electrical:ElectricalAdapter",
+ "about": "Electrical, magnetic and thermoelectric property testers: contact, move, set-field, set-temp, temp, wait-temp, method (class keys with units), calibrate, start (job-N), stop, result, status. power / estop / ack / wait come from the shared layer.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "lakeshore_measurereadym91",
+   "signatone_quadpro2",
+   "lakeshore_8604vsm",
+   "novocontrol_alphat",
+   "linseis_lsr3"
+  ],
+  "secondary": {},
+  "not_here": {
+   "hot_tps2500": "thermal conductivity tester: primary in thermal_analysis (this package); not an electrical measurement"
+  }
+ },
+ "members": {
+  "lakeshore_measurereadym91": {
+   "role": "primary",
+   "verbs": {
+    "contact": {
+     "check": {
+      "cap": "contact_check.auto",
+      "keys": {
+       "max-current": {
+        "arg": "max_current_a",
+        "kind": "current"
+       },
+       "max-voltage": {
+        "arg": "max_voltage_v",
+        "kind": "voltage"
+       },
+       "points": {
+        "arg": "points"
+       },
+       "r2": {
+        "arg": "minimum_r_squared"
+       }
+      },
+      "defaults": {
+       "max_current_a": "example",
+       "max_voltage_v": "example",
+       "points": "example",
+       "minimum_r_squared": "example"
+      },
+      "passthrough": true
+     },
+     "probe_alternative": "the M91 has no probe actuator (the sample card is clamped by the lab operator); `contact check` runs its contact check"
+    },
+    "temp": {
+     "reads": [
+      "thermal.indicated_k",
+      "field.indicated_t"
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "current": {
+       "arg": "current_a",
+       "kind": "current"
+      },
+      "range": {
+       "arg": "current_range_a",
+       "kind": "current"
+      },
+      "vrange": {
+       "arg": "voltage_range_v",
+       "kind": "voltage"
+      },
+      "phase": {
+       "arg": "phase_duration_s",
+       "kind": "duration"
+      },
+      "repeats": {
+       "arg": "repeats"
+      },
+      "field-tol": {
+       "arg": "field_settling_tolerance_t",
+       "kind": "magnetic_field"
+      }
+     },
+     "need": [
+      "current"
+     ],
+     "defaults": {
+      "current_range_a": {
+       "auto_range_for": "current_a"
+      },
+      "voltage_range_v": "example",
+      "phase_duration_s": "example",
+      "repeats": "example",
+      "field_settling_tolerance_t": "example"
+     }
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate",
+     "keys": {
+      "field_offset_t": {
+       "arg": "field_offset_t",
+       "kind": "magnetic_field"
+      },
+      "voltage_offset_v": {
+       "arg": "voltage_offset_v",
+       "kind": "voltage"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "columns": {
+      "voltage_v": [
+       "voltage",
+       "voltage"
+      ],
+      "current_a": [
+       "current",
+       "current"
+      ],
+      "field_t": [
+       "field",
+       "magnetic_field"
+      ]
+     }
+    },
+    "analyze": {
+     "default": "hall",
+     "models": {
+      "hall": {
+       "cap": "analysis.hall_vdp",
+       "objects": {
+        "observations": {
+         "fields": [
+          "host_time_s",
+          "contact_configuration",
+          "current_a",
+          "voltage_v",
+          "field_t"
+         ]
+        }
+       },
+       "min_rows": 18,
+       "fix": "the Hall analysis needs at least 18 readings (two repeats): `chemlab run INST method current=... repeats=2`, then start again",
+       "keys": {
+        "thickness": {
+         "arg": "thickness_m",
+         "kind": "length"
+        }
+       },
+       "need": [
+        "thickness"
+       ],
+       "defaults": {
+        "hall_geometry_factor": "example",
+        "hall_factor": "example",
+        "field_symmetry_relative": "example",
+        "accept_single_carrier_model": "example"
+       }
+      }
+     },
+     "example": "hall thickness=500um"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_k",
+    "field": "field.indicated_t",
+    "field_set": "field.target_t",
+    "phase": "acquisition.phase",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "warmup": "warmup.ready",
+    "calibration": "calibration.state",
+    "voltage": "measured.voltage_v",
+    "current": "measured.current_a"
+   },
+   "requires": {
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "contact-check": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "warmup.elapsed_s",
+      "code": "WARMING_UP",
+      "message": "{inst} has been on for {value} s; it measures only after its 30 min warm-up.",
+      "fix": "wait: `chemlab wait 30min` (the warm-up counts from power-on).",
+      "label": "warmed up",
+      "min": 1800.0
+     },
+     {
+      "slot": "clamp.position_m",
+      "code": "CLAMP_OPEN",
+      "message": "the sample clamp of {inst} is open.",
+      "fix": "the lab operator closes the clamp; ask for it.",
+      "label": "clamp closed",
+      "max": 1e-09
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no sample card is in {inst}.",
+      "fix": "the lab operator mounts the sample; ask for it.",
+      "label": "sample mounted",
+      "truthy": true
+     },
+     {
+      "slot": "clamp.position_m",
+      "code": "CLAMP_OPEN",
+      "message": "the sample clamp of {inst} is open.",
+      "fix": "the lab operator closes the clamp; ask for it.",
+      "label": "clamp closed",
+      "max": 1e-09
+     },
+     {
+      "slot": "warmup.elapsed_s",
+      "code": "WARMING_UP",
+      "message": "{inst} has been on for {value} s; it measures only after its 30 min warm-up.",
+      "fix": "wait: `chemlab wait 30min` (the warm-up counts from power-on).",
+      "label": "warmed up",
+      "min": 1800.0
+     }
+    ]
+   },
+   "unsupported": {
+    "move": "no positioner: the specimen sits in a fixed holder",
+    "set-field": "the magnet is the lab's (its field is set by the lab operator, not by the M91 interface)",
+    "set-temp": "the sample temperature is set by the lab's temperature stage, not by the M91 interface",
+    "wait-temp": "no set point to wait for (the temperature is the lab's)"
+   },
+   "alternatives": {
+    "set-field": "read the field with `chemlab run INST temp`; the field of a Hall run is part of the lab set-up."
+   },
+   "notes": {
+    "method": [
+     "range=auto (default) picks the smallest current range that holds current=; the FastHall, resistivity and four-wire routines (fasthall.start, resistivity.start, four_wire.start) stay on `chemlab call`"
+    ],
+    "contact": [
+     "contact check [max-current=100mA max-voltage=10V points=11 r2=0.9999] runs contact_check.auto as job-N"
+    ]
+   },
+   "params": {
+    "manual": "M91 FastHall users manual pp. 11-33, 43-57 (SCPI command summary from p. 81)"
+   }
+  },
+  "signatone_quadpro2": {
+   "role": "primary",
+   "verbs": {
+    "contact": {
+     "probe": {
+      "cap": "probe.set_contact",
+      "arg": "contact",
+      "pos_slot": "probe.position_m",
+      "target_slot": "probe.target_m",
+      "down_value": 0.0,
+      "max_s": 60
+     },
+     "check_alternative": "the QuadPro2 has no separate contact check; every map point reports its own fit (see `result`)"
+    },
+    "move": {
+     "xy": {
+      "cap": "stage.move",
+      "x_arg": "x_m",
+      "y_arg": "y_m",
+      "busy": [
+       "stage.moving"
+      ],
+      "max_s": 120
+     }
+    },
+    "temp": {
+     "reads": [
+      "thermal.indicated_k"
+     ]
+    },
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "keys": {
+        "current": {
+         "arg": "fixed_current_a",
+         "kind": "current",
+         "also": {
+          "auto_current": false
+         }
+        },
+        "auto": {
+         "arg": "auto_current"
+        },
+        "min-current": {
+         "arg": "current_min_a",
+         "kind": "current"
+        },
+        "max-current": {
+         "arg": "current_max_a",
+         "kind": "current"
+        },
+        "vrange": {
+         "arg": "voltage_range_v",
+         "kind": "voltage"
+        },
+        "compliance": {
+         "arg": "voltage_compliance_v",
+         "kind": "voltage"
+        },
+        "vmin": {
+         "arg": "target_voltage_min_v",
+         "kind": "voltage"
+        },
+        "vmax": {
+         "arg": "target_voltage_max_v",
+         "kind": "voltage"
+        },
+        "phase": {
+         "arg": "phase_duration_s",
+         "kind": "duration"
+        },
+        "settle": {
+         "arg": "settling_s",
+         "kind": "duration"
+        },
+        "calibration": {
+         "arg": "require_calibration"
+        },
+        "warmup": {
+         "arg": "require_warmup"
+        }
+       },
+       "defaults": {
+        "auto_current": "example",
+        "current_min_a": "example",
+        "current_max_a": "example",
+        "fixed_current_a": "example",
+        "voltage_range_v": "example",
+        "voltage_compliance_v": "example",
+        "target_voltage_min_v": "example",
+        "target_voltage_max_v": "example",
+        "phase_duration_s": "example",
+        "settling_s": "example",
+        "require_calibration": "example",
+        "require_warmup": "example"
+       }
+      },
+      {
+       "cap": "map.configure",
+       "keys": {
+        "point": {
+         "arg": "points",
+         "record": [
+          [
+           "x_m",
+           "length"
+          ],
+          [
+           "y_m",
+           "length"
+          ]
+         ],
+         "sep": ",",
+         "example": "20mm,0mm"
+        },
+        "edge": {
+         "arg": "edge_exclusion_m",
+         "kind": "length"
+        },
+        "thickness": {
+         "arg": "thickness_prior_m",
+         "kind": "length"
+        }
+       },
+       "need": [
+        "point"
+       ],
+       "defaults": {
+        "edge_exclusion_m": "example",
+        "thickness_prior_m": "example"
+       }
+      }
+     ]
+    },
+    "calibrate": {
+     "cap": "calibration.start",
+     "keys": {
+      "ref": {
+       "arg": "reference_sheet_resistance_ohm_sq",
+       "kind": "sheet_resistance"
+      }
+     },
+     "need": [
+      "ref"
+     ]
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "show": {
+      "statistics.mean_ohm_sq": [
+       "mean sheet resistance",
+       "sheet_resistance"
+      ],
+      "statistics.relative_std_percent": [
+       "non-uniformity (%)",
+       null
+      ],
+      "selected_current_a": [
+       "current",
+       "current"
+      ],
+      "calibration_gain": [
+       "calibration gain",
+       null
+      ]
+     },
+     "per_item": {
+      "path": "rows",
+      "label": "point",
+      "fields": {
+       "x_m": [
+        "x",
+        "length"
+       ],
+       "y_m": [
+        "y",
+        "length"
+       ],
+       "sheet_resistance_ohm_sq": [
+        "Rs",
+        "sheet_resistance"
+       ]
+      }
+     }
+    },
+    "analyze": {
+     "default": "sheet",
+     "models": {
+      "sheet": {
+       "cap": "analysis.sheet_resistance",
+       "pick": {
+        "key": "point",
+        "path": "rows"
+       },
+       "min_rows": 1,
+       "objects": {
+        "observations": {
+         "from": "it.observations",
+         "fields": [
+          "configuration",
+          "current_a",
+          "voltage_v"
+         ]
+        }
+       },
+       "scalars": {
+        "x_m": "it:x_m",
+        "y_m": "it:y_m",
+        "calibration_gain": "result:calibration_gain|1.0"
+       },
+       "keys": {
+        "point": {
+         "ctl": "point",
+         "kind": "number"
+        },
+        "diameter": {
+         "arg": "diameter_m",
+         "kind": "length"
+        },
+        "spacing": {
+         "arg": "spacing_m",
+         "kind": "length"
+        },
+        "thickness": {
+         "arg": "thickness_prior_m",
+         "kind": "length"
+        }
+       },
+       "need": [
+        "diameter"
+       ],
+       "defaults": {
+        "spacing_m": "example",
+        "thickness_prior_m": "example"
+       }
+      }
+     },
+     "example": "sheet diameter=100mm point=1"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_k",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "probe": "probe.position_m",
+    "x": "stage.x_m",
+    "y": "stage.y_m",
+    "warmup": "source.warmup_ready",
+    "calibration": "calibration.valid",
+    "sheet": "measurement.last_sheet_resistance_ohm_sq"
+   },
+   "requires": {
+    "contact-on": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no wafer is on the chuck of {inst}.",
+      "fix": "the lab operator places the wafer; ask for it.",
+      "label": "wafer on the chuck",
+      "truthy": true
+     },
+     {
+      "slot": "hood.angle_rad",
+      "code": "HOOD_OPEN",
+      "message": "the dark hood of {inst} is open; the probe goes down only with it closed.",
+      "fix": "the lab operator closes the hood; ask for it.",
+      "label": "hood closed",
+      "max": 1e-09
+     },
+     {
+      "slot": "stage.moving",
+      "code": "MOVING",
+      "message": "the stage of {inst} is still moving.",
+      "fix": "wait (`chemlab wait 5`), then retry.",
+      "label": "stage at rest",
+      "falsy": true
+     }
+    ],
+    "contact-off": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "move-xy": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "probe.position_m",
+      "code": "PROBE_DOWN",
+      "message": "the probe of {inst} is down on the wafer; the stage moves only with it lifted.",
+      "fix": "lift it: `chemlab run {inst} contact off`.",
+      "label": "probe lifted",
+      "min": 0.0099
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no wafer is on the chuck of {inst}.",
+      "fix": "the lab operator places the wafer; ask for it.",
+      "label": "wafer on the chuck",
+      "truthy": true
+     },
+     {
+      "slot": "hood.angle_rad",
+      "code": "HOOD_OPEN",
+      "message": "the dark hood of {inst} is open.",
+      "fix": "the lab operator closes the hood; ask for it.",
+      "label": "hood closed",
+      "max": 1e-09
+     }
+    ]
+   },
+   "unsupported": {
+    "set-field": "no magnet control: the field is set by the lab (or not used)",
+    "set-temp": "no temperature chuck in this set-up (the TCR option is not fitted)",
+    "wait-temp": "no set point to wait for"
+   },
+   "notes": {
+    "method": [
+     "method point=X,Y (repeatable) edge=3mm sets the map (map.configure); current=1mA switches to a fixed current (auto_current off)",
+     "the example method requires a calibration (require_calibration=true): calibrate on a standard, or set calibration=false"
+    ],
+    "start": [
+     "start runs the whole map: lift, move, lower, measure at every point (the stage and probe move by themselves)"
+    ]
+   },
+   "params": {
+    "manual": "QuadPro2 data sheet rev 1.7 pp. 1-6, 8-15; Keithley 2450 reference manual pp. 80-121"
+   }
+  },
+  "lakeshore_8604vsm": {
+   "role": "primary",
+   "verbs": {
+    "move": {
+     "lift": {
+      "cap": "sample.set_lift",
+      "arg": "lift_m",
+      "pos_slot": "sample.lift_m",
+      "target_slot": "sample.target_lift_m",
+      "max_s": 180
+     },
+     "angle": {
+      "cap": "sample.set_angle",
+      "arg": "angle_rad",
+      "pos_slot": "sample.angle_rad",
+      "target_slot": "sample.target_angle_rad",
+      "max_s": 180
+     }
+    },
+    "set-field": {
+     "cap": "field.set_target",
+     "arg": "field_t",
+     "rate_arg": "ramp_rate_t_s"
+    },
+    "temp": {
+     "reads": [
+      "thermal.sample_k",
+      "field.indicated_t"
+     ]
+    },
+    "method": {
+     "calls": [
+      {
+       "cap": "coil.configure",
+       "keys": {
+        "coupling": {
+         "arg": "nominal_coupling_wb_per_a_m3"
+        },
+        "range": {
+         "arg": "moment_range_a_m2",
+         "kind": "moment"
+        }
+       },
+       "defaults": {
+        "nominal_coupling_wb_per_a_m3": "example",
+        "moment_range_a_m2": "example"
+       }
+      },
+      {
+       "cap": "vibration.configure",
+       "keys": {
+        "vibrate": {
+         "arg": "enabled"
+        },
+        "amplitude": {
+         "arg": "amplitude_m",
+         "kind": "length"
+        },
+        "vfreq": {
+         "arg": "frequency_hz",
+         "kind": "frequency"
+        }
+       },
+       "defaults": {
+        "enabled": {
+         "value": true,
+         "why": "vibration on"
+        },
+        "amplitude_m": "example",
+        "frequency_hz": "example"
+       }
+      },
+      {
+       "cap": "method.configure",
+       "keys": {
+        "field": {
+         "arg": "field_points_t",
+         "kind": "magnetic_field",
+         "list": true
+        },
+        "loop": {
+         "arg": "field_points_t",
+         "kind": "magnetic_field",
+         "loop": true
+        },
+        "rate": {
+         "arg": "ramp_rate_t_s",
+         "kind": "field_rate"
+        },
+        "average": {
+         "arg": "averaging_time_s",
+         "kind": "duration"
+        },
+        "settle": {
+         "arg": "settling_time_s",
+         "kind": "duration"
+        },
+        "calibration": {
+         "arg": "require_calibration"
+        }
+       },
+       "need": [
+        "field"
+       ],
+       "defaults": {
+        "ramp_rate_t_s": "example",
+        "averaging_time_s": "example",
+        "settling_time_s": "example",
+        "require_calibration": "example"
+       }
+      }
+     ]
+    },
+    "calibrate": {
+     "cap": "calibration.start",
+     "keys": {
+      "moment": {
+       "arg": "reference_moment_a_m2",
+       "kind": "moment"
+      },
+      "field": {
+       "arg": "field_t",
+       "kind": "magnetic_field"
+      },
+      "average": {
+       "arg": "averaging_time_s",
+       "kind": "duration"
+      }
+     },
+     "need": [
+      "moment"
+     ],
+     "defaults": {
+      "field_t": "example",
+      "averaging_time_s": "example"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "columns": {
+      "field_t": [
+       "field",
+       "magnetic_field"
+      ],
+      "moment_a_m2": [
+       "moment",
+       "moment"
+      ]
+     }
+    },
+    "analyze": {
+     "default": "loop",
+     "models": {
+      "loop": {
+       "cap": "analysis.loop",
+       "pass_rows": "rows"
+      }
+     },
+     "example": "loop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.sample_k",
+    "field": "field.indicated_t",
+    "field_set": "field.target_t",
+    "moment": "moment.indicated_a_m2",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "points": "acquisition.points",
+    "sample": "sample.present",
+    "lift": "sample.lift_m",
+    "vibration": "vibration.enabled",
+    "calibration": "calibration.valid"
+   },
+   "requires": {
+    "move-lift": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "vibration.enabled",
+      "code": "VIBRATING",
+      "message": "the sample rod of {inst} is vibrating; it moves only at rest.",
+      "fix": "stop it: `chemlab run {inst} method vibrate=off`.",
+      "label": "vibration off",
+      "falsy": true
+     },
+     {
+      "slot": "field.target_t",
+      "code": "FIELD_ON",
+      "message": "the field set point of {inst} is {value} T; the rod moves only at zero field.",
+      "fix": "ramp it down: `chemlab run {inst} set-field 0 --wait`.",
+      "label": "zero field",
+      "min": -1e-09,
+      "max": 1e-09
+     },
+     {
+      "slot": "field.indicated_t",
+      "code": "FIELD_ON",
+      "message": "the field of {inst} is still {value} T; the rod moves only at zero field.",
+      "fix": "wait for it: `chemlab run {inst} set-field 0 --wait`.",
+      "label": "field at zero",
+      "min": -1e-09,
+      "max": 1e-09
+     }
+    ],
+    "move-angle": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "vibration.enabled",
+      "code": "VIBRATING",
+      "message": "the sample rod of {inst} is vibrating; it moves only at rest.",
+      "fix": "stop it: `chemlab run {inst} method vibrate=off`.",
+      "label": "vibration off",
+      "falsy": true
+     },
+     {
+      "slot": "field.target_t",
+      "code": "FIELD_ON",
+      "message": "the field set point of {inst} is {value} T; the rod moves only at zero field.",
+      "fix": "ramp it down: `chemlab run {inst} set-field 0 --wait`.",
+      "label": "zero field",
+      "min": -1e-09,
+      "max": 1e-09
+     },
+     {
+      "slot": "field.indicated_t",
+      "code": "FIELD_ON",
+      "message": "the field of {inst} is still {value} T; the rod moves only at zero field.",
+      "fix": "wait for it: `chemlab run {inst} set-field 0 --wait`.",
+      "label": "field at zero",
+      "min": -1e-09,
+      "max": 1e-09
+     }
+    ],
+    "set-field": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "coil.configured",
+      "code": "NO_COIL",
+      "message": "the pick-up coils of {inst} are not configured.",
+      "fix": "set them: `chemlab run {inst} method range=10emu`.",
+      "label": "coils configured",
+      "truthy": true
+     },
+     {
+      "slot": "vibration.enabled",
+      "code": "NOT_VIBRATING",
+      "message": "the sample of {inst} is not vibrating.",
+      "fix": "start it: `chemlab run {inst} method vibrate=on`.",
+      "label": "vibration on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.lift_m",
+      "code": "NOT_LOWERED",
+      "message": "the sample rod of {inst} is not in the measuring position (lift {value} m).",
+      "fix": "lower it: `chemlab run {inst} move --lift 0mm`.",
+      "label": "rod lowered",
+      "max": 1e-06
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no sample is on the rod of {inst}.",
+      "fix": "the lab operator mounts the sample; ask for it.",
+      "label": "sample mounted",
+      "truthy": true
+     },
+     {
+      "slot": "sample.lift_m",
+      "code": "NOT_LOWERED",
+      "message": "the sample of {inst} is not in the measuring position (lift {value} m).",
+      "fix": "lower it: `chemlab run {inst} move --lift 0mm`.",
+      "label": "sample lowered",
+      "max": 1e-06
+     },
+     {
+      "slot": "coil.configured",
+      "code": "NO_COIL",
+      "message": "the pick-up coils of {inst} are not configured.",
+      "fix": "set them: `chemlab run {inst} method range=10emu`.",
+      "label": "coils configured",
+      "truthy": true
+     },
+     {
+      "slot": "vibration.enabled",
+      "code": "NOT_VIBRATING",
+      "message": "the sample of {inst} is not vibrating.",
+      "fix": "start it: `chemlab run {inst} method vibrate=on`.",
+      "label": "vibration on",
+      "truthy": true
+     }
+    ]
+   },
+   "unsupported": {
+    "contact": "no probe contact: the sample hangs on the vibrating rod",
+    "set-temp": "no oven or cryostat in this set-up (the temperature is read only)",
+    "wait-temp": "no set point to wait for"
+   },
+   "params": {
+    "field_tolerance_t": 0.0001,
+    "manual": "8600 Series VSM catalog pp. 6-11, 16-21"
+   },
+   "notes": {
+    "method": [
+     "method range=10emu vibrate=on amplitude=0.5mm vfreq=82Hz sets the coils and the vibration; field=0.2T (repeatable) or loop=0.5T/0.1T the field points"
+    ],
+    "move": [
+     "move --lift 0mm lowers the sample into the coils; --angle 90deg rotates it (with the vibration off)"
+    ]
+   }
+  },
+  "novocontrol_alphat": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "off_cap": "thermal.disable"
+    },
+    "temp": {
+     "reads": [
+      "thermal.indicated_k",
+      "thermal.target_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "thermal.indicated_k",
+      "thermal.target_k"
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "freq": {
+       "arg": "frequencies_hz",
+       "kind": "frequency",
+       "list": true,
+       "sweep": "log"
+      },
+      "sweep": {
+       "arg": "frequencies_hz",
+       "kind": "frequency",
+       "list": true,
+       "sweep": "log"
+      },
+      "voltage": {
+       "arg": "source_voltage_rms_v",
+       "kind": "voltage"
+      },
+      "cycles": {
+       "arg": "cycles_per_point"
+      },
+      "settle": {
+       "arg": "settling_s",
+       "kind": "duration"
+      },
+      "calibration": {
+       "arg": "require_calibration"
+      }
+     },
+     "need": [
+      "freq"
+     ],
+     "defaults": {
+      "source_voltage_rms_v": "example",
+      "cycles_per_point": "example",
+      "settling_s": "example",
+      "require_calibration": "example"
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "per_item": {
+      "path": "rows",
+      "label": "point",
+      "fields": {
+       "frequency_hz": [
+        "f",
+        "frequency"
+       ],
+       "epsilon_real": [
+        "eps'",
+        null
+       ],
+       "epsilon_loss": [
+        "eps''",
+        null
+       ],
+       "tan_delta": [
+        "tan delta",
+        null
+       ]
+      }
+     }
+    },
+    "analyze": {
+     "default": "dielectric",
+     "models": {
+      "dielectric": {
+       "cap": "analysis.dielectric",
+       "pick": {
+        "key": "point",
+        "path": "rows"
+       },
+       "min_rows": 1,
+       "scalars": {
+        "frequency_hz": "it:frequency_hz",
+        "voltage_rms": "it:voltage_rms",
+        "current_rms": "it:current_rms"
+       },
+       "keys": {
+        "point": {
+         "ctl": "point",
+         "kind": "number"
+        },
+        "diameter": {
+         "arg": "diameter_m",
+         "kind": "length"
+        },
+        "thickness": {
+         "arg": "thickness_m",
+         "kind": "length"
+        }
+       },
+       "need": [
+        "diameter",
+        "thickness"
+       ]
+      }
+     },
+     "example": "dielectric diameter=20mm thickness=1mm point=1"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.indicated_k",
+    "set": "thermal.target_k",
+    "control": "thermal.enabled",
+    "phase": "acquisition.phase",
+    "points": "acquisition.points",
+    "sample": "sample.present"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no sample cell is mounted in {inst}.",
+      "fix": "the lab operator mounts the sample cell; ask for it.",
+      "label": "sample mounted",
+      "truthy": true
+     },
+     {
+      "slot": "clamp.position_m",
+      "code": "CLAMP_OPEN",
+      "message": "the sample cell of {inst} is not clamped.",
+      "fix": "the lab operator clamps it; ask for it.",
+      "label": "cell clamped",
+      "max": 1e-09
+     }
+    ]
+   },
+   "unsupported": {
+    "contact": "no probe contact: the sample sits between fixed electrodes",
+    "move": "no positioner: the specimen sits in a fixed holder",
+    "set-field": "no magnet control: the field is set by the lab (or not used)",
+    "calibrate": "open / short / load calibration needs the fixture switched to its open, short and load standards, which only the lab operator can do; calibration.solve / calibration.apply stay on `chemlab call` for records you have"
+   },
+   "params": {
+    "tolerance_k": 0.3,
+    "manual": "Alpha/Beta series technical specification rev C pp. 4-11; Alpha GPIB command page"
+   },
+   "notes": {
+    "method": [
+     "freq=1kHz (repeatable, or a comma list) or sweep=10Hz..1MHz/13 (log-spaced points)"
+    ]
+   }
+  },
+  "linseis_lsr3": {
+   "role": "primary",
+   "verbs": {
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "rate_arg": "ramp_rate_k_min",
+     "off_cap": "thermal.disable",
+     "gradient": {
+      "cap": "thermal.set_gradient",
+      "arg": "delta_k"
+     }
+    },
+    "temp": {
+     "reads": [
+      "thermal.mean_k",
+      "thermal.target_k",
+      "thermal.delta_k"
+     ]
+    },
+    "wait-temp": {
+     "reads": [
+      "thermal.mean_k",
+      "thermal.target_k"
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "arg": "phase_interval_s",
+       "kind": "duration"
+      },
+      "current": {
+       "arg": "current_a",
+       "kind": "current"
+      },
+      "min-delta": {
+       "arg": "minimum_delta_k",
+       "kind": "temperature_delta"
+      },
+      "tolerance": {
+       "arg": "equilibrium_tolerance_k",
+       "kind": "temperature_delta"
+      },
+      "geometry": {
+       "arg": "geometry_factor"
+      },
+      "contact-r": {
+       "arg": "contact_resistance_correction_ohm",
+       "kind": "resistance"
+      }
+     },
+     "defaults": {
+      "duration_s": "example",
+      "phase_interval_s": "example",
+      "current_a": "example",
+      "minimum_delta_k": "example",
+      "equilibrium_tolerance_k": "example",
+      "geometry_factor": "example",
+      "contact_resistance_correction_ohm": "example"
+     }
+    },
+    "calibrate": {
+     "cap": "sensor.calibrate",
+     "keys": {
+      "hot_offset_k": {
+       "arg": "hot_offset_k",
+       "kind": "temperature_delta"
+      },
+      "cold_offset_k": {
+       "arg": "cold_offset_k",
+       "kind": "temperature_delta"
+      },
+      "voltage_offset_v": {
+       "arg": "voltage_offset_v",
+       "kind": "voltage"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "per_item": {
+      "path": "transport_points",
+      "label": "point",
+      "max": 4,
+      "fields": {
+       "temperature_k": [
+        "T",
+        "temperature"
+       ],
+       "seebeck_v_k": [
+        "S (V/K)",
+        null
+       ],
+       "resistivity_ohm_m": [
+        "rho (ohm m)",
+        null
+       ]
+      }
+     }
+    },
+    "analyze": {
+     "default": "transport",
+     "models": {
+      "transport": {
+       "cap": "analysis.transport",
+       "pick": {
+        "key": "point",
+        "path": "transport_points",
+        "group": 3
+       },
+       "scalars": {
+        "zero_voltage_v": "row:polarity=zero/voltage_v",
+        "positive_voltage_v": "row:polarity=positive/voltage_v",
+        "negative_voltage_v": "row:polarity=negative/voltage_v",
+        "positive_current_a": "row:polarity=positive/current_a",
+        "negative_current_a": "row:polarity=negative/current_a",
+        "hot_temperature_k": "row:polarity=zero/hot_temperature_k",
+        "cold_temperature_k": "row:polarity=zero/cold_temperature_k"
+       },
+       "keys": {
+        "point": {
+         "ctl": "point",
+         "kind": "number"
+        },
+        "width": {
+         "arg": "width_m",
+         "kind": "length"
+        },
+        "depth": {
+         "arg": "depth_m",
+         "kind": "length"
+        },
+        "spacing": {
+         "arg": "probe_spacing_m",
+         "kind": "length"
+        },
+        "geometry": {
+         "arg": "geometry_factor"
+        },
+        "contact-r": {
+         "arg": "contact_resistance_correction_ohm",
+         "kind": "resistance"
+        }
+       },
+       "need": [
+        "width",
+        "depth",
+        "spacing"
+       ],
+       "defaults": {
+        "geometry_factor": "example",
+        "contact_resistance_correction_ohm": "example"
+       }
+      }
+     },
+     "example": "transport width=3mm depth=3mm spacing=8mm point=1"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "temp": "thermal.mean_k",
+    "set": "thermal.target_k",
+    "control": "thermal.enabled",
+    "delta": "thermal.delta_k",
+    "phase": "acquisition.phase",
+    "points": "acquisition.points",
+    "sample": "sample.present"
+   },
+   "requires": {
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "calibrate": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "label": "power on",
+      "truthy": true
+     },
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "message": "no specimen is mounted in {inst}.",
+      "fix": "the lab operator mounts it; ask for it.",
+      "label": "specimen mounted",
+      "truthy": true
+     },
+     {
+      "slot": "furnace.position_m",
+      "code": "FURNACE_OPEN",
+      "message": "the furnace of {inst} is not lowered over the specimen.",
+      "fix": "the lab operator closes it; ask for it.",
+      "label": "furnace closed",
+      "max": 1e-09
+     },
+     {
+      "slot": "clamp.position_m",
+      "code": "CLAMP_OPEN",
+      "message": "the specimen of {inst} is not clamped between the electrodes.",
+      "fix": "the lab operator clamps it; ask for it.",
+      "label": "clamped",
+      "max": 1e-09
+     }
+    ]
+   },
+   "unsupported": {
+    "contact": "no probe actuator: the thermocouple probes are set when the lab operator mounts the specimen",
+    "move": "no positioner: the specimen sits in a fixed holder",
+    "set-field": "no magnet control: the field is set by the lab (or not used)"
+   },
+   "params": {
+    "tolerance_k": 0.5,
+    "manual": "LSR-3 specifications pp. 1-2; LSR Seebeck/resistivity brochure pp. 4-14"
+   },
+   "notes": {
+    "set-temp": [
+     "--gradient 5K sets the temperature difference across the specimen for the Seebeck measurement",
+     "the furnace temperature programme (program.configure / program.start) stays on `chemlab call`"
+    ]
+   }
+  }
+ }
+}

@@ -8,8 +8,12 @@ from __future__ import annotations
 import copy,hashlib,importlib.util,json,math,os,tempfile,weakref
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT
+
+
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.2.1: a refusal whose message names the cause
 from asset_runtime.pccell_ed64002 import validate
-ROOT=Path(__file__).resolve().parents[2];SLUG='thinky_are310s';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-045';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.0';ASSET_DIR=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG;TEMPLATE_REL='assets/reactions/thinky_are310s_mixing_library/templates.json'
+ROOT=Path(__file__).resolve().parents[2];SLUG='thinky_are310s';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-045';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.1';ASSET_DIR=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG;TEMPLATE_REL='assets/reactions/thinky_are310s_mixing_library/templates.json'
 ORBIT_RADIUS=.07;ROTOR_Z=.225;TILT=math.pi/4;LID_Z=.315;LID_Y=.135
 PHASE=dict(type='string',enum=['idle','running','succeeded','cancelled','failed'])
 def nullable(s):return dict(anyOf=[s,dict(type='null')])
@@ -112,8 +116,24 @@ class ThinkyAre310sRuntime:
  def _values(self):return {'plant.configured':bool(self.plant),'method.configured':bool(self.method),'sample.configured':bool(self.sample),'power.enabled':self.powered,'lid.open_target':self.lid_open,'lid.angle_rad':self.lid_angle,'lid.locked':bool(self.phase=='running' or self.rpm>1e-9 or not self.lid_open),'balance.gross_mass_kg':self.balance,'balance.dial_angle_rad':-math.pi*5/6+self.balance/.31*math.pi*5/3,'cycle.phase':self.phase,'cycle.mode':self.mode,'cycle.stage_index':self.stage_index,'cycle.elapsed_s':self.elapsed_s,'cycle.remaining_s':self.remaining(),'rotor.revolution_rpm':self.rpm,'rotor.spin_rpm':self.spin,'rotor.angle_rad':self.angle,'cup.angle_rad':self.cup_angle,'panel.rpm':round(self.rpm),'panel.remaining_s':math.ceil(self.remaining()-1e-9),'thermal.indicated_temperature_k':None,'truth.mass_kg':self.mass,'truth.initial_mass_kg':self.initial,'truth.collected_mass_kg':self.collected,'truth.temperature_k':self.temperature,'truth.mixing_index':self.mixed,'truth.entrained_gas_mol':self.gas,'truth.headspace_gas_mol':self.headgas,'truth.collected_gas_mol':self.collected_gas,'truth.dissipated_energy_j':self.heat,'truth.heat_to_ambient_j':self.loss,'truth.thermal_storage_j':self.storage,'truth.collected_heat_j':self.collected_heat,'conditions.mode':self.cond_mode,'conditions.memory':self.memory_no[self.cond_mode],'conditions.step':self.step_no,'conditions.current':self.working[self.step_no-1],'conditions.working':self.working,'conditions.memories':self.memories,'fault.code':self.fault['code'] if self.fault else None}
  def read(self,visibility='agent'):return copy.deepcopy({k:v for k,v in self._values().items() if SLOTS[k][3]=='agent' or visibility in ['debug','evaluator']})
  def debug_snapshot(self):return copy.deepcopy({k:v for k,v in self.__dict__.items() if k!='templates'})
+ def _start_refusal(self):
+  """1.2.1: why a start is refused; no IMBALANCE code is declared, so the code stays PRECONDITION_FAILED."""
+  if not self.plant:return 'the trusted host has not configured the mixer (plant.configure)'
+  if not self.method:return 'no mixing program is set (method.configure)'
+  if not self.sample:return 'no cup is loaded'
+  if not self.powered:return 'the mixer is switched off'
+  if self.fault:return 'Err%s is shown; remove the cause and clear it first'%self.fault['code']
+  if self.phase=='running' or self.rpm>1e-9:return 'the rotor is still turning'
+  if self.mode=='reference_limit':return 'an earlier run stopped at the temperature limit of the sample reference data; this sample cannot be mixed further'
+  if self.lid_open or self.lid_angle>1e-9:return 'the lid is not closed'
+  if sum(self.mass)<=0:return 'the cup is empty'
+  if abs(self.balance-self.gross())>self.plant['balance_tolerance_kg']+1e-12:
+   return ('the rotation balance does not match the loaded container: set the balance scale (balance.set) to the gross mass of cup, adapter and '
+           'sample within the tolerance (manual 5-4, Err2: adjust the rotation balance)')
+  return None
  def _start(self):
-  if not all([self.plant,self.method,self.sample,self.powered]) or self.fault or self.phase=='running' or self.mode=='reference_limit' or self.rpm>1e-9 or self.lid_open or self.lid_angle>1e-9 or sum(self.mass)<=0 or abs(self.balance-self.gross())>self.plant['balance_tolerance_kg']+1e-12:raise ActionRejected('PRECONDITION_FAILED')
+  why=self._start_refusal()
+  if why:raise _rejected('PRECONDITION_FAILED',why)
   self._operation_count+=1;self.operation_id=self.instance_id+':'+str(self._operation_count);self.phase='running';self.mode=self.method['program'][0]['mode'];self.elapsed_s=self.stage_time=0.;self.stage_index=0
  @property
  def panel(self):
@@ -230,14 +250,15 @@ class ThinkyAre310sRuntime:
    if self.phase=='running':self.phase='cancelled';self.mode='power_loss_braking'
    out=dict(phase=self.phase)
   elif capability=='lid.set_open':
-   if a['open'] and (self.phase=='running' or self.rpm>1e-9 or not self.powered):raise ActionRejected('PRECONDITION_FAILED')
+   if a['open'] and (self.phase=='running' or self.rpm>1e-9 or not self.powered):
+    raise _rejected('PRECONDITION_FAILED','the lid lock opens only with the power on' if not self.powered else 'the lid stays locked while the rotor turns')
    self.lid_open=a['open'];out=a
   elif capability=='balance.set':
-   if self.lid_angle<1.4:raise ActionRejected('PRECONDITION_FAILED')
+   if self.lid_angle<1.4:raise _rejected('PRECONDITION_FAILED','open the lid fully before turning the balance knob')
    self.balance=a['gross_mass_kg'];out=a
   elif capability=='acquisition.start':self._start();out=dict(phase=self.phase,operation_id=self.operation_id)
   elif capability=='acquisition.stop':
-   if self.phase!='running':raise ActionRejected('PRECONDITION_FAILED')
+   if self.phase!='running':raise _rejected('PRECONDITION_FAILED','no run is in progress')
    self.phase='cancelled';self.mode='braking';out=dict(phase=self.phase)
   elif capability=='mixing.toggle':
    if self.phase=='running':self.phase='cancelled';self.mode='braking';out=dict(phase=self.phase)
@@ -245,7 +266,8 @@ class ThinkyAre310sRuntime:
   elif capability=='mixing.measure':return dict(phase=self.phase,mode=self.mode,revolution_rpm=round(self.rpm),remaining_s=self.remaining(),stage_index=self.stage_index,temperature_K=None,evidence='ideal_panel_quantization_not_factory_precision;no_optional_MultiSensor',template_source=TEMPLATE_REL)
   elif capability=='product.read':return dict(sample_id=self.sample['sample_id'] if self.sample else '',mass_kg=self.mass.copy(),initial_mass_kg=self.initial.copy(),collected_mass_kg=self.collected.copy(),temperature_K=self.temperature,mixing_index=self.mixed,entrained_gas_mol=self.gas,headspace_gas_mol=self.headgas,collected_gas_mol=self.collected_gas,dissipated_energy_J=self.heat,heat_to_ambient_J=self.loss,thermal_storage_J=self.storage,collected_sensible_heat_J=self.collected_heat,evidence='synthetic_mixing_escape_rates;NIST_Cp_not_mixing_curve',template_source=TEMPLATE_REL)
   elif capability=='product.collect':
-   if not self.sample or self.phase=='idle' or self.lid_angle<1.4:raise ActionRejected('PRECONDITION_FAILED')
+   if not self.sample or self.phase=='idle' or self.lid_angle<1.4:
+    raise _rejected('PRECONDITION_FAILED','no cup is loaded' if not self.sample else 'nothing has been mixed yet' if self.phase=='idle' else 'open the lid fully first')
    oldcap=self.capacity;moved=[m*a['fraction'] for m in self.mass]
    for i,m in enumerate(moved):self.mass[i]-=m;self.collected[i]+=m
    gas=self.gas*a['fraction'];self.gas-=gas;self.collected_gas+=gas;self.capacity=self.mass[0]*self.templates[self.sample['carrier_id']]['value']+self.mass[1]*self.sample['solid_cp_J_kg_K']+self.plant['vessel_heat_capacity_J_K'];carried=(oldcap-self.capacity)*(self.temperature-self.sample['temperature_K']);self.storage-=carried;self.collected_heat+=carried;out=dict(transferred_kg=sum(moved),recipient_id=a['recipient_id'])
@@ -309,7 +331,7 @@ class ThinkyAre310sSession:
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,
                 status='rejected',state_revision=self._host.revision,clock={'domain':'simulation','time_s':self._host.time_s},
-                result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+                result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host

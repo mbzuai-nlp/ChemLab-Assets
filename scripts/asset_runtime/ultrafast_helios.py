@@ -7,7 +7,7 @@ from scipy.optimize import least_squares,nnls
 from scipy.special import log_ndtr
 from scipy.ndimage import gaussian_filter1d
 from functools import lru_cache
-ROOT=Path(__file__).resolve().parents[2];SLUG='ultrafast_helios';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-076';PROTOCOL_VERSION='1.0.0'
+ROOT=Path(__file__).resolve().parents[2];SLUG='ultrafast_helios';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-076';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.2'
 TEMPLATE_REL='assets/reactions/ultrafast_helios_ta_library/templates.json'
 BOOL={'type':'boolean'};TEXT={'type':'string'}
 class ActionRejected(ValueError):pass
@@ -57,7 +57,7 @@ SAMPLE=obj({'sample_id':TEXT,'template_id':TEXT,'solvent':TEXT,'concentration_mo
 METHOD=obj({'pump_wavelength_m':number('m',250e-9,800e-9),'pump_average_power_W':number('W',1e-9,.01),'probe_segment':enum(['Ti_420_820']),'wavelength_start_m':number('m',420e-9,820e-9),'wavelength_stop_m':number('m',420e-9,820e-9),'wavelength_step_m':number('m',.1e-9,10e-9),'delay_sequence_s':vector(number('s',-8e-9,8e-9),1,256),'averages':integer(1,1000),'scans':integer(1,8),'reference_enabled':BOOL,'sample_pattern_xy_m':vector(arr(number('m',-.006,.006),2),1,256),'sample_speed_m_s':number('m/s',1e-5,.002)})
 PLANT_EXAMPLE=dict(laser_wavelength_m=530e-9,laser_average_power_W=50e-6,laser_repetition_hz=1000.,pump_fwhm_s=35e-15,probe_fwhm_s=50e-15,timing_jitter_fwhm_s=14e-15,pump_radius_m=200e-6,delay_zero_offset_s=.2e-9,delay_speed_s_s=12e-9,delay_acceleration_s_s2=270e-9,xy_installed=True,reference_installed=True,manual_800nm_filter_ready=False,probe_photoelectrons=1e7,pulse_relative_noise=.03,adc_max_photoelectrons=100000000,seed=76,accept_surrogate_model=True)
 SAMPLE_EXAMPLE=dict(sample_id='rhodamine_b_demo',template_id='pcad_009',solvent='ethanol',concentration_mol_m3=.001,path_length_m=.002,volume_m3=1e-6,lifetimes_s=[150e-12],kinetic_weights=[1.],esa_center_m=600e-9,esa_fwhm_m=60e-9,esa_relative_strength=.5,accept_assumed_kinetics=True)
-METHOD_EXAMPLE=dict(pump_wavelength_m=530e-9,pump_average_power_W=50e-6,probe_segment='Ti_420_820',wavelength_start_m=480e-9,wavelength_stop_m=660e-9,wavelength_step_m=2e-9,delay_sequence_s=[-2e-12,0.,20e-12,100e-12,500e-12,1e-9],averages=20,scans=1,reference_enabled=True,sample_pattern_xy_m=[[0.,0.],[.001,-.001]],sample_speed_m_s=.002)
+METHOD_EXAMPLE=dict(pump_wavelength_m=530e-9,pump_average_power_W=50e-6,probe_segment='Ti_420_820',wavelength_start_m=480e-9,wavelength_stop_m=660e-9,wavelength_step_m=2e-9,delay_sequence_s=[-2e-12,-1e-12,0.,.5e-12,1e-12,2e-12,5e-12,10e-12,20e-12,50e-12,100e-12,200e-12,500e-12,1e-9],averages=20,scans=1,reference_enabled=True,sample_pattern_xy_m=[[0.,0.],[.001,-.001]],sample_speed_m_s=.002)
 POINT=obj({'scan_index':integer(0,7),'delay_index':integer(0,255),'requested_delay_s':number('s'),'actual_delay_s':number('s'),'pairs':integer(0,1000),'valid_pairs':arr(integer(0,1000)),'delta_absorbance':arr(nullable(number('1'))),'complete':BOOL,'last_sample_time_s':nullable(number('s',0))})
 RESULT=obj({'template_source':TEXT,'phase':PHASE,'complete':BOOL,'wavelength_m':arr(number('m')),'points':arr(POINT),'active_point':nullable(POINT),'settings_json':TEXT,'evidence':TEXT,'limitations':arr(TEXT)})
 MEASURE=obj({'template_source':TEXT,'phase':PHASE,'stage':TEXT,'elapsed_s':number('s',0),'pairs':integer(0,100000),'completed_points':integer(0,2048),'delta_absorbance_center':nullable(number('1')),'warning':TEXT})
@@ -355,7 +355,7 @@ class UltrafastHeliosSession:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_ultrafast_helios_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.1',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_ultrafast_helios_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')

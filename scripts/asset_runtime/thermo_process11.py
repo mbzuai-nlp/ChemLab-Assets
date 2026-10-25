@@ -10,7 +10,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='thermo_process11'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-057'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.4.0'
+SLUG='thermo_process11'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-057'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.4.1'
 TEMPLATE_REL='assets/reactions/thermo_process11_extrusion_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -98,7 +98,7 @@ LOAD_REF_EXAMPLE={'reference_id':'kollidon_va64','mass_kg':.02,'accept_uncalibra
 CAPS={}
 def cap(k,i,o,c,z,kind='device_command',vis='agent',ex=None,effects=()):CAPS[k]=(i,o,c,z,kind,vis,ex or {},list(effects))
 for key,s,ex,vis,c in [('plant',PLANT,PLANT_EXAMPLE,'evaluator','body'),('method',METHOD,METHOD_EXAMPLE,'agent','display_digits'),('material',MATERIAL,MATERIAL_EXAMPLE,'evaluator','feed_port')]:
-    cap(key+'.configure',s,obj({'configured':BOOL}),[c],'宿主配置显式参数或单次有限装料','configuration',vis,ex,[key+'.configured'])
+    cap(key+'.configure',s,obj({'configured':BOOL}),[c],'宿主配置显式参数或单次有限装料'+('；螺杆转动（drive.enabled）或运行中时返回BUSY：先停螺杆再改方法' if key=='method' else ''),'configuration',vis,ex,[key+'.configured'])   # 1.4.1: BUSY stated
 cap('power.set',obj({'enabled':BOOL}),obj({'enabled':BOOL}),['switch_power'],'主电源目标；断电停止驱动及加热',ex={'enabled':True},effects=['power.enabled','drive.enabled','thermal.enabled','cycle.phase'])
 cap('power.toggle',obj({}),obj({'enabled':BOOL}),['switch_power'],'主电源目标翻转',effects=['power.enabled','drive.enabled','thermal.enabled','cycle.phase'])
 cap('coolant.set_connected',obj({'connected':BOOL}),obj({'connected':BOOL}),['coolant_in','coolant_out'],'宿主确认进料段冷却水回路，非流量传感器','configuration','evaluator',{'connected':True},['coolant.connected','drive.enabled','cycle.phase'])

@@ -176,7 +176,7 @@ class KeyProcedures(unittest.TestCase):
     def test_set_sealing_temperature(self):
         g = Rig()
         g.set_temperature(172)
-        self.assertEqual(g.state('thermal.setpoint_K'), 445.15)
+        self.assertEqual(g.state('thermal.setpoint_k'), 445.15)
         self.assertEqual(g.widgets()['temp']['text'], '172°C')
         self.assertEqual(g.widgets()['status']['text'], 'Status:Heating')
         self.assertEqual(g.widgets()['status']['color'], 'red')
@@ -232,7 +232,7 @@ class KeyProcedures(unittest.TestCase):
         p = g.state('protocol.list')[-1]
         self.assertEqual(p, {'name': 'PCR96', 'temperature_K': 441.15, 'press_time_s': 2.5, 'information': 'Clear', 'security': 'none'})
         g.tap('select')
-        self.assertEqual((g.page(), g.state('protocol.current'), g.state('thermal.setpoint_K'), g.state('configuration.press_time_s')), ('main', 'PCR96', 441.15, 2.5))
+        self.assertEqual((g.page(), g.state('protocol.current'), g.state('thermal.setpoint_k'), g.state('configuration.press_time_s')), ('main', 'PCR96', 441.15, 2.5))
         self.assertEqual(g.widgets()['current']['text'], 'Current Protocol:\nPCR96')
         DONE_TASKS.add('Create a protocol')
 
@@ -241,7 +241,7 @@ class KeyProcedures(unittest.TestCase):
         g.tap('protocol')
         g.row('list', '4ti-0573')
         g.tap('select')
-        self.assertEqual((g.state('protocol.current'), g.state('thermal.setpoint_K'), g.state('configuration.press_time_s')), ('4ti-0573', 443.15, 3.0))
+        self.assertEqual((g.state('protocol.current'), g.state('thermal.setpoint_k'), g.state('configuration.press_time_s')), ('4ti-0573', 443.15, 3.0))
         self.assertEqual((g.widgets()['temp']['text'], g.widgets()['time']['text']), ('170°C', '3.0sec'))
         DONE_TASKS.add('Select a stored protocol')
 
@@ -285,8 +285,8 @@ class KeyProcedures(unittest.TestCase):
             g.ov('Hr. +')
         g.ov('°C -')
         g.ov('Yes')
-        self.assertEqual(g.state('power_saving.idle_time_s', 'power_saving.hold_temperature_K'),
-                         {'power_saving.idle_time_s': 9000.0, 'power_saving.hold_temperature_K': 323.15})
+        self.assertEqual(g.state('power_saving.idle_time_s', 'power_saving.hold_temperature_k'),
+                         {'power_saving.idle_time_s': 9000.0, 'power_saving.hold_temperature_k': 323.15})
         g.tap('psave')                                                                    # a tap turns it off
         self.assertFalse(g.state('power_saving.enabled'))
         self.assertEqual(g.widgets()['psave']['text'], 'Power saving OFF')
@@ -330,7 +330,7 @@ class OtherScreenFunctions(unittest.TestCase):
         g.type('1234')
         g.ov('Enter')
         self.assertEqual((g.page(), g.state('protocol.current')), ('main', 'RUN1'))
-        before = g.state('thermal.setpoint_K')
+        before = g.state('thermal.setpoint_k')
         g.tap('temp')                                                                     # red lock: password before any change
         self.assertEqual(g.overlay()['title'], 'Password?')
         g.ov('Esc')
@@ -342,7 +342,7 @@ class OtherScreenFunctions(unittest.TestCase):
         g.ov('Enter')
         self.assertTrue(g.state('protocol.unlocked'))
         g.set_temperature(180)
-        self.assertNotEqual(g.state('thermal.setpoint_K'), before)
+        self.assertNotEqual(g.state('thermal.setpoint_k'), before)
         g.tap('protocol')
         g.row('list', 'RUN1')
         g.tap('delete')
@@ -481,13 +481,13 @@ class OtherScreenFunctions(unittest.TestCase):
         self.assertTrue(g.state('power_saving.active'))
         self.assertEqual(g.widgets()['status']['text'], 'Status:Power saving')
         g.step(60.0)
-        self.assertLess(g.state('measurement.temperature_K'), 448.15)                       # heater off: cooling toward the room
-        self.assertEqual(g.state('thermal.setpoint_K'), 448.15)
+        self.assertLess(g.state('measurement.temperature_k'), 448.15)                       # heater off: cooling toward the room
+        self.assertEqual(g.state('thermal.setpoint_k'), 448.15)
         self.assertTrue(g.tap('temp'))                                                        # the first touch only wakes it
         self.assertIsNone(g.overlay())
         self.assertFalse(g.state('power_saving.active'))
         g.step(60.0)
-        self.assertEqual(g.state('measurement.temperature_K'), 448.15)
+        self.assertEqual(g.state('measurement.temperature_k'), 448.15)
 
     def test_software_version_for_three_seconds(self):
         g = Rig()
@@ -613,7 +613,7 @@ class Callers(unittest.TestCase):
         r = g.A.invoke(**mine)
         self.assertEqual(r['status'], 'succeeded')
         g.set_temperature(175)                                                            # the panel's own ids skip the caller's '__panel_2'
-        self.assertAlmostEqual(g.state('thermal.setpoint_K'), 175 + C0)
+        self.assertAlmostEqual(g.state('thermal.setpoint_k'), 175 + C0)
         self.assertEqual(g.A.invoke(**mine), r)                                           # the caller's replay is still its own
 
 

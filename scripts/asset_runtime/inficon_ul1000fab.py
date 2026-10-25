@@ -320,7 +320,8 @@ for _k, _v in UNSUPPORTED.items():
 
 
 # ---------------------------------------------------------------- softkey menu (operating manual chapters 5-8): device settings and functions
-ASSET_VERSION = '1.3.0'
+ASSET_VERSION = '1.3.1'   # 1.3.1 (2026-10-22): recorder p1/p2 output clamped to the TPR265 chart end (an evacuated empty inlet crashed read)
+TPR265_CHART_MIN_PA = 1e-2   # the TPR265 recorder chart (appendix fig. 11-1) starts at 1e-4 mbar = 1.5 V; lower inlet pressures read as the chart end
 PRESSURE_UNITS = {'mbar': 100.0, 'Pa': 1.0, 'Torr': 133.322368, 'atm': 101325.0}                      # Pa per unit (manual 6.4.4)
 LEAK_UNITS = {'mbar l/s': 0.1, 'Pa m3/s': 1.0, 'Torr l/s': 0.133322368, 'atm cc/s': 0.101325}      # Pa m3/s per unit
 SNIFF_UNITS = ['ppm', 'g/a eq', 'oz/yr eq']                                                       # sniff mode only (R134a equivalent)
@@ -1755,9 +1756,9 @@ class InficonUl1000fabRuntime:
             return 0.0
         if signal in ('p1', 'p2'):
             p = p1 if signal == 'p1' else (ENG['foreline_pressure_measure_pa'] if self.state in ('measure', 'evacuation', 'calibration') else 5.0)
-            if p is None or p <= 0:
+            if p is None:
                 return 0.0
-            u = math.log10(p / 100.0) + 5.5
+            u = math.log10(max(p, TPR265_CHART_MIN_PA) / 100.0) + 5.5     # an evacuated empty inlet (p1 -> 0) reads the chart end, 1.5 V
         elif disp is None:
             return 0.0
         else:

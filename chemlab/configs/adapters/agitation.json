@@ -1,0 +1,846 @@
+{
+ "class": "agitation",
+ "adapter": "chemlab.compile.classes.agitation:AgitationAdapter",
+ "about": "Spin, shake, mix or sonicate: speed (rpm or --rcf), intensity, time, set-temp (centrifuge), safety-limit (probe sonicator), load / unload, start (job), stop, result, status. Power and lids from the shared layer; the KS 4000 and S60H temperature verbs from the thermal class.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "eppendorf_5910ri",
+   "thinky_are310s",
+   "ika_ks4000",
+   "ika_t25",
+   "sonics_vcx750",
+   "elma_elmasonics60h"
+  ],
+  "secondary": {},
+  "excluded": {},
+  "not_here": {
+   "ika_plate_rctdigital": "magnetic stirring is the thermal class verb stir",
+   "radleys_mya4, genevac_mivac2, gilson_cpc250, retsch_as200": "agitation is one step of their main job (reactor, evaporation, chromatography, sieving): their classes own it",
+   "ika_ks4000, elma_elmasonics60h": "also thermal secondary members (temperature verbs there; agitation primary here)"
+  }
+ },
+ "members": {
+  "eppendorf_5910ri": {
+   "role": "primary",
+   "path": "centrifuge",
+   "verbs": {
+    "speed": {
+     "cap": "centrifuge.set_method",
+     "arg": "speed_rad_s",
+     "rcf": true,
+     "time_arg": "duration_s",
+     "keep": {
+      "temperature_k": {
+       "from_slot": "method.temperature_k",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "temperature_k"
+      },
+      "duration_s": {
+       "from_slot": "method.duration_s",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "duration_s"
+      },
+      "acceleration_level": {
+       "from_slot": "method.acceleration_level",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "accel"
+      },
+      "braking_level": {
+       "from_slot": "method.braking_level",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "brake"
+      }
+     }
+    },
+    "time": {
+     "cap": "centrifuge.set_method",
+     "arg": "duration_s",
+     "keep": {
+      "speed_rad_s": {
+       "from_slot": "method.speed_rad_s",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "speed_rad_s"
+      },
+      "temperature_k": {
+       "from_slot": "method.temperature_k",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "temperature_k"
+      },
+      "acceleration_level": {
+       "from_slot": "method.acceleration_level",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "accel"
+      },
+      "braking_level": {
+       "from_slot": "method.braking_level",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "brake"
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "centrifuge.set_method",
+     "arg": "temperature_k",
+     "keep": {
+      "speed_rad_s": {
+       "from_slot": "method.speed_rad_s",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "speed_rad_s"
+      },
+      "duration_s": {
+       "from_slot": "method.duration_s",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "duration_s"
+      },
+      "acceleration_level": {
+       "from_slot": "method.acceleration_level",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "accel"
+      },
+      "braking_level": {
+       "from_slot": "method.braking_level",
+       "or_slot": "centrifuge.set_points",
+       "or_key": "brake"
+      }
+     }
+    },
+    "load": {
+     "cap": "sample.load",
+     "slot_arg": "slot_id",
+     "sample_arg": "sample_id"
+    },
+    "unload": {
+     "cap": "sample.unload",
+     "slot_arg": "slot_id"
+    },
+    "start": {
+     "cap": "centrifuge.measure",
+     "state": {
+      "slot": "run.status",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "centrifuge.stop",
+     "max_s": 360000
+    },
+    "stop": {
+     "cap": "centrifuge.stop"
+    },
+    "result": {
+     "cap": "centrifuge.get_curve",
+     "curve": "curve"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "speed": "display.speed_rad_s",
+    "speed_set": "method.speed_rad_s",
+    "phase": "run.status",
+    "temp": "display.temperature_k",
+    "lid": "lid.closed",
+    "rotor": "rotor.configuration",
+    "imbalance": "alarm.imbalance"
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is not open far enough to reach the rotor.",
+      "fix": "open it: `chemlab run {inst} open lid`.",
+      "label": "lid open",
+      "min": 1.047
+     },
+     {
+      "slot": "rotor.configuration",
+      "code": "NO_ROTOR",
+      "message": "no rotor is selected on {inst}.",
+      "fix": "select the installed rotor: `chemlab call {inst} rotor.select --configuration large_capacity`.",
+      "label": "rotor selected",
+      "not": [
+       null
+      ]
+     }
+    ],
+    "unload": [
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is not open far enough to reach the rotor.",
+      "fix": "open it: `chemlab run {inst} open lid`.",
+      "label": "lid open",
+      "min": 1.047
+     }
+    ],
+    "start": [
+     {
+      "slot": "lid.closed",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "label": "lid closed"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no run settings yet.",
+      "fix": "set them: `chemlab run {inst} speed 4000rpm --time 10min` (and `set-temp 4C`).",
+      "label": "speed and time set"
+     },
+     {
+      "slot": "sample.loaded_slots",
+      "code": "NO_LOAD",
+      "message": "the rotor of {inst} is empty.",
+      "fix": "load at least two equal tubes in opposite positions: `chemlab run {inst} load tube_a --slot slot_1`.",
+      "label": "tubes loaded",
+      "not": [
+       [],
+       null
+      ]
+     },
+     {
+      "slot": "alarm.imbalance",
+      "code": "IMBALANCE",
+      "message": "the rotor of {inst} is out of balance.",
+      "fix": "load an equal tube in the opposite position (slot_1/slot_2, slot_3/slot_4), or unload the odd one.",
+      "label": "balanced",
+      "falsy": true
+     }
+    ]
+   },
+   "codes": {
+    "centrifuge.measure:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs the lid closed, two or more balanced tubes and a speed within the rotor's limit.",
+     "fix": "check `chemlab run {inst} status`; lower the speed for this rotor."
+    },
+    "sample.load:PRECONDITION_FAILED": {
+     "code": "CANNOT_LOAD",
+     "message": "{inst} cannot load there: the position must exist on this rotor and be empty, and the tube must be known to the lab and not loaded elsewhere.",
+     "fix": "check the positions (slot_1..slot_4) and `chemlab read {inst} sample.loaded_slots`."
+    },
+    "centrifuge.stop:PRECONDITION_FAILED": {
+     "code": "NOT_YOURS",
+     "message": "the run on {inst} was started by someone else.",
+     "fix": "only its owner can stop it."
+    }
+   },
+   "unsupported": {
+    "intensity": "not an ultrasonic device",
+    "safety-limit": "no sample temperature limit: the chamber temperature is `set-temp`"
+   },
+   "params": {
+    "lid_word": "lid",
+    "lid_states": {
+     "True": "closed",
+     "False": "open"
+    }
+   },
+   "notes": {
+    "speed": [
+     "--rcf G is converted with the radius the lab declares for the rotor in use; speed, time and temperature go into one centrifuge.set_method call (the other settings are kept)"
+    ],
+    "start": [
+     "the run (centrifuge.measure) ends after its time and the braking; the lid unlocks then"
+    ]
+   }
+  },
+  "thinky_are310s": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "mixing.measure"
+   ],
+   "verbs": {
+    "speed": {
+     "cap": "method.configure",
+     "program": {
+      "arg": "program",
+      "mode_key": "mode",
+      "time_key": "duration_s",
+      "speed_key": "revolution_rpm"
+     },
+     "args": {
+      "speed_envelope": "family_SCE_reference_not_UL_verified"
+     }
+    },
+    "load": {
+     "cap": "balance.set",
+     "mass_arg": "gross_mass_kg"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 7200
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "mixing.measure",
+     "show": [
+      "phase",
+      "mode",
+      "revolution_rpm",
+      "stage_index",
+      "remaining_s",
+      "temperature_K"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "speed": "rotor.revolution_rpm",
+    "phase": "cycle.phase",
+    "remaining": "cycle.remaining_s",
+    "lid": "lid.locked"
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "lid.open_target",
+      "code": "LID_CLOSED",
+      "message": "the lid of {inst} is closed; the balance dial is set with the lid open.",
+      "fix": "open it: `chemlab run {inst} open lid`.",
+      "label": "lid open"
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_MOVING",
+      "message": "the lid of {inst} is still opening.",
+      "fix": "wait a moment (`chemlab wait 2`) and retry.",
+      "label": "lid fully open",
+      "min": 1.0
+     }
+    ],
+    "start": [
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no container is in the holder of {inst}.",
+      "fix": "the container is put in by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "container in"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no mixing program.",
+      "fix": "set it: `chemlab run {inst} speed 2000rpm --time 60s` (optional --defoam 2200rpm --defoam-time 30s).",
+      "label": "program set"
+     },
+     {
+      "slot": "lid.open_target",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "label": "lid closed",
+      "falsy": true
+     },
+     {
+      "slot": "lid.angle_rad",
+      "code": "LID_MOVING",
+      "message": "the lid of {inst} is still closing.",
+      "fix": "wait a moment (`chemlab wait 2`) and retry.",
+      "label": "lid fully closed",
+      "max": 0.01
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:PRECONDITION_FAILED": {
+     "code": "IMBALANCE",
+     "message": "{inst} cannot start: the balance dial does not match the container mass (or the lid is not locked).",
+     "fix": "weigh the filled container and set the dial: `chemlab run {inst} open lid`, `load --mass M`, `close lid`; then start."
+    },
+    "method.configure:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} takes a program only with a container in, the balance set and the lid closed.",
+     "fix": "set the balance (`load --mass M`) and close the lid first."
+    }
+   },
+   "unsupported": {
+    "intensity": "not an ultrasonic device",
+    "time": "each mixing step has its own time: give it with the speed (`speed 2000rpm --time 60s`)",
+    "set-temp": "no temperature control",
+    "safety-limit": "no temperature control",
+    "unload": "the container is taken out by the lab operator"
+   },
+   "alternatives": {
+    "time": "`chemlab run INST speed 2000rpm --time 60s`"
+   },
+   "params": {
+    "lid_word": "lid",
+    "lid_states": {
+     "True": "locked",
+     "False": "unlocked"
+    }
+   },
+   "notes": {
+    "speed": [
+     "sets the mixing program (method.configure): one mix step, and a defoam step with --defoam / --defoam-time"
+    ],
+    "load": [
+     "--mass is the gross mass of the filled container; the counterbalance must match it within the mixer's tolerance"
+    ]
+   }
+  },
+  "ika_ks4000": {
+   "role": "primary",
+   "path": "shaking",
+   "path_exceptions": [
+    "status.measure"
+   ],
+   "verbs": {
+    "speed": {
+     "cap": "shaking.set_speed",
+     "arg": "speed_rad_s",
+     "idle": false
+    },
+    "time": {
+     "cap": "timer.configure",
+     "arg": "duration_s",
+     "timed": {
+      "mode": "timed"
+     },
+     "continuous": {
+      "mode": "continuous"
+     },
+     "keep": {
+      "duration_s": {
+       "from_slot": "timer.duration_s"
+      }
+     }
+    },
+    "start": {
+     "cap": "shaking.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "shaking.stop",
+     "max_s": 86400
+    },
+    "stop": {
+     "cap": "shaking.stop"
+    },
+    "result": {
+     "cap": "status.measure",
+     "show": [
+      "phase",
+      "speed_rad_s",
+      "elapsed_s",
+      "remaining_s",
+      "temperature_k",
+      "error"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "speed": "shaking.indicated_rad_s",
+    "speed_set": "shaking.target_rad_s",
+    "phase": "cycle.phase",
+    "remaining": "timer.remaining_s",
+    "temp": "thermal.indicated_temperature_k",
+    "lid": "hood.angle_rad",
+    "speed_limit": "safety.speed_limit_rad_s"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "hood.angle_rad",
+      "code": "HOOD_OPEN",
+      "message": "the hood of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close hood`.",
+      "label": "hood closed",
+      "max": 0.0001
+     },
+     {
+      "slot": "fixture.installed",
+      "code": "NO_FIXTURE",
+      "message": "no fixture (platform attachment) is installed on {inst}.",
+      "fix": "the fixture and the flasks are mounted by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "fixture installed"
+     }
+    ]
+   },
+   "codes": {
+    "shaking.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power, the hood closed, the fixture installed, every flask secured and a speed within the limit for this load.",
+     "fix": "check `chemlab run {inst} status`; lower the speed for a heavy load."
+    },
+    "shaking.set_speed:PRECONDITION_FAILED": {
+     "code": "ABOVE_SPEED_LIMIT",
+     "message": "the speed is above the limit of {inst} for this load (or its safety speed limit).",
+     "fix": "choose a lower speed."
+    }
+   },
+   "unsupported": {
+    "intensity": "not an ultrasonic device",
+    "set-temp": "temperature is handled by this instrument's thermal-class verbs (set-temp, heat, wait-temp)",
+    "safety-limit": "the safety limits (temperature and speed) are the thermal class verb safety-limit of this instrument",
+    "load": "flasks are clamped on the platform by the lab operator",
+    "unload": "flasks are taken off by the lab operator"
+   },
+   "shared_fallthrough": [
+    "set-temp",
+    "safety-limit"
+   ],
+   "params": {
+    "integer_rpm": true,
+    "lid_word": "hood",
+    "running_values": [
+     "running"
+    ]
+   },
+   "notes": {
+    "speed": [
+     "whole rpm; the shaker may change speed during a run"
+    ],
+    "time": [
+     "timed run (timer.configure mode timed) or `time continuous`"
+    ]
+   }
+  },
+  "ika_t25": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "dispersion.measure"
+   ],
+   "verbs": {
+    "speed": {
+     "cap": "motor.set_speed",
+     "arg": "speed_rad_s",
+     "idle": false
+    },
+    "time": {
+     "cap": "method.configure",
+     "arg": "duration_s",
+     "args": {
+      "head": "s25_n18g"
+     },
+     "keep": {
+      "speed_rad_s": {
+       "from_slot": "motor.target_rad_s"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 600
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "dispersion.measure",
+     "show": [
+      "phase",
+      "mode",
+      "indicated_speed_rad_s",
+      "host_elapsed_s",
+      "host_remaining_s"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "speed": "motor.indicated_speed_rad_s",
+    "speed_set": "motor.target_rad_s",
+    "phase": "cycle.phase",
+    "remaining": "cycle.remaining_s"
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "mount.ready",
+      "code": "NOT_MOUNTED",
+      "message": "the dispersing tool of {inst} is not mounted and immersed, or the vessel is not clamped.",
+      "fix": "the stand and the vessel are set up by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "tool mounted"
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no vessel with sample is under the tool of {inst}.",
+      "fix": "the vessel is set up by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "sample in place"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no run time.",
+      "fix": "set it: `chemlab run {inst} time 30s`.",
+      "label": "run time set"
+     }
+    ]
+   },
+   "unsupported": {
+    "intensity": "not an ultrasonic device",
+    "set-temp": "no temperature control",
+    "safety-limit": "no temperature control",
+    "load": "the vessel is set under the tool by the lab operator",
+    "unload": "the vessel is taken away by the lab operator"
+   },
+   "params": {},
+   "notes": {
+    "time": [
+     "the timed run (method.configure: speed, time up to 55 s, the S 25 N-18 G tool) keeps the current speed"
+    ],
+    "speed": [
+     "the motor speed (motor.set_speed) also applies to a running run"
+    ]
+   }
+  },
+  "sonics_vcx750": {
+   "role": "primary",
+   "path": "acquisition",
+   "path_exceptions": [
+    "sonication.measure"
+   ],
+   "verbs": {
+    "intensity": {
+     "cap": "sonication.set_amplitude",
+     "arg": "amplitude_fraction"
+    },
+    "time": {
+     "cap": "method.configure",
+     "arg": "duration_s",
+     "args": {
+      "probe": "630-0220"
+     },
+     "keep": {
+      "amplitude_fraction": {
+       "from_slot": "sonication.amplitude_fraction"
+      },
+      "pulse_enabled": {
+       "from_slot": "method.parameters",
+       "key": "pulse_on_s",
+       "is_set": true
+      },
+      "pulse_on_s": {
+       "from_slot": "method.parameters",
+       "key": "pulse_on_s",
+       "default": 1
+      },
+      "pulse_off_s": {
+       "from_slot": "method.parameters",
+       "key": "pulse_off_s",
+       "default": 1
+      },
+      "energy_endpoint_J": {
+       "from_slot": "method.parameters",
+       "key": "energy_J",
+       "default": 0
+      }
+     }
+    },
+    "safety-limit": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "acquisition.stop",
+     "max_s": 36000
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "sonication.measure",
+     "show": [
+      "phase",
+      "mode",
+      "energy_J",
+      "on_time_s",
+      "elapsed_s",
+      "amplitude_fraction",
+      "temperature_K"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "amplitude": "sonication.amplitude_fraction",
+    "phase": "cycle.phase",
+    "remaining": "cycle.remaining_s",
+    "temp": "thermal.indicated_temperature_k"
+   },
+   "requires": {
+    "intensity": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet (the amplitude belongs to it).",
+      "fix": "set the run time first: `chemlab run {inst} time 60s`.",
+      "label": "method set"
+     }
+    ],
+    "start": [
+     {
+      "slot": "mount.ready",
+      "code": "NOT_MOUNTED",
+      "message": "the probe of {inst} is not clamped and immersed in the sample.",
+      "fix": "the converter, probe and vessel are set up by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "probe mounted"
+     },
+     {
+      "slot": "sample.configured",
+      "code": "NO_SAMPLE",
+      "message": "no sample vessel is under the probe of {inst}.",
+      "fix": "the vessel is set up by the lab operator - the lab operator does this (it is not an instrument command); tell them what is missing.",
+      "label": "sample in place"
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method (time, amplitude).",
+      "fix": "set it: `chemlab run {inst} time 60s`, then `intensity 40%`.",
+      "label": "method set"
+     }
+    ]
+   },
+   "unsupported": {
+    "speed": "no rotation: the sonicator's intensity is its amplitude (`intensity 40%`)",
+    "set-temp": "no heating: the probe temperature is a limit (`safety-limit 40C`)",
+    "load": "the vessel is set under the probe by the lab operator",
+    "unload": "the vessel is taken away by the lab operator"
+   },
+   "alternatives": {
+    "set-temp": "`chemlab run INST safety-limit 40C` pauses sonication above that sample temperature."
+   },
+   "params": {},
+   "notes": {
+    "time": [
+     "writes the method (method.configure) keeping the amplitude, pulser and energy end point the instrument reports; continuous runs are not offered"
+    ],
+    "safety-limit": [
+     "thermal.set_temperature sets the sample temperature limit of the probe controller"
+    ]
+   }
+  },
+  "elma_elmasonics60h": {
+   "role": "primary",
+   "path": "ultrasound",
+   "path_exceptions": [
+    "status.measure"
+   ],
+   "verbs": {
+    "intensity": {
+     "cap": "ultrasound.set_mode",
+     "arg": "mode"
+    },
+    "time": {
+     "cap": "timer.configure",
+     "arg": "duration_s",
+     "timed": {
+      "continuous": false
+     },
+     "continuous": {
+      "continuous": true
+     },
+     "keep": {
+      "duration_s": {
+       "from_slot": "timer.duration_s"
+      }
+     }
+    },
+    "start": {
+     "cap": "ultrasound.start",
+     "args": {
+      "temperature_controlled": false
+     },
+     "at_temp": {
+      "arg": "temperature_controlled",
+      "heater_slot": "heater.enabled"
+     },
+     "state": {
+      "slot": "cycle.phase",
+      "done": [
+       "succeeded"
+      ]
+     },
+     "stop_cap": "ultrasound.stop",
+     "max_s": 7200
+    },
+    "stop": {
+     "cap": "ultrasound.stop"
+    },
+    "result": {
+     "cap": "status.measure",
+     "show": [
+      "phase",
+      "mode",
+      "elapsed_s",
+      "remaining_s",
+      "temperature_k",
+      "ultrasound_active"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "mode": "ultrasound.mode",
+    "phase": "cycle.phase",
+    "remaining": "timer.remaining_s",
+    "temp": "thermal.indicated_temperature_k",
+    "lid": "cover.lift_m"
+   },
+   "codes": {
+    "ultrasound.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: it needs power and a filled tank (and heating on for --at-temp).",
+     "fix": "check `chemlab run {inst} status`; the tank is filled by the lab operator."
+    }
+   },
+   "unsupported": {
+    "speed": "no rotation: the bath's intensity is its mode (`intensity sweep`)",
+    "set-temp": "temperature is handled by this instrument's thermal-class verbs (set-temp, heat, wait-temp)",
+    "safety-limit": "no separate limit: the heater set point is this instrument's thermal-class set-temp",
+    "load": "items go into the basket by the lab operator",
+    "unload": "items are taken out by the lab operator"
+   },
+   "shared_fallthrough": [
+    "set-temp",
+    "safety-limit"
+   ],
+   "params": {
+    "lid_word": "cover lift"
+   },
+   "notes": {
+    "intensity": [
+     "normal, sweep or degas (ultrasound.set_mode)"
+    ],
+    "start": [
+     "--at-temp waits for the bath set temperature before the ultrasound starts (heating on)"
+    ]
+   }
+  }
+ }
+}

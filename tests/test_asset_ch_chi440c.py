@@ -68,4 +68,12 @@ class EQCM(unittest.TestCase):
   r.step(.5);self.assertEqual(other.__dict__,before);saved=copy.deepcopy(r.__dict__);r.describe();r.read();call(r,'process.measure');call(r,'ledger.read');self.assertEqual(r.__dict__,saved)
   for k in UNSUPPORTED:
    with self.assertRaisesRegex(ActionRejected,'UNSUPPORTED'):r.invoke(k)
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): positive current is cathodic in this twin (CHI convention); the contract now says so."""
+ def test_positive_current_is_cathodic_and_stated(self):
+  m=export_ch_chi440c_contract_metadata()
+  self.assertIn('阴极（还原）电流为正',m['state_slots']['current.a']['meaning_zh']);self.assertIn('正值为阴极',m['capabilities']['method.configure']['function_zh'])
+  r=prepared(method=dict(METHOD_EXAMPLE,steps=[dict(duration_s=1.,potential_v=0.,current_a=1e-5)]));call(r,'acquisition.start');r.step(1.)
+  self.assertGreater(r.film,0.)                                            # +10 uA deposits copper: a reduction
+  self.assertLess(r.points[-1]['potential_v'],0.)                           # and drives the electrode below E0
 if __name__=='__main__':unittest.main()

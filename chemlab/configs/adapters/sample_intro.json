@@ -1,0 +1,1473 @@
+{
+ "class": "sample_intro",
+ "adapter": "chemlab.compile.classes.sample_intro:SampleIntroAdapter",
+ "about": "Sample introduction front ends (headspace, purge and trap, laser ablation, pyrolysis, thermal desorption): method KEY=VALUE, load / unload vials, set-temp per zone, start (job), inject (manual pyrolyzer step), stop, result, position (laser stage), status. Ranges and units come from each member's contract.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "agilent_hs8697",
+   "teledyne_atomxxyz",
+   "teledyne_analyteexcite",
+   "frontier_egapy",
+   "markes_unityxr"
+  ],
+  "secondary": {},
+  "notes": "power, open / close of lids, guards, drawers and shields come from the shared layer on every member."
+ },
+ "members": {
+  "agilent_hs8697": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.set_equilibration_time",
+       "keys": {
+        "equilibration": "duration_s"
+       },
+       "passthrough": true
+      },
+      {
+       "cap": "hs.method.configure",
+       "object": "settings",
+       "passthrough": true,
+       "keys": {
+        "gc-cycle": "gc_cycle_s",
+        "shake": "shake",
+        "vial-size": "vial_size_m3",
+        "fill-pressure": "fill_pressure_Pa"
+       }
+      }
+     ]
+    },
+    "load": {
+     "cap": "sample.load",
+     "id_arg": "sample_id",
+     "slot_arg": "slot_id",
+     "slot_format": "tray_{:02d}",
+     "positions": 48,
+     "occupancy": "tray.occupancy",
+     "lid": {
+      "cap": "lid.set_angle",
+      "arg": "angle_rad",
+      "open": 1.5707963267948966,
+      "close": 0.0,
+      "slot": "lid.angle_rad",
+      "min_open": 1.0471975511965976
+     }
+    },
+    "unload": {
+     "cap": "sample.unload",
+     "slot_arg": "slot_id",
+     "slot_format": "tray_{:02d}",
+     "positions": 48,
+     "occupancy": "tray.occupancy",
+     "lid": {
+      "cap": "lid.set_angle",
+      "arg": "angle_rad",
+      "open": 1.5707963267948966,
+      "close": 0.0,
+      "slot": "lid.angle_rad",
+      "min_open": 1.0471975511965976
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K"
+    },
+    "start": {
+     "cap": "sequence.start",
+     "vials_arg": "vials",
+     "injections_arg": "injections_per_vial",
+     "positions": 48,
+     "occupancy": "tray.occupancy",
+     "job": {
+      "slot": "hs.sequence",
+      "null_done": true,
+      "report": {
+       "injections": "measurement.count"
+      },
+      "max_s": 86400,
+      "poll_s": 5.0
+     }
+    },
+    "stop": {
+     "cap": "sequence.stop",
+     "args": {
+      "scope": "sequence"
+     }
+    },
+    "result": {
+     "reads": [
+      "measurement.count",
+      "injection.log",
+      "measurement.chromatogram"
+     ],
+     "show": [
+      "measurement.count",
+      "injection.log",
+      "measurement.chromatogram"
+     ]
+    }
+   },
+   "targets": {
+    "zone": {
+     "arg": "zone",
+     "values": {
+      "oven": "oven",
+      "loop": "loop_valve",
+      "transfer": "transfer_line"
+     },
+     "required": true
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "ambient": "ambient.temperature_k"
+   },
+   "params": {
+    "above_ambient_k": 5.0,
+    "busy": {
+     "slot": "hs.sequence",
+     "not_null": true
+    }
+   },
+   "path_exceptions": [
+    "measurement.count",
+    "injection.log",
+    "measurement.chromatogram"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "status",
+     "hs.status#text"
+    ],
+    [
+     "oven set",
+     "thermal.oven.setpoint_k",
+     "temperature"
+    ],
+    [
+     "loop set",
+     "thermal.loop_valve.setpoint_k",
+     "temperature"
+    ],
+    [
+     "transfer line set",
+     "thermal.transfer_line.setpoint_k",
+     "temperature"
+    ],
+    [
+     "equilibration",
+     "method.equilibration_time_s",
+     "duration"
+    ],
+    [
+     "tray",
+     "tray.occupancy"
+    ],
+    [
+     "sequence",
+     "hs.sequence"
+    ],
+    [
+     "injections",
+     "measurement.count"
+    ],
+    [
+     "lid closed",
+     "lid.closed"
+    ]
+   ],
+   "requires": {
+    "load": [
+     {
+      "slot": "hs.sequence",
+      "value": null,
+      "code": "BUSY",
+      "label": "no sequence running",
+      "message": "{inst} is running a sequence; the tray is in use.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "unload": [
+     {
+      "slot": "hs.sequence",
+      "value": null,
+      "code": "BUSY",
+      "label": "no sequence running",
+      "message": "{inst} is running a sequence; the tray is in use.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it (`chemlab run {inst} stop`)."
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "ambient.temperature_k",
+      "set": true,
+      "code": "NO_AMBIENT",
+      "label": "room temperature known",
+      "message": "{inst} does not know the room temperature yet, so it takes no zone set points (the lab sets it up).",
+      "fix": "ask the lab operator to set the instrument up; nothing to do from chemlab."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.equilibration_time_s",
+      "set": true,
+      "code": "NO_METHOD",
+      "label": "equilibration time set",
+      "message": "{inst} has no equilibration time in its method, so a sequence cannot start.",
+      "fix": "set it: `chemlab run {inst} method equilibration=10min`."
+     },
+     {
+      "slot": "gc.connected",
+      "truthy": true,
+      "code": "GC_NOT_CONNECTED",
+      "label": "GC connected",
+      "message": "{inst} is not connected to a GC, so it cannot inject.",
+      "fix": "ask the lab operator to connect the GC."
+     },
+     {
+      "slot": "lid.closed",
+      "truthy": true,
+      "code": "LID_OPEN",
+      "label": "lid closed",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "hs.sequence",
+      "set": true,
+      "code": "NOT_RUNNING",
+      "label": "a sequence running",
+      "message": "{inst} has no sequence running.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "sample.load:PRECONDITION_FAILED": {
+     "code": "NOT_REGISTERED",
+     "message": "{inst} did not take that vial: the vial id is not one the lab prepared, or it is already in the tray.",
+     "fix": "use a vial id the lab gave you; see the tray with `chemlab run {inst} status`."
+    },
+    "thermal.set_temperature:PRECONDITION_FAILED": {
+     "code": "TOO_LOW",
+     "message": "{inst} refused the set point: it must be at least 5 K above the room temperature and the instrument must be on.",
+     "fix": "give a higher set point; check `chemlab run {inst} status`."
+    },
+    "sequence.start:PRECONDITION_FAILED": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start a sequence: the method needs an equilibration time and the instrument must be idle.",
+     "fix": "set `chemlab run {inst} method equilibration=10min`; see `chemlab run {inst} status`."
+    },
+    "sequence.start:BUSY": {
+     "code": "BUSY",
+     "message": "{inst} is busy (a sequence, a test, a calibration or its start-up).",
+     "fix": "wait for it: `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "inject": "the 8697 injects only within a sequence (its direct `measure` path is a second native path the class does not use)",
+    "position": "no sample stage (vials move on the tray)",
+    "rinse": "no rinse step (the sample loop is purged by the method's purge settings)"
+   },
+   "alternatives": {
+    "inject": "run a one-vial sequence: `chemlab run INST start --vials N`."
+   },
+   "notes": {
+    "start": [
+     "the sequence waits until the oven is at temperature and the instrument is ready; the job ends when every vial is back in the tray",
+     "the GC runs belong to the GC; the lab connects it"
+    ],
+    "set-temp": [
+     "zones: oven (vials), loop (sample loop and valve), transfer (transfer line); set points at least 5 K above the room temperature"
+    ],
+    "method": [
+     "equilibration goes to the method's equilibration time; the other keys go to the headspace method (only what you give changes)"
+    ]
+   },
+   "manual": "Agilent 8697 headspace operation manual G4511-90004 (method, tray, sequences, Park; see manifest key sections); 8697 brochure p.5-6 (method parameters)",
+   "examples": {
+    "method": "chemlab run INST method equilibration=10min gc-cycle=5min shake=3",
+    "start": "chemlab run INST start --vials 1,2",
+    "load": "chemlab run INST load v1 --vial 1",
+    "set-temp": "chemlab run INST set-temp 70C --zone oven",
+    "stop": "chemlab run INST stop"
+   }
+  },
+  "teledyne_atomxxyz": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "passthrough": true,
+       "keep": {
+        "last": true,
+        "example": true
+       },
+       "keys": {
+        "matrix": "matrix",
+        "sample-volume": "sample_volume_m3",
+        "dilution": "dilution",
+        "purge-temp": "purge_k",
+        "purge-time": "purge_s",
+        "purge-flow": "purge_flow_m3_s",
+        "dry-purge-time": "dry_purge_s",
+        "desorb-temp": "desorb_k",
+        "desorb-time": "desorb_s",
+        "bake-temp": "bake_k",
+        "bake-time": "bake_s"
+       }
+      }
+     ]
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "vial_arg": "vial_index",
+     "vial_base": 0,
+     "positions": 84,
+     "job": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "report": {
+       "stage": "acquisition.stage"
+      },
+      "max_s": 7200
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "show": [
+      "phase",
+      "stage",
+      "complete",
+      "elapsed_s",
+      "gc_start",
+      "points",
+      "quality",
+      "evidence",
+      "warnings"
+     ]
+    },
+    "rinse": {
+     "cap": "system.rinse",
+     "arg": "volume_m3"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "acquisition.phase",
+     "values": [
+      "running"
+     ]
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "method set",
+     "method.configured"
+    ],
+    [
+     "vials",
+     "sample.count"
+    ],
+    [
+     "phase",
+     "acquisition.phase"
+    ],
+    [
+     "stage",
+     "acquisition.stage"
+    ],
+    [
+     "elapsed",
+     "acquisition.elapsed_s",
+     "duration"
+    ],
+    [
+     "trap",
+     "trap.temperature_k",
+     "temperature"
+    ],
+    [
+     "guard",
+     "guard.angle_rad",
+     "angle"
+    ],
+    [
+     "trap door",
+     "trap_door.angle_rad",
+     "angle"
+    ]
+   ],
+   "requires": {
+    "method": [
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no run in progress",
+      "message": "{inst} is running; the method cannot change now.",
+      "fix": "wait for the run (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method yet.",
+      "fix": "set one: `chemlab run {inst} method matrix=water purge-time=11min` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "guard.angle_rad",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "guard closed",
+      "message": "the guard of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close guard`."
+     },
+     {
+      "slot": "trap_door.angle_rad",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "trap door closed",
+      "message": "the trap door of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close trap_door`."
+     },
+     {
+      "slot": "sample.count",
+      "min": 1,
+      "code": "NO_SAMPLE",
+      "label": "a vial on the tray",
+      "message": "there is no sample vial on the tray of {inst}.",
+      "fix": "ask the lab operator to place the vials."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "acquisition.phase",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "a run in progress",
+      "message": "{inst} has no run in progress.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ],
+    "rinse": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no run in progress",
+      "message": "{inst} is running; it rinses after the run by itself.",
+      "fix": "wait for the run (`chemlab run {inst} wait`) or stop it."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:EMPTY_POSITION": {
+     "code": "EMPTY_POSITION",
+     "message": "there is no vial at that tray position of {inst}.",
+     "fix": "give the position the lab put the vial at (`--vial N`)."
+    },
+    "acquisition.start:METHOD_MATRIX": {
+     "code": "WRONG_MATRIX",
+     "message": "the vial's matrix does not match the method's matrix on {inst}.",
+     "fix": "set `chemlab run {inst} method matrix=...` to the sample's matrix."
+    },
+    "acquisition.start:HOT_TRAP": {
+     "code": "HOT",
+     "message": "the trap of {inst} is still hot from the last run.",
+     "fix": "wait a few minutes, then start again."
+    },
+    "method.configure:METHOD_GRID": {
+     "code": "BAD_STEP",
+     "message": "{inst} takes times and temperatures only on its setting grid.",
+     "fix": "round the values (whole seconds, whole °C)."
+    },
+    "acquisition.start:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready to take that vial: there is no vial at that tray position, or the sparge vessel still holds liquid from a stopped run.",
+     "fix": "rinse it (`chemlab run {inst} rinse`), and check the tray position (`--vial N`)."
+    }
+   },
+   "unsupported": {
+    "load": "the vials are placed on the tray by the lab operator (no load command)",
+    "unload": "the vials are taken off the tray by the lab operator (no unload command)",
+    "set-temp": "its temperatures are method settings (purge-temp, desorb-temp, bake-temp)",
+    "inject": "the run transfers the sample by itself (no manual step)",
+    "position": "no sample stage"
+   },
+   "alternatives": {
+    "set-temp": "`chemlab run INST method purge-temp=40C desorb-temp=250C`."
+   },
+   "notes": {
+    "start": [
+     "--vial N is the tray position (1..84); the contract counts from 0, so position 1 is vial_index 0",
+     "one run takes about 20 min with the documented method; follow it with the job"
+    ],
+    "method": [
+     "method.configure needs every setting; the ones you leave out stay as in the last accepted method, else the documented defaults (the reply lists them)"
+    ],
+    "rinse": [
+     "water rinse of the sparger after a stopped or failed run; the default volume is the documented 7 mL; the trap is not cleaned by it"
+    ]
+   },
+   "manual": "Atomx XYZ user manual (purge and trap operation p.24-32, TekLink method and schedule p.75-120)",
+   "examples": {
+    "method": "chemlab run INST method purge-temp=40C purge-time=10min desorb-temp=250C",
+    "start": "chemlab run INST start --vial 1",
+    "rinse": "chemlab run INST rinse 7mL"
+   }
+  },
+  "teledyne_analyteexcite": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "passthrough": true,
+       "keep": {
+        "last": true,
+        "example": true
+       },
+       "keys": {
+        "mode": "mode",
+        "shape": "shape",
+        "spot": "spot_size_m",
+        "fluence": "fluence_j_m2",
+        "frequency": "frequency_hz",
+        "shots": "shots",
+        "washout": "washout_s",
+        "scan-speed": "scan_speed_m_s"
+       }
+      }
+     ]
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "report": {
+       "stage": "acquisition.stage",
+       "pulses": "laser.pulse_count"
+      },
+      "max_s": 3600
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "show": [
+      "phase",
+      "stage",
+      "elapsed_s",
+      "pulses",
+      "quality",
+      "evidence",
+      "warnings"
+     ]
+    },
+    "position": {
+     "cap": "stage.move",
+     "arg": "position_m",
+     "axes": [
+      "stage.x_m",
+      "stage.y_m",
+      "stage.z_m"
+     ],
+     "tolerance_m": 1e-07,
+     "max_s": 60
+    },
+    "rinse": {
+     "cap": "washout.start",
+     "job": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "max_s": 600
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "acquisition.phase",
+     "values": [
+      "running"
+     ]
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "method set",
+     "method.configured"
+    ],
+    [
+     "sample",
+     "sample.loaded"
+    ],
+    [
+     "phase",
+     "acquisition.phase"
+    ],
+    [
+     "stage",
+     "acquisition.stage"
+    ],
+    [
+     "pulses",
+     "laser.pulse_count"
+    ],
+    [
+     "x",
+     "stage.x_m",
+     "length"
+    ],
+    [
+     "y",
+     "stage.y_m",
+     "length"
+    ],
+    [
+     "z",
+     "stage.z_m",
+     "length"
+    ],
+    [
+     "drawer",
+     "drawer.open_m",
+     "length"
+    ],
+    [
+     "guard",
+     "guard.angle_rad",
+     "angle"
+    ]
+   ],
+   "requires": {
+    "method": [
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no run in progress",
+      "message": "{inst} is running; the method cannot change now.",
+      "fix": "wait for the run (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no ablation method yet.",
+      "fix": "set one: `chemlab run {inst} method mode=spot spot=80um shots=10` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "drawer.open_m",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "sample drawer closed",
+      "message": "the sample drawer of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close drawer`."
+     },
+     {
+      "slot": "guard.angle_rad",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "guard closed",
+      "message": "the guard of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close guard`."
+     },
+     {
+      "slot": "service.angle_rad",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "service cover closed",
+      "message": "the service cover of {inst} is open.",
+      "fix": "close it: `chemlab call {inst} service.set --angle_rad 0`."
+     },
+     {
+      "slot": "sample.loaded",
+      "value": true,
+      "code": "NO_SAMPLE",
+      "label": "a sample in the cell",
+      "message": "there is no sample in the ablation cell of {inst}.",
+      "fix": "ask the lab operator to load the sample."
+     }
+    ],
+    "position": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "drawer.open_m",
+      "max": 0.0,
+      "code": "DRAWER_OPEN",
+      "label": "sample drawer closed",
+      "message": "the sample drawer of {inst} is open, so the stage does not move.",
+      "fix": "close it: `chemlab run {inst} close drawer`."
+     },
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no run in progress",
+      "message": "{inst} is ablating; the stage follows the method now.",
+      "fix": "wait for the run (`chemlab run {inst} wait`)."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "acquisition.phase",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "a run in progress",
+      "message": "{inst} has no run in progress.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ],
+    "rinse": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} needs a method for the washout gas flows.",
+      "fix": "set one: `chemlab run {inst} method mode=spot` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "drawer.open_m",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "sample drawer closed",
+      "message": "the sample drawer of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close drawer`."
+     },
+     {
+      "slot": "guard.angle_rad",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "guard closed",
+      "message": "the guard of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close guard`."
+     },
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no run in progress",
+      "message": "{inst} is running.",
+      "fix": "wait for the run (`chemlab run {inst} wait`)."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:SAMPLE_BOUNDS": {
+     "code": "OUTSIDE_SAMPLE",
+     "message": "the laser path of the method leaves the sample on {inst}.",
+     "fix": "set a path inside the sample (`chemlab run {inst} method path_m=[[x,y,z]]`, metres)."
+    },
+    "acquisition.start:GRID_RESOLUTION": {
+     "code": "SPOT_TOO_SMALL",
+     "message": "the spot is too small for the sample model of {inst}.",
+     "fix": "use a larger spot (`method spot=80um`)."
+    },
+    "method.configure:APERTURE_LIST_UNAVAILABLE": {
+     "code": "UNKNOWN_APERTURE",
+     "message": "{inst} knows only the 50 µm circle and the 80 µm square apertures.",
+     "fix": "use `method shape=square spot=80um` or `shape=circle spot=50um`, or add accept_aperture_interpolation=true."
+    },
+    "method.configure:PATH_INVALID": {
+     "code": "BAD_PATH",
+     "message": "the laser path does not fit the mode (spot: one point, scan: two or more, z at most 50 mm).",
+     "fix": "give path_m=[[x,y,z]] for spot mode."
+    }
+   },
+   "unsupported": {
+    "load": "the sample is placed in the ablation cell drawer by the lab operator (no load command)",
+    "unload": "the sample is taken out of the drawer by the lab operator (no unload command)",
+    "set-temp": "no heated zone",
+    "inject": "the ablated aerosol goes to the ICP-MS by itself (no manual step)"
+   },
+   "notes": {
+    "start": [
+     "the laser fires along the method's path; a spot of 10 shots takes about 2 s plus the washout"
+    ],
+    "position": [
+     "moves the stage (bare numbers in mm, the stage travel is 0..100 mm) and waits until it is there"
+    ],
+    "method": [
+     "fluence is in J/m² (60000 J/m² = 6 J/cm²); path_m is a JSON list of [x, y, z] points in metres"
+    ],
+    "rinse": [
+     "a gas washout of the ablation cell into the ICP-MS for the method's washout time (a job)"
+    ]
+   },
+   "manual": "Analyte Excite+ specification sheet p.1-2 (laser, stage, gas handling, triggering); HelEx II cell brochure p.1-4",
+   "examples": {
+    "method": "chemlab run INST method mode=spot shape=square spot=80um shots=20 path_m=[[0.03,0.03,0.01]]",
+    "start": "chemlab run INST start",
+    "position": "chemlab run INST position 30mm 30mm 10mm",
+    "rinse": "chemlab run INST rinse"
+   }
+  },
+  "frontier_egapy": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "passthrough": true,
+       "keep": {
+        "last": true,
+        "example": true
+       },
+       "keys": {
+        "mode": "mode",
+        "pyrolysis-temp": "pyrolysis_k",
+        "pyrolysis-time": "pyrolysis_s",
+        "td-start": "td_start_k",
+        "td-end": "td_end_k",
+        "ramp": "ramp_k_s",
+        "hold": "hold_s",
+        "interface-temp": "interface_k",
+        "carrier-flow": "carrier_flow_m3_s"
+       }
+      }
+     ]
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "report": {
+       "stage": "acquisition.stage"
+      },
+      "max_s": 7200
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "show": [
+      "phase",
+      "stage",
+      "elapsed_s",
+      "thermal_trace",
+      "quality",
+      "template_source",
+      "warnings"
+     ]
+    },
+    "inject": {
+     "stage_slot": "acquisition.stage",
+     "phase_slot": "acquisition.phase",
+     "gc_slot": "gc.ready",
+     "temp_slot": "furnace.temperature_k",
+     "steps": {
+      "wait_drop": {
+       "gc": true,
+       "calls": [
+        {
+         "cap": "cup.drop",
+         "what": "drop the sample cup into the furnace"
+        },
+        {
+         "cap": "acquisition.confirm",
+         "what": "confirm the drop"
+        }
+       ]
+      },
+      "wait_insert": {
+       "gc": true,
+       "calls": [
+        {
+         "cap": "sampler.set",
+         "arg": "down_m",
+         "value": "max",
+         "what": "lower the sampler into the furnace"
+        },
+        {
+         "cap": "acquisition.confirm",
+         "what": "confirm the insertion"
+        }
+       ]
+      },
+      "wait_retract": {
+       "calls": [
+        {
+         "cap": "sampler.set",
+         "arg": "down_m",
+         "value": "min",
+         "what": "raise the sampler"
+        },
+        {
+         "cap": "acquisition.confirm",
+         "what": "confirm the retraction"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "acquisition.phase",
+     "values": [
+      "running"
+     ]
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "method set",
+     "method.configured"
+    ],
+    [
+     "carrier gas",
+     "gas.enabled"
+    ],
+    [
+     "sample",
+     "sample.loaded"
+    ],
+    [
+     "phase",
+     "acquisition.phase"
+    ],
+    [
+     "stage",
+     "acquisition.stage"
+    ],
+    [
+     "furnace",
+     "furnace.temperature_k",
+     "temperature"
+    ],
+    [
+     "interface",
+     "interface.temperature_k",
+     "temperature"
+    ],
+    [
+     "GC ready",
+     "gc.ready"
+    ],
+    [
+     "GC starts",
+     "gc.trigger_count"
+    ]
+   ],
+   "requires": {
+    "method": [
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no run in progress",
+      "message": "{inst} is running; the method cannot change now.",
+      "fix": "wait for the run (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method yet.",
+      "fix": "set one: `chemlab run {inst} method mode=single pyrolysis-temp=600C` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "gas.enabled",
+      "value": true,
+      "code": "GAS_OFF",
+      "label": "carrier gas on",
+      "message": "the carrier gas of {inst} is off.",
+      "fix": "switch it on: `chemlab call {inst} gas.set --enabled true`."
+     },
+     {
+      "slot": "sample.loaded",
+      "value": true,
+      "code": "NO_SAMPLE",
+      "label": "a sample cup loaded",
+      "message": "there is no sample cup in the sampler of {inst}.",
+      "fix": "ask the lab operator to load the sample cup."
+     },
+     {
+      "slot": "guard.lift_m",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "guard closed",
+      "message": "the guard of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close guard`."
+     },
+     {
+      "slot": "sampler.down_m",
+      "max": 0.0,
+      "code": "SAMPLER_DOWN",
+      "label": "sampler up",
+      "message": "the sampler of {inst} is lowered.",
+      "fix": "raise it: `chemlab call {inst} sampler.set --down_m 0`."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "acquisition.phase",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "a run in progress",
+      "message": "{inst} has no run in progress.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "method.configure:INVALID_ARGUMENT": {
+     "code": "BAD_STEP",
+     "message": "{inst} takes temperatures in whole °C, times in 6 s steps and ramps in 1 K/min steps, the end temperature not below the start, and every temperature at least 10 K above the room.",
+     "fix": "round the values (e.g. pyrolysis-time=0.1min, ramp=20K/min)."
+    },
+    "cup.drop:MANUAL_INTERLOCK": {
+     "code": "NOT_NOW",
+     "message": "{inst} does not take the cup now (the run is not waiting for the drop, the sampler is down or the GC is not ready).",
+     "fix": "see `chemlab run {inst} status`."
+    }
+   },
+   "unsupported": {
+    "load": "the sample cup is filled and put into the sampler by the lab operator (no load command)",
+    "unload": "the sample cup is taken out by the lab operator (no unload command)",
+    "set-temp": "its temperatures are method settings (pyrolysis-temp, td-start, td-end, interface-temp)",
+    "position": "no sample stage",
+    "rinse": "no rinse step (the furnace is cleaned by heating, not by the agent)"
+   },
+   "alternatives": {
+    "set-temp": "`chemlab run INST method pyrolysis-temp=600C interface-temp=300C`."
+   },
+   "notes": {
+    "start": [
+     "the run heats the furnace and then waits for the manual step: use `chemlab run INST inject --wait` (single shot: the cup drop)",
+     "the GC must be ready (the lab runs it); the job ends when the furnace has cooled after the shot"
+    ],
+    "inject": [
+     "single shot: drop the cup and confirm; double shot / EGA: lower the sampler and confirm, later raise it and confirm"
+    ]
+   },
+   "manual": "PY-3030D operation manual v1.29 (pyrolyzer ch.1 p.10-14, control software p.30-35, single / double shot and EGA operation)",
+   "examples": {
+    "method": "chemlab run INST method mode=single pyrolysis-temp=600C pyrolysis-time=0.1min",
+    "start": "chemlab run INST start",
+    "inject": "chemlab run INST inject --wait"
+   }
+  },
+  "markes_unityxr": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "calls": [
+      {
+       "cap": "method.configure",
+       "passthrough": true,
+       "keep": {
+        "last": true,
+        "example": true
+       },
+       "keys": {
+        "mode": "mode",
+        "desorb-temp": "tube_k",
+        "desorb-time": "tube_hold_s",
+        "trap-low": "trap_low_k",
+        "trap-high": "trap_high_k",
+        "trap-time": "trap_hold_s",
+        "trap-ramp": "trap_ramp_k_s",
+        "valve-temp": "valve_k",
+        "line-temp": "line_k",
+        "purge-flow": "purge_flow_m3_s",
+        "purge-time": "prepurge_s"
+       }
+      }
+     ]
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": {
+      "slot": "acquisition.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "report": {
+       "stage": "acquisition.stage"
+      },
+      "max_s": 7200
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "show": [
+      "phase",
+      "stage",
+      "elapsed_s",
+      "leak_result",
+      "thermal_trace",
+      "quality",
+      "template_source",
+      "warnings"
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "params": {
+    "busy": {
+     "slot": "acquisition.phase",
+     "values": [
+      "running"
+     ]
+    }
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "show": [
+    [
+     "power",
+     "power.enabled"
+    ],
+    [
+     "method set",
+     "method.configured"
+    ],
+    [
+     "tube",
+     "sample.loaded"
+    ],
+    [
+     "phase",
+     "acquisition.phase"
+    ],
+    [
+     "stage",
+     "acquisition.stage"
+    ],
+    [
+     "tube temp",
+     "tube.temperature_k",
+     "temperature"
+    ],
+    [
+     "trap",
+     "trap.temperature_k",
+     "temperature"
+    ],
+    [
+     "leak test",
+     "leak.result"
+    ],
+    [
+     "GC ready",
+     "gc.ready"
+    ],
+    [
+     "GC starts",
+     "gc.trigger_count"
+    ],
+    [
+     "lid",
+     "lid.lift_m",
+     "length"
+    ]
+   ],
+   "requires": {
+    "method": [
+     {
+      "slot": "acquisition.phase",
+      "not": [
+       "running"
+      ],
+      "code": "BUSY",
+      "label": "no run in progress",
+      "message": "{inst} is running; the method cannot change now.",
+      "fix": "wait for the run (`chemlab run {inst} wait`) or stop it."
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "value": true,
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`."
+     },
+     {
+      "slot": "method.configured",
+      "value": true,
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method yet.",
+      "fix": "set one: `chemlab run {inst} method mode=analyze desorb-temp=300C` (see `chemlab help {inst} method`)."
+     },
+     {
+      "slot": "lid.lift_m",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "lid closed",
+      "message": "the lid of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close lid`."
+     },
+     {
+      "slot": "shield.lift_m",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "shield closed",
+      "message": "the shield of {inst} is open.",
+      "fix": "close it: `chemlab run {inst} close shield`."
+     },
+     {
+      "slot": "rear.slide_m",
+      "max": 0.0,
+      "code": "COVER_OPEN",
+      "label": "rear panel closed",
+      "message": "the rear panel of {inst} is open.",
+      "fix": "close it: `chemlab call {inst} rear.set --slide_m 0`."
+     },
+     {
+      "slot": "sample_lever.angle_rad",
+      "max": 0.0,
+      "code": "LEVER_OPEN",
+      "label": "sample lever closed",
+      "message": "the sample tube lever of {inst} is open.",
+      "fix": "close it: `chemlab call {inst} sample_lever.set --angle_rad 0`."
+     },
+     {
+      "slot": "recollect_lever.angle_rad",
+      "max": 0.0,
+      "code": "LEVER_OPEN",
+      "label": "re-collection lever closed",
+      "message": "the re-collection lever of {inst} is open.",
+      "fix": "close it: `chemlab call {inst} recollect_lever.set --angle_rad 0`."
+     }
+    ],
+    "stop": [
+     {
+      "slot": "acquisition.phase",
+      "value": "running",
+      "code": "NOT_RUNNING",
+      "label": "a run in progress",
+      "message": "{inst} has no run in progress.",
+      "fix": "nothing to stop; see `chemlab run {inst} status`."
+     }
+    ]
+   },
+   "codes": {
+    "acquisition.start:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready to start: in analyze mode it needs a sample tube loaded and a cool tube oven, and a method with recollect=true needs the re-collection tube installed.",
+     "fix": "check `chemlab run {inst} status`; set `method recollect=false` if no re-collection tube is installed."
+    },
+    "method.configure:TENAX_TEMPERATURE_LIMIT": {
+     "code": "TOO_HOT",
+     "message": "{inst} keeps the tube and the trap at or below 350 °C (sorbent limit).",
+     "fix": "give desorb-temp and trap-high of 350C or less."
+    },
+    "method.configure:FLOW_RANGE": {
+     "code": "BAD_FLOW",
+     "message": "{inst} takes the purge, trap and split flows in whole mL/min from 2 to 500 mL/min (250 with nitrogen), or 0 for the splits.",
+     "fix": "round the flows to whole mL/min."
+    },
+    "method.configure:INVALID_ARGUMENT": {
+     "code": "BAD_STEP",
+     "message": "{inst} takes temperatures in whole °C and times in 6 s steps, with trap-high not below trap-low.",
+     "fix": "round the values."
+    }
+   },
+   "unsupported": {
+    "load": "the sample tube is put in by the lab operator (no load command; the lid and levers are manual)",
+    "unload": "the sample tube is taken out by the lab operator (no unload command)",
+    "set-temp": "its temperatures are method settings (desorb-temp, trap-low, trap-high, valve-temp, line-temp)",
+    "inject": "the desorbed sample goes to the GC by itself once the GC is ready (no manual step)",
+    "position": "no sample stage",
+    "rinse": "no rinse step (tube and trap conditioning are method modes: `method mode=tube_condition`)"
+   },
+   "alternatives": {
+    "set-temp": "`chemlab run INST method desorb-temp=300C trap-high=300C`.",
+    "rinse": "`chemlab run INST method mode=trap_condition` then `chemlab run INST start`."
+   },
+   "notes": {
+    "start": [
+     "the run does a leak test, purges, desorbs the tube onto the cold trap, waits for the GC to be ready and then desorbs the trap into the GC"
+    ],
+    "method": [
+     "method.configure needs every setting; the ones you leave out stay as in the last accepted method, else the documented defaults (the reply lists them); set recollect=false if no re-collection tube is installed"
+    ]
+   },
+   "manual": "UNITY-xr user manual (quick start p.11-14, tube and trap p.15-21, method editor p.25-42)",
+   "examples": {
+    "method": "chemlab run INST method mode=analyze desorb-temp=280C recollect=false",
+    "start": "chemlab run INST start"
+   }
+  }
+ }
+}

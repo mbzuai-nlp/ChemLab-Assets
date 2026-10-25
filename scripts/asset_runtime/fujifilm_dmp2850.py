@@ -4,7 +4,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='fujifilm_dmp2850'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-058'; PROTOCOL_VERSION='1.0.0'
+SLUG='fujifilm_dmp2850'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-058'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.1.1'
 TEMPLATE_REL='assets/reactions/fujifilm_dmp2850_ink_library/templates.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 
@@ -176,7 +176,7 @@ class FujifilmDmp2850Runtime:
         if self.phase=='running':self.phase=phase;self.stage='stopped'
         self.target=self.q[:]
     def _start(self,purpose,stage):
-        self.phase='running';self.purpose=purpose;self.stage=stage;self.elapsed_s=0.;self._operation_count+=1;self.operation_id=self.instance_id+':job:'+str(self._operation_count)
+        self._archive_op();self.phase='running';self.purpose=purpose;self.stage=stage;self.elapsed_s=0.;self._operation_count+=1;self.operation_id=self.instance_id+':job:'+str(self._operation_count)
         return dict(phase=self.phase,operation_id=self.operation_id)
     def _factor(self,m=None,c=None):
         m=m or self.method;c=c or self.ink_cfg
@@ -344,6 +344,11 @@ class FujifilmDmp2850Runtime:
             for s in self.spots:
                 dm=min(s['m'][0],p['mass_transfer_m_s']*math.pi*s['radius']**2*pv*mw/(8.314462618*self.temps[0])*dt)
                 s['m'][0]-=dm;self.evaporated[0]+=dm
+    def _archive_op(self):
+        # 2026-10-22 (chemlab findings B D4): the final record (status and printing.measure) of a finished operation is kept, so an older operation of a
+        # caller stays pollable after a newer one started (poll used to accept only the latest operation)
+        op=self.operation_id;arch=self.__dict__.setdefault('_op_final',{})
+        if op and self.phase not in ('running',) and op not in arch:arch[op]=dict(status=self.phase,result=self.invoke('printing.measure'))
     def step(self,dt_s):
         if isinstance(dt_s,bool) or not isinstance(dt_s,(int,float)) or not math.isfinite(dt_s) or not 0<dt_s<=3600:raise ActionRejected('INVALID_ARGUMENT')
         left=float(dt_s)
@@ -356,7 +361,7 @@ class FujifilmDmp2850Runtime:
             if self.flight and self.flight['left']>1e-12:dt=min(dt,self.flight['left'])
             if self.phase=='running' and self.stage=='flight' and self.wait_left>1e-12:dt=min(dt,self.wait_left)
             if self.phase=='running' and self.stage=='clean' and self.clean_left>1e-12:dt=min(dt,self.clean_left)
-            self._advance(dt);self.time_s+=dt;left-=dt;self._events()
+            self._advance(dt);self.time_s+=dt;left-=dt;self._events();self._archive_op()
         self.revision+=1;return self.read('evaluator')
 class FujifilmDmp2850Session:
     """Only the trusted host assigns roles; returned data obey the same boundary."""
@@ -369,7 +374,7 @@ class FujifilmDmp2850Session:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_fujifilm_dmp2850_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.1.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_fujifilm_dmp2850_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -388,6 +393,7 @@ class FujifilmDmp2850Session:
                 if old!=digest:raise ActionRejected('REQUEST_CONFLICT')
                 return copy.deepcopy(result)
             result=h.invoke(capability_id,**arguments);op=result.get('operation_id')
+            if CAPS[capability_id][4]!='query':h._archive_op()
             if op:h._owners[op]=self._principal
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=op,status='accepted' if op else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
         except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
@@ -397,10 +403,16 @@ class FujifilmDmp2850Session:
         cap,arg=SLOTS[state_id][5];return self.invoke(instance_id=instance_id,capability_id=cap,arguments={arg:value},request_id=request_id)
     def poll(self,operation_id):
         h=self._host
-        if operation_id!=h.operation_id or h._owners.get(operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
+        if h._owners.get(operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
+        if operation_id!=h.operation_id:                                    # an older operation of this caller: its final record (2026-10-22)
+            rec=h.__dict__.get('_op_final',{}).get(operation_id)
+            if rec is None:raise ActionRejected('ACCESS_DENIED')
+            return dict(operation_id=operation_id,status=rec['status'],result=copy.deepcopy(rec['result']))
         return dict(operation_id=operation_id,status=h.phase,result=h.invoke('printing.measure'))
     def cancel(self,operation_id,request_id):
-        self.poll(operation_id);return self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
+        r=self.poll(operation_id)
+        if operation_id!=self._host.operation_id:return r                 # finished before a newer operation started: nothing to cancel
+        return self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
 
 
 

@@ -4,8 +4,8 @@
 
 # ChemLab-Assets
 
-**203 台可直接用于仿真的化学实验室仪器资产**<br>
-零件级几何 · 可动关节 · 前面板菜单 · 可执行的行为模型 · 机器可读的资产合同
+**203 台可直接用于仿真的化学实验室仪器资产，供机器人和 LLM 智能体使用**<br>
+零件级几何 · 可动关节 · 前面板菜单 · 可执行的行为模型 · 机器可读的资产合同 · 智能体命令行
 
 Zirui Song · Jiadong Zhang · Jiahao Zhang · Xiaosong Ma · Xiaojun Chang · Xiuying Chen<br>
 Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
@@ -14,34 +14,105 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 </div>
 
+<p align="center"><a href="https://mbzuai-nlp.github.io/ChemLab-Assets/#video"><img src="docs/media/video/chemlab_assets_1_5_0_teaser.webp" width="800" alt="85 秒视频：仪器、关节和前面板，机器人在 Isaac Sim 中运行实验室，LLM 智能体用 chemlab 运行实验室"></a><br><sub>在<a href="https://mbzuai-nlp.github.io/ChemLab-Assets/#video">项目网站</a>观看 85 秒完整视频。</sub></p>
+
 ## 更新动态
 
-- **[2026-10-21] v1.4.0：** 106 台仪器有了可操作的前面板菜单；可以逐步操作菜单，并预览每一步之后的屏幕。
-- **[2026-10-17] v1.3.0：** 新增 5 台仪器（共 203 台）；44 台仪器重建为更逼真的 3D 模型。
-- **[2026-10-16] v1.2：** 内置化学反应增至 103 条，新增光驱动和电驱动反应；参考数据更丰富；新增仪器申请入口。
-- **[2026-10-15] v1.1：** 又有 17 台仪器配上真实参考数据；200 种化合物公共表；38 条内置反应。
-- **[2026-10-14] v1.0：** 198 台可直接用于仿真的实验室仪器。
+- **[2026-10-25] v1.5.0：** 新增 chemlab：LLM 智能体用命令行操作全部 203 台仪器；新增实验器具、储存柜和试剂。
+- **[2026-10-21] v1.4.0：** 106 台仪器有了前面板菜单，并附带工具，可查看每一步操作后的屏幕。
+- **[2026-10-17] v1.3.0：** 新增 5 台仪器（共 203 台），另有 44 台换上更精细的 3D 模型。
+- **[2026-10-16] v1.2：** 内置 103 条化学反应，包括光驱动和电驱动反应；新增仪器申请入口。
+- **[2026-10-15] v1.1：** 又有 17 台仪器配上真实参考数据；新增 200 种化合物的公共表。
+- **[2026-10-14] v1.0：** 首次发布，198 台可直接用于仿真的实验室仪器。
 
 ## 简介
 
-在化学实验室里工作的机器人和智能体，光有网格模型是不够的。它们需要知道：通风柜移门能拉开 673 mm、在 457 mm 处有限位；天平防风罩门一动，稳定判断就要重新开始；哪些量策略可以观测，哪些是只留给评测的隐藏真值。ChemLab-Assets 把这些知识和几何一起打包发布。
+在化学实验室里工作的机器人和智能体，光有网格模型是不够的。它们需要知道：通风柜移门能拉开 673 mm、在 457 mm 处有限位；天平防风罩门一动，稳定判断就要重新开始；哪些量策略可以观测，哪些是只留给评测的隐藏真值。ChemLab-Assets 把这些知识和几何一起打包发布，既供动手操作仪器的机器人使用，也供在命令行里运行仪器的 LLM 智能体使用。
 
-每个资产对应一台具体的商用仪器，选自一份覆盖大学化学教学与科研常用的 200 种仪器与模块的调研，依据公开的样本、手册和论文建模。模型复现的是公开资料记载的行为，不是厂家 CAD，也没有用实物做过标定。
+每个资产对应一台具体的商用仪器，选自一份覆盖大学化学教学与科研常用的 200 种仪器与模块的调研，依据公开的样本、手册和论文建模。模型复现的是公开资料记载的行为。
 
-本仓库存放代码（运行层、测试、示例、合同校验器）、目录表、项目网站（`docs/`）和 3D 浏览器（`explorer/`）；模型与数据（约 1.9 GB）放在 [Hugging Face 数据集](https://huggingface.co/datasets/MBZUAI/ChemLab-Assets)，运行 `python tools/download_assets.py` 即可下载到 `assets/`。
+本仓库存放代码（运行层、测试、示例、合同校验器、`chemlab` 命令行）、目录表、项目网站（`docs/`）和 3D 浏览器（`explorer/`）；模型与数据（约 1.9 GB）放在 [Hugging Face 数据集](https://huggingface.co/datasets/MBZUAI/ChemLab-Assets)，运行 `python tools/download_assets.py` 即可下载到 `assets/`。
+
+## 两种用法
+
+每台仪器只有一个行为模型。机器人可以动手操作它，LLM 智能体也可以在命令行里操作它，两种方式下仪器的表现完全一样。
+
+| | 具身模式 | 智能体模式 |
+|---|---|---|
+| **谁来操作** | 3D 仿真器里的机器人 | 命令行里的 LLM 智能体 |
+| **怎么操作** | 开门开盖、按键、拧旋钮、点触摸屏、抓取瓶子和板子 | `chemlab` 命令 |
+| **看到什么** | 相机画面，包括仪器屏幕 | 文字回复、读数和屏幕截图 |
+| **需要什么** | 仿真器：Isaac Sim / Isaac Lab，或任意 URDF 加载器 | Linux 上的 Python，不需要 GPU |
+
+### 具身模式：机器人操作仪器
+
+每台仪器都是一个 3D 模型，带可动关节（门、盖、移门、按键、旋钮）、抓取点和放置点，以及碰撞体。106 台带前面板的仪器，屏幕由仪器自己的菜单引擎绘制，机器人按下按键后能看到结果。全部 203 台仪器都已转成 USD，通过 Matterix 框架在 NVIDIA Isaac Sim 中运行，其中 97 个前面板由机械臂按过按键或点过屏幕。
+
+<p align="center"><img src="docs/media/figs/joints_motion.webp" width="820" alt="四台仪器关节动作的起点和终点：Esco 通风柜移门升起、IKA RV 10 连同玻璃件升起、Rigaku XtaLAB Synergy-R 开门并转动测角仪、Quantos 开门"></p>
+<p align="center"><sub>发布模型的关节，上排为起点，下排为终点：(1) Esco 通风柜移门升高 450 mm；(2) IKA RV 10 升降 140 mm，玻璃件一起升；(3) Rigaku XtaLAB Synergy-R 打开两扇门，测角仪转动（ω 69°、κ −63°、φ 180°），探测器移动；(4) Quantos 打开前门和侧门。</sub></p>
+
+1.5.0 版新增实验室用品：62 个按具体产品建模的资产，从 DURAN 螺口试剂瓶、样品瓶、离心管、孔板、Opentrons 吸头盒，到试剂架、安全柜、冰箱和干燥柜。瓶盖是单独的零件，每个容器都标有抓取点和内腔容积。另有 239 种物质的数据表，列出危险性代码和储存类别。
+
+<p align="center"><img src="docs/media/figs/isaac_storage_lab.webp" width="820" alt="我们 Isaac Sim 实验室的存储区：安全柜和冰箱、带试剂架的机器人工作台、机器人在试剂架取物、气瓶"></p>
+<p align="center"><sub>我们 Isaac Sim 实验室的存储区，用的就是这些模型：(1) 安全柜和冰箱；(2) 机器人工作台和试剂架；(3) 机器人伸手到试剂架；(4) 气瓶架旁的气瓶。</sub></p>
+
+仪器的行为模型在场景里实时运行，天平读数、加热板温度、化学反应和粉末定量都由它们算出。下面是我们在 Isaac Sim 实验室里跑的两个机器人流程：
+
+<p align="center"><img src="docs/media/figs/isaac_workflow_esterification.webp" width="820" alt="Isaac Sim 中机器人做酯化反应的四个关键画面：乙酸（琥珀色）倒进装有乙醇（蓝色）的反应烧杯、天平读数 191.8 g、烧杯放上 IKA 加热板、加热后的加热板（300 rpm）"></p>
+
+**酯化反应。** (1) 机器人先把 50 mL 乙醇、再把 40 mL 乙酸倒进反应烧杯，进到烧杯里的共 89.3 mL。液体用粒子模拟，并且上了色以便看清（乙醇为蓝色，乙酸为琥珀色；实际两者都是无色的）。(2) OHAUS 天平读数 191.8 g。(3) 机器人把烧杯放到 IKA 加热板上。(4) 加热板设定 70 °C、以 300 rpm 搅拌；加热 200 秒后液体为 77 °C，生成了 1.91 g 乙酸乙酯。
+
+<p align="center"><img src="docs/media/figs/isaac_workflow_quantos.webp" width="820" alt="Isaac Sim 中机器人用 Quantos 定量粉末的四个关键画面：加样头装入支架、样品瓶放上称量盘、定量完成、样品瓶放回试管架"></p>
+
+**用 Quantos 定量粉末。** (1) 机器人把装溴化钾的加样头装进 Quantos。(2) 把空样品瓶放到称量盘上。(3) Quantos 关上门，定量 50.000 mg，与目标值完全一致。(4) 机器人把样品瓶放回试管架。
+
+这些机器人场景是用 Matterix 搭建的，Matterix 不在本次发布范围内。ChemLab-Assets 提供的是场景里加载的仪器、器具和行为模型。
+
+### 智能体模式：chemlab，给 LLM 智能体用的命令行
+
+`chemlab` 把整个实验室放在一条命令后面。智能体可以列出仪器、查看帮助、设置、运行、读取结果，就像人在实验台前操作一样。实验室的时间只在智能体等待时才前进。
+
+<p align="center"><img src="docs/media/figs/chemlab_tour.webp" width="820" alt="chemlab 会话：列出仪器，把加热板设到 80 °C 并开始加热，等待 600 秒后读到 80.2 °C；超出范围的设定值被拒绝并给出改法"></p>
+
+* **每类仪器一套简单命令。** `chemlab run` 为 30 类仪器（天平、温控、移液、色谱等）各提供一套命令，自动换算单位、检查范围，并支持命名位置。`chemlab call` 可以调用仪器合同里的任何能力。
+* **报错告诉你怎么办。** 每条错误都说明哪里错了、怎么改、仪器状态有没有变。
+* **实验室备好了物料。** 默认实验室里 203 台仪器全部就绪，货架和柜子里有 97 个容器（溶剂、缓冲液、有证标准物质、孔板、气瓶），仪器里还预先装好了 189 件物品。`chemlab list --inventory` 列出每样东西放在哪里。
+* **适合做评测。** 智能体只能看到仪器显示的内容，真实值只留给评测者。它的命令行运行在沙箱里，除了 `chemlab` 什么都碰不到。基础命令（list、describe、call、read、wait、screen 等）也可以作为 MCP 工具使用。
+
+**一个完整任务。** 共有 276 道任务，每道都有自动检查器。任务用一句平常的话交代给智能体；检查器读取的是仪器自己的状态，光把答案写对是不够的。下图中，智能体要用有证标准物质核查一台水分活度仪：仪器还在预热，标准物质还没测过，样品仓的拉杆也没扳到位。智能体只靠报错信息，逐一解决了这三个问题。
+
+<p align="center"><img src="docs/media/figs/chemlab_task.webp" width="820" alt="一个完整的 chemlab 任务：AQUALAB 4TE 核查，三次被拒的命令都按报错信息改正，标准物质测得 aw 0.8821，核查通过，检查器判定 PASS"></p>
+
+**屏幕就是图像。** 智能体也可以像人一样只用按键和旋钮操作前面板。每个操作只返回仪器是否接受，要知道结果就得看屏幕。`chemlab screen` 把显示屏存成 PNG，供视觉语言模型读取。
+
+<p align="center"><img src="docs/media/figs/chemlab_panel.webp" width="820" alt="chemlab 会话：拧旋钮设置 IKA 加热板，再把液晶屏存成 plate.png，显示 80.2 °C 和 240 rpm"></p>
+
+**试一试。**
+
+```bash
+cd ChemLab-Assets/chemlab
+python -m chemlab.gserve --only ika_plate_rctdigital mt_xpr204e --shell    # a sandboxed shell with two instruments
+python -m chemlab.tasks list                                               # the 276 tasks
+python -m chemlab.tasks shell pm04_recover_aw_verify                       # do a task yourself; the checker runs when you exit
+python -m chemlab.tasks run pm04_recover_aw_verify --solution my_agent.sh  # or score your agent's commands
+```
+
+完整的命令说明见 [`chemlab/README.md`](chemlab/README.md)。
 
 ## 数据一览
 
 | | |
 |---|---|
 | **仪器** | 203 台商用型号，来自 119 家厂商，分属 16 个能力域 |
-| **几何** | GLB、带碰撞代理的 URDF、15,323 个分件 OBJ、Blender 源文件 |
-| **关节** | 1,327 个（平移 891、转动 405、连续 31）：门、移门、盖、按键、旋钮 |
-| **合同** | 15,299 个组件、7,769 个带类型的状态槽、6,823 个带 JSON-Schema 参数与错误声明的能力 |
-| **接口** | 663 个读数（显示屏、指示灯）和 2,547 个接口点（放置、抓取、端口） |
+| **几何** | GLB、带碰撞代理的 URDF、15,326 个分件 OBJ、Blender 源文件 |
+| **关节** | 1,330 个（平移 892、转动 407、连续 31）：门、移门、盖、按键、旋钮 |
+| **合同** | 15,302 个组件、7,769 个带类型的状态槽、6,823 个带 JSON-Schema 参数与错误声明的能力 |
+| **接口** | 663 个读数（显示屏、指示灯）和 2,548 个接口点（放置、抓取、端口） |
 | **行为** | 每台一个 Python 运行层：按时间步推进的过程模型，提供 `describe` / `read` / `invoke` / `poll`，区分智能体与评测者视角，噪声可设种子 |
 | **前面板** | 106 台仪器带有可操作的按键、旋钮、触摸屏和菜单；`examples/preview_menu.py` 可显示每一步之后的屏幕 |
-| **来源** | 共引用 3,615 条来源；第三方原始文档不随发布再分发 |
+| **智能体接口** | `chemlab`：给 LLM 智能体用的命令行，覆盖全部 203 台仪器；30 类仪器各有一套简单命令；带沙箱、MCP 工具和 276 道带检查器的任务 |
+| **实验室用品** | 62 个按具体产品建模的器具和家具，239 种带危险性和储存数据的物质，默认库存 97 个存放的容器和 189 件装在仪器里的物品 |
+| **来源** | 共引用 3,617 条来源；第三方原始文档不随发布再分发 |
 | **仿真** | 全部 203 台已转为 USD，并通过 Matterix 框架在 NVIDIA Isaac Lab 中运行检查 |
 
 ## 图库
@@ -50,6 +121,9 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 <tr><td align="center" width="25%"><img src="docs/media/thumb/esco_efa5uduvw.webp" width="190" alt="Chemical fume hood"><br><sub><b>Chemical fume hood</b><br>Esco Lifesciences Frontier Acela EFA-5UDUVW-9</sub></td><td align="center" width="25%"><img src="docs/media/thumb/agilent_7890b_ssl_fid.webp" width="190" alt="Gas chromatograph (S/SL inlet + FID)"><br><sub><b>Gas chromatograph (S/SL inlet + FID)</b><br>Agilent 7890B</sub></td><td align="center" width="25%"><img src="docs/media/thumb/mt_xpr204e.webp" width="190" alt="Analytical balance"><br><sub><b>Analytical balance</b><br>METTLER TOLEDO XPR204E</sub></td><td align="center" width="25%"><img src="docs/media/thumb/brooks_preciseflex_400.webp" width="190" alt="Lab sample-transfer robot arm"><br><sub><b>Lab sample-transfer robot arm</b><br>Brooks Automation PreciseFlex 400</sub></td></tr>
 <tr><td align="center" width="25%"><img src="docs/media/thumb/ika_rv10_digital_v.webp" width="190" alt="Rotary evaporator"><br><sub><b>Rotary evaporator</b><br>IKA RV 10 digital V</sub></td><td align="center" width="25%"><img src="docs/media/thumb/thermo_orbitrapexploris.webp" width="190" alt="High-resolution Orbitrap mass spectrometer"><br><sub><b>High-resolution Orbitrap mass spectrometer</b><br>Thermo Fisher Scientific Orbitrap Exploris 120</sub></td><td align="center" width="25%"><img src="docs/media/thumb/jeol_jsmit200.webp" width="190" alt="Scanning electron microscope"><br><sub><b>Scanning electron microscope</b><br>JEOL JSM-IT200 LA</sub></td><td align="center" width="25%"><img src="docs/media/thumb/buchi_lyovapor_l250_pro.webp" width="190" alt="Freeze dryer"><br><sub><b>Freeze dryer</b><br>BUCHI Lyovapor L-250 Pro</sub></td></tr>
 <tr><td align="center" width="25%"><img src="docs/media/thumb/opentrons_flex_single_5_1000ul.webp" width="190" alt="Automated liquid-handling robot"><br><sub><b>Automated liquid-handling robot</b><br>Opentrons Flex (1-channel 5–1000 µL)</sub></td><td align="center" width="25%"><img src="docs/media/thumb/magritek_spinsolve80.webp" width="190" alt="Benchtop NMR spectrometer"><br><sub><b>Benchtop NMR spectrometer</b><br>Magritek Spinsolve 80 Carbon</sub></td><td align="center" width="25%"><img src="docs/media/thumb/inert_purelab_he_2gb.webp" width="190" alt="Inert-atmosphere glovebox"><br><sub><b>Inert-atmosphere glovebox</b><br>Inert PureLab HE 2GB</sub></td><td align="center" width="25%"><img src="docs/media/thumb/park_nx10.webp" width="190" alt="Atomic force microscope"><br><sub><b>Atomic force microscope</b><br>Park Systems NX10</sub></td></tr>
+<tr><td align="center" width="25%"><img src="docs/media/thumb/rigaku_xtalabsynergy.webp" width="190" alt="Single-crystal X-ray diffractometer"><br><sub><b>Single-crystal X-ray diffractometer</b><br>Rigaku Oxford Diffraction XtaLAB Synergy-R</sub></td><td align="center" width="25%"><img src="docs/media/thumb/mt_quantos_q2_xpe206dr.webp" width="190" alt="Automated powder dosing system"><br><sub><b>Automated powder dosing system</b><br>METTLER TOLEDO Quantos Q2 + XPE206DR</sub></td><td align="center" width="25%"><img src="docs/media/thumb/jeol_jem1400flash.webp" width="190" alt="Transmission electron microscope"><br><sub><b>Transmission electron microscope</b><br>JEOL JEM-1400Flash</sub></td><td align="center" width="25%"><img src="docs/media/thumb/bd_facsariaiii.webp" width="190" alt="Flow cytometer & cell sorter"><br><sub><b>Flow cytometer & cell sorter</b><br>BD Biosciences FACSAria III</sub></td></tr>
+<tr><td align="center" width="25%"><img src="docs/media/thumb/antonpaar_monowave400.webp" width="190" alt="Microwave synthesis reactor"><br><sub><b>Microwave synthesis reactor</b><br>Anton Paar Monowave 400</sub></td><td align="center" width="25%"><img src="docs/media/thumb/agilent_gc8890b.webp" width="190" alt="Gas chromatograph"><br><sub><b>Gas chromatograph</b><br>Agilent 8890B GC</sub></td><td align="center" width="25%"><img src="docs/media/thumb/evident_bx53p.webp" width="190" alt="Polarizing microscope"><br><sub><b>Polarizing microscope</b><br>Evident / Olympus BX53-P</sub></td><td align="center" width="25%"><img src="docs/media/thumb/kratos_axissupra.webp" width="190" alt="X-ray photoelectron spectrometer"><br><sub><b>X-ray photoelectron spectrometer</b><br>Kratos / Shimadzu AXIS Supra+</sub></td></tr>
+<tr><td align="center" width="25%"><img src="docs/media/thumb/teledyne_atomxxyz.webp" width="190" alt="Purge-and-trap autosampler"><br><sub><b>Purge-and-trap autosampler</b><br>Teledyne Tekmar Atomx XYZ</sub></td><td align="center" width="25%"><img src="docs/media/thumb/antonpaar_saxspace.webp" width="190" alt="Small-angle X-ray scattering system"><br><sub><b>Small-angle X-ray scattering system</b><br>Anton Paar SAXSpace</sub></td><td align="center" width="25%"><img src="docs/media/thumb/cytiva_nanoassemblrignite.webp" width="190" alt="Microfluidic nanoparticle formulation system"><br><sub><b>Microfluidic nanoparticle formulation system</b><br>Cytiva / Precision NanoSystems NanoAssemblr Ignite</sub></td><td align="center" width="25%"><img src="docs/media/thumb/eppendorf_cryocubef570n.webp" width="190" alt="Ultra-low temperature freezer"><br><sub><b>Ultra-low temperature freezer</b><br>Eppendorf CryoCube F570n</sub></td></tr>
 </table>
 
 在 [3D 浏览器](https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer) 中可以查看全部 203 台，拖动关节滑块、逐个查看零件注释。
@@ -73,11 +147,10 @@ python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close
 
 **给智能体用。** 这些操作在每份合同里都是能力：`panel.press`、`panel.turn`、`panel.switch` 和 `panel.touch` 每次执行一个操作，只返回仪器是否接受，智能体要看屏幕才知道发生了什么；`panel.capture` 返回某块显示屏的图像，就像对着它的相机拍到的一样；`panel.frame` 返回结构化的屏幕内容（页面、菜单位置、数值），只给评测者用。每台仪器的 `panel_ui.json` 描述它的屏幕和菜单，并逐一注明厂家资料出处。
 
-**在 Isaac Sim 中检查。** 全部 106 个前面板都通过 Matterix 框架在 Isaac Sim 中做了检查：渲染出的屏幕与菜单引擎一致；按键、旋钮和触摸屏在每个仿真副本中各自独立地驱动菜单；在其中 97 台上，机械臂按下了按键或点按了屏幕。
+**在 Isaac Sim 中检查。** 全部 106 个前面板都通过 Matterix 框架在 Isaac Sim 中做了检查：渲染出的屏幕与菜单引擎一致，按键、旋钮和触摸屏在每个仿真副本中各自独立地驱动菜单。其中 97 台由机械臂按下了按键或点按了屏幕。
 
 <table>
 <tr><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_aqualab_screen.webp" width="380" alt="The AquaLab 4TE screen rendered in Isaac Sim, rectified, and drawn by the menu engine"><br><sub>AquaLab 4TE：Isaac Sim 渲染的屏幕（上）、校正后的屏幕（左下）与菜单引擎画出的屏幕（右下）。</sub></td><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_xpr204e_screen.webp" width="380" alt="The XPR204E terminal rendered in Isaac Sim next to the menu engine's image"><br><sub>Mettler Toledo XPR204E 终端：触摸屏上的同样对比。</sub></td></tr>
-<tr><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_julabo_press.webp" width="380" alt="A robot arm pressing a key of the JULABO CORIO CD-200F in Isaac Sim"><br><sub>机械臂按下 JULABO CORIO CD-200F 的按键。</sub></td><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_xpr204e_touch.webp" width="380" alt="A robot arm tapping the XPR204E touchscreen in Isaac Sim"><br><sub>机械臂点按 XPR204E 的触摸屏。</sub></td></tr>
 </table>
 
 ## 按能力域分类
@@ -279,7 +352,7 @@ python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close
 | CHEM-171 | 生化需氧量呼吸测定系统WTW OxiTop-i IS 6 | WTW (Xylem) | OxiTop-i | 生化与湿化学分析 | 30 | 46 | 39 |
 | CHEM-172 | 分段连续流动分析仪SEAL AA500 | SEAL Analytical | AA500 | 生化与湿化学分析 | 11 | 29 | 40 |
 | CHEM-173 | 多模式微孔板读板仪BMG LABTECH CLARIOstar Plus | BMG LABTECH | CLARIOstar Plus | 生化与湿化学分析 | 5 | 22 | 37 |
-| CHEM-174 | 自动粉末定量分配仪 — METTLER TOLEDO Quantos Q2 +  | METTLER TOLEDO | Quantos Q2 + XPE206DR | 自动化与气液供给 | 3 | 51 | 43 |
+| CHEM-174 | 自动粉末定量分配仪 — METTLER TOLEDO Quantos Q2 +  | METTLER TOLEDO | Quantos Q2 + XPE206DR | 自动化与气液供给 | 6 | 51 | 43 |
 | CHEM-175 | 自动移液工作站 — Opentrons Flex 单通道5–1000 µL | Opentrons | Flex (1-channel 5–1000 µL) | 自动化与气液供给 | 4 | 33 | 41 |
 | CHEM-176 | 自动微孔板热封膜机 | Azenta Life Sciences | Automated Roll Heat Sealer (a4S) | 自动化与气液供给 | 1 | 35 | 29 |
 | CHEM-177 | 自动开盖封盖机 | Azenta Life Sciences | IntelliXcap S1 46-0001 | 自动化与气液供给 | 5 | 16 | 11 |
@@ -370,6 +443,8 @@ hood.show()
 
 Isaac Lab 用户可用其 URDF 导入器转换 `model.urdf`。GLB 保持 Z 轴向上的资产坐标系，在 Y 轴向上的查看器里需绕 X 轴旋转 −90°（目录表的 `glb_up` 列标明了哪些文件需要）。
 
+**4. 以智能体身份运行实验室。** 按[智能体模式](#智能体模式chemlab给-llm-智能体用的命令行)一节启动 `chemlab`。
+
 ## 一个资产包含什么
 
 ```text
@@ -399,19 +474,8 @@ tests/test_asset_esco_efa5uduvw.py        # its tests (and tests/test_panel_ui_e
 * **来源**：每个状态槽和能力都写明依据。厂家资料给出尺寸、量程和操作限值；论文、标准和公开数据库给出仪器输出背后的实测数据；两者都没有时，合同明确写出假设。第三方原始文档（PDF 手册、样本、应用笔记、论文、谱图文件、照片）不再分发，合同只保留引用和派生数值。
 * **许可**：代码采用 MIT（[`LICENSE`](LICENSE)）；模型、合同与数据采用 CC BY-NC 4.0（[`LICENSE-ASSETS.md`](LICENSE-ASSETS.md)）。部分数据文件沿用其来源的条款（CC BY-SA、非商用或出版方保留权利），[`NOTICE.md`](NOTICE.md) 逐一列出。
 * **商标**：产品与公司名称仅用于标明所建模的仪器，本项目与任何厂商无关联，也未获其背书。
-* **边界**：787 个能力已声明但标为不支持；没有任何能力在合同中声称经过机器人接触或真实硬件验证，上文的机械臂按键是在仿真中完成的。请把这些资产当作有文档、可测试的行为模型用于具身智能研究，而不是经过认证的数字孪生。
+* **边界**：787 个能力已声明但标为不支持；没有任何能力在合同中声称经过机器人接触或真实硬件验证；上文的机器人动作都是在仿真中完成的，`chemlab` 驱动的也是行为模型，而不是真实仪器。请把这些资产当作有文档、可测试的行为模型，用于具身智能和智能体研究，而不是经过认证的数字孪生。
 * **构建记录**：合同中列出的部分文件属于原始构建过程（验证日志、评审记录、来源缓存），不在本次发布范围内；`release_manifest.json` 说明了哪些文件随发布提供。
-
-## 待办清单
-
-- [x] 所有测量样品的仪器都有真实参考数据（v1.1）
-- [x] 公共化合物表，并与仪器关联（v1.1）
-- [x] 约 100 条内置化学反应，包括光驱动和电驱动反应（v1.2）
-- [x] 机身上带菜单的 106 台仪器都有可操作的前面板菜单（v1.4.0）
-- [ ] FVS-6000 振动圆二色光谱仪补足 50 种参考化合物（目前 40 种）
-- [ ] 标定反应速率
-- [ ] 补充在对应型号上实测的数据
-- [ ] 真实机器人与硬件验证
 
 ## 引用
 
@@ -423,6 +487,6 @@ tests/test_asset_esco_efa5uduvw.py        # its tests (and tests/test_panel_ui_e
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.4.0}
+  note         = {Dataset, release 1.5.0}
 }
 ```

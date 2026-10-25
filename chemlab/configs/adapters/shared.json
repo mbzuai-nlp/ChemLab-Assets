@@ -1,0 +1,7462 @@
+{
+ "class": "shared",
+ "layer": "shared",
+ "adapter": "chemlab.compile.shared:SharedAdapter",
+ "about": "The shared layer, generated from the contracts by chemlab/compile/shared_gen.py: power, status, open/close of named parts, ack, estop and method / start / stop / result / wait wherever the contract supports them.  Class fragments override it verb by verb (fragments.py precedence).  Regenerate, do not hand-edit.",
+ "generated_by": "python -m chemlab.compile.shared_gen --write",
+ "membership": {
+  "members": 198,
+  "thin_class_members_left_out": [
+   "cem_libertyblue",
+   "cytiva_ktaoligosynt",
+   "inert_puresolvmd",
+   "vaisala_dmt152",
+   "wtw_oxitopi"
+  ]
+ },
+ "members": {
+  "agilent_1260infinity": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "drawer_1": {
+       "cap": "drawer_1.set",
+       "arg": "position_m",
+       "open": 0.3,
+       "close": 0
+      },
+      "drawer_2": {
+       "cap": "drawer_2.set",
+       "arg": "position_m",
+       "open": 0.3,
+       "close": 0
+      },
+      "drawer_3": {
+       "cap": "drawer_3.set",
+       "arg": "position_m",
+       "open": 0.3,
+       "close": 0
+      },
+      "drawer_4": {
+       "cap": "drawer_4.set",
+       "arg": "position_m",
+       "open": 0.3,
+       "close": 0
+      },
+      "mct_door": {
+       "cap": "mct_door.set",
+       "arg": "angle_rad",
+       "open": 1.5,
+       "close": 0
+      },
+      "sampler_door": {
+       "cap": "sampler_door.set",
+       "arg": "angle_rad",
+       "open": 1.75,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "run.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "agilent_1290infinity": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "column_cover": {
+       "cap": "column_cover.set",
+       "arg": "angle_rad",
+       "open": 1.75,
+       "close": 0
+      },
+      "door": {
+       "cap": "door.set",
+       "arg": "angle_rad",
+       "open": 1.8,
+       "close": 0
+      },
+      "drawer": {
+       "cap": "drawer.set",
+       "arg": "position_m",
+       "open": 0.22,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "agilent_7890b_ssl_fid": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "oven_door": {
+       "cap": "oven.set_door",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "alarm.silence"
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "run.stop"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "run.state",
+    "sequence.status"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "agilent_gc8890b": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.9198621771937625,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "run.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "agilent_hplc1260": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "chromatography.set_method"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "run.status"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "agilent_hs8697": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "alicat_mc_1slpm_rev6": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ametek_oxtran": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cell_a.phase",
+    "cell_b.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "antonpaar_abbematadvanced": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "refractometry.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "refractometry.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "antonpaar_autosorb6100": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "guard": {
+       "cap": "guard.set",
+       "arg": "angle_rad",
+       "open": 1.5,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "degas.phase",
+    "station0.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "antonpaar_dma5002": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "density.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "density.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "antonpaar_hit300": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "antonpaar_litesizerdia": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "latch": {
+       "cap": "latch.set",
+       "arg": "angle_rad",
+       "open": 0.65,
+       "close": 0
+      },
+      "lid": {
+       "cap": "lid.set",
+       "arg": "angle_rad",
+       "open": 1.55,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "antonpaar_litesizerdls": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cell_cap": {
+       "cap": "cell_cap.set",
+       "arg": "lift_m",
+       "open": 0.022,
+       "close": 0
+      },
+      "lid": {
+       "cap": "lid.set",
+       "arg": "angle_rad",
+       "open": 1.7,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "antonpaar_mcr503": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "antonpaar_monowave400": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_lift",
+       "arg": "lift_m",
+       "open": 0.15,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "reaction.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "reaction.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "antonpaar_poremaster60": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cap": {
+       "cap": "cap.set",
+       "arg": "lift_m",
+       "open": 0.19,
+       "close": 0
+      }
+     }
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "antonpaar_psa1190": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cover": {
+       "cap": "cover.set",
+       "arg": "angle_rad",
+       "open": 1.2,
+       "close": 0
+      },
+      "dry_hood": {
+       "cap": "dry_hood.set",
+       "arg": "lift_m",
+       "open": 0.2,
+       "close": 0
+      },
+      "tank_lid": {
+       "cap": "tank_lid.set",
+       "arg": "slide_m",
+       "open": 0.17,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "antonpaar_rst300": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "tool.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "antonpaar_saxspace": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "asx_door": {
+       "cap": "asx.set_door",
+       "arg": "open",
+       "open": true,
+       "close": false
+      },
+      "chamber_door": {
+       "cap": "chamber.set_door",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "generator.acknowledge"
+    },
+    "estop": {
+     "cap": "generator.emergency_stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "collimation.mode",
+    "system.state"
+   ],
+   "unsupported": {
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "antonpaar_surpass3": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "lift_m",
+       "open": 0.105,
+       "close": 0.0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "antonpaar_trb": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "drive.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "antonpaar_ultrapyc5000": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "lift_m",
+       "open": 0.13,
+       "close": 0
+      }
+     }
+    },
+    "ack": {
+     "cap": "error.clear"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability"
+   }
+  },
+  "applied_sx20": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "aqualab_4te": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "latch": {
+       "cap": "latch.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      },
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "water_activity.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "water_activity.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "arradiance_gemstarxt": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "safety.emo"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "azenta_automated_roll_heat_sealer_a4s": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "sealing.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "azenta_intellixcap_s1_46_0001": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "start": {
+     "cap": "cycle.start",
+     "job": "operation"
+    },
+    "result": {
+     "cap": "cycle.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cycle.status",
+    "cycle.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "stop": "no stop for its start capability"
+   }
+  },
+  "bd_facsariaiii": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "drawer": {
+       "cap": "drawer.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "warnings.dismiss"
+    },
+    "estop": {
+     "cap": "safety.emergency_stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "amo.mode",
+    "cst.status",
+    "fluidics.state"
+   ],
+   "unsupported": {
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "binder_fd056": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "angle_rad",
+       "open": 1.806415775814131,
+       "close": 0.0
+      }
+     }
+    },
+    "ack": {
+     "cap": "alarm.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "binder_kbf115": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.move",
+       "arg": "angle_rad",
+       "open": 1.75,
+       "close": 0.0
+      },
+      "glass_door": {
+       "cap": "glass_door.move",
+       "arg": "angle_rad",
+       "open": 1.65,
+       "close": 0.0
+      },
+      "water_supply": {
+       "cap": "water.supply",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "alarm.reset"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "binder_vd56": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "vacuum_valve": {
+       "cap": "vacuum.set_valve",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "vent_valve": {
+       "cap": "vent.set_valve",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "messages.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "safety.mode"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "biolin_mediuml": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "biolin_sigma700": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "angle_rad",
+       "open": 2.35,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "biolin_thetaflex": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "biorad_cfxopus": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "open_cap": "lid.open",
+       "close_cap": "lid.close"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "lid.state",
+    "run.state"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "biorad_miniprotean": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "display.mode",
+    "leads.state",
+    "psu.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "biotage_extrahera_classic": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "alarm.silence"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "operation"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "method.status",
+    "method.phase",
+    "sample.status"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "biotage_selekt": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "chromatography.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "chromatography.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "biotek_405ts": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "bmg_clariostarplus": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "drawer": {
+       "cap": "drawer.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      },
+      "lid": {
+       "cap": "lid.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "run.stop"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "bronkhorst_cemw": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "bleed": {
+       "cap": "bleed.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "bronkhorst_p702cv_5bar_gauge_n2": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "alarm.reset"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "alarm.mode",
+    "control.mode",
+    "control.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "brooks_preciseflex_400": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "motion.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "bruker_magnettechesr5000": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "bruker_minispecmq20": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "bruker_x4poseidon": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "open_cap": "door.open",
+       "close_cap": "door.close"
+      }
+     }
+    },
+    "ack": {
+     "cap": "system.acknowledge"
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "start": {
+     "cap": "scan.start",
+     "job": "operation"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "system.state"
+   ],
+   "unsupported": {
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "buchi_encapsulatorb": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "encapsulation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "encapsulation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "buchi_hydrolexh": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "hydrolysis.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "hydrolysis.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "thermal.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "buchi_lyovapor_l250_pro": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "chamber": {
+       "cap": "chamber.set_open",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "messages.acknowledge"
+    },
+    "start": {
+     "cap": "process.start",
+     "job": "none"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "system.status",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "buchi_minispray": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "notifications.acknowledge"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "drying.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "drying.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)"
+   }
+  },
+  "buchi_speedextractore": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "drawer": {
+       "cap": "drawer.set_extension",
+       "arg": "extension_m",
+       "open": 0.16,
+       "close": 0
+      },
+      "shield": {
+       "cap": "shield.set_lift",
+       "arg": "lift_m",
+       "open": 0.18,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "extraction.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "extraction.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "camag_tlcscanner": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "scan.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "scan.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "carbolite_tf1_12_60_300": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "alarm.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ch_chi440c": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "lift_m",
+       "open": 0.05,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "ch_chi920d": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "cytiva_biacoret200": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "clamp": {
+       "cap": "clamp.set",
+       "arg": "closed",
+       "open": false,
+       "close": true
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "chip.state",
+    "flow.state",
+    "rack.state"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "cytiva_nanoassemblrignite": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "block": {
+       "cap": "block.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "formulation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "formulation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "cartridge.state"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "eco_ncld822": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "nox.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "nox.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase",
+    "calibration.phase",
+    "status.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)"
+   }
+  },
+  "edinburgh_fls1000tcspc": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "elementar_isoprimeprecision": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "hood": {
+       "cap": "hood.set",
+       "arg": "angle_rad",
+       "open": 1.9,
+       "close": 0.0
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "vacuum.state"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "elementar_varioel": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "sequence.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "sequence.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "sequence.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "elga_purelab_flex3": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "consumables.status",
+    "water.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "elma_elmasonics60h": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cover": {
+       "cap": "cover.set_lift",
+       "arg": "lift_m",
+       "open": 0.3,
+       "close": 0
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "ultrasound.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "eppendorf_5910ri": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      }
+     }
+    },
+    "ack": {
+     "cap": "message.confirm"
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "run.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "run.status"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "eppendorf_cellxpertc170i": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door_inner": {
+       "cap": "door.inner",
+       "arg": "open",
+       "open": true,
+       "close": false
+      },
+      "door_latch": {
+       "cap": "door.latch",
+       "arg": "open",
+       "open": true,
+       "close": false
+      },
+      "door_outer": {
+       "cap": "door.outer",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "alarm.mute"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "contamination.status",
+    "htd.phase"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "eppendorf_cryocubef570n": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.move",
+       "arg": "angle_rad",
+       "open": 1.75,
+       "close": 0.0
+      }
+     }
+    },
+    "ack": {
+     "cap": "alarm.mute"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "esco_ac24s8": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "ack": {
+     "cap": "alarm.mute"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "airflow.status",
+    "fan.state",
+    "sash.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "esco_efa5uduvw": {
+   "verbs": {},
+   "status_slots": [
+    "keylock.mode"
+   ],
+   "unsupported": {
+    "power": "its contract gives agents no power switch capability",
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "evident_bx53p": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "freeman_ft4powder": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "frontier_egapy": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "guard": {
+       "cap": "guard.set",
+       "arg": "lift_m",
+       "open": 0.18,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "fujifilm_dmp2850": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "printing.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "printing.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "gamry_reference620": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "waveform.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "gas_flavourspec25gc": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cover": {
+       "cap": "cover.set",
+       "arg": "angle_rad",
+       "open": 1.45,
+       "close": 0
+      }
+     }
+    },
+    "ack": {
+     "cap": "pressure_alarm.confirm"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "workflow.phase"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability"
+   }
+  },
+  "genevac_mivac2": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_open",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "evaporation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "evaporation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "gilson_cpc250": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "cpc.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "cpc.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "rotor.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "glatt_miniglatt": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "tower": {
+       "cap": "tower.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "granulation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "granulation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "hach_dr6000": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      }
+     }
+    },
+    "ack": {
+     "cap": "message.confirm"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "measurement.mode"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "hach_tl2300epa": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.7,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "turbidity.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "turbidity.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "calibration.status",
+    "method.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "hepatochem_photoredoxbox": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_lift",
+       "arg": "lift_m",
+       "open": 0.12,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "irradiation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "irradiation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "rack.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "hot_tps2500": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "ika_c6000": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cover": {
+       "open_cap": "cover.open",
+       "close_cap": "cover.close"
+      }
+     }
+    },
+    "ack": {
+     "cap": "error.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cover.state",
+    "system.state"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ika_electrasyn2": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cap": {
+       "cap": "cap.set_lift",
+       "arg": "lift_m",
+       "open": 0.08,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "electrochem.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "electrochem.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "ika_ks4000": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "hood": {
+       "cap": "hood.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "timer.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ika_plate_rctdigital": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ika_rv10_digital_v": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ika_t25": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "dispersion.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "dispersion.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "cycle.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "inert_purelab_he_2gb": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "antechamber_inner_door": {
+       "cap": "antechamber.inner_door.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      },
+      "antechamber_outer_door": {
+       "cap": "antechamber.outer_door.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "alarms.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "antechamber.phase",
+    "regeneration.status"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "inficon_ul1000fab": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "ack": {
+     "cap": "warning.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "leak.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ja_alphase": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "system.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "system.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "jasco_cpl300": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "shutter": {
+       "cap": "shutter.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "jasco_fp8350": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "shutter": {
+       "cap": "shutter.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "scan.mode",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "jasco_ftir4700": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "accessory.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "jasco_fvs6000": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "jasco_j1500": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "shutter": {
+       "cap": "shutter.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "jasco_nrs5500": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "jasco_p4200": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "jena_contraa800": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "jena_multix": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "jeol_jem1400flash": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "error.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "airlock.state",
+    "filament.state",
+    "optics.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "jeol_jsmit200": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "error.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "scan.mode",
+    "system.state",
+    "vacuum.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "julabo_corio_cd200f": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cooling.mode",
+    "timer.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "keyence_vkx3000": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "system.acknowledge"
+    },
+    "method": {
+     "cap": "measurement.configure"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "operation"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "system.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "knauer_k7400s": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "kratos_axissupra": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "flexilock_lid": {
+       "cap": "flexilock.set_lid",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "system.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "flexilock.mode",
+    "system.state"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "laboao_cvdltf12p50": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "flange": {
+       "cap": "flange.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "lakeshore_8604vsm": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "lakeshore_measurereadym91": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "fault.acknowledge"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "excitation.mode",
+    "calibration.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "leco_onh836": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.open",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "linari_rtadvanced": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "safety.trip"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "spinning.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "spinning.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "linseis_lsr3": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "magritek_spinsolve80": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "acquisition.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "malvern_leneo": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set_open",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "fusion.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "fusion.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "malvern_microcalpeaq": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.set"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "clean.state",
+    "run.state",
+    "syringe.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "markes_unityxr": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "lift_m",
+       "open": 0.18,
+       "close": 0
+      },
+      "shield": {
+       "cap": "shield.set",
+       "arg": "lift_m",
+       "open": 0.12,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "metrohm_899": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "run.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "device.status",
+    "coulometry.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "metrohm_909uv": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "shield": {
+       "cap": "shield.set_open",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "fault.acknowledge"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "digestion.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "digestion.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability"
+   }
+  },
+  "metrohm_914": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "device.status",
+    "measurement.status",
+    "temperature.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "metrohm_omnis": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "titration.phase",
+    "titration.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "micromeritics_autochemiii": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "front_cover": {
+       "cap": "front_cover.set",
+       "arg": "distance_m",
+       "open": 0.16,
+       "close": 0
+      },
+      "furnace": {
+       "cap": "furnace.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "microtrac_turbiscanlab": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "miele_plw6111": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "open_cap": "door.open",
+       "close_cap": "door.close"
+      }
+     }
+    },
+    "ack": {
+     "cap": "faults.reset"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "program.phase",
+    "programme.status"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "milestone_dma80": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "mt_hx204": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_position",
+       "arg": "position_m",
+       "open": 0.1085,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "moisture.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "moisture.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "mt_mp70": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "mt_quantos_q2_xpe206dr": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door_side": {
+       "cap": "door.set_side",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "dosing.status"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "mt_rc1mxhfcal": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "estop": {
+     "cap": "emergency.trigger"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "thermostat.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "mt_xpr204e": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "balance.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "multiwave_7101": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "open_cap": "door.open",
+       "close_cap": "door.close"
+      }
+     }
+    },
+    "ack": {
+     "cap": "error.acknowledge"
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "run.abort"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "run.status"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "nabertherm_l9": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "open_cap": "door.open",
+       "close_cap": "door.close"
+      }
+     }
+    },
+    "ack": {
+     "cap": "messages.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "program.phase"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "nanosurf_naiostm": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "approach.state",
+    "system.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "netzsch_lfa467": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "netzsch_mmc315": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "test.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "test.stop"
+    },
+    "result": {
+     "cap": "test.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "jacket.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "newera_ne1000": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "run.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "novocontrol_alphat": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "ohaus_px224e": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "doors": {
+       "cap": "doors.set",
+       "arg": "open_fraction",
+       "open": 1.0,
+       "close": 0.0
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "status"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ohaus_spx2201": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "opentrons_flex_single_5_1000ul": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "robot.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ossila_dipcoater": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "fault.acknowledge"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "ossila_doctorblade": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "ossila_slotdie": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "ossila_spincoater": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_angle",
+       "arg": "angle_rad",
+       "open": 1.7,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "park_nx10": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "system.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "engage.state",
+    "head.state",
+    "system.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "parr_4591": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "open_cap": "lid.open",
+       "close_cap": "lid.close"
+      },
+      "vent": {
+       "cap": "vent.set_open",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "pccell_ed64002": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "electrodialysis.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "electrodialysis.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "peak_precisionhydrogen": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "ack": {
+     "cap": "alarm.mute"
+    },
+    "start": {
+     "cap": "cycle.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "cycle.stop"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "pilodist_pilodist104": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "distillation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "distillation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "pine_wavevortex10": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "enclosure": {
+       "cap": "enclosure.set",
+       "arg": "lift_m",
+       "open": 0.285,
+       "close": 0
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "porometer_poroluxrevo": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "holder": {
+       "cap": "holder.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "quorum_q150tes": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "chamber": {
+       "cap": "chamber.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "coating.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "coating.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "radleys_mya4": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "pad.status",
+    "zone_1.program.phase",
+    "zone_2.program.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "retsch_as200": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cover": {
+       "cap": "cover.set",
+       "arg": "lift_m",
+       "open": 0.14,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "sieving.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "sieving.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "cycle.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "retsch_pm100": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "angle_rad",
+       "open": 1.55,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "milling.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "milling.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "cycle.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "retsch_pt100": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "dividing.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "dividing.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "cycle.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "rigaku_miniflex600_external_cooling": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "scan.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "rigaku_xtalabsynergy": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "estop": {
+     "cap": "safety.emergency_stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cryostream.state",
+    "system.state",
+    "xray.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "sartorius_vivaflow200": {
+   "verbs": {
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "filtration.measure"
+    }
+   },
+   "path_exceptions": [
+    "filtration.measure"
+   ],
+   "status_slots": [
+    "cycle.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "power": "its contract gives agents no power switch capability",
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "sciex_pa800": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "cartridge_cover": {
+       "cap": "cartridge_cover.set_position",
+       "arg": "angle_rad",
+       "open": 1.4,
+       "close": 0.0
+      },
+      "sample_cover": {
+       "cap": "sample_cover.set_position",
+       "arg": "angle_rad",
+       "open": 1.5707963267948966,
+       "close": 0.0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "run.stop"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "detector.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "scp_digiprepms": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "digestion.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "digestion.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "probe.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "seal_aa500": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "pump_lid": {
+       "cap": "pump.lid_set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "system.state"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "sft_sft110": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "extraction.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "extraction.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "shimadzu_ags10knxd": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "estop": {
+     "cap": "emergency.engage"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "shimadzu_edx7200": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase",
+    "atmosphere.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "shimadzu_icpe9800": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "shimadzu_icpms2030": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "shimadzu_tocl": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "measurement.phase",
+    "maintenance.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "signatone_quadpro2": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "sonics_vcx750": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "sonication.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "sonication.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "cycle.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "specac_atlasmanual": {
+   "verbs": {
+    "open": {
+     "parts": {
+      "valve": {
+       "cap": "valve.set_open",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "press.measure"
+    }
+   },
+   "path_exceptions": [
+    "press.measure"
+   ],
+   "status_slots": [
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "power": "its contract gives agents no power switch capability",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "stanford_rga100": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "scan.start",
+     "job": "operation"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "stop": "no stop for its start capability"
+   }
+  },
+  "surface_dvsresolution": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "syrris_asiadiscovery": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "flow.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "flow.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "syrris_asiafllex": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "separation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "separation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "separation.state",
+    "panel.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "ta_dma850": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "gas": {
+       "cap": "gas.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "drive.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "ta_dsc2500": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "gas": {
+       "cap": "gas.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "ta_tamiv": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "ta_tga5500": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "gas": {
+       "cap": "gas.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "ta_tma450": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "furnace": {
+       "cap": "furnace.set",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      },
+      "gas": {
+       "cap": "gas.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase",
+    "probe.mode"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability"
+   }
+  },
+  "teledyne_analyteexcite": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "drawer": {
+       "cap": "drawer.set",
+       "arg": "open_m",
+       "open": 0.23,
+       "close": 0
+      },
+      "guard": {
+       "cap": "guard.set",
+       "arg": "angle_rad",
+       "open": 1.1,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "eqc.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "eqc.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "teledyne_atomxxyz": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "guard": {
+       "cap": "guard.set",
+       "arg": "angle_rad",
+       "open": 1.4,
+       "close": 0
+      },
+      "trap_door": {
+       "cap": "trap_door.set",
+       "arg": "angle_rad",
+       "open": 1.45,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "thalesnano_hcube": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "water_lid": {
+       "cap": "water_lid.set_lift",
+       "arg": "lift_m",
+       "open": 0.03,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "hydrogenation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "hydrogenation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "thermo_dionexintegrion": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "display_door": {
+       "cap": "display_door.set",
+       "arg": "angle_rad",
+       "open": 1.6580627893946132,
+       "close": 0
+      },
+      "door": {
+       "cap": "door.set",
+       "arg": "angle_rad",
+       "open": 1.9198621771937625,
+       "close": 0
+      },
+      "priming_valve": {
+       "cap": "priming_valve.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "thermo_ibrightfl1500": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "drawer": {
+       "open_cap": "drawer.open",
+       "close_cap": "drawer.close"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "drawer.state"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "thermo_orbitrapexploris": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "scan.start",
+     "job": "operation"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase",
+    "method.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "stop": "no stop for its start capability"
+   }
+  },
+  "thermo_process11": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "barrel": {
+       "cap": "barrel.set_open",
+       "arg": "opened",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "alarms.acknowledge"
+    },
+    "estop": {
+     "cap": "emergency.stop"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "extrusion.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "extrusion.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ]
+  },
+  "thinky_are310s": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_open",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "fault.acknowledge"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "mixing.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "mixing.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "cycle.mode",
+    "conditions.mode"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability"
+   }
+  },
+  "tousimis_autosamdri815": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set_lift",
+       "arg": "lift_m",
+       "open": 0.065,
+       "close": 0
+      }
+     }
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "cpd.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "cpd.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase",
+    "co2.phase"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "tuttnauer_3870elvd": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "open": {
+     "parts": {
+      "lid": {
+       "cap": "lid.set",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "start": {
+     "cap": "cycle.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "cycle.stop"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on"
+   ],
+   "unsupported": {
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "uic_kdl1basic": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "distillation.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "distillation.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "ultrafast_helios": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "scan.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "vacuubrand_pc3001_vario_select": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "ack": {
+     "cap": "fault.acknowledge"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "vacuum.mode"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "velp_udk159": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "open": {
+     "parts": {
+      "door": {
+       "cap": "door.set_open",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "ack": {
+     "cap": "fault.acknowledge"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "analysis.measure"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "path_exceptions": [
+    "analysis.measure"
+   ],
+   "status_slots": [
+    "power.enabled",
+    "cycle.phase"
+   ],
+   "unsupported": {
+    "estop": "no emergency stop capability"
+   }
+  },
+  "vici_euta_2sd6mwe": {
+   "verbs": {},
+   "status_slots": [
+    "actuator.mode"
+   ],
+   "unsupported": {
+    "power": "its contract gives agents no power switch capability",
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "start": "no run or measurement start that needs no arguments (see `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "wyatt_eclipseaf4": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "on"
+    },
+    "method": {
+     "cap": "method.set"
+    },
+    "start": {
+     "cap": "run.start",
+     "job": "none"
+    },
+    "stop": {
+     "cap": "run.abort"
+    }
+   },
+   "slots": {
+    "power": "power.on"
+   },
+   "status_slots": [
+    "power.on",
+    "run.state"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "ziath_dp5_mirage_2023": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.status"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability",
+    "method": "no method capability (its settings are separate capabilities: `chemlab describe INST`)",
+    "stop": "no stop for its start capability",
+    "result": "no result query on the same path as its start"
+   }
+  },
+  "zwick_hit5p": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  },
+  "zwick_mflow": {
+   "verbs": {
+    "power": {
+     "cap": "power.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure"
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result"
+    }
+   },
+   "slots": {
+    "power": "power.enabled"
+   },
+   "status_slots": [
+    "power.enabled",
+    "acquisition.phase"
+   ],
+   "unsupported": {
+    "open": "no door, lid or cover that opens with a single setting (see `chemlab describe INST` for its own capabilities)",
+    "close": "no door, lid or cover that closes with a single setting (see `chemlab describe INST`)",
+    "ack": "no alarm or message acknowledge capability",
+    "estop": "no emergency stop capability"
+   }
+  }
+ }
+}

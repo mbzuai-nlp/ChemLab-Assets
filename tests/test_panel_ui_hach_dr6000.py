@@ -1353,6 +1353,29 @@ class RenderEvidence(unittest.TestCase):
                                                       for k, v in shots.items()}, indent=1) + '\n')
 
 
+class FixRoundB(unittest.TestCase):
+    def test_precondition_refusals_name_the_cause(self):
+        # the code stays PRECONDITION_FAILED, the message says which precondition failed.
+        r = Rig()
+
+        def why(cap, **args):
+            e = r.call(r.A, cap, expect='rejected', **args)['error']
+            self.assertEqual(e['code'], 'PRECONDITION_FAILED')
+            return e['message']
+        self.assertIn('cover to at least 60 degrees', why('sample.load', sample_id='syn'))
+        r.call(r.A, 'lid.set_angle', angle_rad=rt.HACH_DR6000_LID_MAX_RAD)
+        self.assertIn('No cuvette is loaded', why('sample.unload'))
+        self.assertIn('Unknown sample_id', why('sample.load', sample_id='not_here'))
+        r.call(r.A, 'sample.load', sample_id='syn')
+        self.assertIn('already in the cell compartment', why('sample.load', sample_id='blank'))
+        self.assertIn('Close the cell-compartment cover', why('spectroscopy.measure'))
+        r.call(r.A, 'sample.unload')
+        r.call(r.A, 'lid.set_angle', angle_rad=0.0)
+        self.assertIn('No cuvette is loaded', why('spectroscopy.measure'))
+        r.switch('off')
+        self.assertIn('switched off', why('spectroscopy.set_wavelength', wavelength_m=5.2e-7))
+
+
 class ContractEntries(unittest.TestCase):
     def test_contract_has_the_panel(self):
         c = json.loads(CONTRACT.read_text())

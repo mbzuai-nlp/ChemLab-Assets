@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast,copy,csv,hashlib,importlib.util,io,json,math
 from pathlib import Path
 import numpy as np
-ROOT=Path(__file__).resolve().parents[2];SLUG='stanford_rga100';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-087';PROTOCOL_VERSION=ASSET_VERSION='1.0.0'
+ROOT=Path(__file__).resolve().parents[2];SLUG='stanford_rga100';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-087';PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.1'
 TEMPLATE_REL='assets/expansion_batch04/t3_analytical/stanford_rga100/output_templates/library.json'
 R_GAS=8.31446261815324;TORR_PA=101325./760.;U_KG=1.66053906892e-27;E_C=1.602176634e-19
 OPERATING_MAX_PA=1e-4*TORR_PA;LINEAR_MAX_PA=1e-5*TORR_PA;FC_MIN_PA=5e-11*TORR_PA;N2_REFERENCE_A_PA=2e-4/TORR_PA
@@ -419,6 +419,12 @@ class StanfordRga100Runtime:
       row['quality']=qc
       if not qc and not quality:row['partial_pressure_pa']=value;row['mass_concentration_kg_m3']=value*self._molar(s)/(R_GAS*self.plant['temperature_k'])
      if all(r['partial_pressure_pa'] is not None for r in rows):total=sum(r['partial_pressure_pa'] for r in rows)
+   # 1.0.1: a species row without a value says why: its own missing calibration, and the record-level reasons that
+   # blocked the joint inference as 'record_quality:<reason>'; matrix_rank stays 0 when no inference matrix was built
+   for row in rows:
+    if row['partial_pressure_pa'] is None and not row['quality']:
+     own=['calibration_missing_or_signature'] if row['species_id'] not in self._run_curves else []
+     row['quality']=(own+['record_quality:'+q for q in dict.fromkeys(quality) if not (own and q=='calibration_missing_or_signature')])[:15] or ['not_inferred']
   provenance['analysis_observation_space']='native analog windows' if self._run_method['mode']=='analog' else 'native reported peak maxima only; seven subcurrents are not independent analysis observations'
   provenance['analysis_observation_count']=len(self.points) if self._run_method['mode']=='analog' else len(self.peaks)
   result=dict(record_id=rid,kind=self._run_kind,status=status,complete=complete,points=copy.deepcopy(self.points),reported_peaks=copy.deepcopy(self.peaks),species=rows,total_partial_pressure_pa=total,relative_residual=residual,matrix_rank=rank,condition_number=cond,acquisition_signature=self._run_key,method_json=json.dumps(self._run_method,sort_keys=True),provenance_json=json.dumps(provenance,sort_keys=True),quality=list(dict.fromkeys(quality)));validate(RESULT,result);self._result_cache=result;self._records[rid]=copy.deepcopy(result);self._operation_records[self.operation_id]=self._operation_snapshot()

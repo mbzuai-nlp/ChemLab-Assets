@@ -1,0 +1,149 @@
+{
+ "class": "dosing",
+ "adapter": "chemlab.compile.classes.dosing:DosingAdapter",
+ "about": "Automated powder dosing: dose a target quantity into the vial on the balance (job), dosing head and vial as objects, draft-shield doors, tare, result. The trusted host side (head and vial placement, door geometry, dosing rate) is the lab set-up (tasks/dosing_world.py for the tasks); the default lab has none, so `dose` refuses there with NOT_SET_UP or NO_HEAD.",
+ "membership": {
+  "decided": "2026-10-22 (kept out of the balance class)",
+  "members": [
+   "mt_quantos_q2_xpe206dr"
+  ]
+ },
+ "members": {
+  "mt_quantos_q2_xpe206dr": {
+   "role": "primary",
+   "verbs": {
+    "dose": {
+     "cap": "dosing.start",
+     "target_cap": "dosing.set_target",
+     "target_arg": "target_mass_kg",
+     "tol_cap": "dosing.set_tolerance",
+     "tol_arg": "tolerance_kg",
+     "tol_pct_cap": "dosing.set_tolerance_percent",
+     "tol_pct_arg": "percent",
+     "tare_cap": "balance.tare",
+     "ids_cap": "dosing.set_ids",
+     "head_cap": "head.select",
+     "vial_cap": "container.select_position",
+     "front_cap": "door.set_opening",
+     "side_cap": "door.set_side"
+    },
+    "head": {
+     "select_cap": "head.select",
+     "select_arg": "head_id",
+     "lock_cap": "head.set_lock",
+     "lock_arg": "locked",
+     "height_cap": "head.set_height",
+     "height_arg": "position",
+     "reads": [
+      "head.data"
+     ]
+    },
+    "vial": {
+     "cap": "container.select_position",
+     "arg": "position_id",
+     "front_cap": "door.set_opening"
+    },
+    "open": {
+     "parts": {
+      "front": {
+       "cap": "door.set_opening",
+       "arg": "opening_m",
+       "close": 0.0
+      },
+      "side": {
+       "cap": "door.set_side",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "close": {
+     "parts": {
+      "front": {
+       "cap": "door.set_opening",
+       "arg": "opening_m",
+       "close": 0.0
+      },
+      "side": {
+       "cap": "door.set_side",
+       "arg": "open",
+       "open": true,
+       "close": false
+      }
+     }
+    },
+    "tare": {
+     "cap": "balance.tare"
+    },
+    "result": {
+     "cap": "dosing.read"
+    },
+    "stop": {
+     "cap": "dosing.abort"
+    }
+   },
+   "path": "dosing",
+   "path_exceptions": [
+    "dosing.set_target",
+    "dosing.set_tolerance",
+    "dosing.set_tolerance_percent",
+    "dosing.set_ids",
+    "balance.tare",
+    "head.select",
+    "container.select_position",
+    "door.set_opening",
+    "door.set_side"
+   ],
+   "slots": {
+    "power": "power.enabled",
+    "configured": "simulation.rate_configured",
+    "head_loaded": "head.loaded_id",
+    "head_selected": "head.selected_id",
+    "head_locked": "head.locked",
+    "head_position": "head.position",
+    "head_data": "head.data",
+    "vial_loaded": "container.loaded_id",
+    "vial_position": "container.position_id",
+    "front_door": "scene.door_opening_m",
+    "side_door": "door.side_opening_fraction",
+    "doors": [
+     "scene.door_opening_m",
+     "door.side_opening_fraction"
+    ],
+    "tared": "balance.tared",
+    "net": "measurement.balance_net_kg",
+    "actual": "measurement.actual_dosed_kg",
+    "error": "measurement.error_kg",
+    "out_of_tolerance": "measurement.out_of_tolerance",
+    "status": "dosing.status",
+    "phase": "dosing.phase",
+    "target": "dosing.target_mass_kg",
+    "tolerance": "dosing.tolerance_kg",
+    "elapsed": "dosing.elapsed_s",
+    "last": "dosing.last_result",
+    "user_id": "dosing.user_id"
+   },
+   "params": {
+    "readability_kg": 1e-08,
+    "vial_position": "balance_pan",
+    "default_tolerance_percent": 1.0,
+    "max_dose_s": 1800.0,
+    "job_poll_s": 1.0
+   },
+   "notes": {
+    "dose": [
+     "target in mg as on the instrument (manual p.22); tolerance in % of the target or as a mass; the vial is tared before every dose (a previous dose is never counted)",
+     "front door: opened to the contract door_kinematics.authored_travel (0.5495 m since asset 1.2.2: the arc length of the top-hung door's hinge pin, lever fully lifted; manual p.25-26); closed = 0"
+    ],
+    "open": [
+     "parts: front (the draft-shield front door, door.set_opening) and side (the side doors, door.set_side)"
+    ],
+    "head": [
+     "inserting and taking out a head is the lab operator's work; `head remove` releases (unlocks) it (manual pp.22, 29)"
+    ]
+   },
+   "unsupported": {}
+  }
+ }
+}

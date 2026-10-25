@@ -1,0 +1,2021 @@
+{
+ "class": "quant_analyzer",
+ "adapter": "chemlab.compile.classes.quant_analyzer:QuantAnalyzerAdapter",
+ "about": "Calibrated quantitation (elemental, TOC, AAS, ICP-OES / MS, XRF, Hg, RGA, Orbitrap, IRMS, SFA): source, method, load, calibrate, use-curve, blank, measure, stop, result, export, records, status. Ranges, enums and units come from each contract; samples are put in by the operator (task worlds in tasks/quant_analyzer_world.py).",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "elementar_varioel",
+   "shimadzu_tocl",
+   "jena_contraa800",
+   "shimadzu_icpe9800",
+   "shimadzu_icpms2030",
+   "shimadzu_edx7200",
+   "jena_multix",
+   "milestone_dma80",
+   "stanford_rga100",
+   "thermo_orbitrapexploris",
+   "leco_onh836",
+   "elementar_isoprimeprecision",
+   "seal_aa500"
+  ],
+  "secondary": {},
+  "excluded": {
+   "eco_ncld822": "continuous chemiluminescence NOx analyzer with zero / span gas checks, no blank-standards-curve-sample workflow: primary in gas_fluid; not added here",
+   "wtw_oxitopi": "BOD by head pressure on six manual measuring heads (thin class); no calibration or record object",
+   "hach_dr6000": "photometric concentration programs: primary in spectroscopy, whose blank / measure verbs cover it"
+  }
+ },
+ "members": {
+  "elementar_varioel": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "combustion": {
+       "arg": "combustion_s",
+       "kind": "duration"
+      },
+      "oxygen": {
+       "arg": "oxygen_dose_mol",
+       "kind": "amount"
+      },
+      "oxygen_time": {
+       "arg": "oxygen_admission_s",
+       "kind": "duration"
+      },
+      "tolerance": {
+       "arg": "temperature_tolerance_k",
+       "kind": "temperature_delta"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "observations",
+     "observation": "vario_areas",
+     "read_cap": "result.read",
+     "curve_arg": "element",
+     "curve_word": "element (C|H|N|S)",
+     "curve_example": "C",
+     "observations_arg": "observations",
+     "args": {
+      "accept_same_method_basis": true
+     },
+     "from_word": "autosampler slots",
+     "from_example": "1,2,3",
+     "reference_example": "oem_sulfanilic_acid"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "sequence.start",
+     "style": "sequence",
+     "configure_cap": "sequence.configure",
+     "slots_arg": "slot_indices",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "sequence.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "chns"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "sequence.phase",
+    "ready": "furnace.ready",
+    "method": "method.mode",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "C": {
+     "slot": "result.c_fraction",
+     "show": "fraction"
+    },
+    "H": {
+     "slot": "result.h_fraction",
+     "show": "fraction"
+    },
+    "N": {
+     "slot": "result.n_fraction",
+     "show": "fraction"
+    },
+    "S": {
+     "slot": "result.s_fraction",
+     "show": "fraction"
+    }
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "furnace.ready",
+      "code": "NOT_READY",
+      "message": "the furnaces of {inst} are not at their set temperatures (or no method is set).",
+      "fix": "set the furnaces (`chemlab call {inst} furnace.configure ...`) and the method, wait until ready (`chemlab run {inst} status`).",
+      "value": true,
+      "label": "furnaces ready"
+     }
+    ]
+   },
+   "unsupported": {
+    "source": "no source switch: the combustion and reduction furnaces are set with furnace.configure and heat whenever the power is on",
+    "load": "capsules are weighed into the autosampler by the lab operator (no agent capability for it); the agent chooses the slots with `measure --slots`",
+    "use-curve": "one curve per element (C, H, N, S), used as soon as it is fitted - nothing to select",
+    "records": "no record store: the last sequence is the result (`chemlab run INST result`)"
+   },
+   "alternatives": {
+    "source": "set the furnaces with `chemlab call INST furnace.configure --combustion_k 1373.15 --reduction_k 1123.15`.",
+    "load": "ask the operator which slots hold the capsules; run them with `chemlab run INST measure --slots 0,1,2 --wait`.",
+    "records": "`chemlab run INST result` shows every slot of the last sequence."
+   },
+   "path": "sequence",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "params": {
+    "source_word": "furnaces",
+    "manual": "INRAE vario EL cube operating guide (HAL hal-02959166) pp. 11-29 (sample table, standards, Auto/Single start, daily factor); flyer pp. 2-3",
+    "method_example": "mode=CHN combustion=90s"
+   },
+   "notes": {
+    "calibrate": [
+     "--from lists autosampler slots of the last sequence (the standards), --reference their reference id; the slot masses come from the sequence",
+     "CURVE is the element (C, H, N or S); fit each element you need"
+    ],
+    "measure": [
+     "--slots runs sequence.configure + sequence.start; the operator has weighed the capsules into those slots"
+    ]
+   }
+  },
+  "shimadzu_tocl": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "injection": {
+       "arg": "injection_volume_m3",
+       "kind": "volume"
+      },
+      "dilution": {
+       "arg": "dilution_factor"
+      },
+      "repeats": {
+       "arg": "repeats"
+      },
+      "acid": {
+       "arg": "acid_volume_m3",
+       "kind": "volume"
+      },
+      "acidification": {
+       "arg": "acidification_s",
+       "kind": "duration"
+      },
+      "sparging": {
+       "arg": "sparging_s",
+       "kind": "duration"
+      },
+      "combustion": {
+       "arg": "combustion_s",
+       "kind": "duration"
+      },
+      "tolerance": {
+       "arg": "temperature_tolerance_k",
+       "kind": "temperature_delta"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "observations",
+     "observation": "toc_peaks",
+     "curve_arg": "curve_id",
+     "channel_arg": "channel",
+     "observations_arg": "observations",
+     "args": {
+      "accept_source_channel_transfer": false,
+      "accept_same_response_conditions": true
+     },
+     "level": "dilution factor",
+     "levels_example": "10,2,1",
+     "from_example": "shimadzu_tocl:result:2,shimadzu_tocl:result:3,shimadzu_tocl:result:4",
+     "reference_example": "crm_altus_khp_10mg"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id",
+     "channel_arg": "channel",
+     "read_cap": "calibration.read"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "toc"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "list_args": {
+      "offset": 0,
+      "limit": 100
+     },
+     "read_cap": "records.read",
+     "curves_cap": "calibration.list"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "measurement.phase",
+    "ready": "furnace.ready",
+    "method": "method.mode",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "sample": "sample.loaded",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "TC": {
+     "slot": "result.tc_kg_m3",
+     "show": "conc"
+    },
+    "IC": {
+     "slot": "result.ic_kg_m3",
+     "show": "conc"
+    },
+    "TOC": {
+     "slot": "result.toc_kg_m3",
+     "show": "conc"
+    },
+    "NPOC": {
+     "slot": "result.npoc_kg_m3",
+     "show": "conc"
+    }
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample in {inst}.",
+      "fix": "the sample is put in by the lab operator (no agent capability); ask for it, then measure.",
+      "value": true,
+      "label": "a sample in place"
+     }
+    ]
+   },
+   "codes": {
+    "measurement.start:FURNACE_NOT_READY": {
+     "code": "NOT_READY",
+     "message": "the furnace of {inst} is not at 680 °C (or no method is set).",
+     "fix": "set it: `chemlab call {inst} furnace.configure --temperature_k 953.15`, wait until `chemlab run {inst} status` shows ready."
+    }
+   },
+   "unsupported": {
+    "source": "no source switch: the combustion furnace is set with furnace.configure (680 °C) and stays hot",
+    "load": "the lab operator puts the sample in (no agent capability for it on this instrument); there is no sample table for the agent"
+   },
+   "alternatives": {
+    "source": "`chemlab call INST furnace.configure --temperature_k 953.15`, then wait until `chemlab run INST status` shows ready.",
+    "load": "ask the lab operator to put the sample in; then `chemlab run INST measure --wait`."
+   },
+   "path": "measurement",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "params": {
+    "channel_of_mode": {
+     "TC": "TC",
+     "TOC": "TC",
+     "IC": "IC",
+     "NPOC": "NPOC"
+    },
+    "manual": "TOC-L shutdown/start-up guide pp. 1-9; brochure C391-E079 pp. 6-7 (680 °C combustion, NDIR, TC/IC/NPOC); TOC-L CPH SOP pp. 16-37 (sample table, standards)",
+    "method_example": "mode=TC injection=500uL repeats=2"
+   },
+   "notes": {
+    "calibrate": [
+     "TOC-L curves are per channel (TC, IC, NPOC): --channel, default the channel of the current mode; the standards are measured with dilution factors in the method, give them with --levels",
+     "observations: one per injection of each standard record (peak area, injection volume)"
+    ]
+   }
+  },
+  "jena_contraa800": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "on_cap": "flame.ignite",
+     "off_cap": "flame.extinguish"
+    },
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "element": {
+       "arg": "element"
+      },
+      "line": {
+       "arg": "line_id"
+      },
+      "wavelength": {
+       "arg": "wavelength_m",
+       "kind": "wavelength"
+      },
+      "background": {
+       "arg": "background"
+      },
+      "injection": {
+       "arg": "injection_volume_m3",
+       "kind": "volume"
+      },
+      "repeats": {
+       "arg": "repeats"
+      },
+      "baseline": {
+       "arg": "baseline_s",
+       "kind": "duration"
+      },
+      "flush": {
+       "arg": "flush_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "observations",
+     "observation": "aa_absorbance",
+     "curve_arg": "curve_id",
+     "observations_arg": "observations",
+     "args": {
+      "accept_same_response_conditions": true
+     },
+     "level": "dilution factor",
+     "levels_example": "10,2,1",
+     "from_example": "jena_contraa800:result:2,jena_contraa800:result:3,jena_contraa800:result:4",
+     "reference_example": "aj_wastewater_std3_cu"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "aa"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "source": "flame.lit",
+    "phase": "measurement.phase",
+    "method": "method.element",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "sample": "sample.loaded",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "concentration": {
+     "slot": "result.concentration_kg_m3",
+     "show": "conc"
+    }
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "method.mode",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet (the burner is positioned by the method).",
+      "fix": "set the method first: `chemlab run {inst} method mode=flame element=Cu ...`.",
+      "not": [
+       "",
+       null
+      ],
+      "label": "method set"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample in {inst}.",
+      "fix": "the sample is put in by the lab operator (no agent capability); ask for it, then measure.",
+      "value": true,
+      "label": "a sample in place"
+     }
+    ]
+   },
+   "codes": {
+    "flame.ignite:IGNITION_INTERLOCK": {
+     "code": "SOURCE_INTERLOCK",
+     "message": "{inst} cannot light the flame now (method not flame, cover / doors open, burner not yet positioned or utilities not ready).",
+     "fix": "set a flame method, wait 2 s for the burner to turn into place, then `chemlab run {inst} source on --wait`."
+    },
+    "FLAME_REQUIRED": {
+     "code": "SOURCE_OFF",
+     "message": "the flame of {inst} is not lit.",
+     "fix": "`chemlab run {inst} source on --wait`, then measure."
+    }
+   },
+   "unsupported": {
+    "load": "the lab operator puts the sample in (no agent capability for it on this instrument); there is no sample table for the agent"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to put the sample in; then `chemlab run INST measure --wait`."
+   },
+   "path": "measurement",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "params": {
+    "source_word": "flame",
+    "source_ready": {
+     "slot": "flame.lit",
+     "value": true
+    },
+    "method_needs_source_off": true,
+    "positioned": {
+     "slot": "atomizer.angle_rad",
+     "by": "method.mode",
+     "targets": {
+      "flame": 1.5707963267948966,
+      "furnace": 0.0
+     },
+     "what": "burner"
+    },
+    "manual": "contrAA 800 operating manual 10-1610-082-23 pp. 54-75 (flame technique, switching on/off); ASpect CS manual pp. 22-64 (method, calibration), 76-105 (run), 165-166 (export)",
+    "method_example": "repeats=3 flush=300ms"
+   }
+  },
+  "shimadzu_icpe9800": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "on_cap": "plasma.ignite",
+     "off_cap": "plasma.extinguish"
+    },
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "lines": {
+       "arg": "line_ids"
+      },
+      "view": {
+       "arg": "view"
+      },
+      "rf": {
+       "arg": "rf_power_w",
+       "kind": "power"
+      },
+      "argon": {
+       "arg": "argon_flow_m3_s",
+       "kind": "flow"
+      },
+      "stabilization": {
+       "arg": "stabilization_s",
+       "kind": "duration"
+      },
+      "integration": {
+       "arg": "integration_s",
+       "kind": "duration"
+      },
+      "flush": {
+       "arg": "flush_s",
+       "kind": "duration"
+      },
+      "repeats": {
+       "arg": "repeats"
+      },
+      "background": {
+       "arg": "background"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "observations",
+     "observation": "line_integrals",
+     "curve_arg": "curve_id",
+     "observations_arg": "observations",
+     "args": {
+      "accept_same_response_conditions": true
+     },
+     "level": "dilution factor",
+     "levels_example": "100,10,1",
+     "reference_example": "shimadzu_epa_ipc_assigned"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "icp_lines"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "source": "plasma.lit",
+    "phase": "measurement.phase",
+    "method": "method.line_ids",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "sample": "sample.loaded",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "Cu": {
+     "slot": "result.cu_kg_m3",
+     "show": "conc"
+    },
+    "Zn": {
+     "slot": "result.zn_kg_m3",
+     "show": "conc"
+    }
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "vacuum.ready",
+      "code": "VACUUM_NOT_READY",
+      "message": "the spectrometer vacuum of {inst} is not ready.",
+      "fix": "switch the vacuum pump on: `chemlab call {inst} vacuum.set --enabled true`, wait about a minute (`chemlab run {inst} status`).",
+      "value": true,
+      "label": "vacuum ready"
+     },
+     {
+      "slot": "method.view",
+      "code": "NO_METHOD",
+      "message": "{inst} has no method yet (the view mirror is set by the method).",
+      "fix": "set the method first: `chemlab run {inst} method lines=cu_324754 view=axial`.",
+      "not": [
+       "",
+       null
+      ],
+      "label": "method set"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "plasma.lit",
+      "code": "SOURCE_OFF",
+      "message": "the plasma of {inst} is not lit.",
+      "fix": "`chemlab run {inst} source on --wait`, then measure.",
+      "value": true,
+      "label": "plasma lit"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample in {inst}.",
+      "fix": "the sample is put in by the lab operator (no agent capability); ask for it, then measure.",
+      "value": true,
+      "label": "a sample in place"
+     }
+    ]
+   },
+   "codes": {
+    "plasma.ignite:IGNITION_INTERLOCK": {
+     "code": "SOURCE_INTERLOCK",
+     "message": "{inst} cannot ignite now: power, method, vacuum, cover or the view mirror is not ready (the mirror moves for about 1 s after a method change).",
+     "fix": "wait a few seconds (`chemlab wait 5s`), check `chemlab run {inst} status`, then `chemlab run {inst} source on --wait`."
+    }
+   },
+   "unsupported": {
+    "load": "the lab operator puts the sample in (no agent capability for it on this instrument); there is no sample table for the agent"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to put the sample in; then `chemlab run INST measure --wait`."
+   },
+   "path": "measurement",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "params": {
+    "source_word": "plasma",
+    "source_ready": {
+     "slot": "plasma.lit",
+     "value": true
+    },
+    "source_settle_s": 1.0,
+    "method_needs_source_off": true,
+    "positioned": {
+     "slot": "view_mirror.position_m",
+     "by": "method.view",
+     "targets": {
+      "axial": 0.04,
+      "radial": 0.0
+     },
+     "what": "view mirror"
+    },
+    "manual": "ICP shutdown/start-up guide pp. 1-4 (vacuum pump, plasma on/off); ICPE-9800 brochure C113-E015 pp. 6-9 (axial/radial view)",
+    "method_example": "lines=cu_324754,zn_213857 integration=0.5s"
+   }
+  },
+  "shimadzu_icpms2030": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "on_cap": "plasma.ignite",
+     "off_cap": "plasma.extinguish"
+    },
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "masses": {
+       "arg": "mass_numbers"
+      },
+      "dwell": {
+       "arg": "dwell_s",
+       "kind": "duration"
+      },
+      "settling": {
+       "arg": "settling_s",
+       "kind": "duration"
+      },
+      "sweeps": {
+       "arg": "sweeps"
+      },
+      "repeats": {
+       "arg": "repeats"
+      },
+      "stabilization": {
+       "arg": "stabilization_s",
+       "kind": "duration"
+      },
+      "flush": {
+       "arg": "flush_s",
+       "kind": "duration"
+      },
+      "rf": {
+       "arg": "rf_power_w",
+       "kind": "power"
+      },
+      "argon": {
+       "arg": "argon_flow_m3_s",
+       "kind": "flow"
+      },
+      "helium": {
+       "arg": "helium_flow_m3_s",
+       "kind": "flow"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "observations",
+     "observation": "mass_channels",
+     "curve_arg": "curve_id",
+     "observations_arg": "observations",
+     "args": {
+      "accept_same_response_conditions": true
+     },
+     "level": "dilution factor",
+     "levels_example": "100,10,1",
+     "reference_example": "infant_cal4"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "icp_lines"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "source": "plasma.lit",
+    "phase": "measurement.phase",
+    "method": "method.mass_numbers",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "sample": "sample.loaded",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "first analyte": {
+     "slot": "result.concentration_kg_m3",
+     "show": "conc"
+    }
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "vacuum.ready",
+      "code": "VACUUM_NOT_READY",
+      "message": "the spectrometer vacuum of {inst} is not ready.",
+      "fix": "switch the vacuum pump on: `chemlab call {inst} vacuum.set --enabled true`, wait about a minute (`chemlab run {inst} status`).",
+      "value": true,
+      "label": "vacuum ready"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "plasma.lit",
+      "code": "SOURCE_OFF",
+      "message": "the plasma of {inst} is not lit.",
+      "fix": "`chemlab run {inst} source on --wait`, then measure.",
+      "value": true,
+      "label": "plasma lit"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample in {inst}.",
+      "fix": "the sample is put in by the lab operator (no agent capability); ask for it, then measure.",
+      "value": true,
+      "label": "a sample in place"
+     }
+    ]
+   },
+   "codes": {
+    "plasma.ignite:IGNITION_INTERLOCK": {
+     "code": "SOURCE_INTERLOCK",
+     "message": "{inst} cannot ignite now: power, method, vacuum, cover, torch position or a gas is not ready.",
+     "fix": "check `chemlab run {inst} status` (method set, vacuum ready), then `chemlab run {inst} source on --wait`."
+    }
+   },
+   "unsupported": {
+    "load": "the lab operator puts the sample in (no agent capability for it on this instrument); there is no sample table for the agent"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to put the sample in; then `chemlab run INST measure --wait`."
+   },
+   "path": "measurement",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "params": {
+    "source_word": "plasma",
+    "source_ready": {
+     "slot": "plasma.lit",
+     "value": true
+    },
+    "source_settle_s": 1.0,
+    "method_needs_source_off": true,
+    "manual": "ICPMS shutdown/start-up guide pp. 1-4 (pump-down before plasma); ICPMS-2030 brochure C113-E018 pp. 4-5",
+    "method_example": "dwell=20ms sweeps=10"
+   },
+   "notes": {
+    "method": [
+     "quantifications (isotopes and basis) are a JSON list in native form: quantifications='[{\"isotope_id\":\"cu_65\",\"basis\":\"element\"}]'"
+    ]
+   }
+  },
+  "shimadzu_edx7200": {
+   "role": "primary",
+   "verbs": {
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "voltage": {
+       "arg": "voltage_v",
+       "kind": "voltage"
+      },
+      "current": {
+       "arg": "current_a",
+       "kind": "current"
+      },
+      "lines": {
+       "arg": "selected_lines"
+      },
+      "energy_max": {
+       "arg": "energy_max_j",
+       "kind": "xray_energy"
+      },
+      "bins": {
+       "arg": "bins"
+      },
+      "integration": {
+       "arg": "integration_s",
+       "kind": "duration"
+      },
+      "window": {
+       "arg": "window_s",
+       "kind": "duration"
+      },
+      "repeats": {
+       "arg": "repeats"
+      },
+      "deadtime": {
+       "arg": "deadtime_correction"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "observations",
+     "observation": "xrf_lines",
+     "curve_arg": "curve_id",
+     "observations_arg": "observations",
+     "args": {
+      "accept_same_matrix_response": true
+     },
+     "level": "reference fraction",
+     "levels_example": "0.25,0.5,1",
+     "reference_example": "blackmass_icp_f"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "xrf"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "ready": "instrument.ready",
+    "phase": "measurement.phase",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "sample": "sample.loaded",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "mass fraction": {
+     "slot": "result.mass_fraction",
+     "show": "fraction"
+    }
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "instrument.ready",
+      "code": "NOT_READY",
+      "message": "{inst} is not ready (no method, cover open, or the detector / atmosphere not ready).",
+      "fix": "set the method and wait until `chemlab run {inst} status` shows ready; the operator closes the cover after loading.",
+      "value": true,
+      "label": "ready"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample in {inst}.",
+      "fix": "the sample is put in by the lab operator (no agent capability); ask for it, then measure.",
+      "value": true,
+      "label": "a sample in place"
+     }
+    ]
+   },
+   "unsupported": {
+    "source": "the X-ray tube voltage and current are method settings (method voltage=50kV current=100uA); the tube switches with the measurement",
+    "load": "the lab operator puts the sample in (no agent capability for it on this instrument); there is no sample table for the agent"
+   },
+   "alternatives": {
+    "source": "`chemlab run INST method voltage=50kV current=100uA`.",
+    "load": "ask the lab operator to put the sample in; then `chemlab run INST measure --wait`."
+   },
+   "path": "measurement",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "notes": {
+    "calibrate": [
+     "--levels are the reference fractions of the standards (the share of the reference material in each standard pellet)"
+    ]
+   },
+   "params": {
+    "manual": "EDX-7200 brochure C142-E047 pp. 5 (tube, filters, collimator), 8-10 (quantitation: calibration curve, FP), 12-15 (PCEDX Navi)",
+    "method_example": "voltage=50kV current=100uA"
+   }
+  },
+  "jena_multix": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "cap": "gas.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "feeding": {
+       "arg": "feeding_s",
+       "kind": "duration"
+      },
+      "combustion": {
+       "arg": "combustion_s",
+       "kind": "duration"
+      },
+      "integration": {
+       "arg": "integration_s",
+       "kind": "duration"
+      },
+      "window": {
+       "arg": "window_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "records",
+     "curve_arg": "curve_id",
+     "records_arg": "record_ids"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "aox"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "source": "gas.enabled",
+    "ready": "instrument.ready",
+    "phase": "measurement.phase",
+    "method": "method.mode",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "sample": "sample.loaded",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "Cl-equivalent": {
+     "slot": "result.chlorine_equivalent_mass_kg",
+     "show": "mass"
+    }
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "instrument.ready",
+      "code": "NOT_READY",
+      "message": "{inst} is not ready (gases, furnace temperature, cell or doors).",
+      "fix": "switch the gases on (`chemlab run {inst} source on`), set the method and wait until `chemlab run {inst} status` shows ready.",
+      "value": true,
+      "label": "ready"
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample in {inst}.",
+      "fix": "the sample is put in by the lab operator (no agent capability); ask for it, then measure.",
+      "value": true,
+      "label": "a sample in place"
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the lab operator puts the sample in (no agent capability for it on this instrument); there is no sample table for the agent"
+   },
+   "alternatives": {
+    "load": "ask the lab operator to put the sample in; then `chemlab run INST measure --wait`."
+   },
+   "path": "measurement",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "params": {
+    "source_word": "gases",
+    "source_ready": {
+     "slot": "instrument.ready",
+     "value": true
+    },
+    "manual": "multi X 2500 operating manual 11-889.691 pp. 14-16 (AOX/EOX/POX), 27-42 (measuring cells), 49-51 (switching on), 52-85 (measurement procedures)",
+    "method_example": "mode=AOX integration=60s"
+   },
+   "notes": {
+    "method": [
+     "integration must be long enough for the titration to end (about 60 s for AOX); too short gives an unresolved endpoint and an unusable standard"
+    ]
+   }
+  },
+  "milestone_dma80": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "cap": "gas.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "drying_temp": {
+       "arg": "drying_temperature_k",
+       "kind": "temperature"
+      },
+      "drying": {
+       "arg": "drying_s",
+       "kind": "duration"
+      },
+      "decomposition_temp": {
+       "arg": "decomposition_temperature_k",
+       "kind": "temperature"
+      },
+      "decomposition": {
+       "arg": "decomposition_s",
+       "kind": "duration"
+      },
+      "catalyst_temp": {
+       "arg": "catalyst_temperature_k",
+       "kind": "temperature"
+      },
+      "purge": {
+       "arg": "purge_s",
+       "kind": "duration"
+      },
+      "release_temp": {
+       "arg": "release_temperature_k",
+       "kind": "temperature"
+      },
+      "release": {
+       "arg": "release_s",
+       "kind": "duration"
+      },
+      "record": {
+       "arg": "record_s",
+       "kind": "duration"
+      },
+      "window": {
+       "arg": "window_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "load": {
+     "cap": "table.set_entry",
+     "style": "table"
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "records",
+     "curve_arg": "curve_id",
+     "records_arg": "record_ids"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "measurement.start",
+     "style": "slots",
+     "slot_arg": "slot_index",
+     "slots_cap": "sequence.start",
+     "slots_arg": "slot_indices",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "hg"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "source": "gas.enabled",
+    "ready": "instrument.ready",
+    "phase": "measurement.phase",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "Hg": {
+     "slot": "result.mercury_mass_kg",
+     "show": "mass"
+    },
+    "Hg fraction": {
+     "slot": "result.mass_fraction_kg_kg",
+     "show": "fraction"
+    }
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "instrument.ready",
+      "code": "NOT_READY",
+      "message": "{inst} is not ready (oxygen off, a cover open, or the catalyst / cell not at temperature).",
+      "fix": "switch the oxygen on (`chemlab run {inst} source on --wait`) and close the covers; see `chemlab run {inst} status`.",
+      "value": true,
+      "label": "ready"
+     }
+    ]
+   },
+   "unsupported": {},
+   "path": "measurement",
+   "path_exceptions": [
+    "result.read",
+    "sequence.start"
+   ],
+   "params": {
+    "source_word": "oxygen",
+    "source_ready": {
+     "slot": "instrument.ready",
+     "value": true
+    },
+    "manual": "DMA-80 evo brochure CAT261EN pp. 3-6 (principle, single calibration, 40-position carousel); USGS OFR 02-223-O pp. 4-6 (operating procedure, sample weights); UBA guideline pp. 4-6 (calibration, blanks)",
+    "method_example": "decomposition_temp=650C decomposition=150s"
+   },
+   "notes": {
+    "load": [
+     "load writes the sample-table row of a carousel slot (name and weighed mass, table.set_entry); the operator puts the boat in the slot. The mass is needed for a mass fraction (mg/kg)."
+    ],
+    "measure": [
+     "--slot N measures one slot (measurement.start); --slots a,b,c runs them as a sequence (sequence.start)"
+    ]
+   }
+  },
+  "stanford_rga100": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "cap": "filament.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "from": {
+       "arg": "mass_min"
+      },
+      "to": {
+       "arg": "mass_max"
+      },
+      "masses": {
+       "arg": "mid_masses"
+      },
+      "cycles": {
+       "arg": "cycles"
+      },
+      "candidates": {
+       "arg": "candidates"
+      },
+      "electron_energy": {
+       "arg": "electron_energy_v",
+       "kind": "voltage"
+      },
+      "ion_energy": {
+       "arg": "ion_energy_v",
+       "kind": "voltage"
+      },
+      "focus": {
+       "arg": "focus_potential_v",
+       "kind": "voltage"
+      },
+      "emission": {
+       "arg": "emission_current_a",
+       "kind": "current"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "records",
+     "curve_arg": "curve_id",
+     "records_arg": "record_ids",
+     "species_arg": "species_id"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_ids",
+     "list": true
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "scan.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "rga"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "source": "filament.enabled",
+    "ready": "instrument.ready",
+    "phase": "scan.phase",
+    "method": "method.mode",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "total pressure": {
+     "slot": "result.total_partial_pressure_pa",
+     "show": "pressure"
+    }
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "instrument.ready",
+      "code": "VACUUM_NOT_READY",
+      "message": "the RGA head is not under vacuum (or the electronics unit is off / detached).",
+      "fix": "the lab vacuum system pumps the chamber; check `chemlab run {inst} status` and switch the RGA on.",
+      "value": true,
+      "label": "vacuum ready"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "instrument.ready",
+      "code": "NOT_READY",
+      "message": "the RGA head is not under vacuum or not switched on.",
+      "fix": "see `chemlab run {inst} status`.",
+      "value": true,
+      "label": "ready"
+     }
+    ]
+   },
+   "codes": {
+    "filament.set:ZERO_EMISSION": {
+     "code": "NO_METHOD",
+     "message": "the method of {inst} has no emission current (or no method is set).",
+     "fix": "set one: `chemlab run {inst} method emission=1mA`."
+    }
+   },
+   "unsupported": {
+    "load": "the gas is let into the vacuum chamber by the lab (no agent capability for it; the chamber must be sealed and the filament off)"
+   },
+   "alternatives": {
+    "load": "ask the lab to admit the gas (switch the filament off first: `chemlab run INST source off`); then `source on` and `measure --wait`."
+   },
+   "path": "scan",
+   "path_exceptions": [
+    "measurement.stop",
+    "result.read"
+   ],
+   "params": {
+    "source_word": "filament",
+    "source_ready": {
+     "slot": "filament.enabled",
+     "value": true
+    },
+    "manual": "RGA operating manual rev. 1.9 pp. 33-46 (ionizer, filament, scan modes), 116-132 (programming: scans, total pressure), 133-172 (command set: FL, SC, MR, TP)",
+    "method_example": "mode=analog from=1 to=50"
+   },
+   "notes": {
+    "calibrate": [
+     "--species names the gas of the standard records (pure gas at three pressures); one curve per gas",
+     "use-curve takes a comma list: one curve per gas the method quantifies"
+    ]
+   }
+  },
+  "thermo_orbitrapexploris": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "cap": "source.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "polarity": {
+       "arg": "polarity"
+      },
+      "from": {
+       "arg": "mass_min"
+      },
+      "to": {
+       "arg": "mass_max"
+      },
+      "resolution": {
+       "arg": "resolution"
+      },
+      "precursor": {
+       "arg": "precursor_mz"
+      },
+      "isolation": {
+       "arg": "isolation_width_relative"
+      },
+      "nce": {
+       "arg": "normalized_collision_energy"
+      },
+      "agc": {
+       "arg": "agc_normalized"
+      },
+      "injection_time": {
+       "arg": "maximum_injection_s",
+       "kind": "duration"
+      },
+      "scans": {
+       "arg": "scans"
+      },
+      "spray": {
+       "arg": "spray_voltage_v",
+       "kind": "voltage"
+      },
+      "transfer_temp": {
+       "arg": "transfer_temperature_k",
+       "kind": "temperature"
+      },
+      "vaporizer_temp": {
+       "arg": "vaporizer_temperature_k",
+       "kind": "temperature"
+      },
+      "flow": {
+       "arg": "flow_m3_s",
+       "kind": "flow"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "records",
+     "curve_arg": "curve_id",
+     "records_arg": "record_ids"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "scan.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "orbitrap"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "source": "source.enabled",
+    "ready": "instrument.ready",
+    "phase": "scan.phase",
+    "method": "method.mode",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "warning": "safety.warning"
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "source.fluid_connected",
+      "code": "NOT_READY",
+      "message": "the ion source of {inst} has no liquid connected.",
+      "fix": "ask the lab to connect the source fluid line.",
+      "value": true,
+      "label": "fluid connected"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "instrument.ready",
+      "code": "NOT_READY",
+      "message": "{inst} is not ready (source off, or temperatures not reached).",
+      "fix": "switch the source on and wait: `chemlab run {inst} source on --wait`.",
+      "value": true,
+      "label": "ready"
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the solution is put on the source by the lab (no agent capability for it; only with the source off)"
+   },
+   "alternatives": {
+    "load": "switch the source off (`chemlab run INST source off`), ask the lab to put the solution on, then `source on --wait` and `measure --wait`."
+   },
+   "path": "scan",
+   "path_exceptions": [
+    "measurement.stop",
+    "result.read"
+   ],
+   "params": {
+    "source_word": "ion source",
+    "source_ready": {
+     "slot": "instrument.ready",
+     "value": true
+    },
+    "manual": "Orbitrap Exploris operating manual BRE0014471 pp. 107-123 (start-up, introduce sample, measure); Exploris 120 software manual pp. 12-60 (Tune: ion source, scan setup, calibration)",
+    "method_example": "resolution=60000 from=100 to=1000"
+   },
+   "notes": {
+    "calibrate": [
+     "a mass calibration: three or more standard records of mass references spanning at least 10 m/z, same polarity, with a blank"
+    ]
+   }
+  },
+  "leco_onh836": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "cap": "gas.set",
+     "arg": "enabled"
+    },
+    "method": {
+     "cap": "method.configure",
+     "base": "example",
+     "passthrough": true,
+     "keys": {
+      "carrier": {
+       "arg": "carrier"
+      },
+      "elements": {
+       "arg": "selected_elements"
+      },
+      "carrier_flow": {
+       "arg": "carrier_flow_m3_s",
+       "kind": "flow"
+      },
+      "outgas_power": {
+       "arg": "outgas_power_w",
+       "kind": "power"
+      },
+      "outgas": {
+       "arg": "outgas_s",
+       "kind": "duration"
+      },
+      "purge": {
+       "arg": "purge_s",
+       "kind": "duration"
+      },
+      "baseline": {
+       "arg": "baseline_s",
+       "kind": "duration"
+      },
+      "fusion_power": {
+       "arg": "fusion_power_w",
+       "kind": "power"
+      },
+      "fusion": {
+       "arg": "fusion_s",
+       "kind": "duration"
+      },
+      "integration": {
+       "arg": "integration_s",
+       "kind": "duration"
+      },
+      "window": {
+       "arg": "window_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "calibrate": {
+     "cap": "calibration.fit",
+     "style": "records",
+     "records_arg": "record_ids",
+     "elements_arg": "elements"
+    },
+    "use-curve": {
+     "cap": "calibration.select",
+     "arg": "curve_id"
+    },
+    "blank": {
+     "cap": "blank.read"
+    },
+    "measure": {
+     "cap": "measurement.start",
+     "job": "operation"
+    },
+    "stop": {
+     "cap": "measurement.stop"
+    },
+    "result": {
+     "cap": "result.read",
+     "style": "onh"
+    },
+    "export": {
+     "cap": "result.export",
+     "arg": "format"
+    },
+    "records": {
+     "list_cap": "records.list",
+     "read_cap": "records.read"
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "source": "gas.enabled",
+    "ready": "instrument.ready",
+    "phase": "measurement.phase",
+    "method": "method.carrier",
+    "blank": "blank.valid",
+    "calibrated": "calibration.ready",
+    "sample": "sample.loaded",
+    "warning": "safety.warning"
+   },
+   "result_slots": {
+    "O": {
+     "slot": "result.o_fraction",
+     "show": "fraction"
+    },
+    "N": {
+     "slot": "result.n_fraction",
+     "show": "fraction"
+    },
+    "H": {
+     "slot": "result.h_fraction",
+     "show": "fraction"
+    }
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "message": "there is no sample in {inst}.",
+      "fix": "the sample is put in by the lab operator (no agent capability); ask for it, then measure.",
+      "value": true,
+      "label": "a sample in place"
+     },
+     {
+      "slot": "instrument.ready",
+      "code": "NOT_READY",
+      "message": "{inst} is not ready: carrier gas, a fresh crucible, the furnace closed and the loader back are all needed.",
+      "fix": "switch the gas on (`chemlab run {inst} source on`); close the furnace (`chemlab run {inst} close furnace`); the loader must be back (`chemlab call {inst} loading.set --loading false`).",
+      "value": true,
+      "label": "ready"
+     }
+    ]
+   },
+   "unsupported": {
+    "load": "the lab operator drops the weighed sample into the loading head (no agent capability for it); the agent moves the loader with loading.set"
+   },
+   "alternatives": {
+    "load": "bring the loader to the load position (`chemlab call INST loading.set --loading true`), let the operator drop the sample, then `chemlab call INST loading.set --loading false`."
+   },
+   "path": "measurement",
+   "path_exceptions": [
+    "result.read"
+   ],
+   "params": {
+    "source_word": "carrier gas",
+    "source_ready": {
+     "slot": "gas.enabled",
+     "value": true
+    },
+    "manual": "ONH836 brochure 209-215 pp. 3-6 (Cornerstone software, electrode furnace); refractory-metals application note 203-821-427 pp. 1-4 (instrument blank, calibration, sample analysis)",
+    "method_example": "carrier=He elements=O,N,H"
+   },
+   "notes": {
+    "calibrate": [
+     "LECO names its curves itself (curve_1, curve_2, ...): leave out CURVE; --elements O,N,H (those of the method)"
+    ]
+   }
+  },
+  "elementar_isoprimeprecision": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "cap": "source.set",
+     "arg": "filament"
+    },
+    "method": {
+     "base": "none",
+     "passthrough": false,
+     "keys": {
+      "species": {
+       "cap": "magnet.set_species",
+       "arg": "species"
+      },
+      "inlet": {
+       "cap": "centrion.set",
+       "arg": "inlet"
+      },
+      "carrier": {
+       "cap": "centrion.set",
+       "arg": "carrier_on"
+      },
+      "flow": {
+       "cap": "centrion.set",
+       "arg": "carrier_m3_s",
+       "kind": "flow"
+      },
+      "dilution": {
+       "cap": "centrion.set",
+       "arg": "dilution"
+      },
+      "sleep": {
+       "cap": "centrion.set",
+       "arg": "sleep"
+      },
+      "amplifier": {
+       "cap": "amplifier.configure",
+       "arg": "mode"
+      }
+     }
+    },
+    "load": {
+     "cap": "sample.inject",
+     "style": "inject"
+    },
+    "calibrate": {
+     "cap": "calibration.normalize",
+     "style": "normalize",
+     "curve_arg": "isotope",
+     "curve_word": "isotope (13C, 15N, 18O, 2H, 34S)",
+     "curve_example": "13C",
+     "standards_arg": "standards",
+     "from_word": "reference peaks as PEAK=SUBSTANCE",
+     "from_example": "2=usgs40,3=usgs41"
+    },
+    "measure": {
+     "cap": "acquisition.start",
+     "style": "acquisition",
+     "job": "state",
+     "state": {
+      "slot": "acquisition.state",
+      "present": "run"
+     }
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "results.read",
+     "args": {
+      "since_peak": 0
+     },
+     "style": "irms"
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "source": "source.state#filament",
+    "method": "magnet.state#species",
+    "inlet": "centrion.state#inlet",
+    "species": "magnet.state#species"
+   },
+   "requires": {
+    "source": [
+     {
+      "slot": "vacuum.state",
+      "code": "VACUUM_NOT_READY",
+      "message": "the analyser of {inst} is not under vacuum ({value}).",
+      "fix": "pump it down: `chemlab call {inst} vacuum.pump_down`, wait until `chemlab read {inst} vacuum.state` is ready (about 5 min).",
+      "value": "ready",
+      "label": "vacuum ready"
+     }
+    ],
+    "measure": [
+     {
+      "slot": "status.led",
+      "code": "NOT_READY",
+      "message": "{inst} is not ready to acquire (status {value}: vacuum, filament or magnet).",
+      "fix": "switch the filament on (`chemlab run {inst} source on --wait`), set the gas (`method species=CO2 carrier=on`).",
+      "value": "green",
+      "label": "status green"
+     }
+    ]
+   },
+   "unsupported": {
+    "use-curve": "the delta-scale normalisation applies to the results as soon as it is fitted - nothing to select",
+    "blank": "no blank value: the reference-gas pulses of each acquisition are the working reference",
+    "export": "no export capability: results come from the peak table (`chemlab run INST result --save-to F`)",
+    "records": "no record store: the peak table of the session is the result (`chemlab run INST result`)"
+   },
+   "alternatives": {
+    "records": "`chemlab run INST result` lists every peak with its number (for calibrate --from PEAK=SUBSTANCE)."
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "results.read"
+   ],
+   "params": {
+    "source_word": "filament",
+    "source_ready": {
+     "slot": "status.led",
+     "value": "green"
+    },
+    "source_wait_s": 600.0,
+    "default_time_s": 300.0,
+    "reference_pulses": [
+     {
+      "gas": 1,
+      "start_s": 20.0,
+      "duration_s": 20.0
+     }
+    ],
+    "manual": "isoprime precisION brochure 05 005 646 pp. 2-6 (ionOS, centrION continuous-flow interface), 13-14 (technical data)",
+    "method_example": "species=CO2 carrier=on"
+   },
+   "notes": {
+    "method": [
+     "no method object: species= sets the magnet (magnet.set_species), inlet= carrier= flow= dilution= sleep= set the Centrion (centrion.set), amplifier= the amplifier mode; the working-reference deltas are assigned with `chemlab call INST reference.assign`"
+    ],
+    "measure": [
+     "a timed acquisition (--time, default 5 min) with one reference-gas pulse of gas 1 at 20 s; inject samples with `load` while it runs"
+    ],
+    "load": [
+     "NAME is a reference material id (substance_id) when the instrument knows it, else a sample id the lab declared"
+    ]
+   }
+  },
+  "seal_aa500": {
+   "role": "primary",
+   "verbs": {
+    "source": {
+     "cap": "lamp.set",
+     "arg": "on"
+    },
+    "method": {
+     "cap": "channel.configure",
+     "base": "none",
+     "passthrough": false,
+     "keys": {
+      "method": {
+       "arg": "method_id"
+      }
+     }
+    },
+    "load": {
+     "cap": "sampler.load",
+     "style": "sampler"
+    },
+    "calibrate": {
+     "cap": "data.recalculate",
+     "style": "recalculate"
+    },
+    "measure": {
+     "cap": "run.start",
+     "style": "run",
+     "job": "state",
+     "state": {
+      "slot": "run.status",
+      "key": "state",
+      "done": [
+       "completed"
+      ],
+      "failed": [
+       "stopped",
+       "failed",
+       "aborted"
+      ]
+     }
+    },
+    "stop": {
+     "cap": "run.stop"
+    },
+    "result": {
+     "cap": "data.results",
+     "style": "sfa"
+    }
+   },
+   "slots": {
+    "power": "power.on",
+    "phase": "run.status#state",
+    "method": "system.state",
+    "warning": "warnings.active"
+   },
+   "targets": {
+    "channel": {
+     "arg": "channel",
+     "values": {
+      "1": "ch1",
+      "2": "ch2",
+      "3": "ch3",
+      "4": "ch4",
+      "ch1": "ch1",
+      "ch2": "ch2",
+      "ch3": "ch3",
+      "ch4": "ch4"
+     },
+     "required": true
+    }
+   },
+   "requires": {
+    "measure": [
+     {
+      "slot": "pump.running",
+      "code": "NOT_READY",
+      "message": "the pump of {inst} is not running (the system is not started up).",
+      "fix": "start it up: `chemlab call {inst} system.startup`, wait until system.state is ready (about 35 min).",
+      "value": true,
+      "label": "pump running"
+     }
+    ]
+   },
+   "unsupported": {
+    "use-curve": "each run is calibrated from its own calibrant cups - nothing to select",
+    "blank": "no blank query: baseline and blank cups are part of the run (`measure --cups ...:baseline`)",
+    "export": "no export capability: `chemlab run INST result --save-to F` keeps the result",
+    "records": "no record store: the last run is the result (`chemlab run INST result`)"
+   },
+   "path": "run",
+   "path_exceptions": [
+    "data.results"
+   ],
+   "params": {
+    "source_word": "detector lamps",
+    "running": [
+     "running",
+     "draining"
+    ],
+    "sample_s": 60.0,
+    "wash_s": 30.0,
+    "cup_volume_m3": 1e-05,
+    "max_run_s": 7200.0,
+    "manual": "AA500 brochure (2024) pp. 2-3 (segmented flow, automated start-up, standards, lamps, baths); product page (run workflow: baseline, sample list, calibrants)",
+    "method_example": "method=MT508_A026_nitrate_nitrite --channel 1"
+   },
+   "notes": {
+    "calibrate": [
+     "recalculates the calibration of the last run from its calibrant cups (data.recalculate): --fit linear|quadratic|auto, --no-drift, --no-carryover"
+    ],
+    "measure": [
+     "--cups RACK:POS:TYPE,... in run order (types baseline, calibrant, sample, drift, ...); --time = sample time per cup, --wash = wash time"
+    ],
+    "source": [
+     "--channel 1..4: the detector LED of one channel"
+    ],
+    "method": [
+     "method method=MT508_A026_nitrate_nitrite --channel 1 (the channel needs the pump tubes of that method)"
+    ]
+   }
+  }
+ }
+}

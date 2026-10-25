@@ -1,0 +1,3715 @@
+{
+ "class": "particle_surface",
+ "adapter": "chemlab.compile.classes.particle_surface:ParticleSurfaceAdapter",
+ "about": "Particle, pore and surface characterisation: load / unload, prepare, method (only the keys that change), calibrate, set-temp, atmosphere, start (job) / stop / result in plain units, analyze, status.  Ranges, enums and units come from each member's contract; \"max\" / \"min\" positions are the contract argument limits.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "antonpaar_litesizerdls",
+   "antonpaar_psa1190",
+   "antonpaar_litesizerdia",
+   "microtrac_turbiscanlab",
+   "antonpaar_autosorb6100",
+   "antonpaar_poremaster60",
+   "porometer_poroluxrevo",
+   "antonpaar_ultrapyc5000",
+   "micromeritics_autochemiii",
+   "surface_dvsresolution",
+   "antonpaar_surpass3",
+   "biolin_sigma700",
+   "biolin_thetaflex",
+   "biolin_mediuml",
+   "ametek_oxtran"
+  ],
+  "secondary": {},
+  "excluded": {
+   "ta_tga5500": "considered as a possible secondary (gravimetric, sorption-like); it has no humidity / vapour step method, no sample access the class verbs would close and no sorption result - thermal_analysis owns it and no particle_surface verb would add anything",
+   "antonpaar_dma5002": "considered as a possible secondary (density); it measures liquid density in an oscillating U-tube (property_meter owns it); the class density instrument is the gas pycnometer (Ultrapyc 5000)"
+  }
+ },
+ "members": {
+  "antonpaar_litesizerdls": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "cell_cap.set",
+       "arg": "lift_m",
+       "to": "min",
+       "slot": "cell_cap.lift_m",
+       "label": "close the cell cap"
+      },
+      {
+       "cap": "cuvette.set",
+       "arg": "lift_m",
+       "to": "min",
+       "slot": "cuvette.lift_m",
+       "label": "lower the cuvette into the cell holder"
+      },
+      {
+       "cap": "lid.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "lid.angle_rad",
+       "label": "close the lid"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "lid.release",
+       "slot": "lid.released",
+       "label": "release the lid",
+       "done": true,
+       "args": {}
+      },
+      {
+       "cap": "lid.set",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "lid.angle_rad",
+       "label": "open the lid"
+      },
+      {
+       "cap": "cuvette.set",
+       "arg": "lift_m",
+       "to": "max",
+       "slot": "cuvette.lift_m",
+       "label": "lift the cuvette out"
+      },
+      {
+       "cap": "cell_cap.set",
+       "arg": "lift_m",
+       "to": "max",
+       "slot": "cell_cap.lift_m",
+       "label": "open the cell cap"
+      }
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "angle": {
+       "arg": "angle_deg",
+       "kind": "angle"
+      },
+      "time": {
+       "arg": "acquisition_s",
+       "kind": "duration"
+      },
+      "runs": {
+       "arg": "acquisitions"
+      },
+      "equilibration": {
+       "arg": "equilibration_s",
+       "kind": "duration"
+      },
+      "viscosity": {
+       "arg": "entered_viscosity_pa_s"
+      },
+      "ri": {
+       "arg": "entered_refractive_index"
+      }
+     },
+     "extra": {
+      "cell": {
+       "cap": "cell.configure",
+       "arg": "kind"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "size": {
+       "cap": "dls.calibrate",
+       "keys": {
+        "reference": "reference_m",
+        "measured": "measured_m"
+       }
+      },
+      "mobility": {
+       "cap": "mobility.calibrate",
+       "keys": {
+        "reference": "reference_m2_v_s",
+        "measured": "measured_m2_v_s"
+       }
+      },
+      "temperature": {
+       "cap": "temperature.calibrate",
+       "keys": {
+        "reference": "reference_k",
+        "measured": "measured_k"
+       }
+      }
+     }
+    },
+    "atmosphere": {
+     "keys": {
+      "gas": {
+       "cap": "purge.set",
+       "arg": "enabled",
+       "kind": "switch",
+       "word": "dry-gas purge"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "figures": [
+      {
+       "path": "mode",
+       "label": "mode"
+      },
+      {
+       "path": "dls.z_average_m",
+       "label": "Z-average diameter",
+       "show": "nm"
+      },
+      {
+       "path": "dls.pdi",
+       "label": "polydispersity index"
+      },
+      {
+       "path": "els.zeta_v",
+       "label": "zeta potential",
+       "show": "mV"
+      },
+      {
+       "path": "acquisitions_done",
+       "label": "runs done"
+      }
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.loaded",
+    "temp": "temperature.measured_k",
+    "set": "temperature.target_k"
+   },
+   "show": [
+    {
+     "slot": "laser.warmup_s",
+     "label": "laser warm-up done",
+     "show": "s"
+    },
+    {
+     "slot": "cell.kind",
+     "label": "cell"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample in place",
+      "message": "there is no sample in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     },
+     {
+      "slot": "laser.warmup_s",
+      "code": "WARMING_UP",
+      "label": "laser warmed up",
+      "message": "the laser of {inst} is still warming up ({value} s of 6 min after switching on).",
+      "fix": "wait: `chemlab wait 360` (or less, see `chemlab run {inst} status`), then start again.",
+      "min": "slot_max"
+     }
+    ],
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} moves its cuvette holder only when switched on.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} releases its lid only when switched on.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "prepare": "no separate preparation: the cell temperature is equilibrated inside each measurement (method equilibration=)",
+    "set-temp": "the cell temperature is part of the method (temp=), not a separate set point",
+    "analyze": "the result is already evaluated (Z-average, PDI, size distribution, zeta potential)"
+   },
+   "alternatives": {
+    "set-temp": "set it in the method: `chemlab run INST method temp=25C`"
+   },
+   "codes": {
+    "GAS_EXHAUSTED": {
+     "code": "NO_PURGE_GAS",
+     "message": "the dry-gas purge supply of {inst} is empty.",
+     "fix": "ask the lab operator to connect the purge gas; above the dew point no purge is needed."
+    },
+    "PURGE_REQUIRED": {
+     "code": "PURGE_REQUIRED",
+     "message": "the method temperature of {inst} is below the dew point, so the cell needs the dry-gas purge.",
+     "fix": "`chemlab run {inst} atmosphere gas=on` (the operator must have connected the purge gas)."
+    }
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "notes": {
+    "load": [
+     "order: cell cap, cuvette down, lid; steps already done are skipped"
+    ],
+    "atmosphere": [
+     "gas=on|off switches the dry-gas purge that keeps the cell dry below the dew point"
+    ],
+    "method": [
+     "cell=quartz|omega declares the cuvette (cell.configure); zeta needs the omega cell and angle=15deg"
+    ],
+    "start": [
+     "the laser needs 6 min after switching on (laser.warmup_s)"
+    ]
+   }
+  },
+  "antonpaar_psa1190": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "tank_lid.set",
+       "arg": "slide_m",
+       "to": "min",
+       "slot": "tank_lid.slide_m",
+       "label": "close the tank lid"
+      },
+      {
+       "cap": "dry_hood.set",
+       "arg": "lift_m",
+       "to": "min",
+       "slot": "dry_hood.lift_m",
+       "label": "close the dry-feed hood"
+      },
+      {
+       "cap": "cover.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "cover.angle_rad",
+       "label": "close the main cover"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "tank_lid.set",
+       "arg": "slide_m",
+       "to": "max",
+       "slot": "tank_lid.slide_m",
+       "label": "open the tank lid",
+       "if": {
+        "slot": "method.mode",
+        "value": "wet"
+       }
+      },
+      {
+       "cap": "dry_hood.set",
+       "arg": "lift_m",
+       "to": "max",
+       "slot": "dry_hood.lift_m",
+       "label": "open the dry-feed hood",
+       "if": {
+        "slot": "method.mode",
+        "value": "dry"
+       }
+      }
+     ]
+    },
+    "prepare": {
+     "cap": "background.start",
+     "word": "background measurement"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "model": {
+       "arg": "model"
+      },
+      "time": {
+       "arg": "acquisition_s",
+       "kind": "duration"
+      },
+      "dispersion": {
+       "arg": "dispersion_s",
+       "kind": "duration"
+      },
+      "ultrasound": {
+       "arg": "ultrasound_enabled"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "size": {
+       "cap": "calibration.size",
+       "keys": {
+        "reference": "reference_m",
+        "measured": "observed_m"
+       }
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "psd.d10_m",
+       "label": "d10",
+       "show": "um"
+      },
+      {
+       "path": "psd.d50_m",
+       "label": "d50 (median)",
+       "show": "um"
+      },
+      {
+       "path": "psd.d90_m",
+       "label": "d90",
+       "show": "um"
+      },
+      {
+       "path": "obscuration",
+       "label": "obscuration",
+       "show": "%"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s"
+   },
+   "show": [
+    {
+     "slot": "method.mode",
+     "label": "dispersion mode"
+    },
+    {
+     "slot": "background.ready",
+     "label": "background measured"
+    },
+    {
+     "slot": "liquid.level_ok",
+     "label": "liquid level ok"
+    },
+    {
+     "slot": "d50_m",
+     "label": "d50",
+     "show": "um"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "background.ready",
+      "code": "NO_BACKGROUND",
+      "label": "background measured",
+      "message": "{inst} has no valid background for this method (a new method or liquid needs a new one).",
+      "fix": "measure it: `chemlab run {inst} prepare` (a job), then start.",
+      "value": true
+     }
+    ],
+    "prepare": [
+     {
+      "slot": "laser.warmup_s",
+      "code": "WARMING_UP",
+      "label": "laser warmed up (60 s)",
+      "message": "the laser of {inst} is still warming up ({value} s of 60 s after switching on).",
+      "fix": "wait: `chemlab wait 60`, then retry.",
+      "min": 60
+     }
+    ]
+   },
+   "unsupported": {
+    "set-temp": "no temperature control (the dispersion liquid stays at room temperature)",
+    "atmosphere": "no gas or humidity control (the dry-dispersion air pressure is a method setting: air_pressure_pa=)",
+    "analyze": "the result is already evaluated (Mie / Fraunhofer size distribution, d10 / d50 / d90)"
+   },
+   "codes": {
+    "BLANK_NOT_EMPTY": {
+     "code": "SAMPLE_PRESENT",
+     "message": "the background needs clean liquid, but there is sample in {inst}.",
+     "fix": "drain and refill (lab operator), then `chemlab run {inst} prepare`."
+    },
+    "LIQUID_LEVEL": {
+     "code": "NO_LIQUID",
+     "message": "the dispersion tank of {inst} is not filled.",
+     "fix": "ask the lab operator to fill it."
+    },
+    "NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready: switched off, the laser still warming up (60 s) or the main cover open.",
+     "fix": "`chemlab run {inst} power on`, `chemlab wait 60`, `chemlab run {inst} load` (closes the covers)."
+    }
+   },
+   "notes": {
+    "prepare": [
+     "measures the background of the clean dispersion liquid (a job of about 1 min)"
+    ]
+   }
+  },
+  "antonpaar_litesizerdia": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "module.withdraw",
+       "arg": "distance_m",
+       "to": "min",
+       "slot": "module.withdraw_m",
+       "label": "push the dispersion module in"
+      },
+      {
+       "cap": "latch.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "latch.angle_rad",
+       "label": "close the module latch"
+      },
+      {
+       "cap": "lid.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "lid.angle_rad",
+       "label": "close the tank lid"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "lid.set",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "lid.angle_rad",
+       "label": "open the tank lid"
+      }
+     ]
+    },
+    "prepare": {
+     "cap": "background.capture",
+     "word": "background image"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "images": {
+       "arg": "target_images"
+      },
+      "magnification": {
+       "arg": "magnification"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "pixel": {
+       "cap": "calibration.pixel",
+       "keys": {
+        "reference": "reference_length_m",
+        "measured": "observed_pixels"
+       }
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "summary.count",
+       "label": "particles"
+      },
+      {
+       "path": "summary.d10_m",
+       "label": "d10 (area-equivalent)",
+       "show": "um"
+      },
+      {
+       "path": "summary.d50_m",
+       "label": "d50",
+       "show": "um"
+      },
+      {
+       "path": "summary.d90_m",
+       "label": "d90",
+       "show": "um"
+      },
+      {
+       "path": "summary.median_aspect_ratio",
+       "label": "median aspect ratio"
+      },
+      {
+       "path": "summary.median_circularity",
+       "label": "median circularity"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s"
+   },
+   "show": [
+    {
+     "slot": "module.kind",
+     "label": "dispersion module"
+    },
+    {
+     "slot": "background.ready",
+     "label": "background captured"
+    },
+    {
+     "slot": "diameter.d50_m",
+     "label": "d50",
+     "show": "um"
+    },
+    {
+     "slot": "particles.accepted",
+     "label": "particles accepted"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "background.ready",
+      "code": "NO_BACKGROUND",
+      "label": "background captured",
+      "message": "{inst} has no background image for this method and module.",
+      "fix": "capture it: `chemlab run {inst} prepare`, then start.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "set-temp": "no temperature control",
+    "atmosphere": "no gas or humidity control (dry-module suction is part of the module)",
+    "analyze": "the result is already evaluated (size and shape distributions)"
+   },
+   "codes": {
+    "BLANK_NOT_EMPTY": {
+     "code": "SAMPLE_PRESENT",
+     "message": "the background needs clean liquid, but there is sample in {inst}.",
+     "fix": "drain and refill (lab operator), then `chemlab run {inst} prepare`."
+    },
+    "NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready: switched off, the lid or the module open, or no liquid in the tank.",
+     "fix": "`chemlab run {inst} power on`; `chemlab run {inst} load`; ask the operator if the tank is empty."
+    },
+    "LIQUID_LEVEL": {
+     "code": "NO_LIQUID",
+     "message": "the tank of {inst} is not filled.",
+     "fix": "ask the lab operator to fill it."
+    }
+   }
+  },
+  "microtrac_turbiscanlab": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "lid.set",
+       "arg": "opened",
+       "to": false,
+       "slot": "lid.open",
+       "label": "close the lid"
+      },
+      {
+       "cap": "sample.set_position",
+       "arg": "distance_m",
+       "to": "min",
+       "slot": "sample.lift_m",
+       "label": "lower the vial into the measuring chamber"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "sample.set_position",
+       "arg": "distance_m",
+       "to": "max",
+       "slot": "sample.lift_m",
+       "label": "raise the vial holder"
+      },
+      {
+       "cap": "lid.set",
+       "arg": "opened",
+       "to": true,
+       "slot": "lid.open",
+       "label": "open the lid"
+      }
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "arg": "scan_interval_s",
+       "kind": "duration"
+      },
+      "from": {
+       "arg": "scan_start_m",
+       "kind": "length"
+      },
+      "to": {
+       "arg": "scan_end_m",
+       "kind": "length"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "sensor": {
+       "cap": "sensor.calibrate"
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "tsi",
+       "label": "TSI (stability index)"
+      },
+      {
+       "path": "migration_velocity_m_s",
+       "label": "migration velocity",
+       "show": "um/s"
+      },
+      {
+       "path": "elapsed_s",
+       "label": "measured for",
+       "show": "s"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "tsi": {
+       "cap": "analysis.tsi",
+       "from_result": {
+        "transmission_fraction": "profiles[*].transmission_fraction",
+        "backscatter_fraction": "profiles[*].backscatter_fraction"
+       },
+       "defaults": {
+        "channel": "backscatter"
+       }
+      },
+      "two-flux": {
+       "cap": "analysis.two_flux"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.present",
+    "temp": "thermal.indicated_k",
+    "set": "thermal.target_k"
+   },
+   "show": [
+    {
+     "slot": "acquisition.scan_index",
+     "label": "scans done"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "label": "vial in place",
+      "message": "there is no vial in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "prepare": "no separate preparation: the sample is scanned as it is (temperature: `set-temp`)",
+    "atmosphere": "no gas or humidity control"
+   },
+   "notes": {
+    "analyze": [
+     "tsi recomputes the stability index from the profiles of the last result (channel=backscatter|transmission|auto_baseline)"
+    ]
+   }
+  },
+  "antonpaar_autosorb6100": {
+   "role": "primary",
+   "targets": {
+    "cell": {
+     "values": {
+      "1": {
+       "station": 0
+      },
+      "2": {
+       "station": 1
+      },
+      "3": {
+       "station": 2
+      }
+     },
+     "default": "1",
+     "list_var": "stations",
+     "list_of": "station",
+     "multi": [
+      "start"
+     ]
+    }
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "sample0.set",
+       "arg": "drop_m",
+       "to": "min",
+       "slot": "sample0.drop_m",
+       "label": "raise tube holder 1 onto its port"
+      },
+      {
+       "cap": "sample1.set",
+       "arg": "drop_m",
+       "to": "min",
+       "slot": "sample1.drop_m",
+       "label": "raise tube holder 2 onto its port"
+      },
+      {
+       "cap": "sample2.set",
+       "arg": "drop_m",
+       "to": "min",
+       "slot": "sample2.drop_m",
+       "label": "raise tube holder 3 onto its port"
+      },
+      {
+       "cap": "guard.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "guard.angle_rad",
+       "label": "close the safety guard"
+      },
+      {
+       "cap": "dewar.set",
+       "arg": "lift_m",
+       "to": "max",
+       "slot": "dewar.lift_m",
+       "label": "raise the liquid-nitrogen dewar"
+      }
+     ]
+    },
+    "unload": {
+     "cells": {
+      "1": {
+       "steps": [
+        {
+         "cap": "dewar.set",
+         "arg": "lift_m",
+         "to": "min",
+         "slot": "dewar.lift_m",
+         "label": "lower the dewar"
+        },
+        {
+         "cap": "sample.backfill",
+         "label": "backfill station 1 with nitrogen to ambient pressure",
+         "args": {
+          "station": 0
+         },
+         "if": {
+          "slot": "guard.angle_rad",
+          "max": 0.01
+         },
+         "wait": {
+          "slot": "station0.pressure_pa",
+          "near": 101325.0,
+          "tol": 20.0,
+          "max_s": 120,
+          "poll_s": 1
+         }
+        },
+        {
+         "cap": "guard.set",
+         "arg": "angle_rad",
+         "to": "max",
+         "slot": "guard.angle_rad",
+         "label": "open the safety guard"
+        },
+        {
+         "cap": "sample0.set",
+         "arg": "drop_m",
+         "to": "max",
+         "slot": "sample0.drop_m",
+         "label": "lower sample tube 1 off its port"
+        }
+       ]
+      },
+      "2": {
+       "steps": [
+        {
+         "cap": "dewar.set",
+         "arg": "lift_m",
+         "to": "min",
+         "slot": "dewar.lift_m",
+         "label": "lower the dewar"
+        },
+        {
+         "cap": "sample.backfill",
+         "label": "backfill station 2 with nitrogen to ambient pressure",
+         "args": {
+          "station": 1
+         },
+         "if": {
+          "slot": "guard.angle_rad",
+          "max": 0.01
+         },
+         "wait": {
+          "slot": "station1.pressure_pa",
+          "near": 101325.0,
+          "tol": 20.0,
+          "max_s": 120,
+          "poll_s": 1
+         }
+        },
+        {
+         "cap": "guard.set",
+         "arg": "angle_rad",
+         "to": "max",
+         "slot": "guard.angle_rad",
+         "label": "open the safety guard"
+        },
+        {
+         "cap": "sample1.set",
+         "arg": "drop_m",
+         "to": "max",
+         "slot": "sample1.drop_m",
+         "label": "lower sample tube 2 off its port"
+        }
+       ]
+      },
+      "3": {
+       "steps": [
+        {
+         "cap": "dewar.set",
+         "arg": "lift_m",
+         "to": "min",
+         "slot": "dewar.lift_m",
+         "label": "lower the dewar"
+        },
+        {
+         "cap": "sample.backfill",
+         "label": "backfill station 3 with nitrogen to ambient pressure",
+         "args": {
+          "station": 2
+         },
+         "if": {
+          "slot": "guard.angle_rad",
+          "max": 0.01
+         },
+         "wait": {
+          "slot": "station2.pressure_pa",
+          "near": 101325.0,
+          "tol": 20.0,
+          "max_s": 120,
+          "poll_s": 1
+         }
+        },
+        {
+         "cap": "guard.set",
+         "arg": "angle_rad",
+         "to": "max",
+         "slot": "guard.angle_rad",
+         "label": "open the safety guard"
+        },
+        {
+         "cap": "sample2.set",
+         "arg": "drop_m",
+         "to": "max",
+         "slot": "sample2.drop_m",
+         "label": "lower sample tube 3 off its port"
+        }
+       ]
+      }
+     }
+    },
+    "prepare": {
+     "cap": "degas.start",
+     "use_example": true,
+     "word": "degas programme",
+     "options": {
+      "temp": "steps.0.temperature_k",
+      "hold": "steps.0.hold_s",
+      "ramp": "ramp_k_s"
+     },
+     "state": {
+      "slot": "degas.phase",
+      "done": [
+       "succeeded"
+      ],
+      "failed": [
+       "failed",
+       "cancelled"
+      ],
+      "stop_cap": "degas.stop"
+     }
+    },
+    "method": {
+     "cap": "method.configure",
+     "args": {
+      "station": "{station}"
+     },
+     "keys": {
+      "mass": {
+       "arg": "entered_mass_kg",
+       "kind": "mass"
+      },
+      "steps": {
+       "arg": "relative_pressures"
+      },
+      "equilibration": {
+       "arg": "equilibration_s",
+       "kind": "duration"
+      },
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "pressure": {
+       "cap": "pressure.calibrate",
+       "per_cell": true,
+       "args": {
+        "station": "{station}"
+       },
+       "keys": {
+        "reference": "reference_pa",
+        "measured": "measured_pa"
+       }
+      },
+      "volume": {
+       "cap": "volume.calibrate",
+       "per_cell": true,
+       "args": {
+        "station": "{station}"
+       }
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "args": {
+      "stations": "{stations}"
+     },
+     "poll_s": 5
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "figures": [
+      {
+       "path": "stations[{station}].phase",
+       "label": "station result"
+      },
+      {
+       "path": "stations[{station}].bet.area_m2_kg",
+       "label": "BET surface area",
+       "show": "m2/g"
+      },
+      {
+       "path": "stations[{station}].bet.C",
+       "label": "BET C constant"
+      },
+      {
+       "path": "stations[{station}].bet.r_squared",
+       "label": "BET fit R²"
+      },
+      {
+       "path": "stations[{station}].bet.status",
+       "label": "BET status"
+      },
+      {
+       "path": "stations[{station}].total_pore_volume_m3_kg",
+       "label": "total pore volume",
+       "show": "cm3/g"
+      },
+      {
+       "path": "elapsed_s",
+       "label": "run time",
+       "show": "s"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "bjh": {
+       "cap": "analysis.bjh",
+       "per_cell": true,
+       "from_result": {
+        "points": "stations[{station}].points"
+       },
+       "defaults": {
+        "branch": "unspecified"
+       }
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": [
+     "station0.loaded",
+     "station1.loaded",
+     "station2.loaded"
+    ]
+   },
+   "show": [
+    {
+     "slot": "coolant.volume_m3",
+     "label": "liquid nitrogen",
+     "show": "cm3"
+    },
+    {
+     "slot": "dewar.lift_m",
+     "label": "dewar lift",
+     "show": "mm"
+    },
+    {
+     "slot": "degas.phase",
+     "label": "degas programme"
+    },
+    {
+     "slot": "station0.bet_m2_kg",
+     "label": "BET station 1",
+     "show": "m2/g"
+    },
+    {
+     "slot": "station1.bet_m2_kg",
+     "label": "BET station 2",
+     "show": "m2/g"
+    },
+    {
+     "slot": "station2.bet_m2_kg",
+     "label": "BET station 3",
+     "show": "m2/g"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "station0.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample on station 1",
+      "message": "there is no sample tube on station 1 of {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload --cell 1` opens the access for it), then `chemlab run {inst} load --cell 1`.",
+      "value": true,
+      "cell": "1"
+     },
+     {
+      "slot": "station1.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample on station 2",
+      "message": "there is no sample tube on station 2 of {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload --cell 2` opens the access for it), then `chemlab run {inst} load --cell 2`.",
+      "value": true,
+      "cell": "2"
+     },
+     {
+      "slot": "station2.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample on station 3",
+      "message": "there is no sample tube on station 3 of {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload --cell 3` opens the access for it), then `chemlab run {inst} load --cell 3`.",
+      "value": true,
+      "cell": "3"
+     }
+    ]
+   },
+   "unsupported": {
+    "set-temp": "the analysis bath is liquid nitrogen (77 K, a fixed method value); degassing temperatures go with `prepare --temp`",
+    "atmosphere": "the adsorptive (N2) dosing follows the method's relative-pressure table (steps=)"
+   },
+   "codes": {
+    "NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready for this: it needs power, the station calibrated (pressure and free-space volume: `calibrate pressure|volume --cell N`), a method for the station, the guard closed and the dewar raised with liquid nitrogen.",
+     "fix": "check `chemlab run {inst} status`, `chemlab run {inst} load --cell N`, `chemlab help {inst} calibrate`."
+    },
+    "degas.start:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot degas: it needs power, a sample in a degas port, liquid nitrogen for the cold trap and the heating mantles in place.",
+     "fix": "ask the lab operator to load the degas port and fill the dewar; check `chemlab run {inst} status`."
+    },
+    "BACKFILL_INTERLOCK": {
+     "code": "ORDER",
+     "message": "{inst} backfills a station only with the dewar down, the guard closed and every tube on its port.",
+     "fix": "`chemlab run {inst} load`, then `unload --cell N`."
+    },
+    "TUBE_INTERLOCK": {
+     "code": "TUBE_DOWN",
+     "message": "a sample tube of {inst} is not on its port, so the dewar cannot rise.",
+     "fix": "`chemlab run {inst} load` raises every tube first."
+    },
+    "PRESSURE_ACCESS_INTERLOCK": {
+     "code": "ORDER",
+     "message": "{inst} moves a sample tube only with the safety guard open and the dewar down.",
+     "fix": "`chemlab run {inst} unload --cell N` opens it in order."
+    },
+    "dewar.set:COOLANT_OR_POWER": {
+     "code": "NO_COOLANT",
+     "message": "the dewar of {inst} is empty (or the instrument is off).",
+     "fix": "ask the lab operator to fill liquid nitrogen; `chemlab run {inst} power on`."
+    }
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "notes": {
+    "start": [
+     "--cell 1,2,3 measures several stations at once (one job)"
+    ],
+    "load": [
+     "load raises every tube holder, closes the guard and raises the dewar (the dewar rises only with all tubes on their ports)"
+    ],
+    "unload": [
+     "unload --cell N lowers the dewar, backfills the station with nitrogen to ambient pressure (waits for it), opens the guard and lowers tube N for the operator"
+    ],
+    "prepare": [
+     "degasses the samples in the degas ports (not the analysis stations): --temp, --hold, --ramp; a job that follows degas.phase"
+    ]
+   }
+  },
+  "antonpaar_poremaster60": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "guard0.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "guard0.angle_rad",
+       "label": "close guard of low-pressure port 1"
+      },
+      {
+       "cap": "guard1.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "guard1.angle_rad",
+       "label": "close guard of low-pressure port 2"
+      },
+      {
+       "cap": "cap.set",
+       "arg": "lift_m",
+       "to": "min",
+       "slot": "cap.lift_m",
+       "label": "close the high-pressure cap"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "guard0.set",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "guard0.angle_rad",
+       "label": "open guard of low-pressure port 1",
+       "if": {
+        "slot": "cell.position",
+        "value": "low0"
+       }
+      },
+      {
+       "cap": "guard1.set",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "guard1.angle_rad",
+       "label": "open guard of low-pressure port 2",
+       "if": {
+        "slot": "cell.position",
+        "value": "low1"
+       }
+      },
+      {
+       "cap": "cap.set",
+       "arg": "lift_m",
+       "to": "max",
+       "slot": "cap.lift_m",
+       "label": "open the high-pressure cap",
+       "if": {
+        "slot": "cell.position",
+        "value": "high"
+       }
+      }
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "stage"
+      },
+      "mass": {
+       "arg": "entered_mass_kg",
+       "kind": "mass"
+      },
+      "steps": {
+       "arg": "pressures_pa",
+       "kind": "pressure"
+      },
+      "equilibration": {
+       "arg": "equilibration_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "pressure": {
+       "cap": "pressure.calibrate",
+       "keys": {
+        "reference": "reference_pa",
+        "measured": "measured_pa",
+        "range": "range_index"
+       }
+      },
+      "volume": {
+       "cap": "volume.calibrate",
+       "keys": {
+        "reference": "reference_volume_m3",
+        "measured": "measured_capacitance_f"
+       }
+      },
+      "blank": {
+       "cap": "blank.calibrate",
+       "keys": {
+        "pressures": "pressures_pa",
+        "volumes": "volumes_m3"
+       }
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "figures": [
+      {
+       "path": "max_pore_volume_m3_kg",
+       "label": "total intruded pore volume",
+       "show": "cm3/g"
+      },
+      {
+       "path": "distribution.status",
+       "label": "pore-size distribution"
+      },
+      {
+       "path": "elapsed_s",
+       "label": "run time",
+       "show": "s"
+      }
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "cell.loaded"
+   },
+   "show": [
+    {
+     "slot": "cell.position",
+     "label": "penetrometer position"
+    },
+    {
+     "slot": "pressure.measured_pa",
+     "label": "pressure",
+     "show": "kPa"
+    },
+    {
+     "slot": "mercury.stock_kg",
+     "label": "mercury stock",
+     "show": "mg"
+    },
+    {
+     "slot": "results.point_count",
+     "label": "points"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "cell.loaded",
+      "code": "NO_SAMPLE",
+      "label": "penetrometer with sample in place",
+      "message": "there is no penetrometer with sample in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "prepare": "no separate preparation: the low-pressure stage evacuates and fills the penetrometer within the run (method mode=low)",
+    "set-temp": "no temperature control",
+    "atmosphere": "no gas or humidity control (the low-pressure stage uses its own gas supply)",
+    "analyze": "the result is already evaluated (Washburn pore-size distribution and pore volume)"
+   },
+   "codes": {
+    "acquisition.start:NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready to measure: it needs power, the pressure, volume and blank calibrations, mercury, the penetrometer in a port with its guard closed, and a method.",
+     "fix": "see `chemlab run {inst} status` and `chemlab help {inst} calibrate`; `load` closes the guards."
+    },
+    "CALIBRATION_REQUIRED": {
+     "code": "NOT_CALIBRATED",
+     "message": "{inst} needs its pressure, volume and blank calibrations first.",
+     "fix": "`chemlab run {inst} calibrate pressure|volume|blank ...` (see `chemlab help {inst} calibrate`)."
+    }
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "notes": {
+    "method": [
+     "mode=low|high is the pressure stage; the penetrometer itself is declared with `chemlab call ... cell.configure` while it is empty"
+    ]
+   }
+  },
+  "porometer_poroluxrevo": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "holder.set",
+       "arg": "opened",
+       "to": false,
+       "slot": "holder.open",
+       "label": "close the sample holder"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "holder.set",
+       "arg": "opened",
+       "to": true,
+       "slot": "holder.open",
+       "label": "open the sample holder"
+      }
+     ]
+    },
+    "prepare": {
+     "cap": "sample.wet",
+     "word": "wet the sample with the wetting liquid"
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "steps": {
+       "arg": "pressure_steps_pa",
+       "kind": "pressure"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "sensor": {
+       "cap": "sensor.calibrate",
+       "keys": {
+        "pressure_zero": "pressure_zero_pa",
+        "flow_zero": "flow_zero_m3_s"
+       }
+      }
+     }
+    },
+    "atmosphere": {
+     "keys": {
+      "gas": {
+       "cap": "gas.open",
+       "arg": "enabled",
+       "kind": "switch",
+       "word": "nitrogen inlet"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "analysis.bubble_pressure_pa",
+       "label": "bubble point pressure",
+       "show": "kPa"
+      },
+      {
+       "path": "analysis.bubble_diameter_m",
+       "label": "largest pore (bubble point)",
+       "show": "um"
+      },
+      {
+       "path": "analysis.mean_flow_pressure_pa",
+       "label": "mean flow pressure",
+       "show": "kPa"
+      },
+      {
+       "path": "analysis.mean_flow_diameter_m",
+       "label": "mean flow pore size",
+       "show": "um"
+      },
+      {
+       "path": "analysis.smallest_diameter_m",
+       "label": "smallest pore",
+       "show": "um"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "porometry": {
+       "cap": "analysis.porometry",
+       "from_result": {
+        "wet_pressure_pa": "wet_points[*].pressure_pa",
+        "wet_flow_m3_s": "wet_points[*].flow_m3_s",
+        "dry_pressure_pa": "dry_points[*].pressure_pa",
+        "dry_flow_m3_s": "dry_points[*].flow_m3_s"
+       },
+       "keys": {
+        "tension": "surface_tension_n_m",
+        "angle": "contact_angle_rad",
+        "bubble": "bubble_fraction"
+       },
+       "defaults": {
+        "accept_monotone_projection": false
+       }
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.present"
+   },
+   "show": [
+    {
+     "slot": "sample.wetted",
+     "label": "sample wetted"
+    },
+    {
+     "slot": "gas.enabled",
+     "label": "nitrogen inlet open"
+    },
+    {
+     "slot": "pressure.indicated_pa",
+     "label": "pressure",
+     "show": "kPa"
+    },
+    {
+     "slot": "acquisition.scan",
+     "label": "scan"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "label": "membrane sample in place",
+      "message": "there is no membrane sample in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     },
+     {
+      "slot": "gas.enabled",
+      "code": "GAS_CLOSED",
+      "label": "nitrogen inlet open",
+      "message": "the nitrogen inlet of {inst} is closed.",
+      "fix": "open it: `chemlab run {inst} atmosphere gas=on`.",
+      "value": true
+     }
+    ],
+    "prepare": [
+     {
+      "slot": "holder.open",
+      "code": "HOLDER_CLOSED",
+      "label": "holder open",
+      "message": "{inst} wets the sample only with the holder open.",
+      "fix": "open it: `chemlab run {inst} unload`, then `prepare`, then `load`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "set-temp": "no temperature control"
+   },
+   "codes": {
+    "COMPLETE_WETTING_REQUIRED": {
+     "code": "NOT_WETTED",
+     "message": "the sample in {inst} is not completely wetted (a wet scan needs it).",
+     "fix": "`chemlab run {inst} unload`, `chemlab run {inst} prepare`, `chemlab run {inst} load`, then start."
+    },
+    "HOLDER_OPEN": {
+     "code": "ACCESS_OPEN",
+     "message": "the sample holder of {inst} is open.",
+     "fix": "close it: `chemlab run {inst} load`."
+    },
+    "HOLDER_CLOSED": {
+     "code": "HOLDER_CLOSED",
+     "message": "the sample holder of {inst} is closed.",
+     "fix": "open it: `chemlab run {inst} unload`."
+    }
+   },
+   "notes": {
+    "analyze": [
+     "porometry recomputes the pore sizes from the wet / dry curves of the last result; give tension= (N/m or mN/m) and angle= of the wetting liquid, bubble= the bubble-point flow fraction"
+    ]
+   }
+  },
+  "antonpaar_ultrapyc5000": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "cup.set",
+       "arg": "lift_m",
+       "to": "min",
+       "slot": "cup.lift_m",
+       "label": "lower the cup into the cell"
+      },
+      {
+       "cap": "lid.set",
+       "arg": "lift_m",
+       "to": "min",
+       "slot": "lid.lift_m",
+       "label": "close the cell lid"
+      },
+      {
+       "cap": "lock.set",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "lock.angle_rad",
+       "label": "turn the lock ring"
+      },
+      {
+       "cap": "seal.set",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "seal.angle_rad",
+       "label": "turn the seal ring"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "seal.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "seal.angle_rad",
+       "label": "open the seal ring"
+      },
+      {
+       "cap": "lock.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "lock.angle_rad",
+       "label": "open the lock ring"
+      },
+      {
+       "cap": "lid.set",
+       "arg": "lift_m",
+       "to": "max",
+       "slot": "lid.lift_m",
+       "label": "lift the cell lid"
+      },
+      {
+       "cap": "cup.set",
+       "arg": "lift_m",
+       "to": "max",
+       "slot": "cup.lift_m",
+       "label": "lift the cup out"
+      }
+     ]
+    },
+    "prepare": {
+     "cap": "leak_check.start",
+     "word": "leak test",
+     "poll_s": 1
+    },
+    "method": {
+     "cap": "method.configure",
+     "current": "method.settings",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "runs": {
+       "arg": "max_runs"
+      },
+      "cell": {
+       "arg": "cell"
+      },
+      "pressure": {
+       "arg": "target_gauge_pa",
+       "kind": "pressure"
+      },
+      "equilibration": {
+       "arg": "equilibration_s",
+       "kind": "duration"
+      }
+     },
+     "extra": {
+      "mass": {
+       "cap": "sample.set_mass",
+       "arg": "mass_kg",
+       "kind": "mass"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "volume": {
+       "cap": "volume.calibrate"
+      },
+      "pressure": {
+       "cap": "pressure.calibrate"
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "figures": [
+      {
+       "path": "mean_density_kg_m3",
+       "label": "skeletal density",
+       "show": "g/cm3"
+      },
+      {
+       "path": "mean_volume_m3",
+       "label": "sample volume",
+       "show": "cm3"
+      },
+      {
+       "path": "rsd",
+       "label": "relative std. dev.",
+       "show": "%"
+      },
+      {
+       "path": "leak_rate_pa_s",
+       "label": "leak rate (Pa/s)"
+      },
+      {
+       "path": "leak_pass",
+       "label": "leak test passed"
+      }
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.loaded",
+    "temp": "thermal.indicated_k",
+    "set": "thermal.target_k"
+   },
+   "show": [
+    {
+     "slot": "method.configured",
+     "label": "method set"
+    },
+    {
+     "slot": "volume.calibrated",
+     "label": "cell volume calibrated"
+    },
+    {
+     "slot": "sample.entered_mass_kg",
+     "label": "sample mass entered",
+     "show": "mg"
+    },
+    {
+     "slot": "result.density_kg_m3",
+     "label": "density",
+     "show": "g/cm3"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample in place",
+      "message": "there is no sample in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method mode=measure ...`.",
+      "value": true
+     },
+     {
+      "slot": "volume.calibrated",
+      "code": "NOT_CALIBRATED",
+      "label": "cell volume calibrated",
+      "message": "the cell and reference volumes of {inst} are not calibrated.",
+      "fix": "`chemlab run {inst} calibrate volume blank_ratio=... sphere_ratio=... sphere_volume_m3=...`.",
+      "value": true
+     },
+     {
+      "slot": "sample.entered_mass_kg",
+      "code": "NO_MASS",
+      "label": "sample mass entered",
+      "message": "the sample mass is not entered on {inst}, so it cannot give a density.",
+      "fix": "enter it: `chemlab run {inst} method mass=50g` (the weighed mass).",
+      "not": [
+       null
+      ]
+     }
+    ],
+    "prepare": [
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method.",
+      "fix": "set one first: `chemlab run {inst} method mode=leak`.",
+      "value": true
+     },
+     {
+      "slot": "sample.loaded",
+      "code": "SAMPLE_PRESENT",
+      "label": "empty cell",
+      "message": "the leak test of {inst} needs the cell without a sample.",
+      "fix": "take the sample out first (`unload`; the lab operator removes it).",
+      "value": false
+     }
+    ]
+   },
+   "unsupported": {
+    "atmosphere": "the measuring gas (helium) is fixed by the lab set-up; there is no humidity or flow setting to change",
+    "analyze": "the result is already evaluated (volume and skeletal density per run, mean and RSD)"
+   },
+   "codes": {
+    "NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready: it needs power, a method, a calibrated cell volume, the sample mass and the cell closed (lid, lock and seal rings).",
+     "fix": "check `chemlab run {inst} status`; `chemlab run {inst} load` closes the cell."
+    }
+   },
+   "path_exceptions": [
+    "process.measure"
+   ],
+   "notes": {
+    "method": [
+     "mass= enters the weighed sample mass (sample.set_mass); keys not given keep the method the instrument shows"
+    ],
+    "prepare": [
+     "the leak test needs the empty, closed cell and a method (mode=leak)"
+    ]
+   }
+  },
+  "micromeritics_autochemiii": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "sample.set_position",
+       "arg": "distance_m",
+       "to": "min",
+       "slot": "sample.withdraw_m",
+       "label": "push the sample tube into the furnace"
+      },
+      {
+       "cap": "sample.release",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "sample.release_rad",
+       "label": "lock the tube fitting"
+      },
+      {
+       "cap": "furnace.set_open",
+       "arg": "opened",
+       "to": false,
+       "slot": "furnace.opened",
+       "label": "close the furnace"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "gas.open",
+       "arg": "enabled",
+       "to": false,
+       "slot": "gas.enabled",
+       "label": "stop the gas flow"
+      },
+      {
+       "cap": "furnace.set_open",
+       "arg": "opened",
+       "to": true,
+       "slot": "furnace.opened",
+       "label": "open the furnace"
+      },
+      {
+       "cap": "sample.release",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "sample.release_rad",
+       "label": "release the tube fitting"
+      },
+      {
+       "cap": "sample.set_position",
+       "arg": "distance_m",
+       "to": "max",
+       "slot": "sample.withdraw_m",
+       "label": "withdraw the sample tube"
+      }
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "temp": {
+       "path": "segments.0.target_k",
+       "kind": "temperature"
+      },
+      "rate": {
+       "path": "segments.0.ramp_k_s",
+       "kind": "heating_rate"
+      },
+      "hold": {
+       "path": "segments.0.hold_s",
+       "kind": "duration"
+      },
+      "time": {
+       "arg": "maximum_duration_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      },
+      "runs": {
+       "arg": "pulse_count"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "detector": {
+       "cap": "detector.calibrate",
+       "keys": {
+        "reference": "known_moles_mol",
+        "measured": "observed_areas_v_s"
+       }
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k",
+     "ramp_arg": "ramp_k_s"
+    },
+    "atmosphere": {
+     "keys": {
+      "flow": {
+       "cap": "gas.set_flow",
+       "arg": "reference_m3_s",
+       "kind": "flow"
+      },
+      "gas": {
+       "cap": "gas.open",
+       "arg": "enabled",
+       "kind": "switch",
+       "word": "gas flow"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "mode",
+       "label": "mode"
+      },
+      {
+       "path": "estimated_amount_mol",
+       "label": "gas evolved / taken up",
+       "show": "umol"
+      },
+      {
+       "path": "integral_v_s",
+       "label": "TCD peak area (V·s)"
+      },
+      {
+       "path": "elapsed_s",
+       "label": "run time",
+       "show": "s"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "dispersion": {
+       "cap": "analysis.dispersion",
+       "from_result": {
+        "adsorbed_mol": "estimated_amount_mol"
+       },
+       "keys": {
+        "metal_mass": "metal_mass_kg",
+        "molar_mass": "metal_molar_mass_kg_mol",
+        "stoichiometry": "adsorbate_per_surface_atom"
+       }
+      },
+      "integrate": {
+       "cap": "analysis.integrate",
+       "from_result": {
+        "times_s": "rows[*].time_s",
+        "signals_v": "rows[*].tcd_v"
+       },
+       "keys": {
+        "baseline": "baseline_v",
+        "factor": "mol_per_v_s"
+       }
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.present",
+    "temp": "thermal.indicated_k",
+    "set": "thermal.target_k",
+    "ramp": "thermal.ramp_k_s"
+   },
+   "show": [
+    {
+     "slot": "gas.enabled",
+     "label": "gas flowing"
+    },
+    {
+     "slot": "gas.route",
+     "label": "gas route"
+    },
+    {
+     "slot": "flow.indicated_ref_m3_s",
+     "label": "flow (m³/s)"
+    },
+    {
+     "slot": "detector.calibrated",
+     "label": "TCD calibrated"
+    },
+    {
+     "slot": "method.mode",
+     "label": "mode"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "label": "sample tube in place",
+      "message": "there is no sample tube in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     },
+     {
+      "slot": "detector.calibrated",
+      "code": "NOT_CALIBRATED",
+      "label": "TCD calibrated",
+      "message": "the TCD of {inst} is not calibrated.",
+      "fix": "`chemlab run {inst} calibrate detector reference=1umol,2umol measured=0.1,0.2` (peak areas in V·s).",
+      "value": true
+     },
+     {
+      "slot": "gas.enabled",
+      "code": "GAS_CLOSED",
+      "label": "gas flowing",
+      "message": "no gas flows through {inst}.",
+      "fix": "open it: `chemlab run {inst} atmosphere gas=on`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "prepare": "pretreatment is a programme like any other: choose the gas (`atmosphere`, `chemlab call ... gas.route`) and run a method"
+   },
+   "path_exceptions": [],
+   "notes": {
+    "method": [
+     "temp= rate= hold= set the first programme segment; several segments: segments='[{\"target_k\":..,\"ramp_k_s\":..,\"hold_s\":..}]'"
+    ],
+    "set-temp": [
+     "--ramp defaults to the current ramp rate of the furnace"
+    ]
+   }
+  },
+  "surface_dvsresolution": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "chamber.set_position",
+       "arg": "distance_m",
+       "to": "min",
+       "slot": "chamber.lower_m",
+       "label": "raise the sample chamber"
+      },
+      {
+       "cap": "reservoir.open",
+       "arg": "distance_m",
+       "to": "min",
+       "slot": "reservoir.cap_m",
+       "label": "close the water reservoir cap"
+      },
+      {
+       "cap": "door.set",
+       "arg": "opened",
+       "to": false,
+       "slot": "door.angle_rad",
+       "label": "close the door",
+       "done": 0.0
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "gas.open",
+       "arg": "enabled",
+       "to": false,
+       "slot": "gas.enabled",
+       "label": "stop the dry-gas flow"
+      },
+      {
+       "cap": "door.set",
+       "arg": "opened",
+       "to": true,
+       "slot": "door.angle_rad",
+       "label": "open the door",
+       "done": "slot_max"
+      },
+      {
+       "cap": "chamber.set_position",
+       "arg": "distance_m",
+       "to": "max",
+       "slot": "chamber.lower_m",
+       "label": "lower the sample chamber"
+      }
+     ]
+    },
+    "prepare": {
+     "cap": "balance.tare",
+     "word": "tare the microbalance (empty pan)",
+     "settle": {
+      "slot": "mass.indicated_kg",
+      "tol": 1e-10,
+      "dt": 0.5,
+      "max_s": 30,
+      "word": "mass"
+     }
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "steps": {
+       "arg": "relative_humidity_steps"
+      },
+      "runs": {
+       "arg": "cycles"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      },
+      "time": {
+       "arg": "maximum_dwell_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "balance": {
+       "cap": "balance.calibrate",
+       "keys": {
+        "reference": "reference_masses_kg",
+        "measured": "observed_masses_kg"
+       }
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "atmosphere": {
+     "keys": {
+      "rh": {
+       "cap": "humidity.set",
+       "arg": "relative_humidity",
+       "kind": "fraction"
+      },
+      "flow": {
+       "cap": "gas.set_flow",
+       "arg": "reference_m3_s",
+       "kind": "flow"
+      },
+      "gas": {
+       "cap": "gas.open",
+       "arg": "enabled",
+       "kind": "switch",
+       "word": "dry-gas flow"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "points[-1].observed_relative_humidity",
+       "label": "last step RH",
+       "show": "%"
+      },
+      {
+       "path": "points[-1].mass_kg",
+       "label": "last step mass",
+       "show": "mg"
+      },
+      {
+       "path": "all_equilibrated",
+       "label": "all steps equilibrated"
+      },
+      {
+       "path": "elapsed_s",
+       "label": "run time",
+       "show": "s"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "hysteresis": {
+       "cap": "analysis.hysteresis"
+      },
+      "diffusion": {
+       "cap": "analysis.diffusion"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.present",
+    "temp": "thermal.indicated_k",
+    "set": "thermal.target_k"
+   },
+   "show": [
+    {
+     "slot": "humidity.indicated",
+     "label": "humidity",
+     "show": "%"
+    },
+    {
+     "slot": "mass.indicated_kg",
+     "label": "mass",
+     "show": "mg"
+    },
+    {
+     "slot": "gas.enabled",
+     "label": "gas flowing"
+    },
+    {
+     "slot": "balance.tared",
+     "label": "balance tared"
+    },
+    {
+     "slot": "acquisition.equilibria",
+     "label": "steps equilibrated"
+    }
+   ],
+   "codes": {
+    "GAS_ACCESS": {
+     "code": "GAS_FLOWING",
+     "message": "{inst} opens its chamber only with the gas flow stopped.",
+     "fix": "`chemlab run {inst} unload` stops it first (or `atmosphere gas=off`)."
+    }
+   },
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "label": "sample in place",
+      "message": "there is no sample in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     },
+     {
+      "slot": "gas.enabled",
+      "code": "GAS_CLOSED",
+      "label": "dry-gas flow on",
+      "message": "no dry gas flows through {inst}.",
+      "fix": "open it: `chemlab run {inst} atmosphere gas=on`.",
+      "value": true
+     }
+    ],
+    "prepare": [
+     {
+      "slot": "sample.present",
+      "code": "SAMPLE_ON_PAN",
+      "label": "empty sample pan",
+      "message": "there is a sample on the pan of {inst}; the microbalance is tared with the empty pan, before the sample goes in (taring now would zero the sample mass).",
+      "fix": "take the sample out first (`chemlab run {inst} unload`, the operator removes it), tare, then load it again.",
+      "value": false
+     }
+    ]
+   },
+   "unsupported": {},
+   "notes": {
+    "analyze": [
+     "hysteresis and diffusion take their data as KEY=VALUE lists (from the result record: points[].mass_kg, target RH)"
+    ]
+   }
+  },
+  "antonpaar_surpass3": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "cell.set",
+       "arg": "withdrawal_m",
+       "to": "min",
+       "slot": "cell.withdrawal_m",
+       "label": "insert the measuring cell"
+      },
+      {
+       "cap": "lock.set",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "lock.angle_rad",
+       "label": "clamp the cell with the lock lever"
+      },
+      {
+       "cap": "lid.set",
+       "arg": "lift_m",
+       "to": "min",
+       "slot": "lid.lift_m",
+       "label": "close the electrolyte beaker lid"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "lock.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "lock.angle_rad",
+       "label": "open the lock lever"
+      },
+      {
+       "cap": "cell.set",
+       "arg": "withdrawal_m",
+       "to": "max",
+       "slot": "cell.withdrawal_m",
+       "label": "withdraw the measuring cell"
+      }
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "steps": {
+       "arg": "ph_targets"
+      },
+      "runs": {
+       "arg": "cycles"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "ph": {
+       "cap": "ph.calibrate",
+       "keys": {
+        "reference": "buffer_ph",
+        "measured": "measured_v"
+       }
+      },
+      "conductivity": {
+       "cap": "conductivity.calibrate",
+       "keys": {
+        "reference": "reference_s_m",
+        "measured": "indicated_s_m"
+       }
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "poll_s": 5
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "process.measure",
+     "figures": [
+      {
+       "path": "iep_ph",
+       "label": "isoelectric point (pH)"
+      },
+      {
+       "path": "fits[0].ph",
+       "label": "first pH"
+      },
+      {
+       "path": "fits[0].zeta_from_i_v",
+       "label": "zeta at the first pH",
+       "show": "mV"
+      },
+      {
+       "path": "fits[-1].ph",
+       "label": "last pH"
+      },
+      {
+       "path": "fits[-1].zeta_from_i_v",
+       "label": "zeta at the last pH",
+       "show": "mV"
+      },
+      {
+       "path": "elapsed_s",
+       "label": "run time",
+       "show": "s"
+      }
+     ]
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.loaded",
+    "temp": "temperature.indicated_k"
+   },
+   "show": [
+    {
+     "slot": "electrolyte.loaded",
+     "label": "electrolyte"
+    },
+    {
+     "slot": "ph.indicated",
+     "label": "pH"
+    },
+    {
+     "slot": "ph.calibrated",
+     "label": "pH electrode calibrated"
+    },
+    {
+     "slot": "conductivity.calibrated",
+     "label": "conductivity calibrated"
+    },
+    {
+     "slot": "result.zeta_v",
+     "label": "zeta",
+     "show": "mV"
+    },
+    {
+     "slot": "result.iep_ph",
+     "label": "IEP (pH)"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.loaded",
+      "code": "NO_SAMPLE",
+      "label": "sample in place",
+      "message": "there is no sample in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     },
+     {
+      "slot": "method.configured",
+      "code": "NO_METHOD",
+      "label": "method set",
+      "message": "{inst} has no method.",
+      "fix": "set one: `chemlab run {inst} method steps=6,5,4`.",
+      "value": true
+     },
+     {
+      "slot": "ph.calibrated",
+      "code": "NOT_CALIBRATED",
+      "label": "pH electrode calibrated",
+      "message": "the pH electrode of {inst} is not calibrated.",
+      "fix": "`chemlab run {inst} calibrate ph reference=4,7 measured=<V at pH 4>,<V at pH 7>`.",
+      "value": true
+     },
+     {
+      "slot": "conductivity.calibrated",
+      "code": "NOT_CALIBRATED",
+      "label": "conductivity cell calibrated",
+      "message": "the conductivity cell of {inst} is not calibrated.",
+      "fix": "`chemlab run {inst} calibrate conductivity reference=1.413mS/cm measured=...`.",
+      "value": true
+     },
+     {
+      "slot": "electrolyte.loaded",
+      "code": "NO_ELECTROLYTE",
+      "label": "electrolyte in the beaker",
+      "message": "there is no electrolyte in {inst}.",
+      "fix": "ask the lab operator to fill the electrolyte beaker.",
+      "value": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "electrolyte.loaded",
+      "code": "ELECTROLYTE_IN",
+      "label": "electrolyte drained",
+      "message": "the electrolyte is still in the circuit of {inst}, so the cell cannot be withdrawn.",
+      "fix": "ask the lab operator to drain it, then `chemlab run {inst} unload`.",
+      "value": false
+     }
+    ]
+   },
+   "unsupported": {
+    "prepare": "rinsing is a method mode: `method mode=rinse`, then `start`",
+    "set-temp": "no temperature control (room temperature)",
+    "atmosphere": "no gas or humidity control",
+    "analyze": "the result is already evaluated (zeta potential per pH, isoelectric point)"
+   },
+   "codes": {
+    "CELL_ACCESS": {
+     "code": "CELL_LOCKED",
+     "message": "the measuring cell of {inst} moves only with the lock lever open and no electrolyte in the circuit (and clamps only when inserted).",
+     "fix": "ask the lab operator to drain the electrolyte; `chemlab run {inst} unload` / `load` keep the order."
+    },
+    "NOT_READY": {
+     "code": "NOT_READY",
+     "message": "{inst} is not ready: it needs power, a method, a calibrated pH electrode and conductivity cell, the sample and the electrolyte, and the cell clamped.",
+     "fix": "check `chemlab run {inst} status`; `chemlab run {inst} load` clamps the cell."
+    }
+   },
+   "path_exceptions": [
+    "process.measure"
+   ]
+  },
+  "biolin_sigma700": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "cap": "door.set",
+       "arg": "angle_rad",
+       "to": "min",
+       "slot": "door.angle_rad",
+       "label": "close the draft-shield door"
+      }
+     ]
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "door.set",
+       "arg": "angle_rad",
+       "to": "max",
+       "slot": "door.angle_rad",
+       "label": "open the draft-shield door"
+      }
+     ]
+    },
+    "prepare": {
+     "cap": "balance.tare",
+     "word": "tare the force balance (probe in air)",
+     "settle": {
+      "slot": "force.indicated_n",
+      "tol": 1e-06,
+      "dt": 0.5,
+      "max_s": 30,
+      "word": "force"
+     }
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "speed": {
+       "arg": "speed_m_s",
+       "kind": "speed"
+      },
+      "depth": {
+       "arg": "immersion_m",
+       "kind": "length"
+      },
+      "hold": {
+       "arg": "hold_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      }
+     },
+     "extra": {
+      "probe": {
+       "cap": "probe.select",
+       "arg": "probe"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "balance": {
+       "cap": "balance.calibrate",
+       "keys": {
+        "reference": "reference_forces_n",
+        "measured": "observed_raw_forces_n"
+       }
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_k"
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "tension_n_m",
+       "label": "surface tension",
+       "show": "mN/m"
+      },
+      {
+       "path": "elapsed_s",
+       "label": "run time",
+       "show": "s"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "cmc": {
+       "cap": "analysis.cmc",
+       "keys": {
+        "concentrations": "concentrations_kg_m3",
+        "tensions": "tensions_n_m"
+       }
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.present",
+    "temp": "thermal.indicated_k",
+    "set": "thermal.target_k"
+   },
+   "show": [
+    {
+     "slot": "probe.kind",
+     "label": "probe"
+    },
+    {
+     "slot": "balance.tared",
+     "label": "balance tared"
+    },
+    {
+     "slot": "tension.indicated_n_m",
+     "label": "tension",
+     "show": "mN/m"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "label": "liquid vessel in place",
+      "message": "there is no liquid vessel in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     },
+     {
+      "slot": "balance.tared",
+      "code": "NOT_TARED",
+      "label": "balance tared",
+      "message": "the force balance of {inst} is not tared (probe in air).",
+      "fix": "tare it: `chemlab run {inst} prepare`, then start.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "atmosphere": "no gas or humidity control"
+   },
+   "codes": {
+    "probe.select:SAMPLE_ACCESS": {
+     "code": "DOOR_CLOSED",
+     "message": "the probe of {inst} is changed with the draft-shield door open.",
+     "fix": "`chemlab run {inst} unload`, `chemlab run {inst} method probe=ring`, `chemlab run {inst} load`."
+    },
+    "PROBE_NOT_IN_AIR": {
+     "code": "PROBE_WET",
+     "message": "the probe of {inst} is not in air, so the balance cannot be tared.",
+     "fix": "stop any run (`chemlab run {inst} stop`) so the stage moves down, then `prepare`."
+    }
+   },
+   "notes": {
+    "method": [
+     "probe=plate|ring selects the probe (probe.select, door open); selecting a probe clears the tare"
+    ],
+    "prepare": [
+     "waits until the force reading is steady (two readings 0.5 s apart within 1 µN), then tares"
+    ]
+   }
+  },
+  "biolin_thetaflex": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "check": false,
+     "steps": [
+      {
+       "cap": "stage.move",
+       "label": "move the stage to the measuring position under the needle",
+       "args": "example",
+       "done_args": {
+        "stage.x_m": "x_m",
+        "stage.y_m": "y_m",
+        "stage.z_m": "z_m"
+       },
+       "wait": {
+        "slot": "acquisition.phase",
+        "while": [
+         "running"
+        ],
+        "max_s": 120,
+        "failed": [
+         "failed"
+        ]
+       }
+      }
+     ],
+     "deposit": {
+      "cap": "liquid.transfer",
+      "arg": "volume_m3",
+      "word": "dispense a drop of",
+      "wait": {
+       "slot": "acquisition.phase",
+       "while": [
+        "running"
+       ],
+       "max_s": 120,
+       "failed": [
+        "failed"
+       ]
+      },
+      "before": [
+       {
+        "cap": "dispenser.move",
+        "arg": "position_m",
+        "to": 0.02,
+        "slot": "dispenser.z_m",
+        "label": "lower the needle to the dispensing height",
+        "wait": {
+         "slot": "acquisition.phase",
+         "while": [
+          "running"
+         ],
+         "max_s": 120,
+         "failed": [
+          "failed"
+         ]
+        }
+       }
+      ],
+      "after": [
+       {
+        "cap": "dispenser.move",
+        "arg": "position_m",
+        "to": "min",
+        "slot": "dispenser.z_m",
+        "label": "raise the needle out of the image",
+        "wait": {
+         "slot": "acquisition.phase",
+         "while": [
+          "running"
+         ],
+         "max_s": 120,
+         "failed": [
+          "failed"
+         ]
+        }
+       }
+      ]
+     }
+    },
+    "unload": {
+     "steps": [
+      {
+       "cap": "dispenser.move",
+       "arg": "position_m",
+       "to": "min",
+       "slot": "dispenser.z_m",
+       "label": "raise the needle",
+       "wait": {
+        "slot": "acquisition.phase",
+        "while": [
+         "running"
+        ],
+        "max_s": 120,
+        "failed": [
+         "failed"
+        ]
+       }
+      },
+      {
+       "cap": "stage.move",
+       "label": "move the stage to the loading position",
+       "args": {
+        "x_m": 0.0,
+        "y_m": 0.0,
+        "z_m": 0.0
+       },
+       "done_args": {
+        "stage.x_m": "x_m",
+        "stage.y_m": "y_m",
+        "stage.z_m": "z_m"
+       },
+       "wait": {
+        "slot": "acquisition.phase",
+        "while": [
+         "running"
+        ],
+        "max_s": 120,
+        "failed": [
+         "failed"
+        ]
+       }
+      }
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "runs": {
+       "arg": "frames"
+      },
+      "rate": {
+       "arg": "frame_rate_hz",
+       "kind": "frequency"
+      },
+      "fit": {
+       "arg": "fit"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "camera": {
+       "cap": "camera.calibrate",
+       "keys": {
+        "reference": "known_length_m",
+        "measured": "observed_pixels"
+       }
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "rows[-1].mean_rad",
+       "label": "contact angle (mean)",
+       "show": "deg"
+      },
+      {
+       "path": "rows[-1].left_rad",
+       "label": "left",
+       "show": "deg"
+      },
+      {
+       "path": "rows[-1].right_rad",
+       "label": "right",
+       "show": "deg"
+      },
+      {
+       "path": "rows[-1].observed_volume_m3",
+       "label": "drop volume",
+       "show": "uL"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "hysteresis": {
+       "cap": "analysis.hysteresis",
+       "keys": {
+        "advancing": "advancing_rad",
+        "receding": "receding_rad"
+       }
+      },
+      "surface-energy": {
+       "cap": "analysis.surface_energy_reference"
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "stage": "acquisition.stage",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": "sample.present"
+   },
+   "show": [
+    {
+     "slot": "camera.calibrated",
+     "label": "camera calibrated"
+    },
+    {
+     "slot": "method.mode",
+     "label": "mode"
+    },
+    {
+     "slot": "angle.indicated_rad",
+     "label": "contact angle",
+     "show": "deg"
+    },
+    {
+     "slot": "dispenser.z_m",
+     "label": "needle down",
+     "show": "mm"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "sample.present",
+      "code": "NO_SAMPLE",
+      "label": "substrate in place",
+      "message": "there is no substrate in {inst}.",
+      "fix": "the lab operator must put the sample in (`chemlab run {inst} unload` opens the access for it), then `chemlab run {inst} load`.",
+      "value": true
+     },
+     {
+      "slot": "camera.calibrated",
+      "code": "NOT_CALIBRATED",
+      "label": "camera calibrated",
+      "message": "the camera scale of {inst} is not calibrated.",
+      "fix": "`chemlab run {inst} calibrate camera reference=1mm measured=<pixels>`.",
+      "value": true
+     }
+    ],
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} moves its stage and dispenser only when switched on.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "label": "power on",
+      "message": "{inst} moves its stage and dispenser only when switched on.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ]
+   },
+   "params": {
+    "dispense_height_note": "the needle dispenses at 20 mm down (the runtime needs at least 14 mm)"
+   },
+   "unsupported": {
+    "prepare": "no separate preparation (focus and illumination stay as set: `chemlab call ... focus.set`)",
+    "set-temp": "no temperature control",
+    "atmosphere": "no gas or humidity control"
+   },
+   "notes": {
+    "load": [
+     "moves the stage under the needle, then dispenses a drop of --volume (default: the contract example, 0.2 µL) and raises the needle; it waits for the moves (a few seconds of lab time each)"
+    ]
+   }
+  },
+  "biolin_mediuml": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "check": false,
+     "deposit": {
+      "cap": "film.spread",
+      "arg": "volume_m3",
+      "word": "spread"
+     }
+    },
+    "prepare": {
+     "cap": "balance.tare",
+     "word": "tare the Wilhelmy balance on the clean subphase",
+     "steps": [
+      {
+       "cap": "probe.move",
+       "arg": "distance_m",
+       "to": "min",
+       "slot": "probe.lift_m",
+       "label": "lower the Wilhelmy plate into the subphase"
+      }
+     ]
+    },
+    "method": {
+     "cap": "method.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "area": {
+       "arg": "target_area_m2",
+       "kind": "area"
+      },
+      "speed": {
+       "arg": "barrier_speed_m_s",
+       "kind": "speed"
+      },
+      "pressure": {
+       "arg": "target_pressure_n_m"
+      },
+      "time": {
+       "arg": "duration_s",
+       "kind": "duration"
+      },
+      "interval": {
+       "arg": "sample_interval_s",
+       "kind": "duration"
+      }
+     }
+    },
+    "calibrate": {
+     "kinds": {
+      "balance": {
+       "cap": "balance.calibrate"
+      }
+     }
+    },
+    "start": {
+     "cap": "acquisition.start"
+    },
+    "stop": {
+     "cap": "acquisition.stop"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "figures": [
+      {
+       "path": "rows[-1].surface_pressure_n_m",
+       "label": "final surface pressure",
+       "show": "mN/m"
+      },
+      {
+       "path": "rows[-1].area_m2",
+       "label": "final trough area",
+       "show": "cm2"
+      },
+      {
+       "path": "completed_strokes",
+       "label": "deposition strokes"
+      },
+      {
+       "path": "elapsed_s",
+       "label": "run time",
+       "show": "s"
+      },
+      {
+       "path": "error_code",
+       "label": "error"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "isotherm": {
+       "cap": "analysis.isotherm",
+       "from_result": {
+        "area_m2": "rows[*].area_m2",
+        "surface_pressure_n_m": "rows[*].surface_pressure_n_m"
+       },
+       "defaults": {
+        "constant_molecule_number": true
+       }
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": "acquisition.phase",
+    "elapsed": "acquisition.elapsed_s",
+    "sample": [
+     "subphase.present",
+     "solution.present"
+    ],
+    "temp": "temperature.indicated_k"
+   },
+   "show": [
+    {
+     "slot": "balance.tared",
+     "label": "balance tared"
+    },
+    {
+     "slot": "pressure.indicated_n_m",
+     "label": "surface pressure",
+     "show": "mN/m"
+    },
+    {
+     "slot": "area.indicated_m2",
+     "label": "trough area",
+     "show": "cm2"
+    },
+    {
+     "slot": "probe.lift_m",
+     "label": "plate lifted",
+     "show": "mm"
+    }
+   ],
+   "requires": {
+    "load": [
+     {
+      "slot": "balance.tared",
+      "code": "NOT_TARED",
+      "label": "balance tared on the clean subphase",
+      "message": "the Wilhelmy balance of {inst} is not tared on the clean subphase, so the film pressure would have no zero.",
+      "fix": "tare it first: `chemlab run {inst} prepare`, then load.",
+      "value": true
+     },
+     {
+      "slot": "solution.present",
+      "code": "NO_SAMPLE",
+      "label": "spreading solution",
+      "message": "there is no spreading solution at {inst}.",
+      "fix": "ask the lab operator.",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "subphase.present",
+      "code": "NO_SUBPHASE",
+      "label": "subphase filled",
+      "message": "the trough of {inst} has no subphase.",
+      "fix": "ask the lab operator to fill it.",
+      "value": true
+     },
+     {
+      "slot": "balance.tared",
+      "code": "NOT_TARED",
+      "label": "balance tared",
+      "message": "the Wilhelmy balance of {inst} is not tared.",
+      "fix": "`chemlab run {inst} prepare`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "unload": "cleaning the film off the subphase (aspiration) and changing the subphase are the lab operator's job",
+    "set-temp": "the subphase temperature comes from an external bath (not controlled here)",
+    "atmosphere": "no gas or humidity control"
+   },
+   "codes": {
+    "CLEAN_BASELINE_REQUIRED": {
+     "code": "NOT_TARED",
+     "message": "{inst} needs the balance tared on the clean subphase before spreading.",
+     "fix": "`chemlab run {inst} prepare`, then `load --volume V`."
+    }
+   },
+   "notes": {
+    "load": [
+     "spreads --volume of the spreading solution (default: the contract example, 50 µL); wait ~1 min for the solvent to evaporate"
+    ],
+    "method": [
+     "pressure= is the target surface pressure in N/m (or 20mN/m)"
+    ]
+   }
+  },
+  "ametek_oxtran": {
+   "role": "primary",
+   "targets": {
+    "cell": {
+     "values": {
+      "A": {
+       "cell": "A",
+       "c": "a"
+      },
+      "B": {
+       "cell": "B",
+       "c": "b"
+      }
+     }
+    }
+   },
+   "verbs": {
+    "load": {
+     "cells": {
+      "A": {
+       "steps": [
+        {
+         "cap": "cell.load_unload",
+         "slot": "cell_a.clamped",
+         "label": "clamp test cell A",
+         "done": true,
+         "args": {
+          "cell": "A"
+         },
+         "wait": {
+          "slot": "cell_a.clamp_moving",
+          "while": [
+           true
+          ],
+          "max_s": 30,
+          "poll_s": 1
+         }
+        }
+       ]
+      },
+      "B": {
+       "steps": [
+        {
+         "cap": "cell.load_unload",
+         "slot": "cell_b.clamped",
+         "label": "clamp test cell B",
+         "done": true,
+         "args": {
+          "cell": "B"
+         },
+         "wait": {
+          "slot": "cell_b.clamp_moving",
+          "while": [
+           true
+          ],
+          "max_s": 30,
+          "poll_s": 1
+         }
+        }
+       ]
+      }
+     }
+    },
+    "unload": {
+     "cells": {
+      "A": {
+       "steps": [
+        {
+         "cap": "cell.load_unload",
+         "slot": "cell_a.clamped",
+         "label": "unclamp test cell A",
+         "done": false,
+         "args": {
+          "cell": "A"
+         },
+         "wait": {
+          "slot": "cell_a.clamp_moving",
+          "while": [
+           true
+          ],
+          "max_s": 30,
+          "poll_s": 1
+         }
+        }
+       ]
+      },
+      "B": {
+       "steps": [
+        {
+         "cap": "cell.load_unload",
+         "slot": "cell_b.clamped",
+         "label": "unclamp test cell B",
+         "done": false,
+         "args": {
+          "cell": "B"
+         },
+         "wait": {
+          "slot": "cell_b.clamp_moving",
+          "while": [
+           true
+          ],
+          "max_s": 30,
+          "poll_s": 1
+         }
+        }
+       ]
+      }
+     }
+    },
+    "method": {
+     "cap": "test.configure",
+     "args": {
+      "cell": "{cell}"
+     },
+     "keys": {
+      "mode": {
+       "arg": "test_mode"
+      },
+      "runs": {
+       "arg": "cycles"
+      },
+      "time": {
+       "arg": "exam_minutes",
+       "kind": "duration"
+      },
+      "conditioning": {
+       "arg": "conditioning_hours",
+       "kind": "duration"
+      },
+      "area": {
+       "arg": "declared_area_m2",
+       "kind": "area"
+      },
+      "thickness": {
+       "arg": "declared_thickness_m",
+       "kind": "length"
+      }
+     },
+     "also": [
+      {
+       "cap": "instrument.configure",
+       "unless": "instrument.configured"
+      }
+     ]
+    },
+    "calibrate": {
+     "kinds": {
+      "adjustment": {
+       "cap": "sensor.adjustment_create",
+       "per_cell": true,
+       "args": {
+        "cell": "{cell}"
+       },
+       "keys": {
+        "reference": "reference_value"
+       }
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "target_k"
+    },
+    "atmosphere": {
+     "keys": {
+      "rh": {
+       "cap": "humidity.set",
+       "arg": "rh_fraction",
+       "kind": "fraction"
+      }
+     }
+    },
+    "start": {
+     "cap": "test.start",
+     "args": {
+      "cell": "{cell}"
+     },
+     "poll_s": 60
+    },
+    "stop": {
+     "cap": "test.stop",
+     "args": {
+      "cell": "{cell}"
+     }
+    },
+    "result": {
+     "cap": "test.result",
+     "args": {
+      "cell": "{cell}"
+     },
+     "figures": [
+      {
+       "path": "final_otr_cc_m2_day",
+       "label": "OTR (cm³/(m²·day))"
+      },
+      {
+       "path": "final_otr_cc_pkg_day",
+       "label": "OTR per package (cm³/day)"
+      },
+      {
+       "path": "permeability_barrer",
+       "label": "permeability (barrer)"
+      },
+      {
+       "path": "converged",
+       "label": "converged"
+      },
+      {
+       "path": "exam_count",
+       "label": "exams"
+      },
+      {
+       "path": "validity",
+       "label": "validity"
+      },
+      {
+       "path": "terminal_reason",
+       "label": "ended by"
+      }
+     ]
+    },
+    "analyze": {
+     "models": {
+      "otr": {
+       "cap": "analysis.otr",
+       "per_cell": true,
+       "from_result": {
+        "readings_mol_m2_s": "readings[kind=exam].otr_mol_m2_s",
+        "individual_zero_mol_m2_s": "?individual_zero_mol_m2_s"
+       },
+       "keys": {
+        "zero": "individual_zero_mol_m2_s",
+        "pressure": "driving_partial_pressure_pa",
+        "thickness": "thickness_m",
+        "convergence": "convergence_percent"
+       }
+      }
+     }
+    }
+   },
+   "slots": {
+    "power": "power.enabled",
+    "phase": [
+     "cell_a.phase",
+     "cell_b.phase"
+    ],
+    "sample": [
+     "cell_a.film_mounted",
+     "cell_b.film_mounted"
+    ],
+    "temp": "thermal.indicated_k",
+    "set": "thermal.target_k"
+   },
+   "show": [
+    {
+     "slot": "cell_a.clamped",
+     "label": "cell A clamped"
+    },
+    {
+     "slot": "cell_b.clamped",
+     "label": "cell B clamped"
+    },
+    {
+     "slot": "humidity.indicated_fraction",
+     "label": "humidity",
+     "show": "%"
+    },
+    {
+     "slot": "gas.supply_ok",
+     "label": "gas supply ok"
+    },
+    {
+     "slot": "cell_a.exam_count",
+     "label": "cell A exams"
+    },
+    {
+     "slot": "cell_b.exam_count",
+     "label": "cell B exams"
+    },
+    {
+     "slot": "cell_a.last_otr_mol_m2_s",
+     "label": "cell A last OTR (mol/(m²·s))"
+    },
+    {
+     "slot": "cell_b.last_otr_mol_m2_s",
+     "label": "cell B last OTR (mol/(m²·s))"
+    }
+   ],
+   "requires": {
+    "start": [
+     {
+      "slot": "cell_a.film_mounted",
+      "code": "NO_SAMPLE",
+      "label": "film mounted (cell A)",
+      "message": "there is no film in cell {cell} of {inst}.",
+      "fix": "the lab operator must mount the film in the drawer of cell {cell}.",
+      "value": true,
+      "cell": "A"
+     },
+     {
+      "slot": "cell_b.film_mounted",
+      "code": "NO_SAMPLE",
+      "label": "film mounted (cell B)",
+      "message": "there is no film in cell {cell} of {inst}.",
+      "fix": "the lab operator must mount the film in the drawer of cell {cell}.",
+      "value": true,
+      "cell": "B"
+     },
+     {
+      "slot": "cell_a.clamped",
+      "code": "NOT_CLAMPED",
+      "label": "cell clamped (cell A)",
+      "message": "test cell {cell} of {inst} is not clamped.",
+      "fix": "clamp it: `chemlab run {inst} load --cell {cell}`.",
+      "value": true,
+      "cell": "A"
+     },
+     {
+      "slot": "cell_b.clamped",
+      "code": "NOT_CLAMPED",
+      "label": "cell clamped (cell B)",
+      "message": "test cell {cell} of {inst} is not clamped.",
+      "fix": "clamp it: `chemlab run {inst} load --cell {cell}`.",
+      "value": true,
+      "cell": "B"
+     },
+     {
+      "slot": "cell_a.method_configured",
+      "code": "NO_METHOD",
+      "label": "test method (cell A)",
+      "message": "cell {cell} of {inst} has no test method.",
+      "fix": "set one: `chemlab run {inst} method --cell {cell} mode=convergence ...`.",
+      "value": true,
+      "cell": "A"
+     },
+     {
+      "slot": "cell_b.method_configured",
+      "code": "NO_METHOD",
+      "label": "test method (cell B)",
+      "message": "cell {cell} of {inst} has no test method.",
+      "fix": "set one: `chemlab run {inst} method --cell {cell} mode=convergence ...`.",
+      "value": true,
+      "cell": "B"
+     },
+     {
+      "slot": "gas.supply_ok",
+      "code": "NO_GAS",
+      "label": "test gases connected",
+      "message": "the test-gas supply of {inst} is not ready.",
+      "fix": "ask the lab operator to connect the carrier and test gases.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "prepare": "conditioning and zeroing are part of the test (method conditioning=, individual_zero=)"
+   },
+   "codes": {
+    "DRAWER_NOT_CLOSED": {
+     "code": "DRAWER_OPEN",
+     "message": "the drawer of that cell of {inst} is open.",
+     "fix": "ask the lab operator to close it."
+    }
+   },
+   "path": "test",
+   "notes": {
+    "method": [
+     "--cell A|B is required; the first method also sets the instrument settings (permeant %, ReZero, barometer) from the contract example when they were never set"
+    ],
+    "start": [
+     "a convergence test takes many hours of lab time; follow the job (`chemlab wait job-N --max 40h`)"
+    ]
+   }
+  }
+ }
+}

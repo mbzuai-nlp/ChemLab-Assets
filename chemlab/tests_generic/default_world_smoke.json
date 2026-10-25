@@ -1,0 +1,2557 @@
+{
+ "_about": "default-lab smoke workflows per instrument, read by test_default_world.py. steps: \"VERB ...\" = chemlab run INST VERB; \"#wait N\" = chemlab wait N; \"!CMD\" = chemlab CMD (INST = the instrument). check: run after the steps; expect: a regex its output must match. from: the class lowering case the workflow was taken from (or \"default lab\").",
+ "agilent_1260infinity": {
+  "steps": [
+   "method flow=1.5mL/min column-temp=40C gradient=0:2%,1min:2%,5min:45%,6min:45% run=7min wl=254nm",
+   "flow on",
+   "run --pos 1:1 --wait-ready 10min",
+   "#wait 600"
+  ],
+  "check": "chromatogram",
+  "from": "default lab",
+  "expect": "chromatogram: complete"
+ },
+ "agilent_1290infinity": {
+  "steps": [
+   "method flow=0.8mL/min column-temp=35C run=3min",
+   "flow on",
+   "run --wait-ready 30min",
+   "#wait 200"
+  ],
+  "check": "chromatogram",
+  "from": "agilent_1290infinity"
+ },
+ "agilent_7890b_ssl_fid": {
+  "steps": [
+   "method oven=80C:1min..200C@30C/min:1min inlet=250C det=300C split=50 inlet-mode=split flow=1.2mL/min",
+   "run --wait-ready 20min",
+   "#wait 600"
+  ],
+  "check": "!status job-1",
+  "from": "default lab",
+  "expect": "succeeded|completed|done|finished"
+ },
+ "agilent_gc8890b": {
+  "steps": [
+   "method oven=80C:1min..200C@30C/min:1min inlet=250C split=20 flow=1.2mL/min det=300C",
+   "method inlet-mode=splitless",
+   "load mix1",
+   "run --wait-ready 20min",
+   "#wait 60",
+   "stop"
+  ],
+  "check": "chromatogram",
+  "from": "agilent_gc8890b"
+ },
+ "agilent_hplc1260": {
+  "steps": [
+   "power on",
+   "method flow=0.5mL/min run=2min gradient=0:5%,1min:95%",
+   "method column-temp=35C inj=5uL",
+   "load mix1",
+   "flow on",
+   "run",
+   "#wait 200"
+  ],
+  "check": "chromatogram",
+  "from": "default lab",
+  "expect": "chromatogram: complete"
+ },
+ "agilent_hs8697": {
+  "steps": [
+   "load v1 --vial 1",
+   "load v2 --vial 2",
+   "unload --vial 2",
+   "close lid",
+   "set-temp 70C --zone oven",
+   "set-temp 80C --zone loop",
+   "set-temp 90C --zone transfer",
+   "method equilibration=10min gc-cycle=5min shake=3",
+   "method vial-size=20mL",
+   "start --vials 1",
+   "#wait 600",
+   "stop",
+   "start --vial 1 --injections 2",
+   "wait --max 3h",
+   "result"
+  ],
+  "check": "result --save-to hs_result.json",
+  "from": "agilent_hs8697"
+ },
+ "alicat_mc_1slpm_rev6": {
+  "steps": [
+   "select nitrogen",
+   "select nitrogen",
+   "zero",
+   "setpoint 500sccm --wait --max 1min"
+  ],
+  "check": "read",
+  "from": "alicat_mc_1slpm_rev6"
+ },
+ "ametek_oxtran": {
+  "steps": [
+   "load --cell A",
+   "set-temp 23C",
+   "atmosphere rh=0%",
+   "method --cell A mode=standard runs=3 time=30min conditioning=0h",
+   "start --cell A",
+   "#wait 86400",
+   "#wait 57600"
+  ],
+  "check": "result --cell A",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "antonpaar_abbematadvanced": {
+  "steps": [
+   "measure --wait",
+   "calibrate --standard 1.3614 ethanol",
+   "check 'Water Check'",
+   "method mode=calibrated_concentration",
+   "method mode=refractive_index",
+   "set-temp 25C --wait",
+   "measure",
+   "#wait 30"
+  ],
+  "check": "result --save-to abbemat.json",
+  "from": "antonpaar_abbematadvanced"
+ },
+ "antonpaar_autosorb6100": {
+  "steps": [
+   "load",
+   "calibrate pressure --cell 1 reference=0,1000mbar measured=0,1000mbar",
+   "calibrate volume --cell 1 warm_temperature_k=308.15 warm_dosed_mol=0.00039030457583950266 warm_pressure_pa=50000 cold_dosed_mol=0.0009761416063934054 cold_pressure_pa=50000",
+   "method --cell 1 mass=100mg",
+   "start --cell 1",
+   "#wait 7200"
+  ],
+  "check": "result --cell 1",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "antonpaar_dma5002": {
+  "steps": [
+   "set-temp 20C --wait",
+   "measure",
+   "#wait 40",
+   "result",
+   "check --reference 0.7893g/cm3",
+   "method mode=density",
+   "measure --wait"
+  ],
+  "check": "result",
+  "from": "antonpaar_dma5002"
+ },
+ "antonpaar_hit300": {
+  "steps": [
+   "power on",
+   "zero",
+   "clamp on",
+   "move 20mm --y 20mm --wait",
+   "contact on",
+   "method load=5mN rate=0.2mN/s unload-rate=0.2mN/s hold=5s",
+   "start",
+   "#wait 150",
+   "result"
+  ],
+  "check": "analyze poisson=0.2 --index 1",
+  "from": "antonpaar_hit300"
+ },
+ "antonpaar_litesizerdia": {
+  "steps": [
+   "method time=4s",
+   "start",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "antonpaar_litesizerdls": {
+  "steps": [
+   "power on",
+   "method temp=25C",
+   "#wait 360",
+   "start",
+   "#wait 900"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "antonpaar_mcr503": {
+  "steps": [
+   "move 1mm --wait",
+   "set-temp 25C --wait",
+   "method mode=oscillation strain=10% freq=5Hz time=2s interval=1ms discard=1s",
+   "start",
+   "#wait 5",
+   "result"
+  ],
+  "check": "analyze strain=0.1 freq=5Hz",
+  "from": "antonpaar_mcr503"
+ },
+ "antonpaar_monowave400": {
+  "steps": [
+   "close lid",
+   "method temp=80C ramp=1min hold=2min cool=50C stir=800rpm",
+   "start",
+   "wait --max 10min",
+   "result",
+   "#wait 1800",
+   "open lid",
+   "temp"
+  ],
+  "check": "result",
+  "from": "antonpaar_monowave400"
+ },
+ "antonpaar_poremaster60": {
+  "steps": [
+   "load",
+   "calibrate pressure range=0 reference=0,50psi measured=0,50psi",
+   "calibrate volume reference=0,0.2mL measured=1pF,11pF",
+   "calibrate blank pressures_pa=0,413685437.59 volumes_m3=0,0",
+   "method mass=65.5mg",
+   "start",
+   "#wait 3600"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "antonpaar_psa1190": {
+  "steps": [
+   "method time=4s",
+   "start",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "d50"
+ },
+ "antonpaar_rst300": {
+  "steps": [
+   "power on",
+   "zero",
+   "clamp on",
+   "move 10mm --wait",
+   "contact on",
+   "method mode=prescan start=10mm length=3mm",
+   "start",
+   "#wait 30",
+   "result",
+   "contact off",
+   "move 10mm --wait",
+   "contact on",
+   "method mode=scratch start=10mm length=3mm load-start=1N load-end=30N",
+   "start",
+   "#wait 30",
+   "result --save-to rst.json"
+  ],
+  "check": "analyze threshold=1N",
+  "from": "antonpaar_rst300"
+ },
+ "antonpaar_saxspace": {
+  "steps": [
+   "load lysozyme_5",
+   "vacuum on --wait",
+   "source on --kv 40kV --ma 50mA",
+   "#wait 30",
+   "align --wait",
+   "scan exposure=60s frames=2 --wait",
+   "result"
+  ],
+  "check": "analyze thickness=1mm",
+  "from": "antonpaar_saxspace"
+ },
+ "antonpaar_surpass3": {
+  "steps": [
+   "power on",
+   "method steps=6,5,4 runs=1",
+   "calibrate ph reference=4,7 measured=-0.23664,-0.41412",
+   "calibrate conductivity reference=1.413mS/cm measured=1.413mS/cm",
+   "start",
+   "#wait 3600"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "antonpaar_trb": {
+  "steps": [
+   "contact off",
+   "power on",
+   "zero",
+   "method load=5N speed=100rpm time=30s",
+   "move 8mm",
+   "contact on",
+   "close lid",
+   "start",
+   "#wait 40"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "antonpaar_ultrapyc5000": {
+  "steps": [
+   "load",
+   "calibrate volume blank_ratio=1 sphere_ratio=0.8 sphere_volume_m3=1e-5",
+   "method mass=50g",
+   "start",
+   "#wait 1800"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "applied_sx20": {
+  "steps": [
+   "method wavelength=480nm",
+   "power on",
+   "measure --wait",
+   "spectrum"
+  ],
+  "check": "analyze kinetics",
+  "from": "applied_sx20"
+ },
+ "aqualab_4te": {
+  "steps": [
+   "measure --wait",
+   "calibrate --standard 0.880",
+   "#wait 900"
+  ],
+  "check": "measure --wait",
+  "from": "aqualab_4te"
+ },
+ "arradiance_gemstarxt": {
+  "steps": [
+   "method cycles=5 temp=250C",
+   "power on",
+   "close door",
+   "vacuum pump",
+   "start",
+   "#wait 1200"
+  ],
+  "check": "result",
+  "from": "arradiance_gemstarxt"
+ },
+ "azenta_automated_roll_heat_sealer_a4s": {
+  "steps": [
+   "configure time=3s",
+   "set-temp 170C",
+   "#wait 400",
+   "open carrier",
+   "start",
+   "stop",
+   "result",
+   "open carrier",
+   "start",
+   "#wait 10"
+  ],
+  "check": "result",
+  "from": "azenta_automated_roll_heat_sealer_a4s"
+ },
+ "azenta_intellixcap_s1_46_0001": {
+  "steps": [
+   "configure tube=tube_15ml mode=decap operation=release_cap time=2",
+   "start",
+   "#wait 15",
+   "result",
+   "configure mode=recap",
+   "start",
+   "#wait 15"
+  ],
+  "check": "result",
+  "from": "azenta_intellixcap_s1_46_0001"
+ },
+ "bd_facsariaiii": {
+  "steps": [
+   "!call INST tube.prepare --args '{\"tube_id\": \"t1\", \"tube_type\": \"12x75\", \"sources\": [{\"bead_id\": \"cst_bead_mid\", \"volume_m3\": 5e-07}], \"buffer_volume_m3\": 5e-07}'",
+   "prime",
+   "load t1",
+   "start r1 --events 5000",
+   "#wait 20"
+  ],
+  "check": "data r1",
+  "from": "default lab"
+ },
+ "binder_fd056": {
+  "steps": [
+   "set-temp 105C",
+   "wait-temp --max 1h",
+   "safety-limit 120C"
+  ],
+  "check": "temp --save-to fd056.json",
+  "from": "binder_fd056"
+ },
+ "binder_kbf115": {
+  "steps": [
+   "set-temp 30C"
+  ],
+  "check": "wait-temp --within 0.3K --max 1h",
+  "from": "binder_kbf115"
+ },
+ "binder_vd56": {
+  "steps": [
+   "power on",
+   "set-temp 60C",
+   "heat off",
+   "heat on",
+   "safety-limit 80C"
+  ],
+  "check": "wait-temp --max 2h",
+  "from": "binder_vd56"
+ },
+ "biolin_mediuml": {
+  "steps": [
+   "prepare",
+   "load --volume 50uL",
+   "#wait 30",
+   "method mode=compression area=140cm2 time=60s",
+   "start",
+   "#wait 1800"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "biolin_sigma700": {
+  "steps": [
+   "power on",
+   "load",
+   "prepare",
+   "start",
+   "#wait 600"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "biolin_thetaflex": {
+  "steps": [
+   "power on",
+   "calibrate camera reference=1mm measured=566.86",
+   "load --volume 0.2uL",
+   "start",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "biorad_cfxopus": {
+  "steps": [
+   "load plate_1",
+   "method name=SYBR volume=20uL lid=105C steps=95C@3min,95C@10s,60C@30s+read,goto2x39,melt65C..95C@0.5C/5s",
+   "start",
+   "#wait 120",
+   "pause on",
+   "pause off",
+   "stop",
+   "data",
+   "data --wells A1,B1",
+   "analyze cq"
+  ],
+  "check": "analyze cq threshold_rfu=50",
+  "from": "biorad_cfxopus"
+ },
+ "biorad_miniprotean": {
+  "steps": [
+   "method voltage=200V run=35min constant=voltage",
+   "load ladder_1 --lane 2 --volume 10uL",
+   "run",
+   "#wait 2160"
+  ],
+  "check": "chromatogram",
+  "from": "default lab",
+  "expect": "peaks? \\(|band|[1-9] peaks|#"
+ },
+ "biotage_extrahera_classic": {
+  "steps": [
+   "!call INST manifold.set_position --z_m 0",
+   "pressure 1bar",
+   "method load=1mL wash=0.5mL elute=1mL flow=6mL/min drain=3mL/min",
+   "start",
+   "#wait 200"
+  ],
+  "check": "result",
+  "from": "default lab"
+ },
+ "biotage_selekt": {
+  "steps": [
+   "method flow=30mL/min gradient=0:0%,4min:80% wl=300nm,350nm",
+   "run",
+   "#wait 60",
+   "stop"
+  ],
+  "check": "chromatogram",
+  "from": "biotage_selekt"
+ },
+ "biotek_405ts": {
+  "steps": [
+   "load p1",
+   "start W-Corning_FLAT",
+   "#wait 40"
+  ],
+  "check": "data",
+  "from": "default lab"
+ },
+ "bmg_clariostarplus": {
+  "steps": [
+   "power on",
+   "#wait 25",
+   "load wp",
+   "method mode=fi_endpoint wells=A1:A3 ex=485nm em=525nm",
+   "start",
+   "#wait 10",
+   "data",
+   "data --cycle 1 --max 10",
+   "analyze blank blank=B1,B2,B3"
+  ],
+  "check": "analyze linear std.A1=0uM std.A2=1uM",
+  "from": "bmg_clariostarplus"
+ },
+ "bronkhorst_cemw": {
+  "steps": [
+   "power on",
+   "setpoint 500sccm",
+   "setpoint 140C",
+   "setpoint 3.6g/h --wait --max 20min",
+   "setpoint 0g/h",
+   "vent",
+   "vent off"
+  ],
+  "check": "read",
+  "from": "bronkhorst_cemw"
+ },
+ "bronkhorst_p702cv_5bar_gauge_n2": {
+  "steps": [
+   "setpoint 3bar",
+   "setpoint 2.5bar --wait --max 20min"
+  ],
+  "check": "read",
+  "from": "bronkhorst_p702cv_5bar_gauge_n2"
+ },
+ "brooks_preciseflex_400": {
+  "steps": [
+   "power on",
+   "move home",
+   "move z=100mm",
+   "move z=50mm shoulder=30deg elbow=-45deg wrist=0deg",
+   "pick plate_1",
+   "place sealer_nest"
+  ],
+  "check": "result",
+  "from": "brooks_preciseflex_400"
+ },
+ "bruker_magnettechesr5000": {
+  "steps": [
+   "power on",
+   "close",
+   "method center=338.4mT width=16mT",
+   "source on",
+   "set-temp 30C --wait",
+   "set-temp 25C --wait",
+   "blank --wait",
+   "source on"
+  ],
+  "check": "spectrum",
+  "from": "bruker_magnettechesr5000"
+ },
+ "bruker_minispecmq20": {
+  "steps": [
+   "set-temp 30C",
+   "power on",
+   "close",
+   "method sequence=inversion_recovery delays=1ms,10ms,50ms,100ms,200ms,400ms,800ms,1200ms,2000ms points=9",
+   "set-temp 37C --wait",
+   "measure --wait",
+   "spectrum"
+  ],
+  "check": "analyze relaxation",
+  "from": "bruker_minispecmq20"
+ },
+ "bruker_x4poseidon": {
+  "steps": [
+   "load alumina_pellet",
+   "move --z 397mm",
+   "source on --kv 80kV --current 100uA",
+   "#wait 200",
+   "zoom 3x",
+   "acquire --exposure 0.1s --binning 4x4",
+   "#wait 300"
+  ],
+  "check": "result",
+  "from": "bruker_x4poseidon"
+ },
+ "buchi_encapsulatorb": {
+  "steps": [
+   "method volume=5mL flow=6mL/min",
+   "vibration 1000Hz",
+   "vibration on",
+   "vibration on",
+   "hv 1500V",
+   "hv on",
+   "set-temp 40C",
+   "heat on",
+   "start",
+   "feed 300mbar",
+   "wait --max 30min"
+  ],
+  "check": "result",
+  "from": "buchi_encapsulatorb"
+ },
+ "buchi_hydrolexh": {
+  "steps": [
+   "method hold=20min rinse-temp=45C rinse-cycles=4 rinse-volume=300mL",
+   "power on",
+   "preheat on --wait",
+   "load 1,3",
+   "start",
+   "#wait 3600"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "buchi_lyovapor_l250_pro": {
+  "steps": [
+   "method freeze=1min primary=2min secondary=1min shelf=-30C",
+   "method primary=3min",
+   "vacuum 0.3mbar",
+   "set-temp -10C",
+   "endpoint moisture --max-moisture 2%",
+   "endpoint schedule",
+   "start",
+   "#wait 100",
+   "stop"
+  ],
+  "check": "result",
+  "from": "buchi_lyovapor_l250_pro"
+ },
+ "buchi_minispray": {
+  "steps": [
+   "set-temp 160C",
+   "method inlet=150C feed=4mL/min aspirator=400L/min spray=10L/min",
+   "preheat on --wait",
+   "set-temp 150C --heat",
+   "start",
+   "feed 3mL/min",
+   "#wait 60",
+   "stop"
+  ],
+  "check": "result",
+  "from": "buchi_minispray"
+ },
+ "buchi_speedextractore": {
+  "steps": [
+   "open shield",
+   "close shield",
+   "start",
+   "#wait 600"
+  ],
+  "check": "result",
+  "from": "buchi_speedextractore"
+ },
+ "camag_tlcscanner": {
+  "steps": [
+   "method wl=254nm lamp=deuterium",
+   "run --wait-ready 10min",
+   "stop",
+   "chromatogram",
+   "run",
+   "#wait 30"
+  ],
+  "check": "chromatogram --pos 1",
+  "from": "camag_tlcscanner"
+ },
+ "carbolite_tf1_12_60_300": {
+  "steps": [
+   "set-temp 300C",
+   "wait-temp --max 2h"
+  ],
+  "check": "temp",
+  "from": "carbolite_tf1_12_60_300"
+ },
+ "cem_libertyblue": {
+  "steps": [
+   "power on",
+   "close cover",
+   "close clamp",
+   "start",
+   "#wait 30"
+  ],
+  "check": "result",
+  "from": "cem_libertyblue"
+ },
+ "ch_chi440c": {
+  "steps": [
+   "technique cp --current 10uA --time 2s",
+   "power on",
+   "#wait 2",
+   "zero",
+   "open lid",
+   "close lid",
+   "start"
+  ],
+  "check": "wait",
+  "from": "ch_chi440c"
+ },
+ "ch_chi920d": {
+  "steps": [
+   "power on",
+   "move 0 0 1mm",
+   "technique secm-line --path -40um,-40um,5um;0um,-40um,5um;40um,-40um,5um --tip 0.5V --substrate 0V",
+   "start"
+  ],
+  "check": "wait",
+  "from": "ch_chi920d"
+ },
+ "cytiva_biacoret200": {
+  "steps": [
+   "load chip1 --type CM5",
+   "prime",
+   "#wait 400",
+   "set-temp 25C",
+   "start r1 samples=R1B1 contact=60s dissociation=60s flow=30uL/min path=1-2 ref=2-1 rate=1 startup=1",
+   "#wait 400"
+  ],
+  "check": "data",
+  "from": "default lab"
+ },
+ "cytiva_ktaoligosynt": {
+  "steps": [
+   "power on",
+   "close clamp",
+   "start",
+   "#wait 30"
+  ],
+  "check": "result",
+  "from": "cytiva_ktaoligosynt"
+ },
+ "cytiva_nanoassemblrignite": {
+  "steps": [
+   "set-temp 37C",
+   "close block",
+   "heat on",
+   "set-temp 50C --channel right",
+   "temp",
+   "wait-temp --max 30min",
+   "method flow=4mL/min ratio=3 volume=2mL dilution=1 waste-start=0.2mL waste-end=0.05mL",
+   "close lid",
+   "prime",
+   "wait --max 10min",
+   "start",
+   "wait --max 10min"
+  ],
+  "check": "result",
+  "from": "cytiva_nanoassemblrignite"
+ },
+ "eco_ncld822": {
+  "steps": [
+   "select zero_air",
+   "start",
+   "#wait 60",
+   "zero",
+   "#wait 60",
+   "select srm_2631a",
+   "#wait 60",
+   "#wait 60",
+   "select sample"
+  ],
+  "check": "read",
+  "from": "eco_ncld822"
+ },
+ "edinburgh_fls1000tcspc": {
+  "steps": [
+   "power on",
+   "method em=520nm",
+   "method em=520nm",
+   "measure --wait"
+  ],
+  "check": "spectrum --save-to decay.json",
+  "from": "edinburgh_fls1000tcspc"
+ },
+ "elementar_isoprimeprecision": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "result",
+  "from": "default lab"
+ },
+ "elementar_varioel": {
+  "steps": [
+   "measure --slots 4 --wait"
+  ],
+  "check": "result",
+  "from": "default lab"
+ },
+ "elga_purelab_flex3": {
+  "steps": [
+   "dispense 500mL --rate 1L/min --wait",
+   "setpoint 0.5L/min",
+   "dispense 200mL",
+   "stop",
+   "#wait 5",
+   "start",
+   "stop"
+  ],
+  "check": "read",
+  "from": "elga_purelab_flex3"
+ },
+ "elma_elmasonics60h": {
+  "steps": [
+   "power on",
+   "intensity sweep",
+   "time 2min",
+   "start --wait"
+  ],
+  "check": "result",
+  "from": "elma_elmasonics60h"
+ },
+ "eppendorf_5910ri": {
+  "steps": [
+   "load tube_a --slot slot_1",
+   "load tube_c --slot slot_2",
+   "unload --slot slot_2",
+   "load tube_b --slot slot_2",
+   "speed --rcf 2000g --time 2min",
+   "set-temp 4C",
+   "close lid",
+   "start --wait"
+  ],
+  "check": "result --save-to run.json",
+  "from": "eppendorf_5910ri"
+ },
+ "eppendorf_cellxpertc170i": {
+  "steps": [
+   "set-temp 39C"
+  ],
+  "check": "wait-temp --max 1h",
+  "from": "eppendorf_cellxpertc170i"
+ },
+ "eppendorf_cryocubef570n": {
+  "steps": [
+   "set-temp -75C"
+  ],
+  "check": "temp",
+  "from": "eppendorf_cryocubef570n"
+ },
+ "esco_ac24s8": {
+  "steps": [
+   "uv on",
+   "uv off",
+   "sash safe",
+   "fan on --wait --max 10min",
+   "light off",
+   "light on",
+   "mode quickstart",
+   "sash open"
+  ],
+  "check": "read",
+  "from": "esco_ac24s8"
+ },
+ "esco_efa5uduvw": {
+  "steps": [
+   "sash open --hold",
+   "sash safe",
+   "sash 300mm",
+   "mode night",
+   "mode night",
+   "mode normal",
+   "fan off",
+   "fan on",
+   "light off"
+  ],
+  "check": "read",
+  "from": "esco_efa5uduvw"
+ },
+ "evident_bx53p": {
+  "steps": [
+   "load quartz_section",
+   "zoom --objective 40x",
+   "focus -4.9mm",
+   "source off",
+   "source on --level 70%",
+   "acquire --exposure 50ms --wait"
+  ],
+  "check": "result",
+  "from": "evident_bx53p"
+ },
+ "freeman_ft4powder": {
+  "steps": [
+   "clamp on",
+   "power on",
+   "close door",
+   "move 10mm --wait",
+   "move 0mm --speed 20mm/s --wait",
+   "calibrate force-zero=0.01N torque-zero=0",
+   "method cycles=3",
+   "start",
+   "#wait 60",
+   "result"
+  ],
+  "check": "analyze --index 1",
+  "from": "freeman_ft4powder"
+ },
+ "frontier_egapy": {
+  "steps": [
+   "power on",
+   "method mode=single pyrolysis-temp=600C pyrolysis-time=0.1min",
+   "start",
+   "inject --wait",
+   "wait --max 1h"
+  ],
+  "check": "result",
+  "from": "frontier_egapy"
+ },
+ "fujifilm_dmp2850": {
+  "steps": [
+   "method spacing=20um voltage=24V",
+   "method pattern=010/111/010 at=50mm,50mm pattern-name=cross",
+   "set-temp 40C",
+   "set-temp 30C --zone cartridge",
+   "move 10mm,20mm,2mm",
+   "start",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "fujifilm_dmp2850"
+ },
+ "gamry_reference620": {
+  "steps": [
+   "power on",
+   "technique cv --from 0.6V --to -0.2V --rate 100mV/s --step 2mV",
+   "connect working=we_01 reference=ref_01 counter=ce_01 cell=cell_01",
+   "start"
+  ],
+  "check": "wait --max 10min",
+  "from": "gamry_reference620"
+ },
+ "gas_flavourspec25gc": {
+  "steps": [
+   "flow off",
+   "method run=200s inlet=90C",
+   "flow on",
+   "run --wait-ready 10min",
+   "#wait 30",
+   "stop",
+   "chromatogram",
+   "flow on",
+   "#wait 300",
+   "run --wait-ready 10min",
+   "#wait 260"
+  ],
+  "check": "chromatogram",
+  "from": "gas_flavourspec25gc"
+ },
+ "genevac_mivac2": {
+  "steps": [
+   "set-temp 45C",
+   "preheat on --wait",
+   "open lid",
+   "close lid",
+   "start",
+   "#wait 3600"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "gilson_cpc250": {
+  "steps": [
+   "run",
+   "#wait 60",
+   "stop"
+  ],
+  "check": "chromatogram",
+  "from": "gilson_cpc250"
+ },
+ "glatt_miniglatt": {
+  "steps": [
+   "power on",
+   "method time=2min spray-time=90s",
+   "close tower",
+   "air 240L/min",
+   "air on",
+   "set-temp 60C",
+   "heat on",
+   "wait-temp --max 30min",
+   "feed 3.5mL/min",
+   "start",
+   "wait --max 10min"
+  ],
+  "check": "result",
+  "from": "glatt_miniglatt"
+ },
+ "hach_dr6000": {
+  "steps": [
+   "method from=400nm to=700nm step=2nm",
+   "open lid",
+   "load blank_01",
+   "close",
+   "blank",
+   "open",
+   "unload",
+   "load sample_01",
+   "close",
+   "measure",
+   "spectrum"
+  ],
+  "check": "spectrum --save-to dr_scan.json",
+  "from": "hach_dr6000"
+ },
+ "hach_tl2300epa": {
+  "steps": [
+   "measure --wait",
+   "#wait 1800",
+   "calibrate",
+   "measure --wait",
+   "check --reference 20NTU"
+  ],
+  "check": "status",
+  "from": "default lab"
+ },
+ "hepatochem_photoredoxbox": {
+  "steps": [
+   "set-temp 35C",
+   "light 80%",
+   "stir 600rpm",
+   "method time=10min",
+   "open lid",
+   "close lid",
+   "start",
+   "stop",
+   "start",
+   "wait --max 20min",
+   "result",
+   "temp"
+  ],
+  "check": "result",
+  "from": "hepatochem_photoredoxbox"
+ },
+ "hot_tps2500": {
+  "steps": [
+   "power on",
+   "method time=1.5s power=0.5W",
+   "start",
+   "wait",
+   "result",
+   "analyze",
+   "calibrate gain_correction=1 offset_correction_k=0.1K",
+   "temp"
+  ],
+  "check": "analyze",
+  "from": "hot_tps2500"
+ },
+ "ika_c6000": {
+  "steps": [
+   "method name=BA_1 mass=1g",
+   "method mode=isoperibol_25",
+   "#wait 420",
+   "start",
+   "load C6012-0001",
+   "wait --max 1h",
+   "result"
+  ],
+  "check": "analyze sulfur=0.1% hydrogen=4.95%",
+  "from": "ika_c6000"
+ },
+ "ika_electrasyn2": {
+  "steps": [
+   "stir 400rpm",
+   "current 10mA",
+   "voltage 3V",
+   "method mode=constant_current time=1min",
+   "open cap",
+   "close cap",
+   "start",
+   "stop",
+   "start",
+   "wait --max 5min"
+  ],
+  "check": "result --save-to es.json",
+  "from": "ika_electrasyn2"
+ },
+ "ika_ks4000": {
+  "steps": [
+   "power on",
+   "speed 200rpm --time 2min",
+   "start",
+   "#wait 150"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "ika_plate_rctdigital": {
+  "steps": [
+   "set-temp 80C",
+   "heat on",
+   "stir 300rpm",
+   "stir 500rpm"
+  ],
+  "check": "wait-temp --within 1K --max 20min",
+  "from": "ika_plate_rctdigital"
+ },
+ "ika_rv10_digital_v": {
+  "steps": [
+   "set-temp 40C --heat",
+   "set-temp 45C --heat",
+   "rotate 120rpm",
+   "rotate 150rpm",
+   "method time=2min interval=10s",
+   "lift up --wait",
+   "lift 30mm",
+   "stop",
+   "method time=3min",
+   "start",
+   "#wait 60"
+  ],
+  "check": "result",
+  "from": "ika_rv10_digital_v"
+ },
+ "ika_t25": {
+  "steps": [
+   "power on",
+   "time 30s",
+   "speed 15000rpm",
+   "start --wait"
+  ],
+  "check": "result",
+  "from": "ika_t25"
+ },
+ "inert_purelab_he_2gb": {
+  "steps": [
+   "open outer",
+   "close outer",
+   "cycle --cycles 2 --wait --max 20min",
+   "open inner",
+   "close inner",
+   "cycle",
+   "cycle stop",
+   "fan 60%",
+   "light on",
+   "light on"
+  ],
+  "check": "read",
+  "from": "inert_purelab_he_2gb"
+ },
+ "inert_puresolvmd": {
+  "steps": [
+   "open gas_isolation_valve",
+   "!call INST pump.set --on true",
+   "!call INST flask.attach --channel 1 --volume_m3 0.0005 --oven_dried true",
+   "!call INST valve.turn --channel 1 --position evacuate",
+   "#wait 60",
+   "!call INST valve.turn --channel 1 --position refill",
+   "#wait 10",
+   "!call INST valve.turn --channel 1 --position evacuate",
+   "#wait 60",
+   "!call INST valve.turn --channel 1 --position refill",
+   "#wait 10",
+   "!call INST valve.turn --channel 1 --position dispense",
+   "!call INST needle.set --channel 1 --opening 0.5",
+   "#wait 60",
+   "!call INST needle.set --channel 1 --opening 0",
+   "!call INST valve.turn --channel 1 --position closed"
+  ],
+  "check": "!read INST flask.ch1",
+  "expect": "\"liquid_m3\": [0-9]",
+  "from": "default lab"
+ },
+ "inficon_ul1000fab": {
+  "steps": [
+   "start --wait",
+   "zero",
+   "zero off"
+  ],
+  "check": "read",
+  "from": "inficon_ul1000fab"
+ },
+ "ja_alphase": {
+  "steps": [
+   "load pmma_on_si",
+   "scan mode=fast --wait",
+   "result"
+  ],
+  "check": "analyze thickness=110nm",
+  "from": "ja_alphase"
+ },
+ "jasco_cpl300": {
+  "steps": [
+   "power on",
+   "source on --wait",
+   "method em=520nm",
+   "blank --wait"
+  ],
+  "check": "spectrum",
+  "from": "default lab"
+ },
+ "jasco_fp8350": {
+  "steps": [
+   "power on",
+   "source on --wait",
+   "close",
+   "method mode=emission ex=480nm from=500nm to=620nm step=2nm",
+   "blank --wait"
+  ],
+  "check": "spectrum",
+  "from": "default lab"
+ },
+ "jasco_ftir4700": {
+  "steps": [
+   "power on",
+   "method from=400cm-1 to=4000cm-1 resolution=4cm-1",
+   "blank --wait",
+   "open",
+   "load ir_polystyrene_film",
+   "close",
+   "measure --wait"
+  ],
+  "check": "spectrum",
+  "expect": "maximum absorbance [0-9.]+ at (69[0-9]|70[0-9]) cm-1",
+  "from": "default lab"
+ },
+ "jasco_fvs6000": {
+  "steps": [
+   "power on",
+   "method from=1500cm-1 to=1800cm-1",
+   "set-temp 30C --wait",
+   "blank --wait"
+  ],
+  "check": "spectrum",
+  "from": "jasco_fvs6000"
+ },
+ "jasco_j1500": {
+  "steps": [
+   "power on",
+   "purge 5L/min --wait",
+   "source on --wait",
+   "close lid",
+   "method from=260nm",
+   "method from=235nm to=190nm step=1nm scans=2",
+   "blank --wait"
+  ],
+  "check": "spectrum",
+  "from": "jasco_j1500"
+ },
+ "jasco_nrs5500": {
+  "steps": [
+   "power on",
+   "close door",
+   "source on",
+   "method from=200cm-1 to=1100cm-1",
+   "measure --wait",
+   "spectrum"
+  ],
+  "check": "analyze peaks",
+  "from": "jasco_nrs5500"
+ },
+ "jasco_p4200": {
+  "steps": [
+   "method integration=1s repeats=3 conc=100g/L path=100mm",
+   "zero"
+  ],
+  "check": "status",
+  "from": "default lab"
+ },
+ "jena_contraa800": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "jena_multix": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "jeol_jem1400flash": {
+  "steps": [
+   "load au_np_on_carbon",
+   "source on --kv 100kV",
+   "#wait 30",
+   "zoom 50000x",
+   "focus auto",
+   "focus 1um",
+   "move 100um -50um",
+   "acquire --exposure 0.5s --binning 2 --wait"
+  ],
+  "check": "result",
+  "from": "jeol_jem1400flash"
+ },
+ "jeol_jsmit200": {
+  "steps": [
+   "load fe_si_polished",
+   "vacuum pump",
+   "#wait 240",
+   "source on --kv 10kV --wait",
+   "focus auto",
+   "focus 10mm",
+   "zoom 2000x",
+   "move 2mm -1mm --z 3mm",
+   "acquire --pixels 640x480 --dwell 20us --wait"
+  ],
+  "check": "result",
+  "from": "jeol_jsmit200"
+ },
+ "julabo_corio_cd200f": {
+  "steps": [
+   "remote on",
+   "set-temp 40C",
+   "heat on",
+   "wait-temp --max 30min"
+  ],
+  "check": "temp",
+  "from": "julabo_corio_cd200f"
+ },
+ "keyence_vkx3000": {
+  "steps": [
+   "load sio2_step_on_si",
+   "zoom --objective 10x",
+   "focus auto --wait",
+   "zoom 2x",
+   "acquire --wait --max 30min"
+  ],
+  "check": "result",
+  "from": "keyence_vkx3000"
+ },
+ "knauer_k7400s": {
+  "steps": [
+   "calibrate --standard 0"
+  ],
+  "check": "status",
+  "from": "default lab"
+ },
+ "kratos_axissupra": {
+  "steps": [
+   "load sio2_on_si --wait --max 1h",
+   "source on --ma 10mA --wait",
+   "align --wait",
+   "scan region=survey,C1s --wait --max 1h",
+   "result"
+  ],
+  "check": "analyze regions=C1s",
+  "from": "kratos_axissupra"
+ },
+ "laboao_cvdltf12p50": {
+  "steps": [
+   "method temp=600C rate=5K/min hold=10min flow=200,0,0 mode=fixed",
+   "set-temp 650C",
+   "close flange",
+   "vacuum pump --pressure 30Pa",
+   "vacuum off",
+   "close furnace",
+   "start --mode purge",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "laboao_cvdltf12p50"
+ },
+ "lakeshore_8604vsm": {
+  "steps": [
+   "power on",
+   "move --lift 0mm",
+   "method field=0.1T",
+   "method range=10emu vibrate=on loop=0.2T/0.1T",
+   "set-field 0.1T --rate 10mT/s --wait",
+   "start",
+   "wait",
+   "result"
+  ],
+  "check": "analyze",
+  "from": "lakeshore_8604vsm"
+ },
+ "lakeshore_measurereadym91": {
+  "steps": [
+   "method current=0.5mA",
+   "method current=0.5mA range=10mA",
+   "#wait 1800",
+   "contact check max-current=10mA",
+   "wait --max 10min",
+   "start",
+   "wait",
+   "result",
+   "calibrate voltage_gain_correction=1 voltage_offset_v=0 field_gain_correction=1 field_offset_t=0.1mT",
+   "temp"
+  ],
+  "check": "result",
+  "from": "lakeshore_measurereadym91"
+ },
+ "leco_onh836": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "linari_rtadvanced": {
+  "steps": [
+   "set-temp 30C",
+   "humidity 35%",
+   "heat on",
+   "humidity on",
+   "wait-temp --max 30min",
+   "method voltage=15kV,15kV flows=0.2mL/h,0,0,0,0,0,0,0 rpm=600rpm needle-low=50mm,50mm needle-high=450mm,450mm gap=40mm,40mm time=10s",
+   "hv on",
+   "start",
+   "wait --max 5min"
+  ],
+  "check": "result",
+  "from": "linari_rtadvanced"
+ },
+ "linseis_lsr3": {
+  "steps": [
+   "power on",
+   "set-temp 100C --rate 10K/min --gradient 5K",
+   "wait-temp --max 1h",
+   "method current=10mA time=3s",
+   "start",
+   "wait",
+   "result"
+  ],
+  "check": "analyze width=3mm depth=3mm spacing=8mm point=5",
+  "from": "linseis_lsr3"
+ },
+ "magritek_spinsolve80": {
+  "steps": [
+   "power on",
+   "load ethanol_01",
+   "method nucleus=1H scans=4",
+   "method points=512",
+   "measure",
+   "#wait 10",
+   "spectrum"
+  ],
+  "check": "analyze integrate from=-400Hz to=-350Hz",
+  "from": "magritek_spinsolve80"
+ },
+ "malvern_leneo": {
+  "steps": [
+   "method segments=10min@1065C,9min@1065C rocking=10deg",
+   "set-temp 900C",
+   "close door",
+   "#wait 5",
+   "start",
+   "#wait 600"
+  ],
+  "check": "result",
+  "from": "malvern_leneo"
+ },
+ "malvern_microcalpeaq": {
+  "steps": [
+   "method temp=25C ref=5ucal/s feedback=high stir=750rpm delay=60s injections=0.4uL@0.8s,4x2uL@4s spacing=150s cell=0.1mM syringe=1mM",
+   "load edta",
+   "load ca --into syringe",
+   "set-temp 25C",
+   "start e1",
+   "#wait 300"
+  ],
+  "check": "data",
+  "from": "default lab"
+ },
+ "markes_unityxr": {
+  "steps": [
+   "power on",
+   "method mode=analyze desorb-temp=280C recollect=false",
+   "open lid",
+   "close lid",
+   "start",
+   "wait --max 1h"
+  ],
+  "check": "result --save-to unity.json",
+  "from": "markes_unityxr"
+ },
+ "metrohm_899": {
+  "steps": [
+   "method current=400mA drift-comp=0ug/min hold=1s",
+   "method stir=9 start-drift=20ug/min",
+   "sample 10mg",
+   "stir on --level 8",
+   "stir off",
+   "start",
+   "wait --max 1h",
+   "curve --save-to kf_curve.json"
+  ],
+  "check": "result",
+  "from": "metrohm_899"
+ },
+ "metrohm_909uv": {
+  "steps": [
+   "method temp=90C hold=30min",
+   "close shield",
+   "#wait 2",
+   "start",
+   "#wait 3000"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "metrohm_914": {
+  "steps": [
+   "method hold=5s tolerance=0.1%",
+   "measure --wait",
+   "calibrate --standard 6.865",
+   "measure --wait",
+   "calibrate --standard 6.864",
+   "#wait 10"
+  ],
+  "check": "result",
+  "from": "metrohm_914"
+ },
+ "metrohm_omnis": {
+  "steps": [
+   "power on",
+   "connect electrode=electrode_01 cell=beaker_01",
+   "connect electrode=electrode_01",
+   "titrant 0.1M --cylinder 20mL",
+   "method mode=dynamic increment=0.1mL max=15mL",
+   "method hold=0.5s tolerance=0V rate=30mL/min",
+   "stir 300rpm",
+   "start",
+   "wait --max 1h",
+   "curve",
+   "result --sample 25mL",
+   "result --sample 25mL --ratio 0.5 --save-to omnis.json"
+  ],
+  "check": "result",
+  "from": "metrohm_omnis"
+ },
+ "micromeritics_autochemiii": {
+  "steps": [
+   "load",
+   "power on",
+   "atmosphere flow=30mL/min",
+   "set-temp 40C --ramp 100K/min",
+   "set-temp 50C",
+   "method mode=tpd temp=40C rate=100K/min hold=1s time=60s",
+   "calibrate detector reference=1umol,2umol measured=0.1,0.2",
+   "#wait 15",
+   "result"
+  ],
+  "check": "analyze dispersion metal_mass=10mg molar_mass=58.69g/mol stoichiometry=1",
+  "from": "micromeritics_autochemiii"
+ },
+ "microtrac_turbiscanlab": {
+  "steps": [
+   "power on",
+   "load",
+   "set-temp 30C --wait --max 1h",
+   "method time=60s interval=10s",
+   "start",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "miele_plw6111": {
+  "steps": [
+   "program quick_wash",
+   "program quick_wash",
+   "configure drying=on",
+   "open door",
+   "close door",
+   "start",
+   "pause on",
+   "pause off",
+   "#wait 600",
+   "stop"
+  ],
+  "check": "start --wait --max 3h",
+  "from": "miele_plw6111"
+ },
+ "milestone_dma80": {
+  "steps": [
+   "measure --slots 5 --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "mt_hx204": {
+  "steps": [
+   "set-temp 110C",
+   "method time=5min",
+   "method basis=dry mode=rapid",
+   "measure --wait"
+  ],
+  "check": "result",
+  "from": "mt_hx204"
+ },
+ "mt_mp70": {
+  "steps": [
+   "method start=110C end=130C rate=1K/min criterion=transmission",
+   "measure --wait --max 3h"
+  ],
+  "check": "result --channel 2",
+  "from": "mt_mp70"
+ },
+ "mt_quantos_q2_xpe206dr": {
+  "steps": [
+   "head",
+   "vial",
+   "tare",
+   "open side",
+   "dose 10mg --tolerance 1%",
+   "#wait 30",
+   "result",
+   "dose 5mg --tolerance 0.1mg --sample-id S-1",
+   "stop",
+   "result",
+   "head lower",
+   "head raise",
+   "vial place",
+   "dose 20mg",
+   "#wait 50"
+  ],
+  "check": "result",
+  "from": "mt_quantos_q2_xpe206dr"
+ },
+ "mt_rc1mxhfcal": {
+  "steps": [
+   "stir 300rpm",
+   "safety-limit 140C",
+   "set-temp 50C --ramp 10min",
+   "start --name acetylation",
+   "wait-temp --max 1h",
+   "dose acetic_anhydride --rate 9g/min --mass 102g",
+   "wait --max 30min",
+   "stop --cool-to 25C"
+  ],
+  "check": "result",
+  "from": "mt_rc1mxhfcal"
+ },
+ "mt_xpr204e": {
+  "steps": [
+   "door close",
+   "!call INST adjustment.start",
+   "#wait 120",
+   "weigh --stable"
+  ],
+  "check": "!read INST history.adjustments",
+  "from": "default lab",
+  "expect": "\"status\": \"Done\""
+ },
+ "multiwave_7101": {
+  "steps": [
+   "method temp=180C ramp=15min hold=15min name=MYDIG",
+   "method program=150C@5min,180C@5min hold=10min name=MYDIG fan=2",
+   "method name=\"EPA 3051A HNO3\"",
+   "open door",
+   "load 1,2 --material nist_srm_2711a --method epa_3051a_hno3 --mass 0.2g --acid 4mL",
+   "close door",
+   "start",
+   "stop",
+   "#wait 7200"
+  ],
+  "check": "result --slot 1",
+  "from": "multiwave_7101"
+ },
+ "nabertherm_l9": {
+  "steps": [
+   "set-temp 500C"
+  ],
+  "check": "wait-temp --max 2h",
+  "from": "nabertherm_l9"
+ },
+ "nanosurf_naiostm": {
+  "steps": [
+   "load hopg",
+   "approach",
+   "#wait 320",
+   "acquire --size 10nm --points 64 --line-time 0.2s --wait"
+  ],
+  "check": "result",
+  "from": "nanosurf_naiostm"
+ },
+ "netzsch_lfa467": {
+  "steps": [
+   "!call INST detector.set_enabled --enabled true",
+   "#wait 60",
+   "load 1",
+   "close",
+   "gas 50mL/min --channel protective",
+   "gas 50mL/min --channel purge1",
+   "method temp=25C",
+   "start",
+   "wait --max 1h"
+  ],
+  "check": "result",
+  "from": "default lab"
+ },
+ "netzsch_mmc315": {
+  "steps": [
+   "power on",
+   "method start=50C end=220C",
+   "start",
+   "#wait 3600",
+   "stop"
+  ],
+  "check": "result",
+  "from": "netzsch_mmc315"
+ },
+ "newera_ne1000": {
+  "steps": [
+   "syringe",
+   "syringe loaded",
+   "syringe 14.43mm",
+   "rate 1mL/min",
+   "volume 0.5mL",
+   "direction infuse",
+   "run",
+   "#wait 40",
+   "direction withdraw",
+   "volume 0.2mL",
+   "run --wait",
+   "volume clear",
+   "phase",
+   "phase 1 rate rate=2mL/min volume=0.1mL direction=infuse",
+   "phase 2 pause param=5",
+   "phase 3 rate rate=2mL/min volume=0.1mL direction=withdraw",
+   "phase 4 stop"
+  ],
+  "check": "run --phase 1 --wait",
+  "from": "newera_ne1000"
+ },
+ "novocontrol_alphat": {
+  "steps": [
+   "power on",
+   "method freq=1kHz,10kHz voltage=0.3V",
+   "method sweep=10Hz..100kHz/5",
+   "set-temp 20.05C",
+   "wait-temp --within 0.1K",
+   "start",
+   "wait",
+   "result --save-to eps.json"
+  ],
+  "check": "analyze diameter=20mm thickness=1mm point=3",
+  "from": "novocontrol_alphat"
+ },
+ "ohaus_px224e": {
+  "steps": [
+   "door close",
+   "zero --wait 30s"
+  ],
+  "check": "weigh --stable",
+  "from": "default lab",
+  "noact_exempt": "external-calibration balance: every load (sample, container or calibration weight) is put on the pan by a host or the robot, which the chemlab-only default lab does not have; the smoke only shows a stable zero reading"
+ },
+ "ohaus_spx2201": {
+  "steps": [
+   "zero --wait 30s"
+  ],
+  "check": "weigh --stable",
+  "from": "default lab",
+  "noact_exempt": "external-calibration balance: every load (sample, container or calibration weight) is put on the pan by a host or the robot, which the chemlab-only default lab does not have; the smoke only shows a stable zero reading"
+ },
+ "opentrons_flex_single_5_1000ul": {
+  "steps": [
+   "power on",
+   "home",
+   "transfer --volume 100 --from reservoir:A1 --to plate:A1"
+  ],
+  "check": "labware",
+  "expect": "95 left",
+  "from": "default lab"
+ },
+ "ossila_dipcoater": {
+  "steps": [
+   "method length=40mm dip-speed=10mm/s withdraw=1mm/s withdraw-final=2mm/s cycles=1 dwell=10s",
+   "gap 1mm",
+   "start",
+   "#wait 300"
+  ],
+  "check": "result",
+  "from": "ossila_dipcoater"
+ },
+ "ossila_doctorblade": {
+  "steps": [
+   "method distance=200mm speed=10mm/s",
+   "gap 100um",
+   "start",
+   "#wait 60"
+  ],
+  "check": "result",
+  "from": "ossila_doctorblade"
+ },
+ "ossila_slotdie": {
+  "steps": [
+   "method distance=120mm speed=10mm/s flow=1.2mL/min",
+   "gap 100um",
+   "prime 70uL --flow 1mL/min",
+   "set-temp 50C",
+   "set-temp 45C",
+   "start",
+   "#wait 60"
+  ],
+  "check": "result",
+  "from": "ossila_slotdie"
+ },
+ "ossila_spincoater": {
+  "steps": [
+   "method program=500rpm@5s,3000rpm@30s",
+   "open lid",
+   "#wait 2",
+   "close lid",
+   "#wait 2",
+   "start",
+   "#wait 40"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "park_nx10": {
+  "steps": [
+   "load grating",
+   "source on",
+   "approach --setpoint 2nN --wait",
+   "acquire --size 5um --pixels 64 --rate 2Hz --wait"
+  ],
+  "check": "result",
+  "from": "park_nx10"
+ },
+ "parr_4591": {
+  "steps": [
+   "set-temp 120C",
+   "heat on",
+   "heat on",
+   "stir 500rpm",
+   "wait-temp --max 1h",
+   "stop",
+   "wait-temp --to 45C --max 3h",
+   "open vent",
+   "#wait 30",
+   "open lid",
+   "close lid",
+   "close vent"
+  ],
+  "check": "result",
+  "from": "parr_4591"
+ },
+ "pccell_ed64002": {
+  "steps": [
+   "flow 1mL/min",
+   "power on",
+   "start",
+   "#wait 60",
+   "stop"
+  ],
+  "check": "result",
+  "from": "pccell_ed64002"
+ },
+ "peak_precisionhydrogen": {
+  "steps": [
+   "setpoint 60psi",
+   "start --wait",
+   "stop",
+   "vent"
+  ],
+  "check": "read",
+  "from": "peak_precisionhydrogen"
+ },
+ "pilodist_pilodist104": {
+  "steps": [
+   "set-temp 95C",
+   "reflux 4",
+   "reflux total",
+   "fraction 1",
+   "power on",
+   "start",
+   "#wait 30",
+   "fraction 2"
+  ],
+  "check": "result",
+  "from": "pilodist_pilodist104"
+ },
+ "pine_wavevortex10": {
+  "steps": [
+   "power on",
+   "open enclosure",
+   "close enclosure",
+   "rotate 1000rpm",
+   "rotate 1600rpm",
+   "start --time 3s"
+  ],
+  "check": "wait",
+  "from": "pine_wavevortex10"
+ },
+ "porometer_poroluxrevo": {
+  "steps": [
+   "power on",
+   "unload",
+   "prepare",
+   "load",
+   "atmosphere gas=on",
+   "start",
+   "#wait 1800"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "quorum_q150tes": {
+  "steps": [
+   "method current=50mA time=60s",
+   "method current=50mA thickness=5nm rotation=off",
+   "vacuum pump",
+   "vacuum off",
+   "vacuum vent",
+   "#wait 30",
+   "start",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "radleys_mya4": {
+  "steps": [
+   "set-temp 60C --zone 1",
+   "heat on --zone 1",
+   "stir 500rpm --zone 1",
+   "stir 600rpm --zone 1",
+   "wait-temp --zone 1 --max 30min",
+   "temp",
+   "program 50C@2min,30C@0s --zone 2",
+   "start --zone 2",
+   "wait --max 1h"
+  ],
+  "check": "result --zone 2",
+  "from": "radleys_mya4"
+ },
+ "retsch_as200": {
+  "steps": [
+   "intensity 1.5mm",
+   "method amplitude=1mm time=2min",
+   "program 0",
+   "start",
+   "#wait 10",
+   "pause on",
+   "pause off",
+   "#wait 200"
+  ],
+  "check": "result",
+  "from": "retsch_as200"
+ },
+ "retsch_pm100": {
+  "steps": [
+   "intensity 300rpm",
+   "method speed=400rpm time=1min",
+   "program 1",
+   "program 0",
+   "start",
+   "#wait 5",
+   "stop",
+   "#wait 10",
+   "rearm",
+   "start --delay 30s",
+   "stop",
+   "result",
+   "start",
+   "#wait 150"
+  ],
+  "check": "result --save-to pm100.json",
+  "from": "retsch_pm100"
+ },
+ "retsch_pt100": {
+  "steps": [
+   "power on",
+   "method time=1min intensity=60 gap=5mm",
+   "intensity 70",
+   "#wait 3",
+   "feeder on",
+   "feeder on",
+   "start",
+   "#wait 10",
+   "pause on",
+   "pause off",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "retsch_pt100"
+ },
+ "rigaku_miniflex600_external_cooling": {
+  "steps": [
+   "load si_srm640_holder",
+   "source on --kv 40kV --ma 15mA",
+   "scan from=20deg to=50deg step=0.05deg time=0.5s",
+   "#wait 400"
+  ],
+  "check": "result",
+  "from": "default lab"
+ },
+ "rigaku_xtalabsynergy": {
+  "steps": [
+   "load aspirin_01",
+   "align --wait",
+   "source on --wait",
+   "scan exposure=1s --wait --max 2h",
+   "result"
+  ],
+  "check": "analyze what=index",
+  "from": "rigaku_xtalabsynergy"
+ },
+ "sartorius_vivaflow200": {
+  "steps": [
+   "start",
+   "#wait 120",
+   "stop"
+  ],
+  "check": "result",
+  "from": "sartorius_vivaflow200"
+ },
+ "sciex_pa800": {
+  "steps": [
+   "method wl=200nm",
+   "method steps='[{\"type\":\"rinse\",\"inlet\":\"BI:A1\",\"outlet\":\"BO:A1\",\"pressure_pa\":137895.14586336,\"duration_s\":120.0},{\"type\":\"inject\",\"injection_mode\":\"pressure\",\"inlet\":\"SI:A1\",\"outlet\":\"BO:B1\",\"pressure_pa\":3447.378646584,\"duration_s\":5.0},{\"type\":\"separate\",\"inlet\":\"BI:B1\",\"outlet\":\"BO:B1\",\"control\":\"voltage\",\"voltage_v\":25000.0,\"current_limit_a\":0.0003,\"ramp_s\":10.0,\"duration_s\":600.0}]' wl=214nm",
+   "method lamp=on",
+   "run --wait-ready 10min",
+   "#wait 900"
+  ],
+  "check": "chromatogram",
+  "from": "default lab",
+  "expect": "chromatogram: complete"
+ },
+ "scp_digiprepms": {
+  "steps": [
+   "power on",
+   "method temp=95C ramp=10min hold=20min",
+   "method program=60C@5min,90C@10min hold=10min timeout=3h",
+   "start",
+   "#wait 60",
+   "stop",
+   "result",
+   "start",
+   "#wait 9000",
+   "start",
+   "#wait 60",
+   "stop",
+   "method temp=80C hold=5min",
+   "set-temp 85C",
+   "start",
+   "#wait 2400"
+  ],
+  "check": "result",
+  "from": "scp_digiprepms"
+ },
+ "seal_aa500": {
+  "steps": [
+   "#wait 2100",
+   "measure --cups S:22:baseline,S:1:calibrant,S:2:calibrant,S:3:calibrant,S:4:calibrant,S:22:baseline --wait --max 2h"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "result \\(completed\\)"
+ },
+ "sft_sft110": {
+  "steps": [
+   "pressure 250bar",
+   "start",
+   "#wait 300",
+   "stop",
+   "vent",
+   "#wait 120"
+  ],
+  "check": "result",
+  "from": "sft_sft110"
+ },
+ "shimadzu_ags10knxd": {
+  "steps": [
+   "zero",
+   "method speed=1mm/min target=3mm",
+   "method speed=1mm/min target=3mm",
+   "start",
+   "#wait 20",
+   "result"
+  ],
+  "check": "analyze area=2mm2 gauge=25mm",
+  "from": "shimadzu_ags10knxd"
+ },
+ "shimadzu_edx7200": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "shimadzu_icpe9800": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "shimadzu_icpms2030": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "shimadzu_tocl": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "signatone_quadpro2": {
+  "steps": [
+   "method point=0mm,0mm point=20mm,0mm edge=3mm",
+   "method current=0.1mA",
+   "method calibration=false current=0.1mA",
+   "start",
+   "wait --max 10min",
+   "result"
+  ],
+  "check": "analyze diameter=100mm point=2",
+  "from": "signatone_quadpro2"
+ },
+ "sonics_vcx750": {
+  "steps": [
+   "time 60s",
+   "intensity 40%",
+   "safety-limit 40C",
+   "start --wait"
+  ],
+  "check": "result",
+  "from": "sonics_vcx750"
+ },
+ "specac_atlasmanual": {
+  "steps": [
+   "method load=68kN hold=12s",
+   "method limit=70kN",
+   "close guard",
+   "valve close",
+   "leadscrew 73mm",
+   "start",
+   "pump 2",
+   "pump --to 68kN --hold"
+  ],
+  "check": "result",
+  "from": "specac_atlasmanual"
+ },
+ "stanford_rga100": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "surface_dvsresolution": {
+  "steps": [
+   "power on",
+   "load",
+   "set-temp 25C",
+   "method temp=25C steps=10%,40% time=10s",
+   "atmosphere rh=10% gas=on",
+   "start",
+   "#wait 1800"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "syrris_asiadiscovery": {
+  "steps": [
+   "set-temp 60C --wait",
+   "pressure 5bar",
+   "flow 1mL/min --channel 1",
+   "#wait 30",
+   "flow off --channel 1",
+   "method flows=1mL/min,1mL/min time=2min inject=0s,0s 'collect=[{\"start_s\":30,\"end_s\":100,\"slot\":0}]'",
+   "start",
+   "wait --max 10min"
+  ],
+  "check": "result",
+  "from": "syrris_asiadiscovery"
+ },
+ "syrris_asiafllex": {
+  "steps": [
+   "pressure 3bar",
+   "pressure 100mbar --channel cmp",
+   "start",
+   "#wait 200"
+  ],
+  "check": "result",
+  "from": "syrris_asiafllex"
+ },
+ "ta_dma850": {
+  "steps": [
+   "gas on",
+   "load --preload 0.01N",
+   "close furnace",
+   "method step=25C freq=1Hz strain=0.01%",
+   "set-temp 25C --rate 5K/min",
+   "start",
+   "wait --max 1h",
+   "result"
+  ],
+  "check": "analyze length=10mm area=0.8mm2",
+  "from": "ta_dma850"
+ },
+ "ta_dsc2500": {
+  "steps": [
+   "load 1",
+   "close lid",
+   "gas 50mL/min",
+   "method start=140C ramp=180C@10K/min hold=1min",
+   "set-temp 140C --rate 20K/min",
+   "wait-temp --within 0.3K --max 1h",
+   "start",
+   "wait --max 1h",
+   "result",
+   "analyze integrate mass=2mg from=150C to=170C",
+   "set-temp off",
+   "wait-temp --to 35C --within 3K --max 1h",
+   "open lid",
+   "unload",
+   "wait-temp --to 25C --within 0.001K --max 1h"
+  ],
+  "check": "analyze integrate mass=2mg from=150C to=170C",
+  "from": "ta_dsc2500"
+ },
+ "ta_tamiv": {
+  "steps": [
+   "power on",
+   "set-temp 25C",
+   "wait-temp --max 1h",
+   "method time=20s interval=0.1s",
+   "start",
+   "wait --max 10min",
+   "result"
+  ],
+  "check": "analyze",
+  "from": "ta_tamiv"
+ },
+ "ta_tga5500": {
+  "steps": [
+   "zero",
+   "load 1",
+   "close",
+   "gas O2",
+   "gas N2 25mL/min --balance 10mL/min",
+   "method start=40C ramp=300C@20K/min gas=N2 iso=2min",
+   "set-temp 40C --rate 20K/min",
+   "wait-temp --max 30min",
+   "start",
+   "wait --max 2h",
+   "result --save-to tga.json",
+   "analyze split=380C,450C",
+   "wait-temp --to 35C --within 3K --max 2h"
+  ],
+  "check": "analyze split=380C,450C",
+  "from": "ta_tga5500"
+ },
+ "ta_tma450": {
+  "steps": [
+   "load",
+   "zero",
+   "close",
+   "gas --channel 1 100mL/min",
+   "method start=30C ramp=60C@5K/min hold=30s force=0.05N",
+   "set-temp 30C --rate 10K/min",
+   "wait-temp --max 30min",
+   "start",
+   "wait --max 1h",
+   "result",
+   "analyze length=1.6234mm from=35C to=55C",
+   "set-temp off",
+   "wait-temp --to 35C --within 3K --max 1h"
+  ],
+  "check": "analyze length=1.6234mm from=35C to=55C",
+  "from": "ta_tma450"
+ },
+ "teledyne_analyteexcite": {
+  "steps": [
+   "power on",
+   "position 30mm 30mm 10mm",
+   "method mode=spot spot=80um shots=20 path_m=[[0.03,0.03,0.01]]",
+   "open guard",
+   "open drawer",
+   "close drawer",
+   "close guard",
+   "start",
+   "wait",
+   "result",
+   "rinse",
+   "wait"
+  ],
+  "check": "result",
+  "from": "teledyne_analyteexcite"
+ },
+ "teledyne_atomxxyz": {
+  "steps": [
+   "power on",
+   "method purge-temp=40C purge-time=10min",
+   "method desorb-temp=245C",
+   "open guard",
+   "close guard",
+   "start --vial 1",
+   "#wait 60",
+   "stop",
+   "rinse",
+   "start --vial 3",
+   "wait --max 1h"
+  ],
+  "check": "result",
+  "from": "teledyne_atomxxyz"
+ },
+ "thalesnano_hcube": {
+  "steps": [
+   "set-temp 60C",
+   "flow 0.5mL/min",
+   "pressure 30bar",
+   "method time=5min",
+   "open water_lid",
+   "close water_lid",
+   "start",
+   "wait --max 10min",
+   "result",
+   "wait-temp --max 5min",
+   "temp"
+  ],
+  "check": "result",
+  "from": "thalesnano_hcube"
+ },
+ "thermo_dionexintegrion": {
+  "steps": [
+   "method flow=1.2mL/min eluent=20mM",
+   "flow on",
+   "run",
+   "#wait 70"
+  ],
+  "check": "chromatogram",
+  "from": "thermo_dionexintegrion"
+ },
+ "thermo_ibrightfl1500": {
+  "steps": [
+   "load gel1",
+   "acquire --mode nucleic_acid_gels --wait"
+  ],
+  "check": "result",
+  "from": "thermo_ibrightfl1500"
+ },
+ "thermo_orbitrapexploris": {
+  "steps": [
+   "measure --wait"
+  ],
+  "check": "records",
+  "from": "default lab",
+  "expect": "records \\(([2-9]|[1-9][0-9])\\)"
+ },
+ "thermo_process11": {
+  "steps": [
+   "set-temp 180C --zone 1",
+   "set-temp 180C --zone 2",
+   "set-temp 180C --zone 3",
+   "set-temp 180C --zone 4",
+   "set-temp 180C --zone 5",
+   "set-temp 180C --zone 6",
+   "set-temp 180C --zone 7",
+   "set-temp 180C --zone die",
+   "heat on",
+   "wait-temp --max 1h",
+   "temp",
+   "method time=30s speed=150rpm feed=0.5g/min die-radius=1mm die-length=5mm mixing=1",
+   "speed 100rpm",
+   "speed on",
+   "feed 0.5g/min",
+   "start",
+   "wait --max 5min"
+  ],
+  "check": "result",
+  "from": "thermo_process11"
+ },
+ "thinky_are310s": {
+  "steps": [
+   "load --mass 140g",
+   "speed 2000rpm --time 60s --defoam 2200rpm --defoam-time 30s",
+   "close lid",
+   "#wait 2",
+   "start --wait"
+  ],
+  "check": "result",
+  "from": "thinky_are310s"
+ },
+ "tousimis_autosamdri815": {
+  "steps": [
+   "power on",
+   "method purge=10min bleed=14364",
+   "method bleed=15000",
+   "open lid",
+   "close lid",
+   "start",
+   "#wait 3600"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "tuttnauer_3870elvd": {
+  "steps": [
+   "program custom_1",
+   "configure temp=121C time=20min exhaust=slow_liquids end_temp=80C",
+   "open lid",
+   "load media_1 --kind liquid --mass 700g --liquid water --volume 1L --material borosilicate_glass --closure loose",
+   "close lid",
+   "start",
+   "#wait 14400",
+   "open lid",
+   "unload media_1"
+  ],
+  "check": "status",
+  "from": "default lab"
+ },
+ "uic_kdl1basic": {
+  "steps": [
+   "set-temp 60C",
+   "vacuum 0.05mbar",
+   "rotate 300rpm",
+   "condenser 15C",
+   "method time=3min timeout=5min feed=1.5g/min",
+   "rotate off",
+   "power on",
+   "rotate 250rpm",
+   "start",
+   "#wait 30",
+   "stop"
+  ],
+  "check": "result",
+  "from": "uic_kdl1basic"
+ },
+ "ultrafast_helios": {
+  "steps": [
+   "power on",
+   "method delays=-1ps,0ps,1ps,2ps,5ps,10ps,20ps,50ps,100ps,200ps,500ps,1000ps",
+   "measure --wait",
+   "spectrum"
+  ],
+  "check": "analyze kinetics at=600nm tau=150ps",
+  "from": "ultrafast_helios"
+ },
+ "vacuubrand_pc3001_vario_select": {
+  "steps": [
+   "setpoint 50mbar",
+   "start",
+   "setpoint 30mbar --wait --max 10min",
+   "vent",
+   "#wait 300",
+   "calibrate reference=1013mbar",
+   "vent off",
+   "start",
+   "stop"
+  ],
+  "check": "read",
+  "from": "vacuubrand_pc3001_vario_select"
+ },
+ "vaisala_dmt152": {
+  "steps": [
+   "power on",
+   "#wait 60"
+  ],
+  "check": "result",
+  "from": "vaisala_dmt152"
+ },
+ "velp_udk159": {
+  "steps": [
+   "titrant 0.1M",
+   "method base=80mL boric=35mL",
+   "open door",
+   "close door",
+   "#wait 10",
+   "start",
+   "#wait 900"
+  ],
+  "check": "result",
+  "from": "default lab",
+  "expect": "succeeded"
+ },
+ "vici_euta_2sd6mwe": {
+  "steps": [
+   "select 3 --wait",
+   "select 3",
+   "select 5",
+   "#wait 2"
+  ],
+  "check": "read",
+  "from": "vici_euta_2sd6mwe"
+ },
+ "wtw_oxitopi": {
+  "steps": [
+   "power on",
+   "open incubator_door",
+   "close incubator_door",
+   "method --head h2 days=3",
+   "start --head h1"
+  ],
+  "check": "result --head h1",
+  "from": "wtw_oxitopi"
+ },
+ "wyatt_eclipseaf4": {
+  "steps": [
+   "method flow=1mL/min",
+   "load unknown_1 --volume 20uL",
+   "run",
+   "#wait 100",
+   "stop",
+   "chromatogram"
+  ],
+  "check": "chromatogram --signal uv_au",
+  "from": "wyatt_eclipseaf4"
+ },
+ "ziath_dp5_mirage_2023": {
+  "steps": [
+   "power on",
+   "open rack",
+   "open rack",
+   "close rack",
+   "configure matching=off",
+   "configure matching=on export=csv",
+   "start",
+   "stop",
+   "start",
+   "#wait 5",
+   "result"
+  ],
+  "check": "result --format json",
+  "from": "ziath_dp5_mirage_2023"
+ },
+ "zwick_hit5p": {
+  "steps": [
+   "method interval=2ms time=10s",
+   "start",
+   "#wait 10"
+  ],
+  "check": "result",
+  "from": "default lab"
+ },
+ "zwick_mflow": {
+  "steps": [
+   "set-temp 250C",
+   "method window=40mm..10mm time=300s",
+   "#wait 300",
+   "start",
+   "#wait 300",
+   "result"
+  ],
+  "check": "analyze density=1.1g/cm3",
+  "from": "zwick_mflow"
+ }
+}

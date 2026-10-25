@@ -632,9 +632,9 @@ def export_rv10_contract_metadata():
             "state_effects": [{"state_id": s, "timing": "immediate", "description_zh": summaries[cap] if s == sid else "同步派生控制状态；不推进时间"} for s in (sid, *immediate[cap])] + [{"state_id": s, "timing": "on_step", "description_zh": "仅宿主step推进工程模型，保留各过程独立性"} for s in on_step],
             "observes": [sid], "example_arguments": [examples[cap]], "binding": f"basic40_runtime_vacuum.RV10Session.invoke(instance_id=..., capability_id='{cap}', arguments=..., request_id=...)"}
     for cap, arg, unit, explanation in (
-            ("vacuum.set_pressure", "pressure_pa", "Pa", "压力设定归外部真空源；本仪器无内部泵或压力控制驱动。"),
+            ("vacuum.set_pressure", "pressure_pa", "Pa", "不支持：压力设定归外接真空控制器/真空泵（本仪器无内部泵或压力控制驱动），本仪器上调用返回UNSUPPORTED；外部腔体抽气由vacuum.start/vacuum.stop表示。"),
             ("timer.set_duration", "duration_s", "s", "目录计时功能已登记，但无已核实的计时范围/完成行为与运行绑定。")):
-        caps[cap] = {"availability": "declared", "visibility": "agent", "kind": "device_command", "description_zh": explanation,
+        caps[cap] = {"availability": "unsupported" if cap == "vacuum.set_pressure" else "declared", "visibility": "agent", "kind": "device_command", "description_zh": explanation,   # 1.3.1: set_pressure is unsupported, not planned
             "input_schema": {"type": "object", "properties": {arg: {"type": "number", "exclusiveMinimum": 0, "x-unit": unit}}, "required": [arg], "additionalProperties": False},
             "output_schema": {"type": "object", "properties": {}, "additionalProperties": False}, "state_effects": [], "observes": [], "example_arguments": [{arg: 1000.0 if unit == "Pa" else 60.0}], "binding": None}
     params = {
@@ -3617,7 +3617,7 @@ def g03_owner_note(g, before, after, principal, visibility, panel_principal):
 # lumped liquid balance above (pause / resume / abort / restore, scheduled pauses, out-of-tips pause, blue / red alarm), Maintenance settings,
 # Manual Control, pipette pump calibration (coefficient and offset applied to the run volumes), Flush Solvent Inlets, Re-Initialize, reports,
 # Shut Down, and the front panel.  The CHEM-031 commands keep their meaning; the pipette error model (evaluator only) is 0 by default.
-EXTRAHERA_ASSET_VERSION = "1.3.0"
+EXTRAHERA_ASSET_VERSION = "1.3.1"
 EXTRAHERA_ASSET_DIR = G03_ASSET_ROOT / "biotage_extrahera"
 EXTRAHERA_MANUAL = "references/manuals/biotage_extrahera_classic/operating_manual__extrahera_user_manual_414158.pdf"
 EXTRAHERA_INSTRUMENT_TYPES = {"24 Positions, Column Rack": (6, 4, 4, 3), "48 Positions, Column Rack": (12, 4, 4, 3), "48 Positions, Plate": (6, 8, 8, 7),
@@ -4420,9 +4420,9 @@ def _exh_summary(state, sources):
 
 
 class _ExhRefused(Exception):
-    def __init__(self, code):
+    def __init__(self, code, detail=None):
         super().__init__(code)
-        self.code = code
+        self.code, self.detail = code, detail   # 1.3.1: detail = a message naming the cause
 
 
 _g03_ExtraheraHostBase = ExtraheraHost
@@ -4790,7 +4790,10 @@ class ExtraheraSession(_g03_ExtraheraSessionBase):
             result, operation_id, status = getattr(self, "_exh_" + cap.replace(".", "_"))(candidate, args)
         except _ExhRefused as exc:
             if exc.code in ("INVALID_ARGUMENT", "PRECONDITION_FAILED", "BUSY", "UNKNOWN_CAPABILITY", "ACCESS_DENIED"):
-                return self._error(inst.instance_id, exc.code, rid)
+                response = self._error(inst.instance_id, exc.code, rid)
+                if exc.detail:
+                    response["error"]["message"] = exc.detail
+                return response
             return self._envelope(inst.instance_id, rid, status="rejected", error={"code": exc.code, "message": EXTRAHERA_DEVICE_ERRORS[exc.code],
                                                                                    "retryable": False, "side_effects": "none", "known_progress": None})
         candidate.state["lights.state"] = self._lights(candidate.state)
@@ -4994,7 +4997,8 @@ class ExtraheraSession(_g03_ExtraheraSessionBase):
         self._ready(c)
         s = c.state
         inlet = s["inlets.state"][args["inlet"]]
-        if inlet["assigned"] is None: raise _ExhRefused("INVALID_ARGUMENT")
+        if inlet["assigned"] is None:   # 1.3.1: a state refusal (was INVALID_ARGUMENT) that names the cause
+            raise _ExhRefused("PRECONDITION_FAILED", "No solvent bottle is assigned to inlet %s (Prepare Run: run.setup section 'bottles')." % args["inlet"])
         if s["manual.state"]["door"] == "open": raise _ExhRefused("DOOR_OPEN")
         if c.sources is None or c.sources.get(args["inlet"], 0.0) + 1e-15 < args["volume_m3"]: raise _ExhRefused("NOT_ENOUGH_SOLVENT")
         if inlet["line"] != inlet["assigned"]:
@@ -7063,7 +7067,7 @@ PURELAB_G03_LIMITATIONS = [
 # end a beep, the rotation stops and the lift goes up), Int (direction change every 1-60 s, speed limited to 200 rpm), and an approximate
 # HB 10 digital bath panel (its manual is not available).  The CHEM-024 commands keep their meaning; timer.set_duration, declared before,
 # is now implemented with the manual's behaviour.
-RV10_ASSET_VERSION = "1.3.0"
+RV10_ASSET_VERSION = "1.3.1"   # 1.3.1 (2026-10-22): vacuum.set_pressure unsupported (was declared)
 RV10_ASSET_DIR = G03_ASSET_ROOT / "ika_rv10"
 RV10_MANUAL = "references/manuals/ika_rv10_digital_v/operating_manual__rv10_basic_digital_nist.pdf"
 RV10_PANEL_MIN_RPM, RV10_PANEL_MAX_RPM, RV10_INTERVAL_MAX_RPM = 20, 270, 200   # p.22 (speed range 20-270 rpm, 200 rpm in interval mode)

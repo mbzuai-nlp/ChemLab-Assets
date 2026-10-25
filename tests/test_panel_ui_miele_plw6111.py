@@ -696,6 +696,21 @@ class DeviceFunctions(Base):
         g.call(g.A, 'washing.stop')                                                     # the direct stop cancels a panel programme
         self.assertEqual((g.state('programme.status'), g.state('history.records')[-1]['result']), ('cancelled', 'NO DISINFECTION'))
 
+    def test_door_refused_busy_while_interrupted_and_busy_declared(self):
+        # chemlab finding (2026-10-22): the contract's door.open precondition named only program.running (false while interrupted)
+        # while the runtime answers BUSY when interrupted; BUSY was not in the error tables
+        g = self.rig()
+        g.call(g.A, 'door.close')
+        g.call(g.A, 'programme.start')
+        g.call(g.A, 'programme.interrupt')
+        self.assertEqual((g.state('program.running'), g.state('programme.status')), (False, 'interrupted'))
+        self.assertEqual(g.call(g.A, 'door.open', expect='rejected')['error']['code'], 'BUSY')
+        c = json.loads((ASSET / 'asset.contract.json').read_text())
+        pre = c['capabilities']['door.open']['preconditions']
+        self.assertTrue(any('programme.status' in x['state_ids'] and 'interrupted' in x['description_zh'] for x in pre))
+        for cap in ('door.open', 'door.close', 'basket.set_position', 'washing.start', 'programme.start'):
+            self.assertIn('BUSY', [e['code'] for e in c['capabilities'][cap]['errors']], cap)
+
     def test_history_keeps_200_and_host_timed_programmes_show(self):
         g = self.rig()
         g.call(g.A, 'programme.select', programme_id='drain')

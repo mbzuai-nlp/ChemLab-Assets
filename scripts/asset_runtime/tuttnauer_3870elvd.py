@@ -30,7 +30,7 @@ import zlib
 from pathlib import Path
 
 PROTOCOL_VERSION = "1.0.0"
-ASSET_VERSION = "1.2.0"
+ASSET_VERSION = "1.2.1"   # 1.2.1 (2026-10-22): lid interlock on the end temperature below 100 C
 SLUG = 'tuttnauer_3870elvd'
 ASSET_TYPE_ID = "instrument.tuttnauer_3870elvd"
 CATALOG_ID = "CHEM-192"
@@ -639,8 +639,10 @@ class TuttnauerElvdRuntime:
             return False
         running = self.cycle is not None and self.cycle['stage'] not in ('complete', 'failed')
         end_t = self.params[self.program]['end_temperature_k']
-        return bool(running or self._pressure() - self._P_atm() > ENG['door_open_pressure_pa'] or (self.T_w is not None and self.T_w > max(end_t, 373.15) + 0.5
-                                                                                                 and self._pressure() - self._P_atm() > 0.0))
+        # door interlock (manual p.16; p.42 sec. 9.1 point 4; p.41 'Temp2 High'): locked while either temperature sensor reads above the preset
+        # end temperature (0.5 K hysteresis), whatever the end temperature (1.2.1: the old max(end_t, 100 C) let a liquids lid open hot)
+        hot = self.T_w is not None and max(self._t1_true_reading(), self._reference_temperature()) > end_t + 0.5
+        return bool(running or self._pressure() - self._P_atm() > ENG['door_open_pressure_pa'] or hot)
 
     def _area(self, L):
         if L['kind'] == 'liquid':

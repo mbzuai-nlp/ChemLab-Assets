@@ -685,6 +685,35 @@ class ElvdController(unittest.TestCase):
         g.call(g.A, 'usb.export', expect='POWER_OFF', content='history')
 
 
+class FixRoundB(unittest.TestCase):
+    """chemlab findings (2026-10-22)."""
+    def test_lid_stays_locked_down_to_an_end_temperature_below_100_c(self):
+        # W2: a liquids cycle with end temperature 80 C completed and unlocked the lid with the chamber at about 111 C (dry stage) and the
+        # load near 100 C; manual p.42 sec. 9.1 point 4: the door opens only when both sensors are at or below the preset end temperature
+        g = Rig()
+        g.on()
+        g.open_lid()
+        g.bottles(1, bi=False)
+        g.close_lid()
+        g.call(g.A, 'program.configure', program='custom_1', temperature_k=394.15, time_s=600.0, exhaust='slow_liquids', end_temperature_k=353.15)
+        marks = g.run('custom_1', limit=6 * 3600.0, every=30.0)
+        self.assertIn('complete', marks)
+        hot = lambda: max(g.h._t1_true_reading(), g.h._reference_temperature()) > 353.15 + 0.5   # noqa: E731
+        self.assertTrue(hot())
+        self.assertTrue(g.read('lid.locked'))
+        g.call(g.A, 'lid.set', expect='LID_LOCKED', open=True)
+        self.assertIn('DOOR_LOCKED_HOT', g.read('alarms.active'))
+        t = 0.0
+        while hot() and t < 8 * 3600.0:
+            self.assertTrue(g.read('lid.locked'))
+            g.step(60.0)
+            t += 60.0
+        self.assertFalse(hot())
+        self.assertFalse(g.read('lid.locked'))
+        g.open_lid()
+        self.assertGreater(g.read('lid.angle_rad'), 0.5)
+
+
 class ZCoverage(unittest.TestCase):
     def test_all_capabilities_exercised(self):
         implemented = {k for k in rt.CAPS if k not in rt.UNSUPPORTED}

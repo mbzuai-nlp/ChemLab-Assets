@@ -175,6 +175,41 @@ class SolventLibraryTests(unittest.TestCase):
         with self.assertRaisesRegex(ActionRejected,'REFERENCE_INCOMPLETE'):g.invoke('charge.configure_from_reference',**dict(CHARGE_REF_EXAMPLE,solvent_id='menthol'))
         r=g.session().invoke(instance_id=g.instance_id,capability_id='charge.configure_from_reference',arguments=CHARGE_REF_EXAMPLE,request_id='a');self.assertEqual(r['error']['code'],'ACCESS_DENIED')
 
+
+class FixRoundB(unittest.TestCase):
+    """chemlab finding (2026-10-22): older finished operations stay pollable (poll used to accept only the latest operation)."""
+    def test_older_operation_stays_pollable(self):
+        import sys as _sys
+        h=configured();s=h.session();h.register_principal('fixb_other');other=h.session('fixb_other')
+        Rejected=_sys.modules[type(h).__module__].ActionRejected
+        start=lambda rid: s.invoke(instance_id=h.instance_id,capability_id='acquisition.start',arguments={},request_id=rid)['operation_id']   # noqa: E731
+        op1=start('fixb_1');s.cancel(op1,'fixb_c1');h.step(5)
+        final=s.poll(op1);self.assertEqual(final['status'],'cancelled')
+        op2=start('fixb_2');self.assertNotEqual(op1,op2);h.step(0.5)
+        self.assertEqual(s.poll(op1),final)                                   # the frozen final record of op1
+        self.assertEqual(s.cancel(op1,'fixb_c2'),final)                        # nothing to cancel: op2 keeps running
+        self.assertEqual(s.poll(op2)['status'],'running')
+        with self.assertRaises(Rejected):other.poll(op1)
+        with self.assertRaises(Rejected):s.poll(h.instance_id+':no_such_operation')
+
+    def test_schema_grids_match_the_runtime(self):
+        # D6: the grids the runtime enforces are declared in the input schemas (multipleOf)
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills/chemistry-lab-assets/scripts'))
+        from asset_tool import validate_value
+        caps=export_ossila_doctorblade_contract_metadata()['capabilities']
+        grids={('gap.set','left_m'):1e-6,('gap.set','right_m'):1e-6,('method.configure','speed_m_s'):1e-5,('stage.move_to','speed_m_s'):1e-5,
+               ('settings.configure','manual_speed_m_s'):1e-6,('settings.configure','brightness_pct'):5,('program.set_step','length_m'):1e-5,
+               ('program.set_step','speed_m_s'):1e-5,('program.set_step','delay_s'):.01}
+        for (cap,field),q in grids.items():
+            self.assertEqual(caps[cap]['input_schema']['properties'][field]['multipleOf'],q,(cap,field))
+        h=configured();s=h.session()
+        gap=lambda l,rid:s.invoke(instance_id=h.instance_id,capability_id='gap.set',arguments={'left_m':l,'right_m':1e-4},request_id=rid)   # noqa: E731
+        self.assertEqual(gap(123e-6,'g1')['status'],'succeeded')
+        self.assertEqual(validate_value({'left_m':123e-6,'right_m':1e-4},caps['gap.set']['input_schema']),[])
+        self.assertEqual(gap(123.5e-6,'g2')['error']['code'],'INVALID_ARGUMENT')
+        self.assertTrue(validate_value({'left_m':123.5e-6,'right_m':1e-4},caps['gap.set']['input_schema']))
+
 if __name__=='__main__':unittest.main()
 
 

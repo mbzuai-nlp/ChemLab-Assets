@@ -234,4 +234,17 @@ class RgaTests(unittest.TestCase):
   for row,pressure in zip(o['species'],[1e-4,2e-4]):self.assertAlmostEqual(row['partial_pressure_pa'],pressure,12)
   values,profile,groups,raw=r._observation_space(o,['test_peak_a','test_peak_b']);coeff=np.array([r._gain('test_peak_a')*1e-4,r._gain('test_peak_b')*2e-4]);self.assertGreater((profile@coeff)[0]-np.max(raw[groups[0]]@coeff),1e-11)
 
+class FixRoundB(unittest.TestCase):
+ def test_species_without_value_say_why(self):
+  """candidates without a calibration curve used to come back with null values and empty quality lists."""
+  r=ready(method=dict(candidates=['nitrogen','argon']));scan(r,BLANK_EXAMPLE);res=scan(r,SAMPLE_EXAMPLE)
+  self.assertEqual(res['matrix_rank'],0);self.assertIn('calibration_missing_or_signature',res['quality'])
+  for row in res['species']:self.assertIsNone(row['partial_pressure_pa']);self.assertEqual(row['quality'],['calibration_missing_or_signature'])
+  r=calibrated();r.invoke('filament.set',enabled=False);r.invoke('sample.load',**copy.deepcopy(SAMPLE_EXAMPLE));r.invoke('scan.start')   # a dark scan
+  while r.phase=='running':r.step(.02)
+  res=r.invoke('result.read');self.assertIn('filament_off_dark_scan',res['quality'])
+  for row in res['species']:self.assertIsNone(row['partial_pressure_pa']);self.assertIn('record_quality:filament_off_dark_scan',row['quality'])
+  self.assertEqual(ASSET_VERSION,'1.0.1')
+ def test_calibrated_rows_unchanged(self):
+  r=calibrated();res=scan(r,SAMPLE_EXAMPLE);self.assertEqual(res['quality'],[]);self.assertTrue(all(x['quality']==[] and x['partial_pressure_pa'] is not None for x in res['species']))
 if __name__=='__main__':unittest.main()

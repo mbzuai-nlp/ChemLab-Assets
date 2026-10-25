@@ -58,7 +58,7 @@ import re
 from pathlib import Path
 
 PROTOCOL_VERSION = '1.0.0'
-ASSET_VERSION = '1.2.0'
+ASSET_VERSION = '1.2.1'   # 1.2.1 (2026-10-22): experiment.id keeps the last ended experiment
 SLUG = 'mt_rc1mxhfcal'
 ASSET_TYPE_ID = 'instrument.' + SLUG
 CATALOG_ID = 'CHEM-149'
@@ -711,7 +711,7 @@ slot('reactor.charged_mass_kg', number('kg'), 'kg', 'derived', 'reactor_vessel',
 slot('emergency.program', nullable(PROGRAM), '1', 'derived', 'electronics_cabinet', '当前急停程序A/B1/B2/C；无为null')
 slot('fault.injected', array(TEXT, 0, 14), '1', 'setpoint', 'electronics_cabinet', '评测者注入且尚未消除的RC1e硬件故障原因（fault.inject）', 'evaluator')
 slot('emergency.cause', nullable(TEXT), '1', 'derived', 'electronics_cabinet', '触发急停的原因代码；无为null')
-slot('experiment.id', nullable(TEXT), '1', 'derived', 'touch_display', '当前实验ID；无为null')
+slot('experiment.id', nullable(TEXT), '1', 'derived', 'touch_display', '当前实验ID；没有进行中的实验时为最近结束的实验ID（experiment.running区分），供experiment.data / calorimetry.evaluate使用；从未开始过实验为null')
 slot('touchscreen.warning', BOOL, '1', 'derived', 'touch_display', '触摸屏显示开机操作篡改警告（待确认或拒绝）')
 for k, sch, u, c, m in [('safety.tsafe_k', number('K'), 'K', 'electronics_cabinet', '安全温度Tsafe（急停程序B1/C的目标）'),
                         ('safety.tr_min_k', number('K'), 'K', 'tr_sensor', 'Tr下限（低于→急停程序C）'), ('safety.tr_max_k', number('K'), 'K', 'tr_sensor', 'Tr上限（高于→急停程序A）'),
@@ -940,7 +940,7 @@ class MtRc1mxhfcalRuntime:
             'dosing.rate_kg_s': self.dosing['rate'] if self.dosing else 0.0, 'reactor.charged_mass_kg': self.charged_kg,
             'emergency.program': self.emergency['program'] if self.emergency else None, 'emergency.cause': self.emergency['cause'] if self.emergency else None,
             'fault.injected': list(self.faults),
-            'experiment.id': self.experiment['id'] if self.experiment else None, 'touchscreen.warning': self.power and self.warning_pending,
+            'experiment.id': self.experiment['id'] if self.experiment else self.__dict__.get('last_experiment_id'), 'touchscreen.warning': self.power and self.warning_pending,
             'safety.tsafe_k': self.safety['tsafe_k'], 'safety.tr_min_k': self.safety['tr_min_k'], 'safety.tr_max_k': self.safety['tr_max_k'],
             'safety.tj_min_k': self.safety['tj_min_k'], 'safety.tj_max_k': self.safety['tj_max_k'], 'safety.tdiff_max_k': self.safety['tdiff_max_k'],
             'safety.rsafe_rpm': self.safety['rsafe_rpm'], 'safety.rmin_rpm': self.safety['rmin_rpm'], 'safety.rmax_rpm': self.safety['rmax_rpm'],
@@ -1181,6 +1181,7 @@ class MtRc1mxhfcalRuntime:
         self.experiment = None
         e['running'] = False
         e['t1'] = self.time_s
+        self.last_experiment_id = e['id']                                    # 1.2.1: stays readable for experiment.data after the end
         self.records[e['id']] = e
         if len(self.records) > MAX_RECORDS:
             self.records.pop(next(iter(self.records)))

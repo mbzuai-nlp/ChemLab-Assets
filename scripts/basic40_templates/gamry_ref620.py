@@ -312,7 +312,7 @@ def capability_metadata() -> dict[str, dict[str, Any]]:
     return {
         "template.list": entry("template.list", obj({}), LIST_OUTPUT, {}, "query",
                                "列出公开氧化还原电对参考库条目（标准电位、电子数、扩散系数来源）；不透露当前电解池。", "实例可用。", ["root"]),
-        "template.read": entry("template.read", READ_INPUT, READ_OUTPUT, {"substance_id": "redox_fe3_fe2"}, "query",
+        "template.read": entry("template.read", READ_INPUT, READ_OUTPUT, {"substance_id": "redox_fep3_to_fep2"}, "query",   # 1.1.1: was redox_fe3_fe2 (not in the library)
                                "读取一条公开参考记录（电对或参比电极）及来源证据；不透露当前电解池内容。", "实例可用；substance_id为库内条目。", ["root"]),
         "electrochem.template_cv": entry("electrochem.template_cv", CV_INPUT, CV_OUTPUT,
                                          {"e_start_v": 0.6, "e_vertex_v": -0.2, "scan_rate_v_s": 0.1, "points_per_segment": None}, "analysis",

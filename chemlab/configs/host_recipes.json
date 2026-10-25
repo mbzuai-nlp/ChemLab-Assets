@@ -1,0 +1,1259 @@
+{
+ "about": "Host recipes of the Chemistry-Sim runtimes (how each runtime host is built and how its clock is advanced), exported from the Matterix simulator bridge (runtime_bridge.py: RECIPES and PANEL_RECIPES) by \"python -m chemlab.recipes --export\". chemlab reads this file when the bridge is not present.",
+ "n_recipes": 195,
+ "n_panel_recipes": 8,
+ "PANEL_RECIPES": {
+  "instrument.agilent_7890b_ssl_fid": {
+   "advance": "step_dt",
+   "cls": "GC7890BRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.agilent_7890b_ssl_fid"
+  },
+  "instrument.binder_vd56": {
+   "advance": "step_dt",
+   "cls": "BinderVD56Runtime",
+   "create": "type",
+   "module": "basic40_runtime_thermal"
+  },
+  "instrument.carbolite_tf1_12_60_300": {
+   "advance": "step_dt",
+   "cls": "CarboliteTF1Runtime",
+   "create": "type",
+   "module": "basic40_runtime_thermal"
+  },
+  "instrument.multiwave_7101": {
+   "advance": "step_dt",
+   "cls": "Multiwave7101Runtime",
+   "create": "type",
+   "module": "basic40_runtime_thermal"
+  },
+  "instrument.nabertherm_l9": {
+   "advance": "step_dt",
+   "cls": "NaberthermL9Runtime",
+   "create": "type",
+   "module": "basic40_runtime_thermal"
+  },
+  "instrument.ohaus_px224e": {
+   "advance": "step_dt",
+   "cls": "OhausBalanceRuntime",
+   "ctor": {
+    "model": "PX224E"
+   },
+   "instance_kw": "instance_id",
+   "module": "asset_runtime.ohaus_balance"
+  },
+  "instrument.ohaus_spx2201": {
+   "advance": "step_dt",
+   "cls": "OhausBalanceRuntime",
+   "ctor": {
+    "model": "SPX2201"
+   },
+   "instance_kw": "instance_id",
+   "module": "asset_runtime.ohaus_balance"
+  },
+  "instrument.parr_4591": {
+   "advance": "step_dt",
+   "cls": "Parr4591Runtime",
+   "create": "type",
+   "module": "basic40_runtime_thermal"
+  }
+ },
+ "RECIPES": {
+  "instrument.agilent_1260infinity": {
+   "advance": "step_dt",
+   "cls": "Agilent1260infinityRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.agilent_1260infinity"
+  },
+  "instrument.agilent_1290infinity": {
+   "advance": "step_dt",
+   "cls": "Agilent1290infinityRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.agilent_1290infinity"
+  },
+  "instrument.agilent_gc8890b": {
+   "advance": "host_step_dt",
+   "cls": "AgilentGC8890B",
+   "instance_in_ctor": true,
+   "module": "basic40_runtime_analytical"
+  },
+  "instrument.agilent_hplc1260": {
+   "advance": "host_advance_abs",
+   "cls": "AgilentHPLC1260Runtime",
+   "instance_in_ctor": true,
+   "module": "basic40_runtime_analytical"
+  },
+  "instrument.agilent_hs8697": {
+   "advance": "clock_host_update",
+   "cls": "AgilentHS8697",
+   "instance_in_ctor": true,
+   "module": "basic40_runtime_analytical"
+  },
+  "instrument.alicat_mc_1slpm_rev6": {
+   "advance": "host_step_dt",
+   "cls": "AlicatMCRuntime",
+   "create": "type",
+   "module": "basic40_runtime_automation"
+  },
+  "instrument.ametek_oxtran": {
+   "advance": "step_dt",
+   "cls": "AmetekOxtranRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ametek_oxtran"
+  },
+  "instrument.antonpaar_abbematadvanced": {
+   "advance": "step_dt",
+   "cls": "AntonpaarAbbematadvancedRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_abbematadvanced"
+  },
+  "instrument.antonpaar_autosorb6100": {
+   "advance": "step_dt",
+   "cls": "AntonpaarAutosorb6100Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_autosorb6100"
+  },
+  "instrument.antonpaar_dma5002": {
+   "advance": "step_dt",
+   "cls": "AntonpaarDma5002Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_dma5002"
+  },
+  "instrument.antonpaar_hit300": {
+   "advance": "step_dt",
+   "cls": "AntonpaarHit300Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_hit300"
+  },
+  "instrument.antonpaar_litesizerdia": {
+   "advance": "step_dt",
+   "cls": "AntonpaarLitesizerdiaRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_litesizerdia"
+  },
+  "instrument.antonpaar_litesizerdls": {
+   "advance": "step_dt",
+   "cls": "AntonpaarLitesizerdlsRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_litesizerdls"
+  },
+  "instrument.antonpaar_mcr503": {
+   "advance": "step_dt",
+   "cls": "AntonpaarMcr503Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_mcr503"
+  },
+  "instrument.antonpaar_monowave400": {
+   "advance": "step_dt",
+   "cls": "AntonpaarMonowave400Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_monowave400"
+  },
+  "instrument.antonpaar_poremaster60": {
+   "advance": "step_dt",
+   "cls": "AntonpaarPoremaster60Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_poremaster60"
+  },
+  "instrument.antonpaar_psa1190": {
+   "advance": "step_dt",
+   "cls": "AntonpaarPsa1190Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_psa1190"
+  },
+  "instrument.antonpaar_rst300": {
+   "advance": "step_dt",
+   "cls": "AntonpaarRst300Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_rst300"
+  },
+  "instrument.antonpaar_saxspace": {
+   "advance": "step_dt",
+   "cls": "AntonpaarSaxspaceRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_saxspace"
+  },
+  "instrument.antonpaar_surpass3": {
+   "advance": "step_dt",
+   "cls": "AntonpaarSurpass3Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_surpass3"
+  },
+  "instrument.antonpaar_trb": {
+   "advance": "step_dt",
+   "cls": "AntonpaarTrbRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_trb"
+  },
+  "instrument.antonpaar_ultrapyc5000": {
+   "advance": "step_dt",
+   "cls": "AntonpaarUltrapyc5000Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.antonpaar_ultrapyc5000"
+  },
+  "instrument.applied_sx20": {
+   "advance": "step_dt",
+   "cls": "AppliedSx20Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.applied_sx20"
+  },
+  "instrument.aqualab_4te": {
+   "advance": "step_dt",
+   "cls": "Aqualab4teRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.aqualab_4te"
+  },
+  "instrument.arradiance_gemstarxt": {
+   "advance": "step_dt",
+   "cls": "ArradianceGemstarxtRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.arradiance_gemstarxt"
+  },
+  "instrument.azenta_automated_roll_heat_sealer_a4s": {
+   "advance": "host_step_dt_world",
+   "cls": "AzentaHeatSealerRuntime",
+   "create": "scene",
+   "module": "basic40_runtime_automation"
+  },
+  "instrument.azenta_intellixcap_s1_46_0001": {
+   "advance": "host_step_dt",
+   "cls": "IntelliXcapS1Runtime",
+   "create": "plain",
+   "module": "basic40_runtime_automation"
+  },
+  "instrument.bd_facsariaiii": {
+   "advance": "step_dt",
+   "cls": "BdFacsariaiiiRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.bd_facsariaiii"
+  },
+  "instrument.binder_fd056": {
+   "advance": "step_dt",
+   "cls": "BinderFd056Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.binder_fd056"
+  },
+  "instrument.binder_kbf115": {
+   "advance": "step_dt",
+   "cls": "BinderKbf115Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.binder_kbf115"
+  },
+  "instrument.biolin_mediuml": {
+   "advance": "step_dt",
+   "cls": "BiolinMediumlRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.biolin_mediuml"
+  },
+  "instrument.biolin_sigma700": {
+   "advance": "step_dt",
+   "cls": "BiolinSigma700Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.biolin_sigma700"
+  },
+  "instrument.biolin_thetaflex": {
+   "advance": "step_dt",
+   "cls": "BiolinThetaFlexRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.biolin_thetaflex"
+  },
+  "instrument.biorad_cfxopus": {
+   "advance": "step_dt",
+   "cls": "BioradCfxOpusRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.biorad_cfxopus"
+  },
+  "instrument.biorad_miniprotean": {
+   "advance": "step_dt",
+   "cls": "BioradMiniproteanRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.biorad_miniprotean"
+  },
+  "instrument.biotage_extrahera_classic": {
+   "advance": "step_dt",
+   "cls": "ExtraheraHost",
+   "create": "type",
+   "module": "basic40_runtime_vacuum"
+  },
+  "instrument.biotage_selekt": {
+   "advance": "step_dt",
+   "cls": "BiotageSelektRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.biotage_selekt"
+  },
+  "instrument.biotek_405ts": {
+   "advance": "step_dt",
+   "cls": "Biotek405tsRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.biotek_405ts"
+  },
+  "instrument.bmg_clariostarplus": {
+   "advance": "step_dt",
+   "cls": "BmgClariostarplusRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.bmg_clariostarplus"
+  },
+  "instrument.bronkhorst_cemw": {
+   "advance": "step_dt",
+   "cls": "BronkhorstCemwRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.bronkhorst_cemw"
+  },
+  "instrument.bronkhorst_p702cv_5bar_gauge_n2": {
+   "advance": "step_dt_world",
+   "cls": "P702CVRuntime",
+   "ctor": {
+    "control_gain_per_Pa_s": 1e-06,
+    "downstream_absolute_pressure_Pa": 101325.0,
+    "inflow_mol_s": 0.0001,
+    "initial_upstream_absolute_pressure_Pa": 301325.0,
+    "pressure_reference_Pa": 101325.0,
+    "temperature_K": 293.15,
+    "upstream_volume_m3": 0.001,
+    "valve_conductance_mol_s_Pa": 1e-08
+   },
+   "instance_in_ctor": true,
+   "module": "basic40_runtime_automation"
+  },
+  "instrument.brooks_preciseflex_400": {
+   "advance": "host_set_clock_abs",
+   "cls": "PreciseFlex400Runtime",
+   "create": "plain",
+   "module": "basic40_runtime_automation"
+  },
+  "instrument.bruker_magnettechesr5000": {
+   "advance": "step_dt",
+   "cls": "BrukerMagnettechesr5000Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.bruker_magnettechesr5000"
+  },
+  "instrument.bruker_minispecmq20": {
+   "advance": "step_dt",
+   "cls": "BrukerMinispecMq20Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.bruker_minispecmq20"
+  },
+  "instrument.bruker_x4poseidon": {
+   "advance": "step_dt",
+   "cls": "BrukerX4PoseidonRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.bruker_x4poseidon"
+  },
+  "instrument.buchi_encapsulatorb": {
+   "advance": "step_dt",
+   "cls": "BuchiEncapsulatorbRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.buchi_encapsulatorb"
+  },
+  "instrument.buchi_hydrolexh": {
+   "advance": "step_dt",
+   "cls": "BuchiHydrolexhRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.buchi_hydrolexh"
+  },
+  "instrument.buchi_lyovapor_l250_pro": {
+   "advance": "step_dt",
+   "cls": "LyovaporHost",
+   "create": "type",
+   "module": "basic40_runtime_vacuum"
+  },
+  "instrument.buchi_minispray": {
+   "advance": "step_dt",
+   "cls": "BuchiMinisprayRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.buchi_minispray"
+  },
+  "instrument.buchi_speedextractore": {
+   "advance": "step_dt",
+   "cls": "BuchiSpeedextractoreRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.buchi_speedextractore"
+  },
+  "instrument.camag_tlcscanner": {
+   "advance": "step_dt",
+   "cls": "CamagTlcscannerRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.camag_tlcscanner"
+  },
+  "instrument.cem_libertyblue": {
+   "advance": "step_dt",
+   "cls": "CemLibertyblueRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.cem_libertyblue"
+  },
+  "instrument.ch_chi440c": {
+   "advance": "step_dt",
+   "cls": "ChChi440cRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ch_chi440c"
+  },
+  "instrument.ch_chi920d": {
+   "advance": "step_dt",
+   "cls": "ChChi920dRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ch_chi920d"
+  },
+  "instrument.cytiva_biacoret200": {
+   "advance": "step_dt",
+   "cls": "CytivaBiacoret200Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.cytiva_biacoret200"
+  },
+  "instrument.cytiva_ktaoligosynt": {
+   "advance": "step_dt",
+   "cls": "CytivaKtaoligosyntRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.cytiva_ktaoligosynt"
+  },
+  "instrument.cytiva_nanoassemblrignite": {
+   "advance": "step_dt",
+   "cls": "CytivaNanoassemblrigniteRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.cytiva_nanoassemblrignite"
+  },
+  "instrument.eco_ncld822": {
+   "advance": "step_dt",
+   "cls": "EcoNcld822Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.eco_ncld822"
+  },
+  "instrument.edinburgh_fls1000tcspc": {
+   "advance": "step_dt",
+   "cls": "EdinburghFls1000tcspcRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.edinburgh_fls1000tcspc"
+  },
+  "instrument.elementar_isoprimeprecision": {
+   "advance": "step_dt",
+   "cls": "ElementarIsoprimeprecisionRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.elementar_isoprimeprecision"
+  },
+  "instrument.elementar_varioel": {
+   "advance": "step_dt",
+   "cls": "ElementarVarioelRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.elementar_varioel"
+  },
+  "instrument.elga_purelab_flex3": {
+   "advance": "step_dt",
+   "cls": "PurelabHost",
+   "create": "type",
+   "module": "basic40_runtime_vacuum"
+  },
+  "instrument.elma_elmasonics60h": {
+   "advance": "step_dt",
+   "cls": "ElmaElmasonics60hRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.elma_elmasonics60h"
+  },
+  "instrument.eppendorf_5910ri": {
+   "advance": "host_advance_abs",
+   "agent_session_default": true,
+   "cls": "Eppendorf5910Ri",
+   "evaluator_register_positional": true,
+   "instance_in_ctor": true,
+   "module": "basic40_runtime_analytical"
+  },
+  "instrument.eppendorf_cellxpertc170i": {
+   "advance": "step_dt",
+   "cls": "EppendorfCellxpertC170iRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.eppendorf_cellxpertc170i"
+  },
+  "instrument.eppendorf_cryocubef570n": {
+   "advance": "step_dt",
+   "cls": "EppendorfCryocubef570nRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.eppendorf_cryocubef570n"
+  },
+  "instrument.esco_ac24s8": {
+   "advance": "step_dt",
+   "cls": "EscoAc24s8Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.esco_ac24s8"
+  },
+  "instrument.esco_efa5uduvw": {
+   "advance": "step_dt",
+   "cls": "EscoEfa5uduvwRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.esco_efa5uduvw"
+  },
+  "instrument.evident_bx53p": {
+   "advance": "step_dt",
+   "cls": "EvidentBx53pRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.evident_bx53p"
+  },
+  "instrument.freeman_ft4powder": {
+   "advance": "step_dt",
+   "cls": "FreemanFt4powderRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.freeman_ft4powder"
+  },
+  "instrument.frontier_egapy": {
+   "advance": "step_dt",
+   "cls": "FrontierEgapyRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.frontier_egapy"
+  },
+  "instrument.fujifilm_dmp2850": {
+   "advance": "step_dt",
+   "cls": "FujifilmDmp2850Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.fujifilm_dmp2850"
+  },
+  "instrument.gamry_reference620": {
+   "advance": "step_dt",
+   "cls": "GamryReference620Runtime",
+   "create": "type",
+   "module": "basic40_runtime_measure"
+  },
+  "instrument.gas_flavourspec25gc": {
+   "advance": "step_dt",
+   "cls": "GasFlavourspec25gcRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.gas_flavourspec25gc"
+  },
+  "instrument.genevac_mivac2": {
+   "advance": "step_dt",
+   "cls": "GenevacMivac2Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.genevac_mivac2"
+  },
+  "instrument.gilson_cpc250": {
+   "advance": "step_dt",
+   "cls": "GilsonCpc250Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.gilson_cpc250"
+  },
+  "instrument.glatt_miniglatt": {
+   "advance": "step_dt",
+   "cls": "GlattMiniglattRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.glatt_miniglatt"
+  },
+  "instrument.hach_dr6000": {
+   "advance": null,
+   "cls": "HachDR6000",
+   "instance_in_ctor": true,
+   "module": "basic40_runtime_analytical"
+  },
+  "instrument.hach_tl2300epa": {
+   "advance": "step_dt",
+   "cls": "HachTl2300epaRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.hach_tl2300epa"
+  },
+  "instrument.hepatochem_photoredoxbox": {
+   "advance": "step_dt",
+   "cls": "HepatochemPhotoredoxboxRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.hepatochem_photoredoxbox"
+  },
+  "instrument.hot_tps2500": {
+   "advance": "step_dt",
+   "cls": "HotTps2500Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.hot_tps2500"
+  },
+  "instrument.ika_c6000": {
+   "advance": "step_dt",
+   "cls": "IkaC6000Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ika_c6000"
+  },
+  "instrument.ika_electrasyn2": {
+   "advance": "step_dt",
+   "cls": "IkaElectrasyn2Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ika_electrasyn2"
+  },
+  "instrument.ika_ks4000": {
+   "advance": "step_dt",
+   "cls": "IkaKs4000Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ika_ks4000"
+  },
+  "instrument.ika_plate_rctdigital": {
+   "advance": "step_dt",
+   "cls": "IkaPlateRctdigitalRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ika_plate_rctdigital"
+  },
+  "instrument.ika_rv10_digital_v": {
+   "advance": "step_dt",
+   "cls": "RV10Host",
+   "create": "type",
+   "module": "basic40_runtime_vacuum"
+  },
+  "instrument.ika_t25": {
+   "advance": "step_dt",
+   "cls": "IkaT25Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ika_t25"
+  },
+  "instrument.inert_purelab_he_2gb": {
+   "advance": "step_dt",
+   "cls": "InertPureLabHost",
+   "create": "type",
+   "module": "basic40_runtime_vacuum"
+  },
+  "instrument.inert_puresolvmd": {
+   "advance": "step_dt",
+   "cls": "InertPuresolvmdRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.inert_puresolvmd"
+  },
+  "instrument.inficon_ul1000fab": {
+   "advance": "step_dt",
+   "cls": "InficonUl1000fabRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.inficon_ul1000fab"
+  },
+  "instrument.ja_alphase": {
+   "advance": "step_dt",
+   "cls": "JaAlphaseRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ja_alphase"
+  },
+  "instrument.jasco_cpl300": {
+   "advance": "step_dt",
+   "cls": "JascoCpl300Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jasco_cpl300"
+  },
+  "instrument.jasco_fp8350": {
+   "advance": "step_dt",
+   "cls": "JascoFp8350Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jasco_fp8350"
+  },
+  "instrument.jasco_ftir4700": {
+   "advance": null,
+   "cls": "JascoFTIR4700",
+   "instance_in_ctor": true,
+   "module": "basic40_runtime_analytical"
+  },
+  "instrument.jasco_fvs6000": {
+   "advance": "step_dt",
+   "cls": "JascoFvs6000Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jasco_fvs6000"
+  },
+  "instrument.jasco_j1500": {
+   "advance": "step_dt",
+   "cls": "JascoJ1500Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jasco_j1500"
+  },
+  "instrument.jasco_nrs5500": {
+   "advance": "step_dt",
+   "cls": "JascoNrs5500Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jasco_nrs5500"
+  },
+  "instrument.jasco_p4200": {
+   "advance": "step_dt",
+   "cls": "JascoP4200Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jasco_p4200"
+  },
+  "instrument.jena_contraa800": {
+   "advance": "step_dt",
+   "cls": "JenaContraa800Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jena_contraa800"
+  },
+  "instrument.jena_multix": {
+   "advance": "step_dt",
+   "cls": "JenaMultixRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jena_multix"
+  },
+  "instrument.jeol_jem1400flash": {
+   "advance": "step_dt",
+   "cls": "JeolJem1400flashRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jeol_jem1400flash"
+  },
+  "instrument.jeol_jsmit200": {
+   "advance": "step_dt",
+   "cls": "JeolJsmit200Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.jeol_jsmit200"
+  },
+  "instrument.julabo_corio_cd200f": {
+   "advance": "step_dt",
+   "cls": "JulaboCorioCD200FRuntime",
+   "create": "type",
+   "module": "basic40_runtime_thermal"
+  },
+  "instrument.keyence_vkx3000": {
+   "advance": "step_dt",
+   "cls": "KeyenceVkx3000Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.keyence_vkx3000"
+  },
+  "instrument.knauer_k7400s": {
+   "advance": "step_dt",
+   "cls": "KnauerK7400sRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.knauer_k7400s"
+  },
+  "instrument.kratos_axissupra": {
+   "advance": "step_dt",
+   "cls": "KratosAxissupraRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.kratos_axissupra"
+  },
+  "instrument.laboao_cvdltf12p50": {
+   "advance": "step_dt",
+   "cls": "LaboaoCvdltf12p50Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.laboao_cvdltf12p50"
+  },
+  "instrument.lakeshore_8604vsm": {
+   "advance": "step_dt",
+   "cls": "LakeShore8604VsmRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.lakeshore_8604vsm"
+  },
+  "instrument.lakeshore_measurereadym91": {
+   "advance": "step_dt",
+   "cls": "LakeShoreMeasurereadyM91Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.lakeshore_measurereadym91"
+  },
+  "instrument.leco_onh836": {
+   "advance": "step_dt",
+   "cls": "LecoOnh836Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.leco_onh836"
+  },
+  "instrument.linari_rtadvanced": {
+   "advance": "step_dt",
+   "cls": "LinariRtadvancedRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.linari_rtadvanced"
+  },
+  "instrument.linseis_lsr3": {
+   "advance": "step_dt",
+   "cls": "LinseisLsr3Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.linseis_lsr3"
+  },
+  "instrument.magritek_spinsolve80": {
+   "advance": "host_step_abs",
+   "cls": "MagritekSpinsolve80Runtime",
+   "create": "type",
+   "module": "basic40_runtime_measure"
+  },
+  "instrument.malvern_leneo": {
+   "advance": "step_dt",
+   "cls": "MalvernLeneoRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.malvern_leneo"
+  },
+  "instrument.malvern_microcalpeaq": {
+   "advance": "step_dt",
+   "cls": "MalvernMicrocalpeaqRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.malvern_microcalpeaq"
+  },
+  "instrument.markes_unityxr": {
+   "advance": "step_dt",
+   "cls": "MarkesUnityxrRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.markes_unityxr"
+  },
+  "instrument.metrohm_899": {
+   "advance": "step_dt",
+   "cls": "Metrohm899DeviceHost",
+   "create": "plain",
+   "module": "basic40_runtime_measure"
+  },
+  "instrument.metrohm_909uv": {
+   "advance": "step_dt",
+   "cls": "Metrohm909uvRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.metrohm_909uv"
+  },
+  "instrument.metrohm_914": {
+   "advance": "host_step_abs",
+   "cls": "Metrohm914DeviceRuntime",
+   "create": "type",
+   "module": "basic40_runtime_measure"
+  },
+  "instrument.metrohm_omnis": {
+   "advance": "host_step_abs",
+   "cls": "MetrohmOmnisRuntime",
+   "create": "type",
+   "module": "basic40_runtime_measure"
+  },
+  "instrument.micromeritics_autochemiii": {
+   "advance": "step_dt",
+   "cls": "MicromeriticsAutochemiiiRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.micromeritics_autochemiii"
+  },
+  "instrument.microtrac_turbiscanlab": {
+   "advance": "step_dt",
+   "cls": "MicrotracTurbiscanlabRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.microtrac_turbiscanlab"
+  },
+  "instrument.miele_plw6111": {
+   "advance": "step_dt",
+   "cls": "MielePLW6111Runtime",
+   "create": "type",
+   "module": "basic40_runtime_thermal"
+  },
+  "instrument.milestone_dma80": {
+   "advance": "step_dt",
+   "cls": "MilestoneDma80Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.milestone_dma80"
+  },
+  "instrument.mt_hx204": {
+   "advance": "step_dt",
+   "cls": "MtHx204Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.mt_hx204"
+  },
+  "instrument.mt_mp70": {
+   "advance": "step_dt",
+   "cls": "MtMp70Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.mt_mp70"
+  },
+  "instrument.mt_quantos_q2_xpe206dr": {
+   "advance": "host_step_dt_world",
+   "cls": "QuantosQ2Runtime",
+   "create": "scene",
+   "module": "basic40_runtime_automation",
+   "scene_confirm": {
+    "scene.door_opening_m": null
+   },
+   "setup": [
+    [
+     "host_configure_geometry",
+     {
+      "door_travel_m": 0.5494645551128549,
+      "evidence": "Matterix scene: front door of the converted asset 1.2.2 (top-hung glass on levers, opening_m = arc of the door's top hinge pin = lever angle x 0.198 m, full open 159 deg = 0.5495 m; brochure p.10 side view, manual p.25-26)",
+      "iid": "$instance_id"
+     }
+    ]
+   ]
+  },
+  "instrument.mt_rc1mxhfcal": {
+   "advance": "step_dt",
+   "cls": "MtRc1mxhfcalRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.mt_rc1mxhfcal"
+  },
+  "instrument.mt_xpr204e": {
+   "advance": "step_dt",
+   "cls": "XPR204ERuntime",
+   "create": "type",
+   "module": "basic40_runtime_measure"
+  },
+  "instrument.nanosurf_naiostm": {
+   "advance": "step_dt",
+   "cls": "NanosurfNaiostmRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.nanosurf_naiostm"
+  },
+  "instrument.netzsch_lfa467": {
+   "advance": "step_dt",
+   "cls": "NetzschLfa467Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.netzsch_lfa467"
+  },
+  "instrument.netzsch_mmc315": {
+   "advance": "step_dt",
+   "cls": "NetzschMmc315Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.netzsch_mmc315"
+  },
+  "instrument.newera_ne1000": {
+   "advance": "step_dt",
+   "cls": "NeweraNe1000Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.newera_ne1000"
+  },
+  "instrument.novocontrol_alphat": {
+   "advance": "step_dt",
+   "cls": "NovocontrolAlphatRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.novocontrol_alphat"
+  },
+  "instrument.opentrons_flex_single_5_1000ul": {
+   "advance": "host_set_clock_abs",
+   "cls": "OpentronsFlexRuntime",
+   "create": "type",
+   "module": "basic40_runtime_automation"
+  },
+  "instrument.ossila_dipcoater": {
+   "advance": "step_dt",
+   "cls": "OssilaDipcoaterRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ossila_dipcoater"
+  },
+  "instrument.ossila_doctorblade": {
+   "advance": "step_dt",
+   "cls": "OssilaDoctorbladeRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ossila_doctorblade"
+  },
+  "instrument.ossila_slotdie": {
+   "advance": "step_dt",
+   "cls": "OssilaSlotdieRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ossila_slotdie"
+  },
+  "instrument.ossila_spincoater": {
+   "advance": "step_dt",
+   "cls": "OssilaSpincoaterRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ossila_spincoater"
+  },
+  "instrument.park_nx10": {
+   "advance": "step_dt",
+   "cls": "ParkNx10Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.park_nx10"
+  },
+  "instrument.pccell_ed64002": {
+   "advance": "step_dt",
+   "cls": "PccellEd64002Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.pccell_ed64002"
+  },
+  "instrument.peak_precisionhydrogen": {
+   "advance": "step_dt",
+   "cls": "PeakPrecisionhydrogenRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.peak_precisionhydrogen"
+  },
+  "instrument.pilodist_pilodist104": {
+   "advance": "step_dt",
+   "cls": "PilodistPilodist104Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.pilodist_pilodist104"
+  },
+  "instrument.pine_wavevortex10": {
+   "advance": "step_dt",
+   "cls": "PineWavevortex10Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.pine_wavevortex10"
+  },
+  "instrument.porometer_poroluxrevo": {
+   "advance": "step_dt",
+   "cls": "PorometerPoroluxrevoRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.porometer_poroluxrevo"
+  },
+  "instrument.quorum_q150tes": {
+   "advance": "step_dt",
+   "cls": "QuorumQ150tesRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.quorum_q150tes"
+  },
+  "instrument.radleys_mya4": {
+   "advance": "step_dt",
+   "cls": "RadleysMya4Runtime",
+   "create": "type",
+   "module": "basic40_runtime_thermal"
+  },
+  "instrument.retsch_as200": {
+   "advance": "step_dt",
+   "cls": "RetschAs200Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.retsch_as200"
+  },
+  "instrument.retsch_pm100": {
+   "advance": "step_dt",
+   "cls": "RetschPm100Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.retsch_pm100"
+  },
+  "instrument.retsch_pt100": {
+   "advance": "step_dt",
+   "cls": "RetschPt100Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.retsch_pt100"
+  },
+  "instrument.rigaku_miniflex600_external_cooling": {
+   "advance": "host_step_abs",
+   "cls": "RigakuMiniFlex600Runtime",
+   "create": "type",
+   "module": "basic40_runtime_measure"
+  },
+  "instrument.rigaku_xtalabsynergy": {
+   "advance": "step_dt",
+   "cls": "RigakuXtalabsynergyRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.rigaku_xtalabsynergy"
+  },
+  "instrument.sartorius_vivaflow200": {
+   "advance": "step_dt",
+   "cls": "SartoriusVivaflow200Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.sartorius_vivaflow200"
+  },
+  "instrument.sciex_pa800": {
+   "advance": "step_dt",
+   "cls": "SciexPa800Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.sciex_pa800"
+  },
+  "instrument.scp_digiprepms": {
+   "advance": "step_dt",
+   "cls": "ScpDigiprepmsRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.scp_digiprepms"
+  },
+  "instrument.seal_aa500": {
+   "advance": "step_dt",
+   "cls": "SealAa500Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.seal_aa500"
+  },
+  "instrument.sft_sft110": {
+   "advance": "step_dt",
+   "cls": "SftSft110Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.sft_sft110"
+  },
+  "instrument.shimadzu_ags10knxd": {
+   "advance": "step_dt",
+   "cls": "ShimadzuAgs10knxdRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.shimadzu_ags10knxd"
+  },
+  "instrument.shimadzu_edx7200": {
+   "advance": "step_dt",
+   "cls": "ShimadzuEdx7200Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.shimadzu_edx7200"
+  },
+  "instrument.shimadzu_icpe9800": {
+   "advance": "step_dt",
+   "cls": "ShimadzuIcpe9800Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.shimadzu_icpe9800"
+  },
+  "instrument.shimadzu_icpms2030": {
+   "advance": "step_dt",
+   "cls": "ShimadzuIcpms2030Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.shimadzu_icpms2030"
+  },
+  "instrument.shimadzu_tocl": {
+   "advance": "step_dt",
+   "cls": "ShimadzuToclRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.shimadzu_tocl"
+  },
+  "instrument.signatone_quadpro2": {
+   "advance": "step_dt",
+   "cls": "SignatoneQuadpro2Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.signatone_quadpro2"
+  },
+  "instrument.sonics_vcx750": {
+   "advance": "step_dt",
+   "cls": "SonicsVcx750Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.sonics_vcx750"
+  },
+  "instrument.specac_atlasmanual": {
+   "advance": "step_dt",
+   "cls": "SpecacAtlasmanualRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.specac_atlasmanual"
+  },
+  "instrument.stanford_rga100": {
+   "advance": "step_dt",
+   "cls": "StanfordRga100Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.stanford_rga100"
+  },
+  "instrument.surface_dvsresolution": {
+   "advance": "step_dt",
+   "cls": "SurfaceDvsresolutionRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.surface_dvsresolution"
+  },
+  "instrument.syrris_asiadiscovery": {
+   "advance": "step_dt",
+   "cls": "SyrrisAsiadiscoveryRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.syrris_asiadiscovery"
+  },
+  "instrument.syrris_asiafllex": {
+   "advance": "step_dt",
+   "cls": "SyrrisAsiaFllexRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.syrris_asiafllex"
+  },
+  "instrument.ta_dma850": {
+   "advance": "step_dt",
+   "cls": "TaDma850Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ta_dma850"
+  },
+  "instrument.ta_dsc2500": {
+   "advance": "step_dt",
+   "cls": "TaDsc2500Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ta_dsc2500"
+  },
+  "instrument.ta_tamiv": {
+   "advance": "step_dt",
+   "cls": "TaTamivRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ta_tamiv"
+  },
+  "instrument.ta_tga5500": {
+   "advance": "step_dt",
+   "cls": "TaTga5500Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ta_tga5500"
+  },
+  "instrument.ta_tma450": {
+   "advance": "step_dt",
+   "cls": "TaTma450Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ta_tma450"
+  },
+  "instrument.teledyne_analyteexcite": {
+   "advance": "step_dt",
+   "cls": "TeledyneAnalyteexciteRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.teledyne_analyteexcite"
+  },
+  "instrument.teledyne_atomxxyz": {
+   "advance": "step_dt",
+   "cls": "TeledyneAtomxxyzRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.teledyne_atomxxyz"
+  },
+  "instrument.thalesnano_hcube": {
+   "advance": "step_dt",
+   "cls": "ThalesnanoHcubeRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.thalesnano_hcube"
+  },
+  "instrument.thermo_dionexintegrion": {
+   "advance": "step_dt",
+   "cls": "ThermoDionexintegrionRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.thermo_dionexintegrion"
+  },
+  "instrument.thermo_ibrightfl1500": {
+   "advance": "step_dt",
+   "cls": "ThermoIbrightFl1500Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.thermo_ibrightfl1500"
+  },
+  "instrument.thermo_orbitrapexploris": {
+   "advance": "step_dt",
+   "cls": "ThermoOrbitrapexplorisRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.thermo_orbitrapexploris"
+  },
+  "instrument.thermo_process11": {
+   "advance": "step_dt",
+   "cls": "ThermoProcess11Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.thermo_process11"
+  },
+  "instrument.thinky_are310s": {
+   "advance": "step_dt",
+   "cls": "ThinkyAre310sRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.thinky_are310s"
+  },
+  "instrument.tousimis_autosamdri815": {
+   "advance": "step_dt",
+   "cls": "TousimisAutosamdri815Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.tousimis_autosamdri815"
+  },
+  "instrument.tuttnauer_3870elvd": {
+   "advance": "step_dt",
+   "cls": "TuttnauerElvdRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.tuttnauer_3870elvd"
+  },
+  "instrument.uic_kdl1basic": {
+   "advance": "step_dt",
+   "cls": "UicKdl1basicRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.uic_kdl1basic"
+  },
+  "instrument.ultrafast_helios": {
+   "advance": "step_dt",
+   "cls": "UltrafastHeliosRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.ultrafast_helios"
+  },
+  "instrument.vacuubrand_pc3001_vario_select": {
+   "advance": "step_dt",
+   "cls": "VacuumHost",
+   "create": "type",
+   "module": "basic40_runtime_vacuum"
+  },
+  "instrument.vaisala_dmt152": {
+   "advance": "step_dt",
+   "cls": "VaisalaDmt152Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.vaisala_dmt152"
+  },
+  "instrument.velp_udk159": {
+   "advance": "step_dt",
+   "cls": "VelpUdk159Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.velp_udk159"
+  },
+  "instrument.vici_euta_2sd6mwe": {
+   "advance": "vici_set_time",
+   "cls": "ViciEutaValveRuntime",
+   "host_is_session": true,
+   "instance_in_ctor": true,
+   "module": "basic40_runtime_automation"
+  },
+  "instrument.wtw_oxitopi": {
+   "advance": "step_dt",
+   "cls": "WtwOxitopiRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.wtw_oxitopi"
+  },
+  "instrument.wyatt_eclipseaf4": {
+   "advance": "step_dt",
+   "cls": "WyattEclipseaf4Runtime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.wyatt_eclipseaf4"
+  },
+  "instrument.ziath_dp5_mirage_2023": {
+   "advance": "host_step_dt_world",
+   "cls": "ZiathDP5Runtime",
+   "create": "scene",
+   "module": "basic40_runtime_automation"
+  },
+  "instrument.zwick_hit5p": {
+   "advance": "step_dt",
+   "cls": "ZwickHit5pRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.zwick_hit5p"
+  },
+  "instrument.zwick_mflow": {
+   "advance": "step_dt",
+   "cls": "ZwickMflowRuntime",
+   "instance_in_ctor": true,
+   "module": "asset_runtime.zwick_mflow"
+  }
+ }
+}

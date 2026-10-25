@@ -94,4 +94,44 @@ class Tests(unittest.TestCase):
   for x in [-1.,True,float('inf')]:
    with self.assertRaises(ActionRejected):r.step(x)
    self.assertEqual(b,r.debug_snapshot())
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22)."""
+ def run_cycle(self,r,limit=7200.):
+  t=0.
+  r.invoke('acquisition.start')
+  while r.phase=='running' and t<limit:r.step(10.);t+=10.
+  return r.phase
+ def test_new_method_and_cycle_after_a_finished_cycle(self):
+  r=ready();self.assertEqual(self.run_cycle(r),'succeeded');t_end=r.time_s
+  r.invoke('method.configure',knots=[dict(time_s=0.,temperature_k=363.15),dict(time_s=300.,temperature_k=373.15)],hold_s=60.,timeout_s=7200.)
+  self.assertEqual((r.phase,r.elapsed_s,r.hold_s),('idle',0.,0.))
+  self.assertEqual(self.run_cycle(r),'succeeded');self.assertGreater(r.time_s,t_end);self.assertGreaterEqual(r.hold_s,60.)
+  self.assertEqual(self.run_cycle(r),'succeeded')                              # START again: a new cycle of the same programme
+  self.assertLess(r.elapsed_s,2*(300.+60.)+600.)
+ def test_cancelled_cycle_resumes_unless_a_new_programme_is_set(self):
+  r=ready();r.invoke('acquisition.start');r.step(20.);r.invoke('acquisition.stop');e=r.elapsed_s
+  r.invoke('acquisition.start');self.assertEqual(r.elapsed_s,e);r.step(5.);r.invoke('acquisition.stop')
+  r.invoke('thermal.set_temperature',temperature_k=358.15);self.assertEqual((r.phase,r.elapsed_s),('idle',0.))
+ def test_set_temperature_refuses_a_ramp_programme(self):
+  r=ready();ramp=dict(knots=[dict(time_s=0.,temperature_k=298.15),dict(time_s=600.,temperature_k=368.15)],hold_s=120.,timeout_s=7200.)
+  r.invoke('method.configure',**ramp);b=r.debug_snapshot()
+  with self.assertRaises(ActionRejected) as e:r.invoke('thermal.set_temperature',temperature_k=358.15)
+  self.assertEqual(str(e.exception),'RAMP_PROGRAM');self.assertEqual(b,r.debug_snapshot())
+  self.assertIn('RAMP_PROGRAM',[x['code'] for x in export_scp_digiprepms_contract_metadata()['capabilities']['thermal.set_temperature']['errors']])
+ def test_tubes_without_a_method_and_reloading_a_cool_block(self):
+  r=ScpDigiprepmsRuntime();r.invoke('plant.configure',**PLANT_EXAMPLE);r.invoke('sample.configure',**example_sample())   # no method needed
+  r.invoke('method.configure',**METHOD_EXAMPLE);r.invoke('power.set',enabled=True)
+  self.assertEqual(self.run_cycle(r),'succeeded')
+  with self.assertRaises(ActionRejected):r.invoke('sample.configure',**example_sample())   # still hot (95 C)
+  r.invoke('power.set',enabled=False)
+  t=0.
+  while max([r.block_t]+[x['temperature_k'] for x in r.tubes])>323.15 and t<86400.:r.step(60.);t+=60.
+  v=r.read('evaluator');stored=v['truth.sensible_energy_j'];inp,loss=v['truth.input_energy_j'],v['truth.loss_energy_j']
+  s=example_sample();s['tubes'][0]=dict(s['tubes'][0],position=5);r.invoke('sample.configure',**s)
+  self.assertEqual([x['position'] for x in r.tubes],[5])
+  v=r.read('evaluator')
+  self.assertAlmostEqual(v['truth.input_energy_j']-v['truth.loss_energy_j']-v['truth.sensible_energy_j'],inp-loss-stored,delta=1e-6*max(1.,inp))
+  r.invoke('power.set',enabled=True);self.assertEqual(self.run_cycle(r),'succeeded')
+
+
 if __name__=='__main__':unittest.main()

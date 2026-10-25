@@ -6,10 +6,12 @@ of the capabilities below (no second copy of the logic)."""
 from pathlib import Path
 import copy,json,math,importlib.util,bisect,hashlib,os,tempfile,weakref
 import numpy as np
-PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.1';SLUG='ta_tga5500';CATALOG_ID='CHEM-132';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.2.2';SLUG='ta_tga5500';CATALOG_ID='CHEM-132';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t1_thermal'/SLUG
 DT=.1;R_GAS=8.31446261815324
 class ActionRejected(ValueError):pass
+def _rejected(code,detail):
+ e=ActionRejected(code);e.detail=detail;return e   # 1.2.2: a refusal with a message naming the cause
 def number(unit='1',lo=None,hi=None):
  s={'type':'number','x-unit':unit}
  if lo is not None:s['minimum']=lo
@@ -159,7 +161,8 @@ for k in ['thermal.target_k','thermal.final_target_k']:slot(k,number('K',283.15,
 for k,u in [('furnace.indicated_k','K'),('sample.indicated_k','K'),('mass.indicated_kg','kg'),('gas.oxygen_fraction','1')]:slot(k,nullable(number(u)),u,'独立工程传感器观测',component='balance' if k.startswith('mass') else 'controller')
 for k,u in [('truth.furnace_k','K'),('truth.sample_k','K'),('truth.sample_mass_kg','kg'),('truth.loss_kg','kg'),('truth.oxygen_uptake_kg','kg'),('truth.n2_mol','mol'),('truth.o2_mol','mol'),('truth.chamber_n2_mol','mol'),('truth.chamber_o2_mol','mol'),('truth.chamber_pressure_pa','Pa'),('truth.heater_w','W')]:slot(k,number(u),u,'过程真值，仅评估器','process_truth','evaluator')
 slot('clock.time_s',number('s',0),'s','唯一宿主时钟');slot('acquisition.phase',PHASE,'1','异步状态');slot('acquisition.elapsed_s',number('s',0),'s','实际运行时间');slot('acquisition.points',integer(0,2000000),'1','观测点');slot('acquisition.segment_index',integer(0,99),'1','当前温度段');slot('acquisition.stage',enum(['ramp','hold']),'1','当前阶段');slot('panel.temperature_text',TEXT,'1','断电空；温度粗显示°C一位小数');slot('panel.mass_text',TEXT,'1','断电空；质量mg六位小数')
-SAMPLE_EXAMPLE['reference_id']='fsri_abs_n2_10k_r1';CAPS['sample.load']['example_arguments']=copy.deepcopy(SAMPLE_EXAMPLE);CAPS['reference.query']['example_arguments']={'reference_id':SAMPLE_EXAMPLE['reference_id']}
+SAMPLE_EXAMPLE['reference_id']='fsri_abs_n2_10k_r1';CAPS['sample.load']['example_arguments']=copy.deepcopy(SAMPLE_EXAMPLE);CAPS['tray.place']['example_arguments']={'position':2,'sample':copy.deepcopy(SAMPLE_EXAMPLE)};   # 1.2.2: the tray example had kept the placeholder reference
+CAPS['reference.query']['example_arguments']={'reference_id':SAMPLE_EXAMPLE['reference_id']}
 slot('model.fault',nullable(TEXT),'1','超工程温域/源温域后停止未校准反应，已产生物料不复原')
 slot('autosampler.tray_occupied',array(BOOL,CAROUSEL_N,CAROUSEL_N),'1','转盘25个位置是否有样品盘',component='carousel');slot('autosampler.balance_origin',nullable(CPOS),'1','天平上样品盘来自的转盘位置（手工挂上时为空）',component='sample_pan');slot('autosampler.transfer',nullable(enum(['load','unload'])),'1','正在进行的取放',component='carousel')
 def _panel_engine():
@@ -367,7 +370,11 @@ class TaTga5500Runtime:
    self.selected=a['gas'];return {'gas':self.selected}
   if k=='gas.set_open':
    if self.phase=='running':raise ActionRejected('BUSY')
-   if a['opened'] and (not self.power or self.emergency or self.gas_remaining['N2']<=0 or self.gas_remaining[self.selected]<=0 or self.sample_flow<=0 or self.balance_flow<=0):raise ActionRejected('NO_GAS')
+   if a['opened']:
+    why=('the instrument is switched off' if not self.power else 'the emergency stop is latched' if self.emergency else
+         'no N2 left for the balance purge' if self.gas_remaining['N2']<=0 else 'no %s left in the selected sample gas source'%self.selected if self.gas_remaining[self.selected]<=0 else
+         'the %s purge flow is 0: set both flows with gas.set_flow first'%('sample' if self.sample_flow<=0 else 'balance') if self.sample_flow<=0 or self.balance_flow<=0 else None)
+    if why:raise _rejected('NO_GAS',why)   # 1.2.2: the message names the cause (the code stays NO_GAS)
    self.gas_open=a['opened'];return {'opened':self.gas_open}
   if k=='power.set':
    if self.phase=='running' and not a['enabled']:self._finish('failed','POWER_LOSS')  # the power switch is a hard switch (final sync): never refused; a running experiment ends as on a power loss
@@ -591,7 +598,7 @@ class TaTga5500Session:
    if operation:h._owners[operation]=self._principal
    if capability_id in PANEL_CAPS and h.operation_id!=started:h._owners[h.operation_id]=self._principal  # Start on the touch screen: the run belongs to the operator who pressed it
    response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None);h._requests[key]=(digest,copy.deepcopy(response));return response
-  except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+  except ActionRejected as exc:return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
  def write(self,*,instance_id,state_id,value,request_id):
   self._target(instance_id);entry=SLOTS.get(state_id)
   if not entry or not entry['write']:raise ActionRejected('ACCESS_DENIED')

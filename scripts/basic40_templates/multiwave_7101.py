@@ -167,7 +167,7 @@ def capability_specs() -> dict[str, dict]:
                                     "example_arguments": [{"slot_index": 0, "material_id": "nist_srm_2711a", "method_id": "epa_3051a_hno3", "sample_mass_kg": 0.0002, "acid_volume_m3": 4e-06}],
                                     "observes": [], "state_effects": [], "preconditions": load_pre,
                                     "binding": "basic40_runtime_thermal.Multiwave7101Session.invoke(instance_id=..., capability_id='digestion.load_template', arguments=..., request_id=...)"},
-        "digestion.evaluate": {**common, "kind": "analysis", "description_zh": "对照方法温窗、升温与保持时间检查已运行的显示温度历史，并按证书/EPA回收率表列出消解液中预期的分析元素。",
+        "digestion.evaluate": {**common, "kind": "analysis", "description_zh": "对照方法温窗、升温与保持时间检查已运行的显示温度历史，并按证书/EPA回收率表列出消解液中预期的分析元素；设定点按运行中加热时用过的最高设定（程序平台）判断，加热之前按当前设定。",
                                "component_ids": ["controller", "rack"], "input_schema": _obj({"slot_index": SLOT}), "output_schema": EVALUATE_OUT,
                                "example_arguments": [{"slot_index": 0}], "observes": ["thermal.indicated_temperature_k", "thermal.target_k"], "state_effects": [],
                                "preconditions": eval_pre,
@@ -234,7 +234,7 @@ def plan(args: dict) -> dict:
         deviations.append(f"matrix '{material['matrix']}' not listed in {method.get('method', meth)} scope")
     return {"slot_index": slot, "material_id": mid, "method_id": meth, "sample_mass_kg": float(mass), "acid_volume_m3": float(vol),
             "method_deviations": deviations, "heating_started_s": None, "entered_window_s": None, "hold_in_window_s": 0.0,
-            "left_window_after_entry": False, "max_indicated_temperature_K": None, "exceeded_window": False}
+            "left_window_after_entry": False, "max_indicated_temperature_K": None, "exceeded_window": False, "program_setpoint_K": None}
 
 
 def load_result(rec: dict) -> dict:
@@ -294,7 +294,11 @@ def evaluate(rec: dict, state: dict) -> dict:
         ramp_ok = abs(ramp - p["ramp_time_s"]) <= p["ramp_tolerance_s"] + 1e-9
     else:
         ramp_ok = ramp <= (p.get("ramp_time_max_s") or p["ramp_time_s"]) + 1e-9
-    setpoint = float(state["thermal.target_k"])
+    # the run's programme set point: the highest set point in force while the microwave heated (the programme plateau; a ramp and the
+    # safety cooling after the run lie below it); before any heating, the current set point (2026-10-22: the post-run ambient set point
+    # made every completed run non-conformant)
+    run_sp = rec.get("program_setpoint_K")
+    setpoint = float(state["thermal.target_k"]) if run_sp is None else float(run_sp)
     boiling = []
     for reag in method["reagents"]:
         r = records().get(reag["reagent_id"]) or {}
@@ -402,6 +406,9 @@ def track_step(advance, inst: dict, before: dict, t0: float, dt: float) -> None:
         hold_done_before = rec["hold_in_window_s"] >= method["program"]["hold_time_s"] - 1e-9
         if heating and rec["heating_started_s"] is None:
             rec["heating_started_s"] = t0
+        if heating:
+            sp, prev = float(before["thermal.target_k"]), rec.get("program_setpoint_K")
+            rec["program_setpoint_K"] = sp if prev is None else max(prev, sp)
         if T1 >= T0:  # rising or flat
             if T1 < lo or T0 > hi:
                 enter = exit_ = None

@@ -1,0 +1,883 @@
+{
+ "class": "labware_automation",
+ "adapter": "chemlab.compile.classes.labware_automation:LabwareAdapter",
+ "about": "Labware automation (plate sealer, tube decapper, rack barcode reader, robot arm): settings, the seal / cap cycle / scan as a job, its record, and arm moves between named places.",
+ "membership": {
+  "primary": [
+   "azenta_automated_roll_heat_sealer_a4s",
+   "azenta_intellixcap_s1_46_0001",
+   "ziath_dp5_mirage_2023",
+   "brooks_preciseflex_400"
+  ],
+  "secondary": {},
+  "declined_secondary": {
+   "opentrons_flex_single_5_1000ul": "its deck motion is part of its protocol commands (liquid class: move labware with the gripper there); it has no arm joints or named-place grip of its own here",
+   "mt_quantos_q2_xpe206dr": "its vial handling is part of gravimetric dosing (balance class); no labware verbs (seal, cap, scan, move) apply"
+  },
+  "excluded": {}
+ },
+ "members": {
+  "azenta_automated_roll_heat_sealer_a4s": {
+   "role": "primary",
+   "verbs": {
+    "configure": {
+     "keys": {
+      "time": {
+       "cap": "sealing.set_time",
+       "arg": "press_time_s",
+       "kind": "duration"
+      },
+      "protocol": {
+       "cap": "protocol.select",
+       "arg": "name",
+       "args": {
+        "password": ""
+       },
+       "list": {
+        "slot": "protocol.list",
+        "key": "name",
+        "code": "UNKNOWN_PROTOCOL"
+       },
+       "word": "protocol"
+      }
+     }
+    },
+    "set-temp": {
+     "cap": "thermal.set_temperature",
+     "arg": "temperature_K"
+    },
+    "start": {
+     "cap": "sealing.seal_plate",
+     "word": "seal",
+     "step": "seal the plate",
+     "max_s": 600
+    },
+    "stop": {
+     "cap": "sealing.cancel",
+     "op_arg": "operation_id",
+     "word": "seal",
+     "running": {
+      "slot": "sealing.status",
+      "value": "running"
+     }
+    },
+    "result": {
+     "cap": "sealing.read"
+    },
+    "open": {
+     "parts": {
+      "carrier": {
+       "open_cap": "carrier.open",
+       "close_cap": "carrier.close_door",
+       "is": {
+        "open": {
+         "slot": "carrier.position",
+         "value": "out"
+        },
+        "close": {
+         "slot": "carrier.position",
+         "value": "in"
+        }
+       }
+      }
+     }
+    }
+   },
+   "slots": {
+    "temp": "measurement.temperature_k"
+   },
+   "requires": {
+    "configure": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sealing.status",
+      "code": "BUSY",
+      "message": "{inst} is sealing.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sealing.status",
+      "code": "BUSY",
+      "message": "{inst} is sealing.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sealing.status",
+      "code": "BUSY",
+      "message": "{inst} is sealing.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "plate.loaded",
+      "code": "NOTHING_LOADED",
+      "message": "there is no plate on the carrier of {inst}.",
+      "fix": "put a plate on its adapter (lab operator, or the arm).",
+      "value": true
+     },
+     {
+      "slot": "plate.simulated_sealed",
+      "code": "ALREADY_SEALED",
+      "message": "the plate on {inst} is already sealed.",
+      "fix": "take it off; seal a new plate.",
+      "value": false
+     },
+     {
+      "slot": "carrier.position",
+      "code": "CARRIER_IN",
+      "message": "the carrier of {inst} is {value}.",
+      "fix": "move it out: `chemlab run {inst} open carrier`.",
+      "value": "out"
+     },
+     {
+      "slot": "configuration.press_time_s",
+      "code": "NO_TIME",
+      "message": "{inst} has no seal time set.",
+      "fix": "set one: `chemlab run {inst} configure time=3s` (or protocol=NAME).",
+      "null": false
+     },
+     {
+      "slot": "thermal.target_reached",
+      "code": "NOT_AT_TEMPERATURE",
+      "message": "the sealing block of {inst} is not at its set point yet.",
+      "fix": "set the temperature (`chemlab run {inst} set-temp 170C`), let it heat (`chemlab wait 60`, see `chemlab run {inst} status`), then retry.",
+      "value": true
+     },
+     {
+      "slot": "film.remaining_seals",
+      "code": "NO_FILM",
+      "message": "the film roll of {inst} is empty or missing.",
+      "fix": "ask the lab operator for a new roll.",
+      "min": 1
+     },
+     {
+      "slot": "door.inspection_closed",
+      "code": "DOOR_OPEN",
+      "message": "the side inspection door of {inst} is open.",
+      "fix": "ask the lab operator to close it.",
+      "value": true
+     }
+    ],
+    "open:carrier": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sealing.status",
+      "code": "BUSY",
+      "message": "{inst} is sealing.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "close:carrier": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sealing.status",
+      "code": "BUSY",
+      "message": "{inst} is sealing.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "plate.loaded",
+      "code": "PLATE_ON_CARRIER",
+      "message": "a plate is on the carrier of {inst}; the carrier goes in with a plate only to seal it.",
+      "fix": "seal it (`chemlab run {inst} start`) or have it taken off first.",
+      "value": false
+     }
+    ]
+   },
+   "unsupported": {
+    "move": "not an arm",
+    "pick": "not an arm",
+    "place": "not an arm"
+   },
+   "path": "sealing",
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "block",
+     "slot": "measurement.temperature_k",
+     "kind": "temperature"
+    },
+    {
+     "label": "set point",
+     "slot": "thermal.setpoint_k",
+     "kind": "temperature"
+    },
+    {
+     "label": "at temperature",
+     "slot": "thermal.target_reached"
+    },
+    {
+     "label": "seal time",
+     "slot": "configuration.press_time_s",
+     "kind": "duration"
+    },
+    {
+     "label": "protocol",
+     "slot": "protocol.current"
+    },
+    {
+     "label": "plate",
+     "slot": "plate.plate_id"
+    },
+    {
+     "label": "sealed",
+     "slot": "plate.simulated_sealed"
+    },
+    {
+     "label": "carrier",
+     "slot": "carrier.position"
+    },
+    {
+     "label": "sealing",
+     "slot": "sealing.status"
+    },
+    {
+     "label": "seals left",
+     "slot": "film.remaining_seals"
+    }
+   ],
+   "notes": {
+    "start": [
+     "the front-panel Seal: the carrier goes in, the plate is sealed for the set time and comes out (a few seconds); job-N follows it"
+    ],
+    "configure": [
+     "keys: time=3s (seal time), protocol=NAME (a stored protocol: its temperature and time; see `chemlab read INST protocol.list`)"
+    ]
+   },
+   "manual": {
+    "*": "a4S user manual 347598 pp. 18-37 (main screen, seal roll, door, sealing time / temperature, plate), pp. 38-41 (protocols); integration commands 357454 pp. 17-20"
+   },
+   "examples": {
+    "configure": "configure time=3s",
+    "set-temp": "set-temp 170C",
+    "open": "open carrier",
+    "close": "close carrier"
+   }
+  },
+  "azenta_intellixcap_s1_46_0001": {
+   "role": "primary",
+   "verbs": {
+    "configure": {
+     "keys": {
+      "mode": {
+       "cap": "cycle.set_mode",
+       "arg": "mode"
+      },
+      "operation": {
+       "cap": "cycle.set_operation_mode",
+       "arg": "mode"
+      },
+      "time": {
+       "cap": "cycle.set_time_setting",
+       "arg": "setting"
+      },
+      "tube": {
+       "cap": "consumable.select",
+       "arg": "consumable_id"
+      }
+     }
+    },
+    "start": {
+     "cap": "cycle.start",
+     "word": "cap cycle",
+     "step": "start the decap / recap cycle",
+     "max_s": 120
+    },
+    "result": {
+     "cap": "cycle.read"
+    }
+   },
+   "requires": {
+    "configure": [
+     {
+      "slot": "cycle.status",
+      "code": "BUSY",
+      "message": "a cycle is running on {inst} ({value}).",
+      "fix": "wait for it: `chemlab run {inst} wait`.",
+      "in": [
+       "idle",
+       "succeeded",
+       "failed",
+       "cancelled"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "cycle.status",
+      "code": "BUSY",
+      "message": "a cycle is running on {inst} ({value}).",
+      "fix": "wait for it: `chemlab run {inst} wait`.",
+      "in": [
+       "idle",
+       "succeeded",
+       "failed",
+       "cancelled"
+      ]
+     },
+     {
+      "slot": "sample.tube_id",
+      "code": "NOTHING_LOADED",
+      "message": "there is no tube in the holder of {inst}.",
+      "fix": "put a tube in (lab operator, or the arm).",
+      "null": false
+     },
+     {
+      "slot": "sample.consumable_id",
+      "code": "NO_TUBE_TYPE",
+      "message": "no tube type is selected on {inst}.",
+      "fix": "select it: `chemlab run {inst} configure tube=TYPE`.",
+      "null": false
+     },
+     {
+      "slot": "simulation.motion_configured",
+      "code": "NOT_SET_UP",
+      "message": "{inst} has no jaw / rotation set-up in this lab.",
+      "fix": "ask the lab operator.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "set-temp": "no heater",
+    "stop": "no cancel: a cap cycle takes a few seconds and ends by itself",
+    "open": "no door or lid",
+    "close": "no door or lid",
+    "move": "not an arm",
+    "pick": "not an arm",
+    "place": "not an arm"
+   },
+   "path": "cycle",
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "tube",
+     "slot": "sample.tube_id"
+    },
+    {
+     "label": "cap",
+     "slot": "sample.cap_id"
+    },
+    {
+     "label": "tube type",
+     "slot": "sample.consumable_id"
+    },
+    {
+     "label": "mode",
+     "slot": "cycle.mode"
+    },
+    {
+     "label": "operation",
+     "slot": "cycle.operation_mode"
+    },
+    {
+     "label": "cycle",
+     "slot": "cycle.status"
+    },
+    {
+     "label": "holding cap",
+     "slot": "cycle.holding_cap"
+    },
+    {
+     "label": "thread ok",
+     "slot": "cycle.host_confirmed"
+    }
+   ],
+   "notes": {
+    "configure": [
+     "keys: mode=decap|recap, operation=hold_cap|release_cap|decap_only|cap_only|delayed_release, time=1|2|3 (cycle time setting), tube=TYPE (the registered tube type)"
+    ],
+    "start": [
+     "one decap or recap cycle (by mode); job-N follows it; the record (`result`) tells whether the thread turned"
+    ]
+   },
+   "manual": {
+    "*": "IntelliXcap S1 user manual 393573 pp. 18-22 (operation modes, capping / decapping, cycle time)"
+   },
+   "examples": {
+    "configure": "configure tube=tube_15ml mode=decap operation=release_cap"
+   }
+  },
+  "ziath_dp5_mirage_2023": {
+   "role": "primary",
+   "verbs": {
+    "configure": {
+     "cap": "configuration.set",
+     "keys": {
+      "format": {
+       "arg": "rack_format"
+      },
+      "matching": {
+       "arg": "identity_matching"
+      },
+      "export": {
+       "arg": "export_format"
+      }
+     },
+     "keep": {
+      "rack_format": {
+       "slot": "configuration.rack_format"
+      },
+      "identity_matching": {
+       "slot": "configuration.identity_matching"
+      },
+      "export_format": {
+       "slot": "configuration.export_format"
+      }
+     },
+     "len_check": {
+      "arg": "rack_format",
+      "slot": "rack.well_ids",
+      "when": {
+       "slot": "rack.loaded",
+       "value": true
+      },
+      "code": "FORMAT_MISMATCH",
+      "message": "the rack on {inst} has {n} positions, not {value}.",
+      "fix": "give format={n}, or have the rack changed first (lab operator)."
+     }
+    },
+    "start": {
+     "cap": "acquisition.start",
+     "word": "scan",
+     "step": "scan the rack",
+     "max_s": 120
+    },
+    "stop": {
+     "cap": "acquisition.cancel",
+     "op_arg": "operation_id",
+     "word": "scan",
+     "running": {
+      "slot": "acquisition.status",
+      "value": "running"
+     }
+    },
+    "result": {
+     "cap": "results.export",
+     "format_arg": "format",
+     "format_slot": "configuration.export_format",
+     "content_json": true,
+     "headline": [
+      "rack_id",
+      "rack_format",
+      "missing_wells",
+      "mismatch_wells",
+      "unexpected_wells",
+      "duplicate_tube_ids"
+     ]
+    },
+    "open": {
+     "parts": {
+      "rack": {
+       "cap": "scene.set_rack_lift",
+       "arg": "lift_m",
+       "open": 0.05,
+       "close": 0.0,
+       "is": {
+        "open": {
+         "slot": "scene.rack_lift_m",
+         "min": 0.05
+        },
+        "close": {
+         "slot": "scene.rack_lift_m",
+         "max": 0.0
+        }
+       }
+      }
+     }
+    }
+   },
+   "requires": {
+    "configure": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "acquisition.status",
+      "code": "BUSY",
+      "message": "{inst} is scanning.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "open:rack": [
+     {
+      "slot": "acquisition.status",
+      "code": "BUSY",
+      "message": "{inst} is scanning.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "rack.loaded",
+      "code": "NOTHING_LOADED",
+      "message": "there is no rack on {inst}.",
+      "fix": "put one on (lab operator).",
+      "value": true
+     }
+    ],
+    "close:rack": [
+     {
+      "slot": "acquisition.status",
+      "code": "BUSY",
+      "message": "{inst} is scanning.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "rack.loaded",
+      "code": "NOTHING_LOADED",
+      "message": "there is no rack on {inst}.",
+      "fix": "put one on (lab operator).",
+      "value": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "acquisition.status",
+      "code": "BUSY",
+      "message": "{inst} is scanning.",
+      "fix": "wait for it (`chemlab run {inst} wait`) or stop it.",
+      "not": [
+       "running"
+      ]
+     },
+     {
+      "slot": "rack.loaded",
+      "code": "NOTHING_LOADED",
+      "message": "there is no rack on {inst}.",
+      "fix": "put one on (lab operator, or the arm).",
+      "value": true
+     },
+     {
+      "slot": "scene.rack_lift_m",
+      "code": "RACK_RAISED",
+      "message": "the rack on {inst} is lifted off the reader.",
+      "fix": "seat it: `chemlab run {inst} close rack`.",
+      "max": 0.0
+     }
+    ],
+    "result": [
+     {
+      "slot": "results.data",
+      "code": "NO_RESULT",
+      "message": "{inst} has no completed scan.",
+      "fix": "scan first: `chemlab run {inst} start`, then `chemlab run {inst} wait`.",
+      "null": false
+     }
+    ]
+   },
+   "unsupported": {
+    "set-temp": "no heater",
+    "move": "not an arm",
+    "pick": "not an arm",
+    "place": "not an arm"
+   },
+   "path": "acquisition",
+   "path_exceptions": [
+    "results.export"
+   ],
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "rack",
+     "slot": "rack.rack_id"
+    },
+    {
+     "label": "format",
+     "slot": "configuration.rack_format"
+    },
+    {
+     "label": "matching",
+     "slot": "configuration.identity_matching"
+    },
+    {
+     "label": "export",
+     "slot": "configuration.export_format"
+    },
+    {
+     "label": "lift",
+     "slot": "scene.rack_lift_m",
+     "kind": "length"
+    },
+    {
+     "label": "scan",
+     "slot": "acquisition.status"
+    }
+   ],
+   "notes": {
+    "configure": [
+     "keys: format=24|48|96|240 (must match the rack on the reader), matching=on|off (compare with the task manifest), export=json|csv"
+    ],
+    "result": [
+     "the rack map of the last scan; with matching on it lists missing, mismatched and unexpected wells"
+    ],
+    "open": [
+     "open rack lifts the rack off the reader (5 cm, to take it off); close rack seats it for a scan"
+    ]
+   },
+   "manual": {
+    "*": "DP5 Mirage brochure 44008-SO-0823 p. 1 (rack formats, read time); DP5 decoding software product page"
+   },
+   "examples": {
+    "configure": "configure format=96 matching=on",
+    "result": "result --format csv --save-to rack.json",
+    "open": "open rack",
+    "close": "close rack"
+   }
+  },
+  "brooks_preciseflex_400": {
+   "role": "primary",
+   "verbs": {
+    "move": {
+     "cap": "motion.set_joints"
+    },
+    "pick": {
+     "cap": "sample.attach"
+    },
+    "place": {
+     "cap": "sample.release"
+    },
+    "result": {
+     "cap": "state.read"
+    }
+   },
+   "slots": {
+    "joints": "scene.joints",
+    "motion": "motion.status",
+    "holding": "sample.attached_container_id",
+    "tcp": "scene.tcp_position_m"
+   },
+   "requires": {
+    "move": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "host.scene_bound",
+      "code": "NO_SCENE",
+      "message": "{inst} has no scene in this lab (nothing confirms its poses).",
+      "fix": "ask the lab operator.",
+      "value": true
+     },
+     {
+      "slot": "motion.status",
+      "code": "ARM_FAULT",
+      "message": "the arm of {inst} is in a fault (the scene did not confirm a pose).",
+      "fix": "ask the lab operator to reconcile it.",
+      "not": [
+       "fault"
+      ]
+     }
+    ],
+    "pick": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "host.scene_bound",
+      "code": "NO_SCENE",
+      "message": "{inst} has no scene in this lab (nothing confirms its poses).",
+      "fix": "ask the lab operator.",
+      "value": true
+     },
+     {
+      "slot": "motion.status",
+      "code": "ARM_FAULT",
+      "message": "the arm of {inst} is in a fault (the scene did not confirm a pose).",
+      "fix": "ask the lab operator to reconcile it.",
+      "not": [
+       "fault"
+      ]
+     },
+     {
+      "slot": "sample.attached_container_id",
+      "code": "HOLDING",
+      "message": "the arm of {inst} already holds {value}.",
+      "fix": "place it first: `chemlab run {inst} place NEST`.",
+      "null": true
+     }
+    ],
+    "place": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "host.scene_bound",
+      "code": "NO_SCENE",
+      "message": "{inst} has no scene in this lab (nothing confirms its poses).",
+      "fix": "ask the lab operator.",
+      "value": true
+     },
+     {
+      "slot": "motion.status",
+      "code": "ARM_FAULT",
+      "message": "the arm of {inst} is in a fault (the scene did not confirm a pose).",
+      "fix": "ask the lab operator to reconcile it.",
+      "not": [
+       "fault"
+      ]
+     },
+     {
+      "slot": "sample.attached_container_id",
+      "code": "NOT_HOLDING",
+      "message": "the arm of {inst} holds nothing.",
+      "fix": "pick a container first: `chemlab run {inst} pick NAME`.",
+      "null": false
+     }
+    ]
+   },
+   "unsupported": {
+    "configure": "no device settings (the arm is moved by joints and named poses)",
+    "set-temp": "no heater",
+    "start": "an arm has no run; it moves with move / pick / place",
+    "stop": "no stop capability: each move is one atomic motion",
+    "open": "no door or lid (the gripper closes with pick and opens with place)",
+    "close": "no door or lid (the gripper closes with pick)"
+   },
+   "alternatives": {
+    "start": "use `chemlab run INST move POSE`, `pick NAME`, `place NEST`"
+   },
+   "params": {
+    "move_max_s": 60.0
+   },
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "motion",
+     "slot": "motion.status"
+    },
+    {
+     "label": "holding",
+     "slot": "sample.attached_container_id"
+    },
+    {
+     "label": "joints",
+     "slot": "scene.joints"
+    },
+    {
+     "label": "tool at",
+     "slot": "scene.tcp_position_m"
+    }
+   ],
+   "notes": {
+    "move": [
+     "a named pose of the lab, or joints with units: z=100mm shoulder=30deg elbow=-45deg wrist=0deg (joints left out stay)"
+    ],
+    "pick": [
+     "moves to the container's pose first, then grips it (the lab names its containers)"
+    ],
+    "place": [
+     "moves to the nest's pose first, then releases the gripped container there"
+    ]
+   },
+   "manual": {
+    "*": "PreciseFlex 400 manual 615287 pp. 25-31 (joint motion), pp. 75-82 (gripper); TCS command server 3.0C2 (Standard Commands)"
+   },
+   "examples": {
+    "move": "move home",
+    "pick": "pick plate_1",
+    "place": "place sealer_nest",
+    "result": "result"
+   }
+  }
+ }
+}

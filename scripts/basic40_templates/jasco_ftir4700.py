@@ -15,6 +15,12 @@ the configured range and scales the normalised band to a host-chosen peak absorb
 
 NIST spectra are transmission spectra (gas cell, neat film, CCl4/CS2 solution, KBr/mull); none is an ATR spectrum and
 no ATR penetration-depth correction is applied.
+
+Reference standards (2026-10-23): ``assets/reactions/ir_reference_standards.json`` holds standards that are
+not compounds of the shared 200-compound library - so far ``polystyrene``, the film wavenumber standard (brochure p.4):
+the NIST WebBook / PNNL optical-constant spectrum (public domain) on a 1 cm^-1 grid plus the NIST SRM 1921b certified band
+positions.  A host registers the film like any template sample (``register_template_sample(sample_id,
+substance_id="polystyrene", phase="solid")``); ``template.read("polystyrene")`` also lists the certified bands.
 """
 from __future__ import annotations
 
@@ -27,8 +33,10 @@ from typing import Any
 from scripts.basic40_templates import _analytical_common as common
 
 LIB_REL = common.SPECTRAL + "/ir_spectra.json"
+STANDARDS_REL = "assets/reactions/ir_reference_standards.json"
 DECODER_FIX = "scripts/spectral_library/jcamp.py (2026-10-14 decoder fix; replaces the retired jasco_ftir4700_ir_library overlay)"
-SOURCES = [LIB_REL]
+SOURCES = [LIB_REL, STANDARDS_REL]
+MAX_OUTPUT_POINTS = 901
 GRID_START_CM = 400.0
 GRID_STEP_CM = 4.0
 CM_TO_M_INV = 100.0
@@ -43,13 +51,23 @@ LIMITATIONS = [
     "Gas-phase and condensed-phase spectra differ (rotational structure, hydrogen bonding); when no reference spectrum matches the sample phase the closest available one is used and phase_matched=false is reported.",
     "Solution spectra contain CCl4/CS2 solvent-compensated regions; no noise, water-vapour/CO2 background, baseline drift or scan-averaging model.",
     "Only one compound per sample; mixtures are not supported.",
+    "Reference standard polystyrene (ir_reference_standards.json): PNNL liquid-phase optical constants (absorption maxima within 0.0-2.1 cm^-1, "
+    "median 0.2 cm^-1, of the NIST SRM 1921b certified film band minima); the measured positions are not shifted to the certified values; "
+    "1 cm^-1 grid, so output spacing follows max(1 cm^-1, effective resolution / 2, range / 900).",
 ]
 SYNTHETIC_PARTS = ["host-chosen peak absorbance scale", "Gaussian instrument line shape", "cosine-synthesized interferogram"]
 
 
 @lru_cache(maxsize=None)
+def _standards() -> dict[str, Any]:
+    """IR reference standards outside the shared compound library (polystyrene film, 2026-10-23)."""
+    return common.load_json(STANDARDS_REL)["standards"]
+
+
+@lru_cache(maxsize=None)
 def _table() -> dict[str, Any]:
-    """Shared spectra; records corrected by the 2026-10-14 decoder fix are tagged with corrected_by / correction."""
+    """Shared spectra (records corrected by the 2026-10-14 decoder fix are tagged with corrected_by / correction) plus the
+    reference standards."""
     table = copy.deepcopy(common.load_json(LIB_REL)["compounds"])
     for spectra in table.values():
         for spectrum in spectra:
@@ -57,7 +75,24 @@ def _table() -> dict[str, Any]:
             if note:
                 spectrum["corrected_by"] = DECODER_FIX
                 spectrum["correction"] = note
+    for sid, standard in _standards().items():
+        table.setdefault(sid, copy.deepcopy(standard["spectra"]))
     return table
+
+
+def resolve_id(identifier: Any) -> str | None:
+    """A spectral-library compound id or a reference-standard id."""
+    if isinstance(identifier, str) and identifier in _standards():
+        return identifier
+    return common.resolve_compound_id(identifier)
+
+
+def grid_step_cm(spectrum: dict[str, Any]) -> float:
+    return float((spectrum.get("grid_cm-1") or {}).get("step") or GRID_STEP_CM)
+
+
+def grid_start_cm(spectrum: dict[str, Any]) -> float:
+    return float((spectrum.get("grid_cm-1") or {}).get("start") or GRID_START_CM)
 
 
 def state_class(spectrum: dict[str, Any]) -> str:
@@ -75,8 +110,8 @@ def state_class(spectrum: dict[str, Any]) -> str:
 
 def source_resolution_cm(spectrum: dict[str, Any]) -> float:
     match = re.search(r"[0-9]+(?:\.[0-9]+)?", str(spectrum.get("resolution") or ""))
-    value = float(match.group(0)) if match else GRID_STEP_CM
-    return max(value, GRID_STEP_CM)
+    value = float(match.group(0)) if match else grid_step_cm(spectrum)
+    return max(value, grid_step_cm(spectrum))
 
 
 PREFERENCE = {"liquid": ("liquid", "solution", "solid"), "solid": ("solid", "solution", "liquid"), "gas": ("gas",)}
@@ -93,25 +128,35 @@ def select_spectrum(substance_id: str, phase: str) -> tuple[int, dict[str, Any],
     return 0, spectra[0], False
 
 
+def _certified_bands(sid: str) -> dict[str, Any] | None:
+    cert = (_standards().get(sid) or {}).get("certified_bands")
+    if not cert:
+        return None
+    return {"band_minimum_m_inv": [[nu * CM_TO_M_INV, u * CM_TO_M_INV] for _, nu, u in cert["band_minimum_cm-1"]],
+            "centroid_m_inv": [[nu * CM_TO_M_INV, u * CM_TO_M_INV] for _, nu, u in cert["centroid_cm-1"]],
+            "source": cert["source"]}
+
+
 def template_read(substance_id: Any) -> dict[str, Any] | None:
-    sid = common.resolve_compound_id(substance_id)
+    sid = resolve_id(substance_id)
     spectra = _table().get(sid) if sid else None
     if not spectra:
         return None
-    compound = common.compounds()[sid]
+    compound = _standards().get(sid) or common.compounds()[sid]
     listing = []
     for index, spectrum in enumerate(spectra):
         values = spectrum["absorbance_normalized"]
         covered = [i for i, v in enumerate(values) if v is not None]
+        start, step = grid_start_cm(spectrum), grid_step_cm(spectrum)
         listing.append({"index": index, "state": spectrum.get("state"), "state_class": state_class(spectrum),
                         "sampling": spectrum.get("sampling"), "source_resolution_m_inv": source_resolution_cm(spectrum) * CM_TO_M_INV,
-                        "coverage_m_inv": [(GRID_START_CM + covered[0] * GRID_STEP_CM) * CM_TO_M_INV,
-                                           (GRID_START_CM + covered[-1] * GRID_STEP_CM) * CM_TO_M_INV],
+                        "coverage_m_inv": [(start + covered[0] * step) * CM_TO_M_INV,
+                                           (start + covered[-1] * step) * CM_TO_M_INV],
                         "peaks_m_inv": [[p[0] * CM_TO_M_INV, p[1]] for p in spectrum.get("peaks_cm-1") or []],
                         "evidence": spectrum.get("evidence"), "source": spectrum.get("source"),
                         "corrected_by": spectrum.get("corrected_by")})
     return {"substance_id": sid, "name": compound["name_en"], "name_zh": compound["name_zh"], "cas": compound["cas"],
-            "spectra": listing,
+            "spectra": listing, "certified_bands": _certified_bands(sid),
             **common.provenance(SOURCES, "measured (NIST WebBook IR JCAMP-DX, transmission), normalised and resampled; records corrected by the 2026-10-14 decoder fix are flagged corrected_by",
                                 SYNTHETIC_PARTS, LIMITATIONS)}
 
@@ -119,9 +164,9 @@ def template_read(substance_id: Any) -> dict[str, Any] | None:
 def validate_sample(substance_id: Any, *, phase: str, peak_absorbance: float = 1.0) -> dict[str, Any]:
     if phase not in PHASES:
         raise ValueError("phase must be solid, liquid or gas")
-    sid = common.resolve_compound_id(substance_id)
+    sid = resolve_id(substance_id)
     if sid is None or not _table().get(sid):
-        raise ValueError(f"{substance_id!r} has no IR spectrum in {LIB_REL}")
+        raise ValueError(f"{substance_id!r} has no IR spectrum in {LIB_REL} or {STANDARDS_REL}")
     if not common.finite(peak_absorbance) or not 0 < peak_absorbance <= MAX_PEAK_ABSORBANCE:
         raise ValueError(f"peak_absorbance must be in (0, {MAX_PEAK_ABSORBANCE}]")
     index, spectrum, matched = select_spectrum(sid, phase)
@@ -129,12 +174,13 @@ def validate_sample(substance_id: Any, *, phase: str, peak_absorbance: float = 1
             "state": spectrum.get("state"), "peak_absorbance": float(peak_absorbance)}
 
 
-def _broadened(values: list[float | None], extra_fwhm_cm: float) -> tuple[list[float], float, float]:
+def _broadened(values: list[float | None], extra_fwhm_cm: float, step_cm: float = GRID_STEP_CM,
+               start_cm: float = GRID_START_CM) -> tuple[list[float], float, float]:
     covered = [i for i, v in enumerate(values) if v is not None]
     lo, hi = covered[0], covered[-1]
     data = [float(values[i]) for i in range(lo, hi + 1)]
     if extra_fwhm_cm > 1e-9:
-        sigma = extra_fwhm_cm / (2 * math.sqrt(2 * math.log(2))) / GRID_STEP_CM
+        sigma = extra_fwhm_cm / (2 * math.sqrt(2 * math.log(2))) / step_cm
         half = max(1, int(math.ceil(4 * sigma)))
         kernel = [math.exp(-0.5 * (j / sigma) ** 2) for j in range(-half, half + 1)]
         out = []
@@ -146,7 +192,7 @@ def _broadened(values: list[float | None], extra_fwhm_cm: float) -> tuple[list[f
                     den += weight
             out.append(num / den)
         data = out
-    return data, GRID_START_CM + lo * GRID_STEP_CM, GRID_START_CM + hi * GRID_STEP_CM
+    return data, start_cm + lo * step_cm, start_cm + hi * step_cm
 
 
 def spectrum(template: dict[str, Any], state: dict[str, Any]) -> dict[str, Any] | None:
@@ -156,14 +202,17 @@ def spectrum(template: dict[str, Any], state: dict[str, Any]) -> dict[str, Any] 
     source_cm = source_resolution_cm(reference)
     effective_cm = max(requested_cm, source_cm)
     extra = math.sqrt(max(0.0, effective_cm ** 2 - source_cm ** 2))
-    data, first_cm, last_cm = _broadened(reference["absorbance_normalized"], extra)
+    grid_step = grid_step_cm(reference)
+    data, first_cm, last_cm = _broadened(reference["absorbance_normalized"], extra, grid_step, grid_start_cm(reference))
     start_cm = max(state["method.start_wavenumber_m_inv"] / CM_TO_M_INV, first_cm)
     stop_cm = min(state["method.stop_wavenumber_m_inv"] / CM_TO_M_INV, last_cm)
-    step_cm = max(GRID_STEP_CM, effective_cm / 2)
+    # output spacing: the reference grid, half the effective resolution, and at most MAX_OUTPUT_POINTS points (for the 4 cm^-1
+    # library grid the last term never binds: 3600 cm^-1 / 900 = 4 cm^-1)
+    step_cm = max(grid_step, effective_cm / 2, (stop_cm - start_cm) / (MAX_OUTPUT_POINTS - 1))
     if stop_cm - start_cm < step_cm:
         return None
-    count = int(math.floor((stop_cm - start_cm) / step_cm + 1e-9)) + 1
-    grid_cm = [first_cm + i * GRID_STEP_CM for i in range(len(data))]
+    count = min(MAX_OUTPUT_POINTS, int(math.floor((stop_cm - start_cm) / step_cm + 1e-9)) + 1)
+    grid_cm = [first_cm + i * grid_step for i in range(len(data))]
     top = max(data) or 1.0
     axis, absorbance = [], []
     for i in range(count):
@@ -191,7 +240,7 @@ def spectrum(template: dict[str, Any], state: dict[str, Any]) -> dict[str, Any] 
 
 def spectrum_schema() -> dict[str, Any]:
     n, obj, nullable = common.number, common.obj, common.nullable
-    series = lambda unit, minimum=None: {"type": "array", "items": n(unit, minimum), "minItems": 2, "maxItems": 901}
+    series = lambda unit, minimum=None: {"type": "array", "items": n(unit, minimum), "minItems": 2, "maxItems": MAX_OUTPUT_POINTS}
     pair = lambda unit: {"type": "array", "items": n(unit, 0), "minItems": 2, "maxItems": 2}
     interferogram = obj({"optical_path_difference_m": {"type": "array", "items": n("m"), "minItems": INTERFEROGRAM_POINTS, "maxItems": INTERFEROGRAM_POINTS},
                          "relative_intensity": {"type": "array", "items": n("1"), "minItems": INTERFEROGRAM_POINTS, "maxItems": INTERFEROGRAM_POINTS},
@@ -202,7 +251,7 @@ def spectrum_schema() -> dict[str, Any]:
                 "reported_mode": {"type": "string", "enum": ["absorbance", "transmittance", "interferogram"]},
                 "quality": {"type": "string", "const": "estimated"}, "axis_unit": {"type": "string", "const": "m^-1"},
                 "signal_unit": {"type": "string", "const": "1"}, "resolution_m_inv": n("m^-1", 40),
-                "effective_resolution_m_inv": n("m^-1", 400), "point_spacing_m_inv": n("m^-1", 400),
+                "effective_resolution_m_inv": n("m^-1", 100), "point_spacing_m_inv": n("m^-1", 100),
                 "scan_count": {"type": "integer", "minimum": 1, "maximum": 1024, "x-unit": "1"},
                 "spectral_resolution_applied": {"type": "boolean", "const": True},
                 "scan_averaging_applied": {"type": "boolean", "const": False}, "measurement_duration_s": {"type": "null"},
@@ -219,8 +268,11 @@ def template_read_schema() -> dict[str, Any]:
                 "coverage_m_inv": {"type": "array", "items": n("m^-1", 0), "minItems": 2, "maxItems": 2},
                 "peaks_m_inv": {"type": "array", "items": {"type": "array", "items": n("1"), "minItems": 2, "maxItems": 2}},
                 "evidence": common.TEXT, "source": common.TEXT, "corrected_by": nullable(common.TEXT)})
+    pairs = {"type": "array", "items": {"type": "array", "items": n("m^-1", 0), "minItems": 2, "maxItems": 2}}
+    certified = obj({"band_minimum_m_inv": pairs, "centroid_m_inv": pairs, "source": common.TEXT})
     return obj({"substance_id": common.TEXT, "name": common.TEXT, "name_zh": common.TEXT, "cas": nullable(common.TEXT),
-                "spectra": {"type": "array", "items": item, "minItems": 1}, **common.provenance_schema()})
+                "spectra": {"type": "array", "items": item, "minItems": 1}, "certified_bands": nullable(certified),
+                **common.provenance_schema()})
 
 
 def extend_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -236,7 +288,9 @@ def extend_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     cap["errors"] = ["UNKNOWN_INSTANCE", "UNKNOWN_CAPABILITY", "INVALID_ARGUMENT", "REQUEST_CONFLICT"]
     metadata["capabilities"]["template.read"] = cap
     metadata["parameters"]["template_library"] = {"value": SOURCES, "unit": "1", "evidence": "measured",
-        "conditions": "NIST WebBook IR transmission spectra, normalised absorbance on a 400-4000 cm^-1, 4 cm^-1 grid; not ATR"}
+        "conditions": "NIST WebBook IR transmission spectra, normalised absorbance on a 400-4000 cm^-1, 4 cm^-1 grid; not ATR; reference "
+                      "standards (polystyrene film: PNNL optical constants on a 1 cm^-1 grid + NIST SRM 1921b certified bands) in "
+                      + STANDARDS_REL}
     metadata["parameters"]["template_grid_step_m_inv"] = {"value": GRID_STEP_CM * CM_TO_M_INV, "unit": "m^-1", "evidence": "derived",
         "conditions": "library resampling grid; output spacing = max(grid, effective resolution / 2)"}
     metadata["limits"] = metadata["limits"] + [

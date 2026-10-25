@@ -2732,7 +2732,7 @@ def _panel_engine():
 
 
 # ---------------------------------------------------------------- front panel: the touch screen (panel_ui.json) on the shared engine; panel.* stay out of CAPS
-ASSET_VERSION = '1.2.0'
+ASSET_VERSION = '1.2.1'   # 1.2.1 (2026-10-22): no evaluator capability id in agent-visible texts
 _panel_ui = _panel_engine()
 PANEL_SPEC = None if os.environ.get('IBRIGHT_PANEL_BUILD') else _panel_ui.load_spec(ASSET_DIR / 'panel_ui.json', capabilities=set(CAPS))
 PANEL_CAPS = _panel_ui.capability_definitions(PANEL_SPEC) if PANEL_SPEC else {}
@@ -3646,7 +3646,7 @@ CAP_LIMITS.update({
     'image.view': ['显示调整只改变屏幕图像（panel.capture），不改图像数据与分析；自动对比按百分位（高2–98 %、中0.5–99.5 %、低最小–最大）为假设；Auto Enhance为显示用滚动最小背景扣除。'],
     'export.run': ['仿真配置只有U盘（侧面USB口）可写；文件名用图库名称（命名规则在拍摄时生成，可在Edit中改）；出版用格式可同时导出合成图与各通道。'],
     'diagnostics.run': ['自检项与时序（第5 min开关抽屉）为工程假设；各项结果由注入故障与CCD就绪决定。'],
-    'service.pixel_mapping': ['约2 min暗场曝光（工程值）找出额外暗电荷超过正常像元5σ的像元（评测者sensor.configure_error设置的热像元；默认没有，图为空），存入像元图；'
+    'service.pixel_mapping': ['约2 min暗场曝光（工程值）找出额外暗电荷超过正常像元5σ的像元（评测者设置的CCD热像元；默认没有，图为空），存入像元图；'
                               '之后的拍摄把图中的像元校正为正常暗值，新出现的热像元要再做一次Pixel Mapping。'],
     'service.ship_prep': ['按用户指南“Prepare for shipping”：抽屉打开→取下转台→Next→关机（关机结束该模式）；Cancel退出为假设（指南未写）；'
                           '“取下转台后才能关机”按步骤提示实现（后部电源开关是机械开关，运行层不阻止关机）。'],

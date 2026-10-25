@@ -1,0 +1,2983 @@
+{
+ "class": "structure",
+ "adapter": "chemlab.compile.classes.structure:StructureAdapter",
+ "about": "Diffraction, scattering, XPS and ellipsometry: load, unload, source, vacuum, align, scan KEY=VALUE (job), result, analyze, status. Composite verbs are step lists per member (the imaging step engine); ranges and units come from the contracts.",
+ "membership": {
+  "decided": "2026-10-22",
+  "primary": [
+   "rigaku_miniflex600_external_cooling",
+   "rigaku_xtalabsynergy",
+   "antonpaar_saxspace",
+   "kratos_axissupra",
+   "ja_alphase"
+  ],
+  "secondary": {},
+  "not_members": {
+   "shimadzu_edx7200": "XRF: elemental quantification (quant_analyzer primary); its verbs are those of that class",
+   "bruker_x4poseidon": "X-ray CT is an imaging member (load / source / acquire / zoom); no diffraction verbs to add"
+  }
+ },
+ "members": {
+  "rigaku_miniflex600_external_cooling": {
+   "role": "primary",
+   "slots": {
+    "sample": "slot.sample.connection_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "scan.running",
+        "truthy": false
+       },
+       "code": "BUSY",
+       "message": "{inst} is scanning.",
+       "fix": "wait for the scan (`chemlab status`) or cancel it.",
+       "label": "not scanning"
+      },
+      {
+       "check": {
+        "slot": "slot.sample.connection_id",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the sample slot of {inst} already holds {slot:slot.sample.connection_id}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "sample slot free"
+      },
+      {
+       "cap": "access.set_door_angle",
+       "args": {
+        "angle_rad": 1.5
+       },
+       "say": "open the door",
+       "if": {
+        "slot": "access.door_angle_rad",
+        "le": 0.0
+       }
+      },
+      {
+       "cap": "slot.set_sample",
+       "args": {
+        "connection_id": "$sample"
+       },
+       "say": "put the sample holder {sample} into the sample slot"
+      },
+      {
+       "cap": "access.set_door_angle",
+       "args": {
+        "angle_rad": 0.0
+       },
+       "say": "close the door"
+      }
+     ],
+     "done": "loaded sample holder {sample}; the door is closed",
+     "next": "set the tube (`chemlab run {inst} source on --kv 40kV --ma 15mA`), then `chemlab run {inst} scan from=10deg to=80deg step=0.02deg time=0.5s`."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "scan.running",
+        "truthy": false
+       },
+       "code": "BUSY",
+       "message": "{inst} is scanning.",
+       "fix": "wait for the scan (`chemlab status`) or cancel it.",
+       "label": "not scanning"
+      },
+      {
+       "check": {
+        "slot": "slot.sample.connection_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "the sample slot of {inst} is empty.",
+       "fix": "nothing to unload.",
+       "label": "a sample in the slot"
+      },
+      {
+       "cap": "access.set_door_angle",
+       "args": {
+        "angle_rad": 1.5
+       },
+       "say": "open the door",
+       "if": {
+        "slot": "access.door_angle_rad",
+        "le": 0.0
+       }
+      },
+      {
+       "cap": "slot.set_sample",
+       "args": {
+        "connection_id": null
+       },
+       "say": "take the sample holder out"
+      },
+      {
+       "cap": "access.set_door_angle",
+       "args": {
+        "angle_rad": 0.0
+       },
+       "say": "close the door"
+      }
+     ],
+     "done": "unloaded the sample holder"
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "scan.running",
+         "truthy": false
+        },
+        "code": "BUSY",
+        "message": "{inst} is scanning; the tube setting cannot change now.",
+        "fix": "wait for the scan.",
+        "label": "not scanning"
+       },
+       {
+        "cap": "xray.configure",
+        "args": {
+         "voltage_v": "$opt:kv",
+         "current_a": "$opt:ma"
+        },
+        "say": "set the tube to {opt:kv}, {opt:ma}"
+       }
+      ],
+      "defaults": {
+       "kv": "40kV",
+       "ma": "15mA"
+      },
+      "done": "tube set (the X-rays come on only while a scan runs)"
+     },
+     "off": {
+      "steps": [],
+      "done": "nothing to switch off: the X-rays of the MiniFlex are on only while a scan runs (stop a scan with `chemlab cancel job-N`)"
+     }
+    },
+    "scan": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "slot.sample.connection_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "the sample slot of {inst} is empty.",
+       "fix": "load a sample holder: `chemlab run {inst} load SAMPLE`.",
+       "label": "sample loaded"
+      },
+      {
+       "check": {
+        "slot": "access.door_angle_rad",
+        "le": 0.0
+       },
+       "code": "DOOR_OPEN",
+       "message": "the door of {inst} is open.",
+       "fix": "close it: `chemlab run {inst} close door`.",
+       "label": "door closed"
+      },
+      {
+       "check": {
+        "slot": "cooling.ready",
+        "truthy": true
+       },
+       "code": "NO_COOLING",
+       "message": "the external chiller of {inst} is not connected or not ready.",
+       "fix": "ask the lab operator to start the chiller.",
+       "label": "chiller ready"
+      },
+      {
+       "check": {
+        "slot": "xray.voltage_v",
+        "ne": null
+       },
+       "code": "SOURCE_NOT_SET",
+       "message": "the tube voltage / current of {inst} are not set.",
+       "fix": "`chemlab run {inst} source on --kv 40kV --ma 15mA`.",
+       "label": "tube set"
+      },
+      {
+       "cap": "xrd.set_slit",
+       "args": {
+        "slit_id": {
+         "$or": [
+          "$opt:slit",
+          "$param:default_slit"
+         ]
+        }
+       },
+       "say": "record the slit set-up",
+       "if": {
+        "any": [
+         {
+          "input": "opt:slit",
+          "given": true
+         },
+         {
+          "slot": "slit.configuration_id",
+          "eq": null
+         }
+        ]
+       }
+      },
+      {
+       "cap": "xrd.configure_scan",
+       "args": {
+        "start_rad": "$opt:from",
+        "stop_rad": "$opt:to",
+        "step_rad": "$opt:step",
+        "integration_time_s": "$opt:time"
+       },
+       "say": "set the scan {opt:from} to {opt:to}, step {opt:step}, {opt:time} per step"
+      },
+      {
+       "cap": "xrd.start_scan",
+       "say": "start the 2theta scan"
+      }
+     ],
+     "keys": {
+      "from": [
+       "angle"
+      ],
+      "to": [
+       "angle"
+      ],
+      "step": [
+       "angle"
+      ],
+      "time": [
+       "duration"
+      ]
+     },
+     "defaults": {
+      "from": "10deg",
+      "to": "80deg",
+      "step": "0.02deg",
+      "time": "0.5s"
+     },
+     "options": [
+      "slit"
+     ],
+     "job": {
+      "state": {
+       "slot": "scan.status",
+       "done": [
+        "completed"
+       ],
+       "failed": [
+        "stopped",
+        "cooling_lost",
+        "power_lost",
+        "idle"
+       ]
+      },
+      "stop_cap": "xrd.stop_scan",
+      "what": "2theta scan",
+      "max_s": 36000,
+      "progress": [
+       "scan.completed_points",
+       "scan.total_points"
+      ]
+     },
+     "what": "2theta scan"
+    },
+    "result": {
+     "cap": "xrd.read_pattern",
+     "arg": null,
+     "show": [
+      "status",
+      "two_theta_coverage_rad",
+      "wavelengths_m",
+      "samples"
+     ]
+    }
+   },
+   "unsupported": {
+    "align": "no alignment capability (the goniometer is factory-aligned)",
+    "vacuum": "an air-path diffractometer (no vacuum)",
+    "analyze": "no phase search or refinement on this twin (its xrd.phase_search and xrd.refine are not implemented)"
+   },
+   "alternatives": {
+    "analyze": "compare with reference patterns: `chemlab call INST template.read --phase_id quartz` (d values, 2theta, intensities)"
+   },
+   "params": {
+    "default_slit": "standard_divergence_slit"
+   },
+   "codes": {
+    "xrd.start_scan:INVALID_STATE": {
+     "code": "NOT_READY",
+     "message": "{inst} cannot start: the sample, the chiller or the tube set-up is missing, or the sample gives no pattern over this range.",
+     "fix": "check `chemlab run {inst} status`; scan a narrower 2theta range if the sample is set up."
+    }
+   },
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "door",
+     "slot": "access.door_angle_rad",
+     "fmt": "deg"
+    },
+    {
+     "label": "sample",
+     "slot": "slot.sample.connection_id"
+    },
+    {
+     "label": "chiller ready",
+     "slot": "cooling.ready"
+    },
+    {
+     "label": "tube",
+     "slot": "xray.voltage_v",
+     "fmt": "kv"
+    },
+    {
+     "label": "current",
+     "slot": "xray.current_a",
+     "fmt": "ma"
+    },
+    {
+     "label": "X-rays on",
+     "slot": "xray.active"
+    },
+    {
+     "label": "scan",
+     "slot": "scan.status"
+    },
+    {
+     "label": "points",
+     "slot": "scan.completed_points"
+    },
+    {
+     "label": "of",
+     "slot": "scan.total_points"
+    },
+    {
+     "label": "2theta",
+     "slot": "goniometer.two_theta_rad",
+     "fmt": "deg"
+    }
+   ],
+   "path": "xrd",
+   "notes": {
+    "scan": [
+     "settings from= to= step= (angles, 2theta) time= (per step) slit= (a slit label); angles on the 0.005 deg grid and the range a whole number of steps",
+     "manual: MiniFlex 600 SOP pp.4-5 (General Measurement); operation manual pp.1-3"
+    ],
+    "result": [
+     "the MiniFlex keeps only its current pattern (no record ids)"
+    ],
+    "load": [
+     "manual: MiniFlex 600 SOP pp.4-5 (sample loading)"
+    ],
+    "source": [
+     "manual: MiniFlex 600 SOP p.3 (X-ray generator)"
+    ]
+   }
+  },
+  "rigaku_xtalabsynergy": {
+   "role": "primary",
+   "slots": {
+    "sample": "crystal.mounted_sample_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "crystal.mounted_sample_id",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the goniometer head of {inst} already carries {slot:crystal.mounted_sample_id}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "goniometer head free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "crystal {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the crystals on the bench.",
+       "label": "crystal on the bench"
+      },
+      {
+       "check": {
+        "slot": "operation.id",
+        "eq": null
+       },
+       "code": "BUSY",
+       "message": "{inst} is busy ({slot:operation.kind}).",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "idle"
+      },
+      {
+       "cap": "door.open",
+       "args": {
+        "door": "left",
+        "angle_rad": 1.5
+       },
+       "say": "open the main door",
+       "if": {
+        "slot": "door.left_angle_rad",
+        "lt": 0.79
+       }
+      },
+      {
+       "cap": "motion_enable.hold",
+       "args": {
+        "held": true
+       },
+       "say": "hold both Motion Enable keys",
+       "unless": {
+        "slot": "motion_enable.held",
+        "truthy": true
+       }
+      },
+      {
+       "cap": "goniometer.mount_position",
+       "say": "drive the goniometer to the mounting pose",
+       "unless": {
+        "all": [
+         {
+          "slot": "goniometer.kappa_rad",
+          "near": 0.0,
+          "abs": 0.087
+         },
+         {
+          "slot": "detector.distance_m",
+          "ge": 0.06
+         },
+         {
+          "slot": "goniometer.moving",
+          "truthy": false
+         }
+        ]
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "operation.id",
+          "eq": null
+         },
+         {
+          "slot": "goniometer.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the goniometer is at the mounting pose",
+       "max_s": 300
+      },
+      {
+       "cap": "crystal.mount",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "mount crystal {sample} on the goniometer head"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "operation.id",
+          "eq": null
+         },
+         {
+          "slot": "goniometer.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the mounting is done",
+       "max_s": 300
+      }
+     ],
+     "done": "mounted crystal {sample} (the main door stays open for centring)",
+     "next": "centre it: `chemlab run {inst} align --wait`, then `chemlab run {inst} source on --wait`."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "crystal.mounted_sample_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no crystal on {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a crystal mounted"
+      },
+      {
+       "check": {
+        "slot": "operation.id",
+        "eq": null
+       },
+       "code": "BUSY",
+       "message": "{inst} is busy ({slot:operation.kind}).",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "idle"
+      },
+      {
+       "cap": "door.open",
+       "args": {
+        "door": "left",
+        "angle_rad": 1.5
+       },
+       "say": "open the main door",
+       "if": {
+        "slot": "door.left_angle_rad",
+        "lt": 0.79
+       }
+      },
+      {
+       "cap": "motion_enable.hold",
+       "args": {
+        "held": true
+       },
+       "say": "hold both Motion Enable keys",
+       "unless": {
+        "slot": "motion_enable.held",
+        "truthy": true
+       }
+      },
+      {
+       "cap": "goniometer.mount_position",
+       "say": "drive the goniometer to the mounting pose",
+       "unless": {
+        "all": [
+         {
+          "slot": "goniometer.kappa_rad",
+          "near": 0.0,
+          "abs": 0.087
+         },
+         {
+          "slot": "detector.distance_m",
+          "ge": 0.06
+         },
+         {
+          "slot": "goniometer.moving",
+          "truthy": false
+         }
+        ]
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "operation.id",
+          "eq": null
+         },
+         {
+          "slot": "goniometer.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the goniometer is at the mounting pose",
+       "max_s": 300
+      },
+      {
+       "cap": "crystal.unmount",
+       "say": "take the crystal off and put it back on the bench"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "operation.id",
+          "eq": null
+         },
+         {
+          "slot": "goniometer.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the unmounting is done",
+       "max_s": 300
+      }
+     ],
+     "done": "unmounted the crystal (the main door is open)"
+    },
+    "align": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "crystal.mounted_sample_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no crystal on {inst}.",
+       "fix": "mount one: `chemlab run {inst} load SAMPLE`.",
+       "label": "a crystal mounted"
+      },
+      {
+       "check": {
+        "slot": "operation.id",
+        "eq": null
+       },
+       "code": "BUSY",
+       "message": "{inst} is busy ({slot:operation.kind}).",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "idle"
+      },
+      {
+       "cap": "door.open",
+       "args": {
+        "door": "left",
+        "angle_rad": 1.5
+       },
+       "say": "open the main door",
+       "if": {
+        "slot": "door.left_angle_rad",
+        "lt": 0.79
+       }
+      },
+      {
+       "cap": "motion_enable.hold",
+       "args": {
+        "held": true
+       },
+       "say": "hold both Motion Enable keys",
+       "unless": {
+        "slot": "motion_enable.held",
+        "truthy": true
+       }
+      },
+      {
+       "cap": "goniometer.mount_position",
+       "say": "drive the goniometer to the mounting pose",
+       "unless": {
+        "all": [
+         {
+          "slot": "goniometer.kappa_rad",
+          "near": 0.0,
+          "abs": 0.087
+         },
+         {
+          "slot": "detector.distance_m",
+          "ge": 0.06
+         },
+         {
+          "slot": "goniometer.moving",
+          "truthy": false
+         }
+        ]
+       }
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "operation.id",
+          "eq": null
+         },
+         {
+          "slot": "goniometer.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the goniometer is at the mounting pose",
+       "max_s": 300
+      },
+      {
+       "cap": "crystal.center",
+       "say": "centre the crystal (video microscope, phi steps of 90 deg)"
+      }
+     ],
+     "job": "operation",
+     "what": "crystal centring"
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "motion_enable.hold",
+        "args": {
+         "held": false
+        },
+        "say": "release the Motion Enable keys",
+        "if": {
+         "slot": "motion_enable.held",
+         "truthy": true
+        }
+       },
+       {
+        "cap": "door.close",
+        "args": {
+         "door": "left"
+        },
+        "say": "close the main door",
+        "if": {
+         "slot": "door.left_angle_rad",
+         "gt": 0.0
+        }
+       },
+       {
+        "cap": "door.close",
+        "args": {
+         "door": "right"
+        },
+        "say": "close the right door",
+        "if": {
+         "slot": "door.right_angle_rad",
+         "gt": 0.0
+        }
+       },
+       {
+        "cap": "safety.doors_ok",
+        "say": "press Doors OK (safety circuit)",
+        "unless": {
+         "slot": "safety.armed",
+         "truthy": true
+        }
+       },
+       {
+        "cap": "xray.set_key",
+        "args": {
+         "angle_rad": 1.5707963
+        },
+        "say": "turn the X-ray key to ON",
+        "unless": {
+         "slot": "xray.key_on",
+         "truthy": true
+        }
+       },
+       {
+        "cap": "xray.on",
+        "args": {
+         "voltage_v": {
+          "$or": [
+           "$opt:kv",
+           "$slot:xray.target#voltage_v"
+          ]
+         },
+         "current_a": {
+          "$or": [
+           "$opt:ma",
+           "$slot:xray.target#current_a"
+          ]
+         }
+        },
+        "say": "switch the generator on",
+        "if": {
+         "slot": "xray.state",
+         "eq": "off"
+        }
+       },
+       {
+        "cap": "xray.set",
+        "args": {
+         "voltage_v": "$opt:kv",
+         "current_a": "$opt:ma"
+        },
+        "say": "change the tube setting to {opt:kv}, {opt:ma}",
+        "if": {
+         "all": [
+          {
+           "slot": "xray.state",
+           "ne": "off"
+          },
+          {
+           "input": "opt:kv",
+           "given": true
+          },
+          {
+           "input": "opt:ma",
+           "given": true
+          }
+         ]
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "xray.state",
+        "eq": "on"
+       },
+       "what": "X-ray start and ramp",
+       "max_s": 900,
+       "progress": [
+        "xray.state",
+        "xray.voltage_v",
+        "xray.current_a"
+       ]
+      },
+      "what": "X-ray start and ramp",
+      "done": "X-rays on"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "xray.off",
+        "say": "switch the high voltage off",
+        "if": {
+         "slot": "xray.state",
+         "ne": "off"
+        }
+       }
+      ],
+      "done": "X-rays off"
+     }
+    },
+    "scan": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "crystal.mounted_sample_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no crystal on {inst}.",
+       "fix": "mount one: `chemlab run {inst} load SAMPLE`.",
+       "label": "a crystal mounted"
+      },
+      {
+       "check": {
+        "slot": "xray.state",
+        "eq": "on"
+       },
+       "code": "SOURCE_NOT_READY",
+       "message": "the X-rays of {inst} are not on and stable ({slot:xray.state}).",
+       "fix": "`chemlab run {inst} source on --wait`.",
+       "label": "X-rays stable"
+      },
+      {
+       "check": {
+        "slot": "safety.armed",
+        "truthy": true
+       },
+       "code": "NOT_ARMED",
+       "message": "the safety circuit of {inst} is open (a door was opened).",
+       "fix": "`chemlab run {inst} source on` closes the doors and re-arms it.",
+       "label": "safety circuit armed"
+      },
+      {
+       "cap": "experiment.pre_experiment",
+       "args": {
+        "exposure_s": "$opt:exposure",
+        "frame_width_rad": "$opt:width",
+        "distance_m": "$opt:distance"
+       },
+       "say": "pre-experiment: three 20 deg omega runs ({opt:exposure} per {opt:width} frame, {opt:distance})",
+       "if": {
+        "input": "opt:strategy",
+        "given": false
+       }
+      },
+      {
+       "cap": "data.collect",
+       "args": {
+        "runs": null,
+        "strategy_record_id": "$opt:strategy",
+        "frame_width_rad": "$opt:width"
+       },
+       "say": "collect the data set of strategy {opt:strategy}",
+       "if": {
+        "input": "opt:strategy",
+        "given": true
+       }
+      }
+     ],
+     "keys": {
+      "exposure": [
+       "duration"
+      ],
+      "width": [
+       "angle"
+      ],
+      "distance": [
+       "length"
+      ]
+     },
+     "defaults": {
+      "exposure": "1s",
+      "width": "0.5deg",
+      "distance": "45mm"
+     },
+     "options": [
+      "strategy"
+     ],
+     "job": "operation",
+     "what": "diffraction measurement"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id",
+     "args": {
+      "max_values": 4096
+     }
+    },
+    "analyze": {
+     "steps": [
+      {
+       "cap": "processing.index",
+       "args": {
+        "record_id": "$id",
+        "threshold_i_sigma": "$opt:threshold"
+       },
+       "say": "find peaks and index record {id}",
+       "if": {
+        "input": "opt:what",
+        "eq": "index"
+       }
+      },
+      {
+       "cap": "strategy.calculate",
+       "args": {
+        "record_id": "$id",
+        "resolution_m": "$opt:resolution",
+        "completeness": "$opt:completeness",
+        "redundancy": "$opt:redundancy",
+        "exposure_low_s": "$opt:exposure",
+        "exposure_high_s": "$opt:exposure_high",
+        "frame_width_rad": "$opt:width",
+        "distance_m": "$opt:distance"
+       },
+       "say": "calculate a collection strategy from {id}",
+       "if": {
+        "input": "opt:what",
+        "eq": "strategy"
+       }
+      },
+      {
+       "cap": "processing.reduce",
+       "args": {
+        "record_id": "$id",
+        "index_record_id": {
+         "$or": [
+          "$opt:index",
+          null
+         ]
+        }
+       },
+       "say": "reduce data set {id}",
+       "if": {
+        "input": "opt:what",
+        "eq": "reduce"
+       }
+      },
+      {
+       "cap": "processing.what_is_this",
+       "args": {
+        "record_id": "$id"
+       },
+       "say": "identify the structure of {id} (\"What is this?\")",
+       "if": {
+        "input": "opt:what",
+        "eq": "identify"
+       }
+      },
+      {
+       "fail": "UNKNOWN_ANALYSIS",
+       "kind": "usage",
+       "message": "what={opt:what} is not an analysis of {inst}.",
+       "fix": "what=index, strategy, reduce or identify.",
+       "if": {
+        "not": {
+         "input": "opt:what",
+         "in": [
+          "index",
+          "strategy",
+          "reduce",
+          "identify"
+         ]
+        }
+       }
+      }
+     ],
+     "keys": {
+      "resolution": [
+       "length"
+      ],
+      "exposure": [
+       "duration"
+      ],
+      "exposure_high": [
+       "duration"
+      ],
+      "width": [
+       "angle"
+      ],
+      "distance": [
+       "length"
+      ]
+     },
+     "defaults": {
+      "what": "index",
+      "threshold": "5",
+      "resolution": "0.084nm",
+      "completeness": "1.0",
+      "redundancy": "4",
+      "exposure": "0.5s",
+      "exposure_high": "2s",
+      "width": "0.5deg",
+      "distance": "45mm"
+     },
+     "options": [
+      "index",
+      "what"
+     ],
+     "last_slot": "result.last_record_id",
+     "what": "analysis ({opt:what})"
+    }
+   },
+   "unsupported": {
+    "vacuum": "no vacuum to operate (the tube vacuum is internal; air path to the crystal)"
+   },
+   "view": [
+    {
+     "label": "system",
+     "slot": "system.state"
+    },
+    {
+     "label": "crystal",
+     "slot": "crystal.mounted_sample_id"
+    },
+    {
+     "label": "main door",
+     "slot": "door.left_angle_rad",
+     "fmt": "deg"
+    },
+    {
+     "label": "armed",
+     "slot": "safety.armed"
+    },
+    {
+     "label": "key",
+     "slot": "xray.key_on"
+    },
+    {
+     "label": "X-rays",
+     "slot": "xray.state"
+    },
+    {
+     "label": "tube",
+     "slot": "xray.voltage_v",
+     "fmt": "kv"
+    },
+    {
+     "label": "current",
+     "slot": "xray.current_a",
+     "fmt": "ma"
+    },
+    {
+     "label": "distance",
+     "slot": "detector.distance_m",
+     "kind": "length"
+    },
+    {
+     "label": "busy with",
+     "slot": "operation.kind"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    }
+   ],
+   "path": "experiment",
+   "path_exceptions": [
+    "data.collect",
+    "measurement.result"
+   ],
+   "notes": {
+    "load": [
+     "open the main door, hold Motion Enable, drive to the mounting pose, mount the crystal (about 1 min); the door stays open for centring (user manual: mounting and centring)",
+     "manual: XtaLAB Synergy user manual pp.10-15 (mounting and centring)"
+    ],
+    "source": [
+     "closes the doors and presses Doors OK, turns the key, starts the generator (about 30 s) and ramps it (2 kV/s, 2 mA/s)",
+     "manual: XtaLAB Synergy user manual p.6 (door interlock), pp.7-10 (Motion Enable)"
+    ],
+    "scan": [
+     "without strategy= a pre-experiment (quick screening, auto-indexed); with strategy=ID the full data set of that strategy record",
+     "manual: XtaLAB Synergy user manual pp.10-24 (pre-experiment, strategy, data collection)"
+    ],
+    "analyze": [
+     "what=index (threshold=), what=strategy (resolution= completeness= redundancy= exposure= exposure_high= width= distance=), what=reduce (index=ID), what=identify",
+     "manual: XtaLAB Synergy user manual pp.15-24; CrysAlisPro note pp.1-8"
+    ],
+    "align": [
+     "manual: XtaLAB Synergy user manual pp.10-15"
+    ]
+   }
+  },
+  "antonpaar_saxspace": {
+   "role": "primary",
+   "slots": {
+    "sample": "holder.sample_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "holder.type",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the sample stage of {inst} already holds a {slot:holder.type} holder ({slot:holder.sample_id}).",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "holder seat free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "sample {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the samples on the bench.",
+       "label": "sample on the bench"
+      },
+      {
+       "check": {
+        "any": [
+         {
+          "slot": "vacuum.pressure_indicated_pa",
+          "gt": 90000.0
+         },
+         {
+          "slot": "chamber.door_open",
+          "truthy": true
+         }
+        ]
+       },
+       "code": "NOT_VENTED",
+       "message": "the sample chamber of {inst} is under vacuum, so its door cannot open.",
+       "fix": "vent it first: `chemlab run {inst} vacuum off --wait`.",
+       "label": "chamber vented"
+      },
+      {
+       "check": {
+        "slot": "vacuum.pump_on",
+        "truthy": false
+       },
+       "code": "PUMP_ON",
+       "message": "the vacuum pump of {inst} is running.",
+       "fix": "`chemlab run {inst} vacuum off --wait` first.",
+       "label": "pump off"
+      },
+      {
+       "cap": "chamber.set_door",
+       "args": {
+        "open": true
+       },
+       "say": "open the sample chamber door",
+       "unless": {
+        "slot": "chamber.door_open",
+        "truthy": true
+       }
+      },
+      {
+       "cap": "sample.load",
+       "args": {
+        "sample_id": "$sample",
+        "holder": "$opt:holder"
+       },
+       "say": "fill {sample} into a {opt:holder} and seat it"
+      },
+      {
+       "cap": "chamber.set_door",
+       "args": {
+        "open": false
+       },
+       "say": "close the chamber door"
+      }
+     ],
+     "defaults": {
+      "holder": "capillary_1mm"
+     },
+     "done": "loaded {sample} ({opt:holder}); the door is closed",
+     "next": "pump the flight path (`chemlab run {inst} vacuum on --wait`), `source on --wait`, `align --wait`, then `scan`."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.type",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no holder on the sample stage of {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a holder seated"
+      },
+      {
+       "check": {
+        "any": [
+         {
+          "slot": "vacuum.pressure_indicated_pa",
+          "gt": 90000.0
+         },
+         {
+          "slot": "chamber.door_open",
+          "truthy": true
+         }
+        ]
+       },
+       "code": "NOT_VENTED",
+       "message": "the sample chamber of {inst} is under vacuum, so its door cannot open.",
+       "fix": "vent it first: `chemlab run {inst} vacuum off --wait`.",
+       "label": "chamber vented"
+      },
+      {
+       "cap": "chamber.set_door",
+       "args": {
+        "open": true
+       },
+       "say": "open the sample chamber door",
+       "unless": {
+        "slot": "chamber.door_open",
+        "truthy": true
+       }
+      },
+      {
+       "cap": "sample.unload",
+       "say": "take the holder out"
+      },
+      {
+       "cap": "chamber.set_door",
+       "args": {
+        "open": false
+       },
+       "say": "close the chamber door"
+      }
+     ],
+     "done": "unloaded the sample holder"
+    },
+    "vacuum": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "chamber.door_open",
+         "truthy": false
+        },
+        "code": "DOOR_OPEN",
+        "message": "the chamber door of {inst} is open.",
+        "fix": "close it: `chemlab run {inst} close chamber_door`.",
+        "label": "door closed"
+       },
+       {
+        "cap": "vacuum.set_pump",
+        "args": {
+         "on": true
+        },
+        "say": "pump the flight path and sample chamber",
+        "unless": {
+         "slot": "vacuum.pump_on",
+         "truthy": true
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "vacuum.ready",
+        "truthy": true
+       },
+       "what": "pump-down",
+       "max_s": 1800,
+       "poll_s": 5.0,
+       "progress": [
+        "vacuum.pressure_indicated_pa"
+       ]
+      },
+      "what": "pump-down",
+      "done": "vacuum ready (below 3 mbar)"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "vacuum.set_pump",
+        "args": {
+         "on": false
+        },
+        "say": "vent the flight path",
+        "if": {
+         "any": [
+          {
+           "slot": "vacuum.pump_on",
+           "truthy": true
+          },
+          {
+           "not": {
+            "slot": "vacuum.pressure_indicated_pa",
+            "gt": 90000.0
+           }
+          }
+         ]
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "vacuum.pressure_indicated_pa",
+        "gt": 90000.0
+       },
+       "what": "venting",
+       "max_s": 1800,
+       "poll_s": 5.0,
+       "progress": [
+        "vacuum.pressure_indicated_pa"
+       ]
+      },
+      "what": "venting",
+      "done": "vented"
+     }
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "generator.set_power",
+        "args": {
+         "voltage_v": {
+          "$or": [
+           "$opt:kv",
+           "$slot:generator.voltage_setpoint_v"
+          ]
+         },
+         "current_a": {
+          "$or": [
+           "$opt:ma",
+           "$slot:generator.current_setpoint_a"
+          ]
+         }
+        },
+        "say": "set the generator to {slot:generator.voltage_setpoint_v} V",
+        "if": {
+         "any": [
+          {
+           "input": "opt:kv",
+           "given": true
+          },
+          {
+           "input": "opt:ma",
+           "given": true
+          }
+         ]
+        }
+       },
+       {
+        "cap": "generator.set_key",
+        "args": {
+         "on": true
+        },
+        "say": "turn the generator key to I",
+        "unless": {
+         "slot": "generator.key_on",
+         "truthy": true
+        }
+       },
+       {
+        "cap": "generator.xray_on",
+        "say": "press X-RAY ON",
+        "unless": {
+         "slot": "generator.xray_on",
+         "truthy": true
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "all": [
+         {
+          "slot": "generator.voltage_indicated_v",
+          "near": "$slot:generator.voltage_setpoint_v",
+          "abs": 100.0
+         },
+         {
+          "slot": "generator.current_indicated_a",
+          "near": "$slot:generator.current_setpoint_a",
+          "abs": 0.0002
+         }
+        ]
+       },
+       "what": "X-ray ramp",
+       "max_s": 600,
+       "progress": [
+        "generator.voltage_indicated_v",
+        "generator.current_indicated_a"
+       ]
+      },
+      "what": "X-ray ramp",
+      "done": "X-rays on at the set values"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "generator.xray_off",
+        "say": "press X-RAY OFF",
+        "if": {
+         "slot": "generator.xray_on",
+         "truthy": true
+        }
+       }
+      ],
+      "done": "X-rays off"
+     }
+    },
+    "align": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.type",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no holder on the sample stage of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "holder seated"
+      },
+      {
+       "check": {
+        "slot": "generator.xray_on",
+        "truthy": true
+       },
+       "code": "SOURCE_NOT_READY",
+       "message": "the X-rays of {inst} are off.",
+       "fix": "`chemlab run {inst} source on --wait`.",
+       "label": "X-rays on"
+      },
+      {
+       "check": {
+        "slot": "vacuum.ready",
+        "truthy": true
+       },
+       "code": "VACUUM_NOT_READY",
+       "message": "the flight path of {inst} is not evacuated.",
+       "fix": "`chemlab run {inst} vacuum on --wait`.",
+       "label": "vacuum ready"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         },
+         {
+          "slot": "detector.arm_moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the stage and detector arm are still",
+       "max_s": 120
+      },
+      {
+       "cap": "stage.auto_align",
+       "say": "TrueFocus auto-alignment (scan Y for the capillary axis)"
+      }
+     ],
+     "job": "operation",
+     "what": "auto-alignment"
+    },
+    "scan": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "holder.type",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no holder on the sample stage of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "holder seated"
+      },
+      {
+       "check": {
+        "slot": "generator.xray_on",
+        "truthy": true
+       },
+       "code": "SOURCE_NOT_READY",
+       "message": "the X-rays of {inst} are off.",
+       "fix": "`chemlab run {inst} source on --wait`.",
+       "label": "X-rays on"
+      },
+      {
+       "check": {
+        "any": [
+         {
+          "slot": "vacuum.ready",
+          "truthy": true
+         },
+         {
+          "slot": "vacuum.pressure_indicated_pa",
+          "gt": 90000.0
+         }
+        ]
+       },
+       "code": "VACUUM_NOT_READY",
+       "message": "the flight path of {inst} is neither evacuated nor vented (pressure {slot:vacuum.pressure_indicated_pa} Pa).",
+       "fix": "wait for the pump-down: `chemlab run {inst} vacuum on --wait`.",
+       "label": "vacuum ready (or air)"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         },
+         {
+          "slot": "detector.arm_moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "the stage and detector arm are still",
+       "max_s": 120
+      },
+      {
+       "cap": "acquisition.start",
+       "args": {
+        "exposure_s": "$opt:exposure",
+        "frames": "$opt:frames"
+       },
+       "say": "expose {opt:frames} frame(s) of {opt:exposure}"
+      }
+     ],
+     "keys": {
+      "exposure": [
+       "duration"
+      ]
+     },
+     "defaults": {
+      "exposure": "60s",
+      "frames": "1"
+     },
+     "job": "operation",
+     "what": "SAXS exposure"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id"
+    },
+    "analyze": {
+     "steps": [
+      {
+       "cap": "data.reduce",
+       "args": {
+        "record_id": "$id",
+        "background_record_id": {
+         "$or": [
+          "$opt:background",
+          null
+         ]
+        },
+        "calibration_id": {
+         "$or": [
+          "$opt:calibration",
+          null
+         ]
+        },
+        "thickness_m": "$opt:thickness",
+        "desmear": "$opt:desmear"
+       },
+       "say": "reduce record {id} (thickness {opt:thickness})"
+      }
+     ],
+     "keys": {
+      "thickness": [
+       "length"
+      ]
+     },
+     "defaults": {
+      "thickness": "1mm",
+      "desmear": "false"
+     },
+     "options": [
+      "background",
+      "calibration"
+     ],
+     "last_slot": "result.last_record_id",
+     "what": "data reduction"
+    }
+   },
+   "view": [
+    {
+     "label": "system",
+     "slot": "system.state"
+    },
+    {
+     "label": "holder",
+     "slot": "holder.type"
+    },
+    {
+     "label": "sample",
+     "slot": "holder.sample_id"
+    },
+    {
+     "label": "door open",
+     "slot": "chamber.door_open"
+    },
+    {
+     "label": "pressure",
+     "slot": "vacuum.pressure_indicated_pa",
+     "fmt": "pa"
+    },
+    {
+     "label": "vacuum ready",
+     "slot": "vacuum.ready"
+    },
+    {
+     "label": "X-rays",
+     "slot": "generator.xray_on"
+    },
+    {
+     "label": "tube",
+     "slot": "generator.voltage_indicated_v",
+     "fmt": "kv"
+    },
+    {
+     "label": "current",
+     "slot": "generator.current_indicated_a",
+     "fmt": "ma"
+    },
+    {
+     "label": "acquiring",
+     "slot": "acquisition.kind"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    }
+   ],
+   "path": "acquisition",
+   "notes": {
+    "load": [
+     "--holder capillary_1mm (default, liquids), mu_cell, paste_cell (powders), solid_holder"
+    ],
+    "scan": [
+     "settings exposure= (per frame) frames=",
+     "manual: SAXSpace brochure p.8 (SAXSdrive)"
+    ],
+    "analyze": [
+     "data reduction: thickness= desmear=true|false background=ID calibration=ID",
+     "manual: SAXSpace brochure pp.6-7"
+    ],
+    "align": [
+     "manual: SAXSpace brochure pp.2-5 (TrueFocus self-alignment)"
+    ]
+   }
+  },
+  "kratos_axissupra": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "stage.holder_id",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the analysis stage of {inst} already carries holder {slot:stage.holder_id}.",
+       "fix": "unload it first: `chemlab run {inst} unload SAMPLE`.",
+       "label": "stage free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "sample {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the samples on the bench.",
+       "label": "sample on the bench"
+      },
+      {
+       "check": {
+        "all": [
+         {
+          "slot": "transfer.busy",
+          "truthy": false
+         },
+         {
+          "slot": "acquisition.id",
+          "eq": null
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "code": "BUSY",
+       "message": "{inst} is transferring or acquiring now.",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "idle"
+      },
+      {
+       "cap": "flexilock.vent",
+       "say": "vent the Flexi-lock",
+       "unless": {
+        "slot": "flexilock.mode",
+        "eq": "vented"
+       }
+      },
+      {
+       "wait": {
+        "slot": "flexilock.mode",
+        "eq": "vented"
+       },
+       "say": "the Flexi-lock is at atmosphere",
+       "max_s": 900,
+       "poll_s": 5.0
+      },
+      {
+       "cap": "holder.mount_sample",
+       "args": {
+        "holder_id": "$opt:holder",
+        "sample_id": "$sample",
+        "x_m": "$opt:at_x",
+        "y_m": "$opt:at_y"
+       },
+       "say": "mount {sample} on holder {opt:holder}"
+      },
+      {
+       "cap": "flexilock.set_lid",
+       "args": {
+        "open": true
+       },
+       "say": "open the Flexi-lock lid"
+      },
+      {
+       "cap": "flexilock.load_holder",
+       "args": {
+        "holder_id": "$opt:holder",
+        "slot": "$opt:magazine"
+       },
+       "say": "put holder {opt:holder} into magazine slot {opt:magazine}"
+      },
+      {
+       "cap": "flexilock.set_lid",
+       "args": {
+        "open": false
+       },
+       "say": "close the lid"
+      },
+      {
+       "cap": "flexilock.pump",
+       "say": "pump the Flexi-lock (roughing, then turbo)"
+      },
+      {
+       "wait": {
+        "slot": "flexilock.mode",
+        "eq": "pumped"
+       },
+       "say": "the Flexi-lock is pumped to transfer pressure",
+       "max_s": 1800,
+       "poll_s": 5.0
+      },
+      {
+       "cap": "transfer.to_stage",
+       "args": {
+        "slot": "$opt:magazine"
+       },
+       "say": "transfer holder {opt:holder} from slot {opt:magazine} to the analysis stage"
+      }
+     ],
+     "defaults": {
+      "holder": "H1",
+      "magazine": "1",
+      "at_x": "0mm",
+      "at_y": "0mm"
+     },
+     "job": "operation",
+     "what": "transfer to the analysis stage",
+     "next": "switch the X-rays on (`chemlab run {inst} source on --wait`), `align --wait` (auto height), then `scan region=survey`."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "stage.holder_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no holder on the analysis stage of {inst}.",
+       "fix": "nothing to unload.",
+       "label": "holder on the stage"
+      },
+      {
+       "check": {
+        "all": [
+         {
+          "slot": "transfer.busy",
+          "truthy": false
+         },
+         {
+          "slot": "acquisition.id",
+          "eq": null
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "code": "BUSY",
+       "message": "{inst} is transferring or acquiring now.",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "idle"
+      },
+      {
+       "remember": "holder",
+       "value": "$slot:stage.holder_id"
+      },
+      {
+       "cap": "transfer.to_magazine",
+       "args": {
+        "slot": "$opt:magazine"
+       },
+       "say": "transfer the holder back to magazine slot {opt:magazine}"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "transfer.busy",
+          "truthy": false
+         },
+         {
+          "slot": "stage.holder_id",
+          "eq": null
+         }
+        ]
+       },
+       "say": "the holder is back in the magazine",
+       "max_s": 900
+      },
+      {
+       "cap": "flexilock.vent",
+       "say": "vent the Flexi-lock"
+      },
+      {
+       "wait": {
+        "slot": "flexilock.mode",
+        "eq": "vented"
+       },
+       "say": "the Flexi-lock is at atmosphere",
+       "max_s": 900,
+       "poll_s": 5.0
+      },
+      {
+       "cap": "flexilock.set_lid",
+       "args": {
+        "open": true
+       },
+       "say": "open the lid"
+      },
+      {
+       "cap": "flexilock.unload_holder",
+       "args": {
+        "slot": "$opt:magazine"
+       },
+       "say": "take the holder out of slot {opt:magazine}"
+      },
+      {
+       "cap": "flexilock.set_lid",
+       "args": {
+        "open": false
+       },
+       "say": "close the lid"
+      },
+      {
+       "cap": "holder.unmount_sample",
+       "args": {
+        "holder_id": "$holder",
+        "sample_id": "$sample"
+       },
+       "say": "take {sample} off the holder"
+      }
+     ],
+     "defaults": {
+      "magazine": "1"
+     },
+     "options": [
+      "magazine"
+     ],
+     "done": "unloaded {sample} back onto the bench"
+    },
+    "source": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "xray.set_source",
+        "args": {
+         "on": true,
+         "emission_a": "$opt:ma"
+        },
+        "say": "switch the Al Ka source on at {opt:ma} emission (15 kV anode)"
+       }
+      ],
+      "defaults": {
+       "ma": "15mA"
+      },
+      "job": {
+       "until": {
+        "all": [
+         {
+          "slot": "xray.on",
+          "truthy": true
+         },
+         {
+          "slot": "xray.power_indicated_w",
+          "ge": {
+           "$mul": [
+            14850.0,
+            "$slot:xray.emission_setpoint_a"
+           ]
+          }
+         }
+        ]
+       },
+       "what": "X-ray source start",
+       "max_s": 600,
+       "progress": [
+        "xray.power_indicated_w"
+       ]
+      },
+      "what": "X-ray source start",
+      "done": "Al Ka source on at its set power"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "cap": "xray.set_source",
+        "args": {
+         "on": false,
+         "emission_a": "$slot:xray.emission_setpoint_a"
+        },
+        "say": "switch the source off",
+        "if": {
+         "slot": "xray.on",
+         "truthy": true
+        }
+       }
+      ],
+      "done": "X-ray source off"
+     }
+    },
+    "vacuum": {
+     "on": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "check": {
+         "slot": "flexilock.lid_open",
+         "truthy": false
+        },
+        "code": "LID_OPEN",
+        "message": "the Flexi-lock lid of {inst} is open.",
+        "fix": "close it first.",
+        "label": "lid closed"
+       },
+       {
+        "cap": "flexilock.pump",
+        "say": "pump the Flexi-lock",
+        "unless": {
+         "slot": "flexilock.mode",
+         "in": [
+          "pumping",
+          "pumped"
+         ]
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "flexilock.mode",
+        "eq": "pumped"
+       },
+       "what": "load-lock pump-down",
+       "max_s": 1800,
+       "poll_s": 5.0,
+       "progress": [
+        "flexilock.mode",
+        "vacuum.fl_pressure_indicated_pa"
+       ]
+      },
+      "what": "load-lock pump-down",
+      "done": "Flexi-lock pumped"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "power.enabled",
+         "truthy": true
+        },
+        "code": "POWER_OFF",
+        "message": "{inst} is switched off.",
+        "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+        "label": "power on"
+       },
+       {
+        "check": {
+         "slot": "system.state",
+         "in": [
+          "ready"
+         ]
+        },
+        "code": "NOT_READY",
+        "message": "{inst} is not ready (system state {slot:system.state}).",
+        "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+        "label": "ready"
+       },
+       {
+        "cap": "flexilock.vent",
+        "say": "vent the Flexi-lock",
+        "unless": {
+         "slot": "flexilock.mode",
+         "eq": "vented"
+        }
+       }
+      ],
+      "job": {
+       "until": {
+        "slot": "flexilock.mode",
+        "eq": "vented"
+       },
+       "what": "load-lock venting",
+       "max_s": 1800,
+       "poll_s": 5.0,
+       "progress": [
+        "flexilock.mode"
+       ]
+      },
+      "what": "load-lock venting",
+      "done": "Flexi-lock vented"
+     }
+    },
+    "align": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "stage.holder_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no holder on the analysis stage of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "holder on the stage"
+      },
+      {
+       "check": {
+        "slot": "xray.on",
+        "truthy": true
+       },
+       "code": "SOURCE_NOT_READY",
+       "message": "the X-ray source of {inst} is off.",
+       "fix": "`chemlab run {inst} source on --wait`.",
+       "label": "X-rays on"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "transfer.busy",
+          "truthy": false
+         },
+         {
+          "slot": "acquisition.id",
+          "eq": null
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "no transfer or acquisition is running",
+       "max_s": 900
+      },
+      {
+       "cap": "stage.auto_height",
+       "say": "auto height (count rate against Z)"
+      }
+     ],
+     "job": "operation",
+     "what": "auto height"
+    },
+    "scan": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "stage.holder_id",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no holder on the analysis stage of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "holder on the stage"
+      },
+      {
+       "check": {
+        "slot": "xray.on",
+        "truthy": true
+       },
+       "code": "SOURCE_NOT_READY",
+       "message": "the X-ray source of {inst} is off.",
+       "fix": "`chemlab run {inst} source on --wait`.",
+       "label": "X-rays on"
+      },
+      {
+       "wait": {
+        "all": [
+         {
+          "slot": "transfer.busy",
+          "truthy": false
+         },
+         {
+          "slot": "acquisition.id",
+          "eq": null
+         },
+         {
+          "slot": "stage.moving",
+          "truthy": false
+         }
+        ]
+       },
+       "say": "no transfer or acquisition is running",
+       "max_s": 900
+      },
+      {
+       "cap": "acquisition.spectrum",
+       "args": {
+        "regions": {
+         "$records": "$opt:region",
+         "fields": [
+          "name",
+          "start_be_ev",
+          "end_be_ev",
+          "step_ev",
+          "dwell_s",
+          "sweeps"
+         ],
+         "ints": [
+          "sweeps"
+         ],
+         "presets": {
+          "survey": [
+           "survey",
+           0.0,
+           1200.0,
+           1.0,
+           0.1,
+           1
+          ],
+          "C1s": [
+           "C1s",
+           280.0,
+           296.0,
+           0.1,
+           0.1,
+           2
+          ],
+          "O1s": [
+           "O1s",
+           525.0,
+           540.0,
+           0.1,
+           0.1,
+           2
+          ],
+          "Si2p": [
+           "Si2p",
+           95.0,
+           110.0,
+           0.1,
+           0.1,
+           2
+          ],
+          "N1s": [
+           "N1s",
+           393.0,
+           408.0,
+           0.1,
+           0.1,
+           2
+          ]
+         }
+        },
+        "mode": "$opt:mode"
+       },
+       "say": "acquire the spectrum ({opt:region}, {opt:mode})"
+      }
+     ],
+     "defaults": {
+      "region": "survey",
+      "mode": "scanned"
+     },
+     "job": "operation",
+     "what": "XPS acquisition"
+    },
+    "result": {
+     "cap": "acquisition.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id"
+    },
+    "analyze": {
+     "steps": [
+      {
+       "cap": "data.quantify",
+       "args": {
+        "record_id": "$id",
+        "regions": {
+         "$list": "$opt:regions"
+        },
+        "shift_ev": "$opt:shift"
+       },
+       "say": "quantify {opt:regions} of record {id}"
+      }
+     ],
+     "defaults": {
+      "regions": "survey",
+      "shift": "0"
+     },
+     "last_slot": "result.last_record_id",
+     "what": "quantification"
+    }
+   },
+   "view": [
+    {
+     "label": "system",
+     "slot": "system.state"
+    },
+    {
+     "label": "lock",
+     "slot": "flexilock.mode"
+    },
+    {
+     "label": "lid open",
+     "slot": "flexilock.lid_open"
+    },
+    {
+     "label": "magazine",
+     "slot": "flexilock.magazine"
+    },
+    {
+     "label": "stage holder",
+     "slot": "stage.holder_id"
+    },
+    {
+     "label": "transfer",
+     "slot": "transfer.busy"
+    },
+    {
+     "label": "X-rays",
+     "slot": "xray.on"
+    },
+    {
+     "label": "power W",
+     "slot": "xray.power_indicated_w"
+    },
+    {
+     "label": "acquiring",
+     "slot": "acquisition.kind"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    }
+   ],
+   "path": "acquisition",
+   "notes": {
+    "load": [
+     "mount on the holder (--holder H1..H3, --at X,Y on the holder), vent / open / load / close the Flexi-lock, pump it (about 5 min) and transfer to the analysis stage (job-N); --magazine is the magazine slot",
+     "manual: AXIS Supra+ getting started guide pp.15-28 (sample mounting, holders); brochure p.4 (Flexi-lock)"
+    ],
+    "scan": [
+     "region=survey | C1s | O1s | Si2p | N1s | NAME:FROM:TO:STEP:DWELL[:SWEEPS] (binding energies in eV), several with commas; mode=scanned | snapshot",
+     "manual: AXIS Supra+ brochure p.3 (ESCApe)"
+    ],
+    "analyze": [
+     "quantification: regions=NAME,NAME (the region names of the record) shift=EV (charge correction)",
+     "manual: AXIS Supra+ brochure p.3 (quantification)"
+    ],
+    "source": [
+     "manual: AXIS Supra+ getting started guide pp.7-14 (X-ray generator)"
+    ]
+   }
+  },
+  "ja_alphase": {
+   "role": "primary",
+   "slots": {
+    "sample": "sample.on_stage#sample_id"
+   },
+   "verbs": {
+    "load": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "eq": null
+       },
+       "code": "OCCUPIED",
+       "message": "the stage of {inst} already holds {slot:sample.on_stage#sample_id}.",
+       "fix": "unload it first: `chemlab run {inst} unload`.",
+       "label": "stage free"
+      },
+      {
+       "check": {
+        "slot": "sample.bench_ids",
+        "has": "$sample"
+       },
+       "code": "NO_SUCH_SAMPLE",
+       "message": "sample {sample} is not on the bench next to {inst} (bench: {slot:sample.bench_ids}).",
+       "fix": "load one of the samples on the bench.",
+       "label": "sample on the bench"
+      },
+      {
+       "cap": "sample.place",
+       "args": {
+        "sample_id": "$sample",
+        "offset_x_m": "$opt:at_x",
+        "offset_y_m": "$opt:at_y"
+       },
+       "say": "put {sample} on the sample platform"
+      },
+      {
+       "cap": "vacuum.set",
+       "args": {
+        "on": true
+       },
+       "say": "switch the sample vacuum on (hold the wafer)"
+      }
+     ],
+     "defaults": {
+      "at_x": "0mm",
+      "at_y": "0mm"
+     },
+     "done": "loaded {sample} (held by vacuum)",
+     "next": "`chemlab run {inst} scan mode=standard` (alignment is part of each measurement)."
+    },
+    "unload": {
+     "steps": [
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample on the stage of {inst}.",
+       "fix": "nothing to unload.",
+       "label": "a sample on the stage"
+      },
+      {
+       "check": {
+        "slot": "measurement.id",
+        "eq": null
+       },
+       "code": "BUSY",
+       "message": "{inst} is measuring.",
+       "fix": "wait for it (`chemlab status`).",
+       "label": "not measuring"
+      },
+      {
+       "cap": "vacuum.set",
+       "args": {
+        "on": false
+       },
+       "say": "release the sample vacuum",
+       "if": {
+        "slot": "vacuum.switch_on",
+        "truthy": true
+       }
+      },
+      {
+       "cap": "sample.remove",
+       "args": {
+        "sample_id": "$sample"
+       },
+       "say": "take {sample} off the platform"
+      }
+     ],
+     "done": "unloaded {sample}"
+    },
+    "vacuum": {
+     "on": {
+      "steps": [
+       {
+        "cap": "vacuum.set",
+        "args": {
+         "on": true
+        },
+        "say": "switch the sample vacuum on"
+       }
+      ],
+      "done": "sample vacuum on (holds the sample)"
+     },
+     "off": {
+      "steps": [
+       {
+        "check": {
+         "slot": "measurement.id",
+         "eq": null
+        },
+        "code": "BUSY",
+        "message": "{inst} is measuring.",
+        "fix": "wait for it.",
+        "label": "not measuring"
+       },
+       {
+        "cap": "vacuum.set",
+        "args": {
+         "on": false
+        },
+        "say": "switch the sample vacuum off"
+       }
+      ],
+      "done": "sample vacuum off"
+     }
+    },
+    "scan": {
+     "steps": [
+      {
+       "check": {
+        "slot": "power.enabled",
+        "truthy": true
+       },
+       "code": "POWER_OFF",
+       "message": "{inst} is switched off.",
+       "fix": "switch it on (`chemlab run {inst} power on`, or `chemlab call {inst} power.set --enabled true`) and let it start up.",
+       "label": "power on"
+      },
+      {
+       "check": {
+        "slot": "system.state",
+        "in": [
+         "ready"
+        ]
+       },
+       "code": "NOT_READY",
+       "message": "{inst} is not ready (system state {slot:system.state}).",
+       "fix": "wait until it has started up (`chemlab wait 60`), then retry; see `chemlab run {inst} status`.",
+       "label": "ready"
+      },
+      {
+       "check": {
+        "slot": "sample.on_stage",
+        "ne": null
+       },
+       "code": "NO_SAMPLE",
+       "message": "there is no sample on the stage of {inst}.",
+       "fix": "load one: `chemlab run {inst} load SAMPLE`.",
+       "label": "sample on the stage"
+      },
+      {
+       "check": {
+        "slot": "lamp.on",
+        "truthy": true
+       },
+       "code": "LAMP_OFF",
+       "message": "the lamp of {inst} is off.",
+       "fix": "switch the instrument off and on (`chemlab run {inst} power off`, `power on`).",
+       "label": "lamp on"
+      },
+      {
+       "cap": "measure",
+       "args": {
+        "mode": "$opt:mode",
+        "alignment": "$opt:align",
+        "fixed_height_m": {
+         "$or": [
+          "$opt:height",
+          null
+         ]
+        },
+        "model_id": {
+         "$or": [
+          "$opt:model",
+          null
+         ]
+        }
+       },
+       "say": "measure ({opt:mode}, alignment {opt:align})"
+      }
+     ],
+     "keys": {
+      "height": [
+       "length"
+      ]
+     },
+     "defaults": {
+      "mode": "standard",
+      "align": "standard"
+     },
+     "options": [
+      "model"
+     ],
+     "job": "operation",
+     "what": "ellipsometry measurement"
+    },
+    "result": {
+     "cap": "measurement.result",
+     "arg": "record_id",
+     "last_slot": "result.last_record_id"
+    },
+    "analyze": {
+     "steps": [
+      {
+       "cap": "analysis.fit",
+       "args": {
+        "record_ids": [
+         "$id"
+        ],
+        "model_id": "$opt:model",
+        "parameters": {
+         "film.thickness_m": "$opt:thickness"
+        },
+        "fit": {
+         "$list": "$opt:fit"
+        },
+        "thickness_prefit": "$opt:prefit"
+       },
+       "say": "fit model {opt:model} to record {id} (start thickness {opt:thickness})"
+      }
+     ],
+     "keys": {
+      "thickness": [
+       "length"
+      ]
+     },
+     "defaults": {
+      "model": "cauchy_on_si",
+      "thickness": "100nm",
+      "fit": "film.thickness_m,film.A,film.B",
+      "prefit": "true"
+     },
+     "last_slot": "result.last_record_id",
+     "what": "model fit"
+    }
+   },
+   "unsupported": {
+    "source": "the lamp is on whenever the instrument is on (no separate switch)",
+    "align": "alignment is part of every measurement"
+   },
+   "alternatives": {
+    "align": "choose it with the measurement: `chemlab run INST scan align=standard` (none, standard, robust, fixed_height with height=)"
+   },
+   "view": [
+    {
+     "label": "system",
+     "slot": "system.state"
+    },
+    {
+     "label": "lamp",
+     "slot": "lamp.on"
+    },
+    {
+     "label": "warmed up",
+     "slot": "lamp.warmed_up"
+    },
+    {
+     "label": "sample",
+     "slot": "sample.on_stage",
+     "key": "sample_id"
+    },
+    {
+     "label": "vacuum",
+     "slot": "vacuum.switch_on"
+    },
+    {
+     "label": "AOI",
+     "slot": "aoi.position"
+    },
+    {
+     "label": "stage z",
+     "slot": "stage.z_m",
+     "kind": "length"
+    },
+    {
+     "label": "measuring",
+     "slot": "measurement.kind"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    },
+    {
+     "label": "thickness",
+     "slot": "result.last_thickness_m",
+     "kind": "length"
+    },
+    {
+     "label": "MSE",
+     "slot": "result.last_mse"
+    }
+   ],
+   "path": "measure",
+   "path_exceptions": [
+    "measurement.result"
+   ],
+   "notes": {
+    "scan": [
+     "settings mode=fast|standard|long|mm|mm_long align=none|standard|robust|fixed_height height= model=ID (fit right away)",
+     "manual: alpha-SE facility procedure pp.1-4 (modes, alignment)"
+    ],
+    "analyze": [
+     "model fit: model=ID (see `chemlab call INST models.list`) thickness= (start value) fit=PARAM,PARAM prefit=true|false",
+     "manual: Woollam ellipsometry tutorial pp.8-14 (data analysis)"
+    ],
+    "load": [
+     "manual: alpha-SE facility procedure pp.2-7 (mount sample + vacuum)"
+    ]
+   }
+  }
+ }
+}

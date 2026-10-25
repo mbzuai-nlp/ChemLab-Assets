@@ -176,4 +176,10 @@ class QuadproTests(unittest.TestCase):
         for row in a['observations']:row['current_a']=0.
         self.reject(h,'analysis.sheet_resistance',**a)
 
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): stage.move schema allowed +-150 mm while the runtime travel is +-130 mm."""
+ def test_stage_move_schema_matches_the_travel(self):
+  caps=r.export_signatone_quadpro2_contract_metadata()['capabilities']
+  props=caps['stage.move']['input_schema']['properties']
+  self.assertEqual((props['x_m']['minimum'],props['x_m']['maximum'],props['y_m']['minimum'],props['y_m']['maximum']),(-.13,.13,-.13,.13))
 if __name__=='__main__':unittest.main(verbosity=2)

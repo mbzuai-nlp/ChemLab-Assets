@@ -7,3 +7,8 @@ __pycache__/
 *.blend1
 .DS_Store
 .venv/
+# chemlab run outputs (client binary, lab run dirs, test and task results)
+/chemlab/build/
+/chemlab/compile_results/
+/chemlab/generic_results/
+/chemlab/pilot_results/

@@ -333,6 +333,29 @@ class Electrophoresis(unittest.TestCase):
         check('observe', dye_front_m=ob['dye_front_m'])
 
 
+class FixRoundB(unittest.TestCase):
+    """chemlab findings (2026-10-22)."""
+    def test_inspect_names_the_sample_loaded_in_each_lane(self):
+        # C1: gel.inspect returned sample_id null for every lane although the bands of the loaded sample were there
+        h = assembled(samples=False)
+        h.invoke('leads.disconnect')
+        h.invoke('lid.remove')
+        for sid in ('s_a', 's_b'):
+            h.invoke('sample.prepare', sample_id=sid, proteins_kg=dict(ovalbumin=2e-09), marker=None, marker_volume_m3=0.0,
+                     sample_buffer='laemmli_2x_reducing', heat='95C_5min', volume_m3=60e-9)
+        h.invoke('sample.load', sample_id='s_a', position=1, lane=2, volume_m3=10e-9)
+        h.invoke('sample.load', sample_id='s_b', position=1, lane=4, volume_m3=5e-9)
+        h.invoke('sample.load', sample_id='s_a', position=1, lane=4, volume_m3=5e-9)
+        h.invoke('sample.load', sample_id='s_b', position=1, lane=6, volume_m3=40e-9)   # 30 uL well: 10 uL runs over into lanes 5 and 7
+        lanes = {x['lane']: x for x in h.invoke('gel.inspect', gel_id='g1')['lanes']}
+        self.assertEqual(lanes[2]['sample_id'], 's_a')
+        self.assertEqual(lanes[4]['sample_id'], 's_b+s_a')                       # two samples in one well: load order
+        self.assertEqual(lanes[6]['sample_id'], 's_b')
+        self.assertTrue(lanes[5]['bands'])                                       # spill-over bands, but nothing was pipetted there
+        self.assertIsNone(lanes[5]['sample_id'])
+        self.assertIsNone(lanes[1]['sample_id'])
+
+
 class PowerSupplyAndCell(unittest.TestCase):
     def test_regulation_cv_cc_and_power_limit(self):
         h = assembled()

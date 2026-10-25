@@ -818,7 +818,7 @@ class Basic40RV10Tests(unittest.TestCase):
             self.assertEqual(validate_value(args, info["input_schema"]), [], cap)
             before = self.host.debug_snapshot()
             result = self.invoke(cap, **args)
-            if info["availability"] == "declared":
+            if info["availability"] in ("declared", "unsupported"):                  # 1.3.1: vacuum.set_pressure is unsupported (was declared)
                 self.assertEqual(result["status"], "unsupported", cap)
                 self.assertEqual(before, self.host.debug_snapshot())
             else:

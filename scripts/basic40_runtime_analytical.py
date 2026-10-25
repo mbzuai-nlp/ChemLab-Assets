@@ -283,6 +283,12 @@ class HachDR6000Session:
         self._host = host
         self._principal_id = principal_id
 
+    def _refused(self, request_id, why):
+        """PRECONDITION_FAILED keeps its code; the message names the precondition that failed."""
+        response = self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+        response["error"]["message"] = why
+        return response
+
     def _visible(self, sid):
         slot = self._host._metadata["state_slots"].get(sid)
         return bool(slot and (slot["visibility"] == "agent" or self._host._principals[self._principal_id] in ("debug", "evaluator")))
@@ -405,7 +411,7 @@ class HachDR6000Session:
                 return self._response("unsupported", request_id=request_id, code="UNSUPPORTED")
             state = _dr6000_copy.deepcopy(host._state)
             if capability_id.startswith("spectroscopy.") and not state["power.enabled"]:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "The spectrophotometer is switched off (power.set enabled=true).")
             if capability_id == "power.set":
                 state["power.enabled"] = arguments["enabled"]
                 result = {"enabled": arguments["enabled"]}
@@ -415,16 +421,18 @@ class HachDR6000Session:
                 result = {"angle_rad": state["lid.angle_rad"], "closed": state["lid.closed"]}
             elif capability_id in ("sample.load", "sample.unload"):
                 if state["lid.angle_rad"] < _dr6000_math.pi / 3:
-                    return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                    return self._refused(request_id, "Open the cell-compartment cover to at least 60 degrees (pi/3 rad) first.")
                 loading = capability_id == "sample.load"
                 if loading:
                     sample = host._samples.get(arguments["sample_id"])
-                    if state["sample.loaded"] or sample is None:
-                        return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                    if state["sample.loaded"]:
+                        return self._refused(request_id, "A cuvette is already in the cell compartment; unload it first.")
+                    if sample is None:
+                        return self._refused(request_id, "Unknown sample_id: no such sample is present at the instrument.")
                     state.update({"sample.loaded": True, "sample.id": arguments["sample_id"], "sample.kind": sample["kind"], "sample.truth": _dr6000_copy.deepcopy(sample["truth"])})
                 else:
                     if not state["sample.loaded"]:
-                        return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                        return self._refused(request_id, "No cuvette is loaded.")
                     state.update({"sample.loaded": False, "sample.id": None, "sample.kind": None, "sample.truth": None})
                 result = {"loaded": loading, "sample_id": state["sample.id"]}
             elif capability_id == "spectroscopy.set_scan":
@@ -448,11 +456,13 @@ class HachDR6000Session:
                     return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
                 return self._response(request_id=request_id, result=record)
             elif capability_id == "spectroscopy.measure":
-                if not state["lid.closed"] or not state["sample.loaded"]:
-                    return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                if not state["lid.closed"]:
+                    return self._refused(request_id, "Close the cell-compartment cover (lid.set_angle 0) before reading.")
+                if not state["sample.loaded"]:
+                    return self._refused(request_id, "No cuvette is loaded.")
                 spectrum = host._spectrum(state)
                 if spectrum is None:
-                    return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                    return self._refused(request_id, "The scan range misses every wavelength of the sample's reference spectrum; widen it (spectroscopy.set_scan / set_wavelength).")
                 state["measurement.spectrum"] = spectrum
                 state["measurement.count"] += 1
                 result = {"spectrum": spectrum}
@@ -673,7 +683,7 @@ def export_jasco_ftir4700_contract_metadata():
     add("background.count", _ftir_numeric("1", 0, integer=True), "1", "derived")
     add("measurement.spectrum", {"anyOf": [_ftir_spectrum_schema(), {"type": "null"}]}, "1", "derived")
     add("measurement.count", _ftir_numeric("1", 0, integer=True), "1", "derived")
-    return {"asset_type_id": JASCO_FTIR4700_TYPE, "asset_version": "1.1.0", "catalog_id": "CHEM-072", "model": "JASCO FT/IR-4700",
+    return {"asset_type_id": JASCO_FTIR4700_TYPE, "asset_version": "1.1.2", "catalog_id": "CHEM-072", "model": "JASCO FT/IR-4700",
         "capabilities": capabilities, "state_slots": slots,
         "parameters": {
             "wavenumber_min_m_inv": {"value": 35000, "unit": "m^-1", "evidence": "catalog"},
@@ -770,7 +780,9 @@ class JascoFTIR4700:
             self._samples[sample_id] = {"phase": phase, "peaks": _ftir_copy.deepcopy(peaks), "baseline": float(baseline), "truth": _ftir_copy.deepcopy(truth or {})}
 
     def register_template_sample(self, sample_id, *, substance_id, phase, peak_absorbance=1.0, truth=None):
-        """Trusted host: one spectral_library compound; measure returns its NIST IR spectrum at the method resolution."""
+        """Trusted host: one spectral_library compound, or a reference standard of assets/reactions/ir_reference_standards.json
+        (1.1.2: substance_id="polystyrene", the film wavenumber standard, phase "solid"); measure returns its IR spectrum at the
+        method resolution."""
         from scripts.basic40_templates import jasco_ftir4700 as _ftir_templates
         with self._lock:
             if not isinstance(sample_id, str) or not sample_id or sample_id in self._samples or (truth is not None and not isinstance(truth, dict)):
@@ -853,7 +865,7 @@ class JascoFTIR4700Session:
     def _target(self, instance_id):
         return instance_id is None or (isinstance(instance_id, str) and instance_id == self._host.instance_id)
 
-    def _response(self, status="succeeded", *, request_id=None, result=None, observations=None, code=None, side_effects="none"):
+    def _response(self, status="succeeded", *, request_id=None, result=None, observations=None, code=None, side_effects="none", message=None):
         messages = {"UNKNOWN_INSTANCE": "Instance is unavailable.", "UNKNOWN_CAPABILITY": "Capability is unavailable.",
             "INVALID_ARGUMENT": "Arguments do not match the declared schema or supported range.",
             "PRECONDITION_FAILED": "Declared operation preconditions are not satisfied.",
@@ -866,7 +878,7 @@ class JascoFTIR4700Session:
             "status": status, "state_revision": self._host._revision,
             "clock": {"domain": "simulation", "time_s": self._host._time()},
             "result": _ftir_copy.deepcopy(result or {}), "observations": _ftir_copy.deepcopy(observations or {}),
-            "error": None if code is None else {"code": code, "message": messages[code], "retryable": False, "side_effects": side_effects}}
+            "error": None if code is None else {"code": code, "message": message or messages[code], "retryable": False, "side_effects": side_effects}}
 
     def describe(self, *, asset_type_id=None, instance_id=None):
         with self._host._lock:
@@ -964,10 +976,10 @@ class JascoFTIR4700Session:
                 return self._response("rejected", request_id=request_id, code="INVALID_ARGUMENT")
             return self._response(request_id=request_id, result=record)
         state = _ftir_copy.deepcopy(host._state)
-        def reject():
-            return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+        def reject(why):  # the code stays PRECONDITION_FAILED, the message names the cause
+            return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED", message=why)
         if capability_id in ("method.configure", "background.acquire", "measure") and not state["power.enabled"]:
-            return reject()
+            return reject("The spectrometer is switched off (power.set enabled=true).")
         if capability_id == "power.set":
             state["power.enabled"] = arguments["enabled"]
             result = {"enabled": arguments["enabled"]}
@@ -976,24 +988,30 @@ class JascoFTIR4700Session:
             state["lid.closed"] = state["lid.angle_rad"] <= 1e-6
             result = {"angle_rad": state["lid.angle_rad"], "closed": state["lid.closed"]}
         elif capability_id == "accessory.install":
-            if state["lid.angle_rad"] < _ftir_math.pi / 3 or state["sample.loaded"]:
-                return reject()
+            if state["lid.angle_rad"] < _ftir_math.pi / 3:
+                return reject("Open the sample-compartment lid to at least 60 degrees (pi/3 rad) before changing the accessory.")
+            if state["sample.loaded"]:
+                return reject("Unload the sample before changing the accessory.")
             state["accessory.mode"] = arguments["mode"]
             result = {"mode": arguments["mode"]}
         elif capability_id in ("sample.load", "sample.unload"):
             if state["lid.angle_rad"] < _ftir_math.pi / 3:
-                return reject()
+                return reject("Open the sample-compartment lid to at least 60 degrees (pi/3 rad) first.")
             loading = capability_id == "sample.load"
             if loading:
                 sample = host._samples.get(arguments["sample_id"])
-                if state["sample.loaded"] or sample is None or state["accessory.mode"] == "none":
-                    return reject()
+                if state["sample.loaded"]:
+                    return reject("A sample is already loaded; unload it first.")
+                if sample is None:
+                    return reject("Unknown sample_id: no such sample is present at the instrument.")
+                if state["accessory.mode"] == "none":
+                    return reject("No sampling accessory is installed (accessory.install).")
                 if sample["phase"] == "gas" and state["accessory.mode"] != "transmission":
-                    return reject()
+                    return reject("A gas sample needs the transmission accessory (gas cell).")
                 state.update({"sample.loaded": True, "sample.id": arguments["sample_id"], "sample.phase": sample["phase"], "sample.truth": _ftir_copy.deepcopy(sample["truth"])})
             else:
                 if not state["sample.loaded"]:
-                    return reject()
+                    return reject("No sample is loaded.")
                 state.update({"sample.loaded": False, "sample.id": None, "sample.phase": None, "sample.truth": None})
             result = {"loaded": loading, "sample_id": state["sample.id"]}
         elif capability_id == "method.configure":
@@ -1003,21 +1021,25 @@ class JascoFTIR4700Session:
                 state["method." + key] = float(value) if key.endswith("m_inv") else value
             result = {key: state["method." + key] for key in properties}
         elif capability_id in ("background.acquire", "measure"):
-            if not state["lid.closed"] or state["accessory.mode"] == "none":
-                return reject()
+            if not state["lid.closed"]:
+                return reject("Close the sample-compartment lid (lid.set_angle 0) before scanning.")
+            if state["accessory.mode"] == "none":
+                return reject("No sampling accessory is installed (accessory.install).")
             if capability_id == "background.acquire":
                 if state["sample.loaded"]:
-                    return reject()
+                    return reject("A background is taken with no sample loaded; unload the sample first.")
                 state["background.spectrum"] = host._background(state)
                 state["background.ready"] = True
                 state["background.count"] += 1
                 result = {"background": state["background.spectrum"]}
             else:
-                if not state["sample.loaded"] or not state["background.ready"]:
-                    return reject()
+                if not state["sample.loaded"]:
+                    return reject("No sample is loaded.")
+                if not state["background.ready"]:
+                    return reject("No valid background: acquire one (background.acquire) after the last power, accessory or method change.")
                 state["measurement.spectrum"] = host._spectrum(state)
                 if state["measurement.spectrum"] is None:
-                    return reject()
+                    return reject("The configured wavenumber range misses the coverage of the sample's reference spectrum; widen it (method.configure).")
                 state["measurement.count"] += 1
                 result = {"spectrum": state["measurement.spectrum"]}
         else:
@@ -1399,10 +1421,14 @@ class AgilentGC8890B(HachDR6000):
             self._revision += 1
             return self.read()
 
+    def _template_oven_program(self):
+        """Oven program for a template run; the CHEM-096 layer has none (isothermal at the oven setpoint)."""
+        return None
+
     def _chromatogram(self, state):
         if "template" in self._samples[state["sample.id"]]:  # None => FID cannot be lit at the setpoint
             from scripts.basic40_templates import agilent_gc8890b as _gc8890b_templates
-            return _gc8890b_templates.chromatogram(self._samples[state["sample.id"]]["template"], state)
+            return _gc8890b_templates.chromatogram(self._samples[state["sample.id"]]["template"], state, self._template_oven_program())
         peaks = self._samples[state["sample.id"]]["peaks"]
         axis = [float(i) for i in range(301)]
         current = [sum(height * _dr6000_math.exp(-0.5 * ((time - center) / width) ** 2)
@@ -3012,6 +3038,12 @@ class Eppendorf5910RiSession:
             "result": result if result is not None else {}, "observations": observations if observations is not None else {},
             "error": None if code is None else {"code": code, "message": self._messages[code], "retryable": False, "side_effects": side_effects}})
 
+    def _refused(self, request_id, why):
+        """PRECONDITION_FAILED keeps its code; the message names the precondition that failed."""
+        response = self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+        response["error"]["message"] = why
+        return response
+
     def _target(self, instance_id):
         return instance_id is None or instance_id == self._host.instance_id
 
@@ -3109,13 +3141,14 @@ class Eppendorf5910RiSession:
             result = dict(arguments)
         elif capability_id == "lid.set_angle":
             if state["lid.locked"]:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "The lid is locked while the rotor turns.")
             state["lid.angle_rad"] = float(arguments["angle_rad"])
             state["lid.closed"] = state["lid.angle_rad"] <= 1e-6
             result = {"angle_rad": state["lid.angle_rad"], "closed": state["lid.closed"]}
         elif capability_id == "rotor.select":
             if state["lid.angle_rad"] < _epp_math.pi / 3 or state["sample.loaded_slots"]:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "Open the lid to at least 60 degrees (pi/3 rad) first." if state["lid.angle_rad"] < _epp_math.pi / 3
+                                     else "Unload every tube before changing the rotor.")
             if arguments["configuration"] not in h._profiles:
                 return self._response("rejected", request_id=request_id, code="MISSING_PARAMETER")
             state["rotor.configuration"] = arguments["configuration"]
@@ -3125,35 +3158,44 @@ class Eppendorf5910RiSession:
         elif capability_id in ("sample.load", "sample.unload"):
             profile = h._profiles.get(state["rotor.configuration"])
             if state["lid.angle_rad"] < _epp_math.pi / 3 or profile is None or arguments["slot_id"] not in profile["slot_positions_xy_m"]:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "Open the lid to at least 60 degrees (pi/3 rad) first." if state["lid.angle_rad"] < _epp_math.pi / 3
+                                     else "No rotor is installed (rotor.select)." if profile is None
+                                     else "Slot %r does not exist on the %s rotor." % (arguments["slot_id"], state["rotor.configuration"]))
             occupant = next((s for s in state["sample.loaded_slots"] if s["slot_id"] == arguments["slot_id"]), None)
             loading = capability_id == "sample.load"
             if loading:
                 if occupant is not None or arguments["sample_id"] not in h._samples or any(s["sample_id"] == arguments["sample_id"] for s in state["sample.loaded_slots"]):
-                    return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                    return self._refused(request_id, "Slot %r is occupied." % arguments["slot_id"] if occupant is not None
+                                         else "Unknown sample_id: no such sample is present at the instrument." if arguments["sample_id"] not in h._samples
+                                         else "Sample %r is already loaded in another slot." % arguments["sample_id"])
                 state["sample.loaded_slots"].append(dict(arguments))
             elif occupant is None:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "Slot %r is empty." % arguments["slot_id"])
             else:
                 state["sample.loaded_slots"].remove(occupant)
             h._balance(state)
             result = dict(arguments, loaded=loading)
         elif capability_id == "centrifuge.set_method":
             if not state["power.enabled"]:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "The centrifuge is switched off (power.set enabled=true).")
             state.update({"method." + key: value for key, value in arguments.items()})
             state["method.configured"] = True
             result = _epp_copy.deepcopy(arguments)
         elif capability_id == "centrifuge.measure":
             if not state["power.enabled"] or not state["lid.closed"] or not state["method.configured"] or len(state["sample.loaded_slots"]) < 2:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "The centrifuge is switched off (power.set enabled=true)." if not state["power.enabled"]
+                                     else "Close the lid (lid.set_angle 0) first." if not state["lid.closed"]
+                                     else "No method is set for the current rotor (centrifuge.set_method after rotor.select)." if not state["method.configured"]
+                                     else "Load at least two tubes, balanced opposite each other.")
             profile = h._profiles.get(state["rotor.configuration"])
             if profile is None or h._process is None or state["alarm.imbalance"] is None:
                 return self._response("rejected", request_id=request_id, code="MISSING_PARAMETER")
             if state["alarm.imbalance"]:
                 return self._response("rejected", request_id=request_id, code="IMBALANCE")
             if state["method.speed_rad_s"] > profile["operating_speed_limit_rad_s"]:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                limit = profile["operating_speed_limit_rad_s"]
+                return self._refused(request_id, "The method speed %.1f rad/s exceeds the operating speed limit of the %s rotor, %.1f rad/s (%.0f rpm); "
+                                     "lower it with centrifuge.set_method." % (state["method.speed_rad_s"], state["rotor.configuration"], limit, limit * 30 / _epp_math.pi))
             new_counter += 1
             operation_id = h.instance_id + ":centrifuge:" + str(new_counter)
             op = h._make_operation(state, self._principal_id, operation_id)
@@ -3167,14 +3209,14 @@ class Eppendorf5910RiSession:
             operation_id = state["run.operation_id"]
             op = operations.get(operation_id)
             if op is None or op["status"] != "running":
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "No run is in progress.")
             if op["owner"] != self._principal_id:
                 return self._response("rejected", request_id=request_id, code="ACCESS_DENIED")
             h._request_stop(state, op)
             result = {"operation_id": operation_id, "run_status": state["run.status"]}
         elif capability_id == "centrifuge.get_curve":
             if state["measurement.curve"] is None:
-                return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")
+                return self._refused(request_id, "No run curve has been recorded yet.")
             return self._response(request_id=request_id, result={"curve": state["measurement.curve"]})
         else:
             return self._response("unsupported", request_id=request_id, code="UNSUPPORTED")
@@ -3532,7 +3574,7 @@ import bisect as _g8_bisect
 import dataclasses as _g8_dataclasses
 import textwrap as _g8_textwrap
 
-GC8890B_ASSET_VERSION = "1.5.1"  # 1.4.0 (2026-10-20): the 8890 front panel in the 3D model; 1.5.0 (2026-10-21): body lowered to the 8890 proportions (geometry only); 1.5.1: oven-interior limitation documented
+GC8890B_ASSET_VERSION = "1.6.0"  # 1.6.0 (2026-10-23): oven program in the template path + chromatography.set_oven_program implemented (contract gains a capability: Y); 1.5.2 (2026-10-23): the shared GC library holds the whole C8-C20 n-alkane standard; 1.4.0 (2026-10-20): the 8890 front panel in the 3D model; 1.5.0 (2026-10-21): body lowered to the 8890 proportions (geometry only); 1.5.1: oven-interior limitation documented
 GC8890B_ASSET_DIR = _AT_ROOT / "assets/basic40_batch02/t3_analytical/agilent_gc8890b"
 _G8_ML = 1e-6 / 60.0                                     # m3/s per mL/min
 _G8_PSI = 6894.757293168                                 # Pa per psi
@@ -4617,6 +4659,54 @@ def _g8_c_method(rt, dev, process, state, a, t):
     return {"component": comp, "settings": {k: new[k] for k in a["settings"]}}
 
 
+def _g8_c_oven_program(rt, dev, process, state, a, t):
+    """chromatography.set_oven_program (1.6.0): the Active Method oven program in one call - initial temperature (the oven setpoint, as
+    thermal.set_temperature) and hold, then up to 32 ramps (manual p.90-91); ramps not given get Rate 0 (an empty list = isothermal).
+    Same checks as the touchscreen editor (method.configure oven, the configured maximum oven temperature)."""
+    _g8_gate(dev, process)
+    from scripts.basic40_templates import agilent_gc8890b as _gc8890b_templates
+    try:
+        prog = _gc8890b_templates.validate_oven_program(a)
+    except ValueError:
+        raise _ATReject("INVALID_ARGUMENT") from None
+    top = dev["settings"]["oven.max_temp_K"] + 1e-9
+    _at_need(prog["initial_temperature_K"] <= top and all(r["final_temperature_K"] <= top for r in prog["ramps"]), "INVALID_ARGUMENT")
+    try:
+        process.perform("set_temperature", zone="oven", temperature_K=prog["initial_temperature_K"])
+    except ValueError:
+        raise _ATReject("INVALID_ARGUMENT") from None
+    o = dev["method"]["oven"]
+    o["initial_K"], o["initial_time_s"] = prog["initial_temperature_K"], prog["initial_hold_s"]
+    for k in range(1, 33):
+        r = prog["ramps"][k - 1] if k <= len(prog["ramps"]) else None
+        o[f"ramp_{k}_rate_K_s"] = r["rate_K_s"] if r else 0.0
+        if r:
+            o[f"ramp_{k}_final_K"], o[f"ramp_{k}_final_time_s"] = r["final_temperature_K"], r["final_hold_s"]
+    if dev["run"] is not None:
+        _at_log(dev["logs"]["run"], dict(time=f"{dev['run']['elapsed_s'] / 60:.2f}", text="Setpoint changed: oven program"))
+    if dev["standby"]:
+        dev["standby"] = False
+    _g8_wake(dev, process, t, "Wake: setpoint change")
+    _g8_sync_process(dev, process)
+    if dev["run"] is None:
+        _g8_apply_temperatures(dev, process)
+    return {"initial_temperature_K": prog["initial_temperature_K"], "ramps": len(prog["ramps"]),
+            "run_length_s": _g8_program_length(o["initial_K"], o["initial_time_s"], _g8_oven_ramps(dev["method"]))}
+
+
+def _g8_active_oven_program(dev):
+    """The Active Method oven program in the template form, or None for an isothermal method (Rate 1 = 0, p.91)."""
+    o = dev["method"]["oven"]
+    ramps = []
+    for rate, final, hold in _g8_oven_ramps(dev["method"]):
+        if rate <= 0:
+            break
+        ramps.append({"rate_K_s": rate, "final_temperature_K": final, "final_hold_s": hold})
+    if not ramps:
+        return None
+    return {"initial_temperature_K": o["initial_K"], "initial_hold_s": o["initial_time_s"], "ramps": ramps}
+
+
 def _g8_c_event_save(rt, dev, process, state, a, t):
     _g8_gate(dev, process)
     ev = dict(time_s=float(a["time_s"]), type=a["type"], position=a.get("position"), setpoint=a.get("setpoint"))
@@ -4857,6 +4947,7 @@ def _g8_c_wake(rt, dev, process, state, a, t):
 
 _G8_COMMANDS = {
     "run.prep": _g8_c_prep, "run.start": _g8_c_start, "run.stop": _g8_c_stop, "method.configure": _g8_c_method,
+    "chromatography.set_oven_program": _g8_c_oven_program,
     "method.event_save": _g8_c_event_save, "method.event_delete": _g8_c_event_delete, "settings.configure": _g8_c_settings,
     "clock.set": _g8_c_clock, "status.configure": _g8_c_status_params, "plot.configure": _g8_c_plot,
     "diagnostics.resolve": _g8_c_resolve, "diagnostics.start_test": _g8_c_test_start, "diagnostics.cancel_test": _g8_c_test_cancel,
@@ -4936,6 +5027,18 @@ _G8_CAPDEFS = {
                          {"component": _AT_STR, "settings": _AT_ANY}, {"component": "inlet", "settings": {"split_ratio": 50.0}},
                          "编辑Active Method的一个部件（柱温箱程序、前进样口、色谱柱1、前检测器FID、模拟输出1），触摸屏修改立即生效（p.63、p.79）；温度设定点经"
                          "thermal.set_temperature", _G8_E_METHOD, "configuration"),
+    "chromatography.set_oven_program": (
+        {"initial_temperature_K": _at_num("K", 302.15, 723.15), "initial_hold_s": _at_num("s", 0, 59999.4),
+         "ramps": {"type": "array", "maxItems": 32, "items": {"type": "object", "additionalProperties": False,
+                                                              "required": ["rate_K_s", "final_temperature_K", "final_hold_s"],
+                                                              "properties": {"rate_K_s": {"type": "number", "x-unit": "K/s", "exclusiveMinimum": 0, "maximum": 2.0},
+                                                                             "final_temperature_K": _at_num("K", 302.15, 723.15),
+                                                                             "final_hold_s": _at_num("s", 0, 59999.4)}}}}, (),
+        {"initial_temperature_K": _at_num("K", 0), "ramps": _at_num("1", 0, 32, True), "run_length_s": _at_num("s", 0)},
+        {"initial_temperature_K": 313.15, "initial_hold_s": 60.0, "ramps": [{"rate_K_s": 10 / 60, "final_temperature_K": 573.15, "final_hold_s": 300.0}]},
+        "设置Active Method的柱温箱程序：初始温度（即柱温箱设定点，同thermal.set_temperature）与初始保持时间，然后最多32段升温（速率、终温、终温保持时间；"
+        "速率≤120 °C/min；p.90-91）；未给出的段速率为0，空列表即等温运行（p.91：Rate 1为0）。与触摸屏方法编辑同一检查（含配置的柱温箱最高温度）；"
+        "运行（run.start）与模板样品瓶的chromatography.measure都按该程序升温", _G8_E_METHOD + ["thermal.cooling_damper_open"], "configuration"),
     "method.event_save": ({"time_s": _at_num("s", 0, 59999.4), "type": {"type": "string", "enum": list(G8_EVENT_TYPES)},
                            "position": {"anyOf": [{"type": "string", "enum": ["On", "Off"]}, {"type": "null"}]},
                            "setpoint": {"anyOf": [_at_num("1", -1e6, 1e6), {"type": "null"}]}, "index": {"anyOf": [_at_num("1", 0, 49, True), {"type": "null"}]}},
@@ -5025,7 +5128,8 @@ _G8_LIMITS = [
     "Start / Stop, readiness, shutdowns and setpoint actions, diagnostic tests, EMF counters, maintenance procedures, logs, configuration, "
     "instrument schedule and clock table, sensor zeroing and system settings follow the 8890/8850 operation manual as a minimal device model, "
     "not Agilent firmware.",
-    "A panel run uses the instant synthetic chromatogram of the loaded virtual vial (the injection at Start); the signal follows run time. "
+    "A panel run uses the instant synthetic chromatogram of the loaded virtual vial (the injection at Start), computed along the Active "
+    "Method oven program when it has ramps (1.6.0; isothermal at the oven setpoint otherwise); the signal follows run time. "
     "Manual injections do not increment EMF injection counters (p.130). Sensor error parameters are evaluator settings, 0 (ideal) by default.",
     "Absent hardware: ALS, valves, cryo, MSD, a second inlet / detector, sequences (enabled only from the Browser Interface), USB storage; "
     "Browser Interface, data system and network services are not simulated (network settings are kept). Pulsed SSL modes are not modelled.",
@@ -5324,6 +5428,10 @@ class AgilentGC8890B(_G8BaseRuntime):
         session = self._panel_session if who == "__panel__" else AgilentGC8890BSession(self, who)
         return session._invoke_once(capability_id=capability_id, arguments=arguments, request_id="__panel__")
 
+    def _template_oven_program(self):
+        """1.6.0: a template run (chromatography.measure or the run at Start) follows the Active Method oven program when it has ramps."""
+        return _g8_active_oven_program(self._device)
+
     def _chromatogram(self, state):
         """The recorded FID signal carries the detector's electrometer leakage (evaluator error, default 0) like the live signal; peak areas
         are baseline-corrected and unchanged."""
@@ -5497,7 +5605,7 @@ class AgilentGC8890BSession(_G8BaseSession):
 # data system stand-in, the touchscreen Stop prompt, sequence actions, diagnostic tests, tray and EPC calibration, service mode with factory
 # reset, EMF counters, logs and the front panel (panel_ui.json run by scripts/asset_runtime/_panel_ui.py).  The CHEM-108 capabilities keep
 # their meaning.  Time comes from the host clock; host_update() processes the events up to its current time.
-HS8697_ASSET_VERSION = "1.4.0"  # 1.4.0 (2026-10-20): front-control parts in the 3D model (geometry only)
+HS8697_ASSET_VERSION = "1.4.1"  # 1.4.0 (2026-10-20): front-control parts in the 3D model (geometry only); 1.4.1: sequence.start effects (2026-10-22)
 HS8697_ASSET_DIR = _AT_ROOT / "assets/basic40_batch02/t3_analytical/agilent_hs8697"
 _HS_ML = 1e-6 / 60.0
 _HS_PSI = 6894.757293168
@@ -6770,7 +6878,7 @@ class AgilentHS8697Session(_HSBaseSession):
 # clean-screen lock, standby and the front panel (panel_ui.json run by scripts/asset_runtime/_panel_ui.py).  The CHEM-010 capabilities keep
 # their meaning; a run started from the panel goes through centrifuge.measure.  Rotor radius for rcf = the largest slot radius of the trusted
 # host's synthetic rotor.
-EPP5910_ASSET_VERSION = "1.2.2"
+EPP5910_ASSET_VERSION = "1.2.3"  # 1.2.3 (2026-10-22): PRECONDITION_FAILED refusals name their cause, the rotor speed limit included
 EPP5910_ASSET_DIR = _AT_ROOT / "assets/basic40_batch02/t3_analytical/eppendorf_5910ri"
 _EPP_RPM = 2 * _epp_math.pi / 60.0
 _EPP_G = 9.80665
@@ -7900,7 +8008,7 @@ import functools as _dr_functools
 import json as _dr_json
 import random as _dr_random
 
-DR6000_ASSET_VERSION = "1.4.0"  # 1.4.0 (2026-10-21): the real 7-inch WVGA window (152.4 x 91.44 mm, plain glass) in the 3D model (geometry only)
+DR6000_ASSET_VERSION = "1.4.1"  # 1.4.1 (2026-10-22): PRECONDITION_FAILED refusals name their cause; 1.4.0 (2026-10-21): the real 7-inch WVGA window (152.4 x 91.44 mm, plain glass) in the 3D model (geometry only)
 DR6000_ASSET_DIR = _AT_ROOT / "assets/basic40_batch02/t3_analytical/hach_dr6000"
 _DR_LIBRARY = _AT_ROOT / "assets/reactions/hach_dr6000_colorimetric_library/templates.json"
 _DR_STARTUP_S = 45.0                                    # startup with the logo and melody (p.21)
@@ -10313,7 +10421,7 @@ class HachDR6000Session(_DRBaseSession):
                 h._sync()
             if not isinstance(capability_id, str) or (capability_id not in _DR_TERMINAL and capability_id not in DR6000_PANEL_CAPS):
                 if capability_id == "sample.load" and h._device["kit"]["placed"] is not None and self._target(instance_id):
-                    return self._response("rejected", request_id=request_id, code="PRECONDITION_FAILED")     # a kit filter occupies the adapter
+                    return self._refused(request_id, "A Verification Kit filter occupies the cell adapter; remove it first.")     # a kit filter occupies the adapter
                 if capability_id == "spectroscopy.measure" and arguments == {} and self._target(instance_id) and h._state["power.enabled"]:
                     # the direct reading is a reading of the same instrument: startup / self-check done, not asleep, lamps on and warm (as
                     # _dr_measure; switching the UV lamp on is committed even though the reading is refused)

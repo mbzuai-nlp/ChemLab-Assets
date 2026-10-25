@@ -885,6 +885,47 @@ class ReviewRound2(unittest.TestCase):
         self.assertIsNone(row['concentration_kg_m3'])
 
 
+class FixRoundC(unittest.TestCase):
+    def test_setup_loaded_cups_released_to_the_lab(self):
+        # A lab set-up run through an agent-level operator session (chemlab_operator) owns its standards and cups, so
+        # the agent got ACCESS_DENIED on run.start.  release_to_lab() makes them the lab's; the owner rule still holds for later loads.
+        g = Rig()
+        g.h.register_principal('operator', 'agent')
+        O = g.h.session('operator')
+        g.kits()
+        cups = []
+        for i, f in enumerate((0.0, 0.5, 1.0)):                                  # the set-up prepares and loads three calibrants
+            comps = [dict(source_id='nitrate_stock', volume_m3=1e-4 * TOPS['nitrate_stock'] / rt.STOCK_NOMINAL['nitrate_stock'] * f)] if f else []
+            comps.append(dict(source_id='wash_water', volume_m3=1e-4 - sum(x['volume_m3'] for x in comps)))
+            g.call(O, 'standard.prepare', standard_id=f'lab_std{i}', volume_m3=1e-4, components=comps)
+            g.call(O, 'sampler.load', rack='S', position=1 + i, item_id=f'lab_std{i}', volume_m3=1e-5)
+            cups.append(dict(rack='S', position=1 + i, type='calibrant'))
+        args = dict(cups=cups, sample_s=60.0, wash_s=30.0)
+        self.assertEqual(g.call(g.A, 'run.start', expect='ACCESS_DENIED', **args)['error']['code'], 'ACCESS_DENIED')   # before: cups of another caller
+        self.assertNotIn('lab_std0', g.read('samples.available', who=g.A))
+        with self.assertRaises(rt.ActionRejected):
+            g.h.release_to_lab('nobody')
+        released = g.h.release_to_lab('operator')
+        self.assertEqual(released, sorted(['item:lab_std0', 'item:lab_std1', 'item:lab_std2', 'tube:S1', 'tube:S2', 'tube:S3']))
+        self.assertIn('lab_std0', g.read('samples.available', who=g.A))
+        g.reagents()
+        g.call(g.A, 'power.set', on=True)
+        g.call(g.A, 'system.startup')
+        for _ in range(90):
+            g.step(60.0)
+            if g.read('system.state') == 'ready':
+                break
+        g.wash_cup()
+        g.call(g.A, 'run.start', **args)                                         # the agent runs the lab's calibrants
+        g.call(g.A, 'standard.prepare', standard_id='agent_std', volume_m3=1e-4, components=[dict(source_id='wash_water', volume_m3=1e-4)])
+        B = g.h.session('operator')                                              # what an agent loads afterwards stays its own
+        r = B.invoke(instance_id=INST, capability_id='sampler.load', arguments=dict(rack='S', position=10, item_id='agent_std', volume_m3=1e-5),
+                     request_id='op_after')
+        self.assertEqual(r['error']['code'], 'ACCESS_DENIED')
+        self.assertNotIn('truth.streams', g.read(who=g.A))                       # nothing evaluator-only opened
+        self.assertEqual(g.A.describe(instance_id=INST)['asset_version'], '1.0.1')
+
+
 class ZCoverage(unittest.TestCase):
     def test_all_capabilities_exercised(self):
         implemented = {k for k in rt.CAPS if k not in rt.UNSUPPORTED}

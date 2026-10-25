@@ -1,0 +1,2443 @@
+{
+ "class": "bioassay",
+ "adapter": "chemlab.compile.classes.bioassay:BioassayAdapter",
+ "about": "Bioassay instruments (plate reader, plate washer, real-time PCR, SPR, ITC, flow cytometer): load the consumable, set the assay method, start the run as a job, read the record, evaluate it.",
+ "membership": {
+  "primary": [
+   "bmg_clariostarplus",
+   "biotek_405ts",
+   "biorad_cfxopus",
+   "cytiva_biacoret200",
+   "malvern_microcalpeaq",
+   "bd_facsariaiii"
+  ],
+  "secondary": {},
+  "declined_secondary": {
+   "thermo_ibrightfl1500": "gel / blot imaging: the imaging class covers its exposures and images; it runs no plate assay",
+   "biorad_miniprotean": "gel electrophoresis: the chromatography class covers it (method / start / stop of the power supply)",
+   "eppendorf_cellxpertc170i": "cell-culture incubation is temperature / gas control (thermal class); it loads no assay consumable and keeps no run record",
+   "wtw_oxitopi": "BOD bottles measured by pressure heads: the thin class covers its start / result; no plate, chip or tube to load"
+  },
+  "excluded": {}
+ },
+ "members": {
+  "bmg_clariostarplus": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "items": {
+      "slot": "plates.available",
+      "where": " on the bench",
+      "none": "prepare one first (`chemlab call INST plate.prepare ...`)."
+     },
+     "word": "plate",
+     "steps": [
+      {
+       "cap": "drawer.set",
+       "args": {
+        "open": true
+       },
+       "when": {
+        "slot": "drawer.position_m",
+        "max": 0.1849
+       },
+       "step": "move the plate carrier out"
+      },
+      {
+       "wait": {
+        "slot": "drawer.position_m",
+        "min": 0.1849
+       },
+       "max_s": 15,
+       "step": "wait until the plate carrier is out"
+      },
+      {
+       "cap": "plate.load",
+       "with": {
+        "plate_id": "$item"
+       },
+       "step": "put plate {item} on the carrier"
+      },
+      {
+       "cap": "drawer.set",
+       "args": {
+        "open": false
+       },
+       "step": "move the plate carrier in"
+      },
+      {
+       "wait": {
+        "slot": "drawer.position_m",
+        "max": 1e-06
+       },
+       "max_s": 15,
+       "step": "wait until the plate carrier is in"
+      }
+     ]
+    },
+    "unload": {
+     "item_slot": "carrier.plate",
+     "item_key": "plate_id",
+     "steps": [
+      {
+       "cap": "drawer.set",
+       "args": {
+        "open": true
+       },
+       "when": {
+        "slot": "drawer.position_m",
+        "max": 0.1849
+       },
+       "step": "move the plate carrier out"
+      },
+      {
+       "wait": {
+        "slot": "drawer.position_m",
+        "min": 0.1849
+       },
+       "max_s": 15,
+       "step": "wait until the plate carrier is out"
+      },
+      {
+       "cap": "plate.unload",
+       "step": "take plate {item} off the carrier"
+      },
+      {
+       "cap": "drawer.set",
+       "args": {
+        "open": false
+       },
+       "step": "move the plate carrier in"
+      },
+      {
+       "wait": {
+        "slot": "drawer.position_m",
+        "max": 1e-06
+       },
+       "max_s": 15,
+       "step": "wait until the plate carrier is in"
+      }
+     ]
+    },
+    "method": {
+     "cap": "protocol.configure",
+     "keys": {
+      "mode": {
+       "arg": "mode"
+      },
+      "wells": {
+       "arg": "wells"
+      },
+      "format": {
+       "arg": "format"
+      },
+      "wl": {
+       "arg": "wavelengths_m",
+       "kind": "wavelength"
+      },
+      "ex": {
+       "arg": "excitation_m",
+       "kind": "wavelength"
+      },
+      "em": {
+       "arg": "emission_m",
+       "kind": "wavelength"
+      },
+      "em2": {
+       "arg": "emission2_m",
+       "kind": "wavelength"
+      },
+      "bw-ex": {
+       "arg": "excitation_bandwidth_m",
+       "kind": "wavelength"
+      },
+      "bw-em": {
+       "arg": "emission_bandwidth_m",
+       "kind": "wavelength"
+      },
+      "cycles": {
+       "arg": "cycles"
+      },
+      "interval": {
+       "arg": "cycle_time_s",
+       "kind": "duration"
+      },
+      "flashes": {
+       "arg": "flashes"
+      },
+      "optic": {
+       "arg": "optic"
+      },
+      "gain": {
+       "arg": "gain"
+      },
+      "focus": {
+       "arg": "focal_height_m",
+       "kind": "length"
+      },
+      "settle": {
+       "arg": "settling_s",
+       "kind": "duration"
+      },
+      "order": {
+       "arg": "read_order"
+      }
+     },
+     "keep": {
+      "format": {
+       "slot": "carrier.plate",
+       "key": "format"
+      }
+     },
+     "passthrough": true
+    },
+    "start": {
+     "cap": "run.start",
+     "state": {
+      "slot": "run.status",
+      "key": "state",
+      "done": [
+       "completed"
+      ],
+      "failed": [
+       "stopped",
+       "aborted",
+       "error",
+       "failed"
+      ]
+     },
+     "max_s": 172800
+    },
+    "stop": {
+     "cap": "run.stop",
+     "running": {
+      "slot": "run.status",
+      "key": "state",
+      "value": "running"
+     }
+    },
+    "data": {
+     "cap": "data.read",
+     "opts": {
+      "cycle": {
+       "arg": "cycle",
+       "int": true
+      },
+      "max": {
+       "arg": "max_rows",
+       "int": true
+      }
+     }
+    },
+    "analyze": {
+     "cap": "data.analyze",
+     "models": {
+      "linear": {
+       "args": {
+        "fit": "linear"
+       }
+      },
+      "4pl": {
+       "args": {
+        "fit": "4pl"
+       }
+      },
+      "blank": {
+       "args": {
+        "fit": "none"
+       }
+      },
+      "zprime": {
+       "args": {
+        "fit": "none"
+       }
+      }
+     },
+     "keys": {
+      "blank": {
+       "arg": "blank_wells"
+      },
+      "std": {
+       "arg": "standards",
+       "kind": "concentration"
+      },
+      "pos": {
+       "arg": "positive_wells"
+      },
+      "neg": {
+       "arg": "negative_wells"
+      },
+      "cycle": {
+       "arg": "cycle"
+      }
+     }
+    },
+    "prime": {
+     "cap": "injector.prime",
+     "keys": {
+      "pump": {
+       "arg": "pump"
+      },
+      "volume": {
+       "arg": "volume_m3",
+       "kind": "volume"
+      }
+     },
+     "example": "prime pump=A volume=5uL"
+    },
+    "set-temp": {
+     "cap": "incubator.set",
+     "arg": "temperature_k",
+     "off": true
+    }
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "lamp.busy",
+      "code": "BUSY",
+      "message": "{inst} is busy (starting up after power-on, measuring, priming or focusing).",
+      "fix": "wait a little (`chemlab wait 20`) and retry.",
+      "value": false
+     },
+     {
+      "slot": "carrier.plate",
+      "code": "ALREADY_LOADED",
+      "message": "{inst} already holds a plate.",
+      "fix": "unload it first: `chemlab run {inst} unload`.",
+      "null": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "lamp.busy",
+      "code": "BUSY",
+      "message": "{inst} is busy (measuring, priming or focusing).",
+      "fix": "wait for the run (`chemlab run {inst} status`) or stop it.",
+      "value": false
+     }
+    ],
+    "method": [
+     {
+      "slot": "run.status",
+      "code": "RUN_ACTIVE",
+      "message": "a plate read is running on {inst}.",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "key": "state",
+      "not": [
+       "running"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "carrier.plate",
+      "code": "NOTHING_LOADED",
+      "message": "there is no plate in {inst}.",
+      "fix": "load one: `chemlab run {inst} load PLATE`.",
+      "null": false
+     },
+     {
+      "slot": "protocol.current",
+      "code": "NO_METHOD",
+      "message": "{inst} has no read protocol yet.",
+      "fix": "set one: `chemlab run {inst} method mode=... wells=... wl=...`.",
+      "null": false
+     },
+     {
+      "slot": "drawer.position_m",
+      "code": "DRAWER_OPEN",
+      "message": "the plate carrier of {inst} is out.",
+      "fix": "close it: `chemlab run {inst} close drawer`.",
+      "max": 1e-06
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ],
+    "prime": [
+     {
+      "slot": "power.on",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "pause": "no pause: a plate read runs to its end or is stopped (`stop`)"
+   },
+   "path": "run",
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.on"
+    },
+    {
+     "label": "plate",
+     "slot": "carrier.plate",
+     "key": "plate_id"
+    },
+    {
+     "label": "run",
+     "slot": "run.status",
+     "key": "state"
+    },
+    {
+     "label": "cycle",
+     "slot": "run.status",
+     "key": "cycle"
+    },
+    {
+     "label": "progress",
+     "slot": "run.status",
+     "key": "progress"
+    },
+    {
+     "label": "chamber",
+     "slot": "chamber.temperature_k",
+     "kind": "temperature"
+    },
+    {
+     "label": "incubator set point",
+     "slot": "incubator.setpoint_k",
+     "kind": "temperature"
+    }
+   ],
+   "notes": {
+    "load": [
+     "the plate must be prepared on the bench first (`chemlab call INST plate.prepare` / `well.dispense`, or by the lab)"
+    ],
+    "analyze": [
+     "models: linear / 4pl (standard curve), blank (blank subtraction), zprime (pos= neg= wells); keys: blank=H1,H2 std.A1=0uM std.A2=1uM pos=A1:A6 neg=B1:B6 cycle=N"
+    ],
+    "start": [
+     "the run is followed in run.status; job-N ends when it is completed"
+    ]
+   },
+   "manual": {
+    "*": "BMG ActiveX/DDE interface manual 0415N0006J pp. 14-22 (PlateIn/PlateOut, Pump, Temp, run commands); PyLabRobot CLARIOstar backend (plate carrier, reads)"
+   },
+   "examples": {
+    "load": "load wp",
+    "method": "method mode=fi_endpoint wells=A1:A3 ex=485nm em=525nm",
+    "analyze": "analyze linear blank=H1,H2 std.A1=0uM std.A2=1uM",
+    "prime": "prime pump=A volume=500uL",
+    "set-temp": "set-temp 37C"
+   }
+  },
+  "biotek_405ts": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "items": {
+      "slot": "plate.bench_ids",
+      "where": " on the bench",
+      "none": "provide one first (`chemlab call INST plate.provide ...`, or by the lab)."
+     },
+     "word": "plate",
+     "steps": [
+      {
+       "cap": "plate.load",
+       "with": {
+        "plate_id": "$item"
+       },
+       "step": "put plate {item} on the carrier"
+      }
+     ]
+    },
+    "unload": {
+     "item_slot": "plate.on_carrier",
+     "steps": [
+      {
+       "cap": "plate.unload",
+       "with": {
+        "plate_id": "$item"
+       },
+       "step": "take plate {item} off the carrier"
+      }
+     ]
+    },
+    "start": {
+     "cap": "protocol.run",
+     "name": {
+      "arg": "name",
+      "required": true,
+      "list": {
+       "slot": "protocols.list",
+       "key": "name",
+       "code": "UNKNOWN_PROTOCOL"
+      },
+      "word": "protocol",
+      "example": "W-Corning_FLAT"
+     }
+    },
+    "stop": {
+     "cap": "run.stop",
+     "running": {
+      "slot": "operation.kind",
+      "null": false
+     }
+    },
+    "data": {
+     "cap": "measurement.result",
+     "id": {
+      "arg": "record_id",
+      "slot": "result.last_record_id",
+      "required": true,
+      "word": "record"
+     }
+    },
+    "prime": {
+     "cap": "prime.run",
+     "keys": {
+      "buffer": {
+       "arg": "buffer"
+      },
+      "volume": {
+       "arg": "volume_m3",
+       "kind": "volume"
+      },
+      "rate": {
+       "arg": "rate"
+      }
+     },
+     "defaults": "example"
+    }
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "operation.kind",
+      "code": "RUN_ACTIVE",
+      "message": "{inst} is running {value}.",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "null": true
+     },
+     {
+      "slot": "plate.on_carrier",
+      "code": "ALREADY_LOADED",
+      "message": "{inst} already holds plate {value}.",
+      "fix": "unload it first: `chemlab run {inst} unload`.",
+      "null": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "operation.kind",
+      "code": "RUN_ACTIVE",
+      "message": "{inst} is running {value}.",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "null": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "operation.kind",
+      "code": "RUN_ACTIVE",
+      "message": "{inst} is already running {value}.",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "null": true
+     }
+    ],
+    "prime": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "plate.on_carrier",
+      "code": "PLATE_IN",
+      "message": "plate {value} is on the carrier of {inst}; priming dispenses into the prime trough under it.",
+      "fix": "take it off first: `chemlab run {inst} unload`.",
+      "null": true
+     },
+     {
+      "slot": "operation.kind",
+      "code": "RUN_ACTIVE",
+      "message": "{inst} is running {value}.",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "null": true
+     }
+    ]
+   },
+   "unsupported": {
+    "method": "runs stored protocols by name (`start NAME`); protocols are written in its protocol editor",
+    "pause": "no pause (protocol.resume only continues a protocol after an error stop)",
+    "analyze": "a washer has no evaluation; its record (`data`) lists what was dispensed and aspirated",
+    "set-temp": "no temperature control"
+   },
+   "alternatives": {
+    "method": "run a stored protocol: `chemlab run INST start NAME` (names: `chemlab read INST protocols.list`); write a new one with `chemlab call INST protocol.edit_open ...`"
+   },
+   "path": "protocol",
+   "path_exceptions": [
+    "run.stop"
+   ],
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "plate",
+     "slot": "plate.on_carrier"
+    },
+    {
+     "label": "running",
+     "slot": "operation.kind"
+    },
+    {
+     "label": "protocol",
+     "slot": "protocol.run",
+     "key": "name"
+    },
+    {
+     "label": "protocol status",
+     "slot": "protocol.run",
+     "key": "status"
+    },
+    {
+     "label": "last record",
+     "slot": "result.last_record_id"
+    },
+    {
+     "label": "waste full",
+     "slot": "sensor.waste_full"
+    }
+   ],
+   "notes": {
+    "prime": [
+     "keys: buffer=A..D volume=300mL rate=3..11; settings left out take the contract's documented example values"
+    ],
+    "start": [
+     "NAME is a stored protocol (W-Corning_FLAT, W-CELLWASH_96, W-DAY_RINSE, ...); the job follows the runtime operation"
+    ]
+   },
+   "manual": {
+    "*": "BioTek 405 TS getting started guide 1171009 pp. 31-48 (protocols, predefined protocols), pp. 77-86 (prime, maintenance)"
+   },
+   "examples": {
+    "load": "load p1",
+    "start": "start W-Corning_FLAT",
+    "data": "data",
+    "prime": "prime buffer=A volume=100mL"
+   }
+  },
+  "biorad_cfxopus": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "items": {
+      "slot": "plates.on_bench",
+      "where": " on the bench",
+      "none": "prepare one first (`chemlab call INST plate.prepare ...`)."
+     },
+     "word": "plate",
+     "steps": [
+      {
+       "cap": "lid.open",
+       "when": {
+        "slot": "lid.state",
+        "not": [
+         "open"
+        ]
+       },
+       "step": "open the lid"
+      },
+      {
+       "wait": {
+        "slot": "lid.state",
+        "value": "open"
+       },
+       "max_s": 30,
+       "step": "wait until the lid is open"
+      },
+      {
+       "cap": "plate.load",
+       "with": {
+        "plate_id": "$item"
+       },
+       "step": "put plate {item} into the block"
+      },
+      {
+       "cap": "lid.close",
+       "step": "close the lid"
+      },
+      {
+       "wait": {
+        "slot": "lid.state",
+        "value": "closed"
+       },
+       "max_s": 30,
+       "step": "wait until the lid is closed"
+      }
+     ]
+    },
+    "unload": {
+     "item_slot": "plate.id",
+     "steps": [
+      {
+       "cap": "lid.open",
+       "when": {
+        "slot": "lid.state",
+        "not": [
+         "open"
+        ]
+       },
+       "step": "open the lid"
+      },
+      {
+       "wait": {
+        "slot": "lid.state",
+        "value": "open"
+       },
+       "max_s": 30,
+       "step": "wait until the lid is open"
+      },
+      {
+       "cap": "plate.remove",
+       "step": "take plate {item} out"
+      },
+      {
+       "cap": "lid.close",
+       "step": "close the lid"
+      },
+      {
+       "wait": {
+        "slot": "lid.state",
+        "value": "closed"
+       },
+       "max_s": 30,
+       "step": "wait until the lid is closed"
+      }
+     ]
+    },
+    "method": {
+     "cap": "protocol.set",
+     "keys": {
+      "name": {
+       "arg": "name"
+      },
+      "volume": {
+       "arg": "sample_volume_m3",
+       "kind": "volume"
+      },
+      "lid": {
+       "arg": "lid_temperature_k",
+       "kind": "temperature"
+      },
+      "steps": {
+       "arg": "steps",
+       "parse": "qpcr_steps"
+      }
+     },
+     "passthrough": true
+    },
+    "start": {
+     "cap": "run.start",
+     "opts": {
+      "scan": {
+       "arg": "scan_mode",
+       "default": "all_channels"
+      }
+     },
+     "max_s": 172800
+    },
+    "pause": {
+     "on_cap": "run.pause",
+     "off_cap": "run.resume",
+     "running": {
+      "slot": "run.state",
+      "in": [
+       "running"
+      ]
+     },
+     "paused": {
+      "slot": "run.state",
+      "value": "paused"
+     }
+    },
+    "stop": {
+     "cap": "run.stop",
+     "running": {
+      "slot": "run.state",
+      "in": [
+       "lid_heating",
+       "running",
+       "paused"
+      ]
+     }
+    },
+    "data": {
+     "cap": "data.amplification",
+     "id": {
+      "arg": "run_id",
+      "slot": "run.id",
+      "word": "run"
+     },
+     "opts": {
+      "wells": {
+       "arg": "wells",
+       "list": true
+      }
+     }
+    },
+    "analyze": {
+     "models": {
+      "cq": {
+       "cap": "analysis.cq"
+      },
+      "standard-curve": {
+       "cap": "analysis.standard_curve"
+      },
+      "melt": {
+       "cap": "analysis.melt_peaks"
+      },
+      "gene-expression": {
+       "cap": "analysis.gene_expression"
+      }
+     },
+     "keys": {},
+     "id": {
+      "arg": "run_id",
+      "slot": "run.id",
+      "word": "run",
+      "required": true
+     }
+    }
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "lid_heating",
+       "running",
+       "paused"
+      ]
+     },
+     {
+      "slot": "plate.loaded",
+      "code": "ALREADY_LOADED",
+      "message": "{inst} already holds a plate.",
+      "fix": "unload it first: `chemlab run {inst} unload`.",
+      "value": false
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "lid_heating",
+       "running",
+       "paused"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "lid_heating",
+       "running",
+       "paused"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "lid_heating",
+       "running",
+       "paused"
+      ]
+     },
+     {
+      "slot": "plate.loaded",
+      "code": "NOTHING_LOADED",
+      "message": "there is no plate in {inst}.",
+      "fix": "load one: `chemlab run {inst} load PLATE`.",
+      "value": true
+     },
+     {
+      "slot": "protocol.name",
+      "code": "NO_METHOD",
+      "message": "{inst} has no protocol yet.",
+      "fix": "set one: `chemlab run {inst} method name=... volume=20uL steps=...`.",
+      "null": false
+     },
+     {
+      "slot": "lid.state",
+      "code": "LID_OPEN",
+      "message": "the lid of {inst} is {value}.",
+      "fix": "close it: `chemlab run {inst} close lid`.",
+      "value": "closed"
+     }
+    ]
+   },
+   "unsupported": {
+    "prime": "no fluidics (a thermal cycler with an optical lid)",
+    "set-temp": "block and lid temperatures are protocol steps"
+   },
+   "alternatives": {
+    "set-temp": "put the temperatures into the protocol: `chemlab run INST method steps=95C@3min,... lid=105C`"
+   },
+   "path": "run",
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "lid",
+     "slot": "lid.state"
+    },
+    {
+     "label": "plate",
+     "slot": "plate.id"
+    },
+    {
+     "label": "protocol",
+     "slot": "protocol.name"
+    },
+    {
+     "label": "run",
+     "slot": "run.state"
+    },
+    {
+     "label": "cycle",
+     "slot": "run.cycle"
+    },
+    {
+     "label": "remaining",
+     "slot": "run.remaining_s",
+     "kind": "duration"
+    },
+    {
+     "label": "block",
+     "slot": "sensor.block_temperature_k",
+     "kind": "temperature"
+    }
+   ],
+   "notes": {
+    "method": [
+     "steps: 95C@3min,95C@10s,60C@30s+read,goto2x39,melt65C..95C@0.5C/5s (goto2x39 = back to step 2, 39 more times)"
+    ],
+    "analyze": [
+     "models: cq (threshold_rfu=..), standard-curve, melt, gene-expression (reference_targets=.. control_group=..)"
+    ],
+    "start": [
+     "--scan all_channels (default), sybr_fam or fret"
+    ]
+   },
+   "manual": {
+    "*": "CFX Opus operation manual 10000119983 pp. 37-49 (loading the block), pp. 85-109 (protocol steps), pp. 111-123 (runs: pause, stop)"
+   },
+   "examples": {
+    "load": "load plate_1",
+    "method": "method name=SYBR volume=20uL lid=105C steps=95C@3min,95C@10s,60C@30s+read,goto2x39,melt65C..95C@0.5C/5s",
+    "start": "start --scan all_channels",
+    "data": "data --wells A1,B1",
+    "analyze": "analyze cq"
+   }
+  },
+  "cytiva_biacoret200": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "options": [
+      "type"
+     ],
+     "type_example": "CM5",
+     "word": "chip",
+     "steps": [
+      {
+       "cap": "chip.open_port",
+       "when": {
+        "slot": "chip.state",
+        "value": "none"
+       },
+       "step": "open the chip port"
+      },
+      {
+       "wait": {
+        "slot": "chip.port_cover_angle_rad",
+        "min": 1.0
+       },
+       "max_s": 15,
+       "step": "wait until the port cover is open"
+      },
+      {
+       "cap": "chip.insert",
+       "with": {
+        "chip_type": "$type",
+        "chip_id": "$item"
+       },
+       "step": "insert sensor chip {item} ({type})"
+      },
+      {
+       "cap": "chip.close_cover",
+       "step": "close the port cover"
+      },
+      {
+       "wait": {
+        "slot": "chip.port_cover_angle_rad",
+        "max": 1e-06
+       },
+       "max_s": 15,
+       "step": "wait until the port cover is closed"
+      },
+      {
+       "cap": "chip.dock",
+       "step": "dock the chip"
+      },
+      {
+       "wait": {
+        "slot": "chip.state",
+        "value": "docked"
+       },
+       "max_s": 180,
+       "step": "wait until the chip is docked",
+       "code": "DOCK_FAILED",
+       "message": "{inst} did not dock the chip.",
+       "fix": "check `chemlab run {inst} status`, unload and retry."
+      }
+     ]
+    },
+    "unload": {
+     "item_slot": "chip.id",
+     "steps": [
+      {
+       "cap": "chip.eject",
+       "when": {
+        "slot": "chip.state",
+        "value": "docked"
+       },
+       "step": "undock the chip"
+      },
+      {
+       "wait": {
+        "slot": "chip.state",
+        "in": [
+         "ejected",
+         "inserted",
+         "port_open"
+        ]
+       },
+       "max_s": 180,
+       "step": "wait until the chip is undocked"
+      },
+      {
+       "cap": "chip.open_port",
+       "when": {
+        "slot": "chip.state",
+        "in": [
+         "ejected",
+         "inserted"
+        ]
+       },
+       "step": "open the chip port"
+      },
+      {
+       "wait": {
+        "slot": "chip.port_cover_angle_rad",
+        "min": 1.0
+       },
+       "max_s": 15,
+       "step": "wait until the port cover is open"
+      },
+      {
+       "cap": "chip.remove",
+       "step": "take chip {item} out"
+      },
+      {
+       "cap": "chip.close_cover",
+       "step": "close the port cover"
+      },
+      {
+       "wait": {
+        "slot": "chip.port_cover_angle_rad",
+        "max": 1e-06
+       },
+       "max_s": 15,
+       "step": "wait until the port cover is closed"
+      }
+     ]
+    },
+    "start": {
+     "cap": "method.run",
+     "name": {
+      "arg": "run_id",
+      "required": true,
+      "word": "run id",
+      "example": "kin1"
+     },
+     "keys": {
+      "path": {
+       "arg": "flow_path"
+      },
+      "ref": {
+       "arg": "reference_subtraction"
+      },
+      "rate": {
+       "arg": "data_rate_hz"
+      },
+      "detection": {
+       "arg": "detection"
+      },
+      "buffer": {
+       "arg": "buffer_tube"
+      },
+      "temp": {
+       "arg": "sample_compartment_k",
+       "kind": "temperature"
+      },
+      "prime-first": {
+       "arg": "prime_before"
+      }
+     },
+     "series": true,
+     "passthrough": true,
+     "max_s": 172800
+    },
+    "pause": {
+     "on_cap": "run.pause",
+     "off_cap": "run.resume",
+     "running": {
+      "slot": "run.state",
+      "in": [
+       "waiting_temperature",
+       "preparing",
+       "running"
+      ]
+     },
+     "paused": {
+      "slot": "run.state",
+      "value": "paused"
+     }
+    },
+    "stop": {
+     "cap": "run.stop",
+     "running": {
+      "slot": "run.state",
+      "in": [
+       "waiting_temperature",
+       "preparing",
+       "running",
+       "paused"
+      ]
+     }
+    },
+    "data": {
+     "cap": "data.report_points",
+     "id": {
+      "arg": "run_id",
+      "slot": "run.id",
+      "required": true,
+      "word": "run"
+     },
+     "by_cycle": {
+      "cap": "data.sensorgram",
+      "opts": {
+       "cycle": {
+        "arg": "cycle",
+        "int": true
+       },
+       "curves": {
+        "arg": "curves",
+        "list": true,
+        "required": true,
+        "example": "2-1"
+       },
+       "max": {
+        "arg": "max_points",
+        "int": true
+       }
+      }
+     }
+    },
+    "analyze": {
+     "models": {
+      "kinetics": {
+       "cap": "eval.kinetics"
+      },
+      "affinity": {
+       "cap": "eval.affinity"
+      },
+      "concentration": {
+       "cap": "eval.concentration"
+      },
+      "solvent-correction": {
+       "cap": "eval.solvent_correction"
+      }
+     },
+     "keys": {
+      "blanks": {
+       "arg": "blank_cycles"
+      },
+      "concs": {
+       "arg": "concentrations_mol_m3",
+       "kind": "concentration"
+      }
+     },
+     "id": {
+      "arg": "run_id",
+      "slot": "run.id",
+      "required": true,
+      "word": "run"
+     }
+    },
+    "prime": {
+     "cap": "flow.prime"
+    },
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "analysis_k"
+    }
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "system.connected",
+      "code": "NOT_READY",
+      "message": "{inst} is still starting up (the control software is not connected yet).",
+      "fix": "wait about half a minute after power-on (`chemlab wait 35`), then retry.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "waiting_temperature",
+       "preparing",
+       "running",
+       "paused"
+      ]
+     },
+     {
+      "slot": "chip.state",
+      "code": "ALREADY_LOADED",
+      "message": "{inst} already holds a chip ({value}).",
+      "fix": "unload it first: `chemlab run {inst} unload`.",
+      "value": "none"
+     }
+    ],
+    "unload": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "system.connected",
+      "code": "NOT_READY",
+      "message": "{inst} is still starting up (the control software is not connected yet).",
+      "fix": "wait about half a minute after power-on (`chemlab wait 35`), then retry.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "waiting_temperature",
+       "preparing",
+       "running",
+       "paused"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "system.connected",
+      "code": "NOT_READY",
+      "message": "{inst} is still starting up (the control software is not connected yet).",
+      "fix": "wait about half a minute after power-on (`chemlab wait 35`), then retry.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "waiting_temperature",
+       "preparing",
+       "running",
+       "paused"
+      ]
+     },
+     {
+      "slot": "chip.state",
+      "code": "NOTHING_LOADED",
+      "message": "no sensor chip is docked in {inst} ({value}).",
+      "fix": "load one: `chemlab run {inst} load CHIP --type CM5`.",
+      "value": "docked"
+     },
+     {
+      "slot": "rack.state",
+      "code": "RACK_OUT",
+      "message": "the sample rack of {inst} is not inside ({value}).",
+      "fix": "put it in: `chemlab call {inst} rack.retract`.",
+      "value": "inside"
+     }
+    ],
+    "prime": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "system.connected",
+      "code": "NOT_READY",
+      "message": "{inst} is still starting up (the control software is not connected yet).",
+      "fix": "wait about half a minute after power-on (`chemlab wait 35`), then retry.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "waiting_temperature",
+       "preparing",
+       "running",
+       "paused"
+      ]
+     },
+     {
+      "slot": "chip.state",
+      "code": "NOTHING_LOADED",
+      "message": "no sensor chip is docked in {inst} ({value}).",
+      "fix": "load one: `chemlab run {inst} load CHIP --type CM5`.",
+      "value": "docked"
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "system.connected",
+      "code": "NOT_READY",
+      "message": "{inst} is still starting up (the control software is not connected yet).",
+      "fix": "wait about half a minute after power-on (`chemlab wait 35`), then retry.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a run is going on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "waiting_temperature",
+       "preparing",
+       "running",
+       "paused"
+      ]
+     }
+    ]
+   },
+   "unsupported": {
+    "method": "a Biacore run takes its method when it starts"
+   },
+   "alternatives": {
+    "method": "give the method with start: `chemlab run INST start RUN samples=R1B1,R1B2 contact=120s dissociation=600s flow=30uL/min path=1-2 ref=2-1 rate=10`, or cycles=@cycles.json"
+   },
+   "path": "run",
+   "path_exceptions": [
+    "method.run"
+   ],
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "connected",
+     "slot": "system.connected"
+    },
+    {
+     "label": "chip",
+     "slot": "chip.id"
+    },
+    {
+     "label": "chip state",
+     "slot": "chip.state"
+    },
+    {
+     "label": "flow",
+     "slot": "flow.state"
+    },
+    {
+     "label": "rack",
+     "slot": "rack.state"
+    },
+    {
+     "label": "run",
+     "slot": "run.state"
+    },
+    {
+     "label": "cycle",
+     "slot": "run.cycle"
+    },
+    {
+     "label": "analysis temperature",
+     "slot": "temperature.analysis_k",
+     "kind": "temperature"
+    }
+   ],
+   "notes": {
+    "load": [
+     "ITEM is the new chip id; --type is the chip type (CM5, SA, NTA, ...); it waits until the chip is docked (about a minute)"
+    ],
+    "start": [
+     "RUN is the new run id; method keys: samples= contact= dissociation= flow= regen= regen-contact= startup= path= ref= rate= detection= (or cycles=@file.json); the sample rack must be inside"
+    ],
+    "data": [
+     "without --cycle: the report points of the run; with --cycle N --curves 2-1: that cycle's sensorgram"
+    ],
+    "analyze": [
+     "models: kinetics, affinity, concentration, solvent-correction; keys: cycles=3,4,5 subtraction=2-1 blanks=2 concs=0,2nM,4nM"
+    ]
+   },
+   "manual": {
+    "*": "Biacore T200 instrument handbook 28976883 pp. 44-59 (operation); getting started 28-9768-63 pp. 33-45 (dock chip, prime, temperature); software handbook 28-9768-78 pp. 79-107 (methods), pp. 109-125 (evaluation)"
+   },
+   "examples": {
+    "load": "load chip_a --type CM5",
+    "start": "start kin1 samples=R1B1,R1B2 contact=120s dissociation=600s flow=30uL/min path=1-2 ref=2-1 rate=10",
+    "data": "data --cycle 2 --curves 2-1",
+    "analyze": "analyze kinetics cycles=2,3 subtraction=2-1 concs=10nM,20nM",
+    "set-temp": "set-temp 25C"
+   }
+  },
+  "malvern_microcalpeaq": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "default_into": "cell",
+     "into": {
+      "cell": {
+       "items": {
+        "slot": "solutions.available",
+        "none": "prepare one first (`chemlab call INST solution.prepare ...`)."
+       },
+       "word": "solution",
+       "options": [
+        "volume",
+        "no-rinse"
+       ],
+       "default_volume": "300uL",
+       "steps": [
+        {
+         "cap": "pipette.move",
+         "args": {
+          "location": "rest"
+         },
+         "when": {
+          "slot": "pipette.location",
+          "value": "cell"
+         },
+         "step": "lift the syringe out of the cell"
+        },
+        {
+         "wait": {
+          "slot": "pipette.location",
+          "not": [
+           "moving"
+          ]
+         },
+         "max_s": 90,
+         "step": "wait until the syringe is out of the cell"
+        },
+        {
+         "cap": "cell.load",
+         "with": {
+          "solution_id": "$item",
+          "volume_m3": "$volume",
+          "rinse": "$rinse"
+         },
+         "step": "fill the sample cell with {item}"
+        },
+        {
+         "cap": "pipette.move",
+         "args": {
+          "location": "cell"
+         },
+         "when": [
+          {
+           "slot": "syringe.state",
+           "value": "loaded"
+          },
+          {
+           "slot": "pipette.location",
+           "value": "rest"
+          }
+         ],
+         "step": "lower the filled syringe into the cell"
+        },
+        {
+         "wait": {
+          "slot": "pipette.location",
+          "not": [
+           "moving"
+          ]
+         },
+         "max_s": 90,
+         "step": "wait until the syringe is in place"
+        }
+       ]
+      },
+      "syringe": {
+       "items": {
+        "slot": "solutions.available",
+        "none": "prepare one first (`chemlab call INST solution.prepare ...`)."
+       },
+       "word": "solution",
+       "options": [
+        "volume"
+       ],
+       "default_volume": "60uL",
+       "steps": [
+        {
+         "cap": "pipette.move",
+         "args": {
+          "location": "rest"
+         },
+         "when": {
+          "slot": "pipette.location",
+          "value": "cell"
+         },
+         "step": "lift the syringe out of the cell"
+        },
+        {
+         "wait": {
+          "slot": "pipette.location",
+          "not": [
+           "moving"
+          ]
+         },
+         "max_s": 90,
+         "step": "wait until the syringe is out of the cell"
+        },
+        {
+         "cap": "tube.place",
+         "with": {
+          "solution_id": "$item",
+          "volume_m3": "$volume"
+         },
+         "step": "put a tube of {item} in the loading station"
+        },
+        {
+         "cap": "fpa.attach",
+         "when": {
+          "slot": "fpa.attached",
+          "truthy": false
+         },
+         "step": "attach the fill port adapter"
+        },
+        {
+         "cap": "syringe.plunger_down",
+         "step": "move the plunger down"
+        },
+        {
+         "wait": {
+          "slot": "syringe.plunger_position_m",
+          "min": 0.0599
+         },
+         "max_s": 60,
+         "step": "wait until the plunger is down"
+        },
+        {
+         "cap": "pipette.move",
+         "args": {
+          "location": "load"
+         },
+         "step": "move the syringe to the loading station"
+        },
+        {
+         "wait": {
+          "slot": "pipette.location",
+          "value": "load"
+         },
+         "max_s": 90,
+         "step": "wait until the syringe is at the loading station"
+        },
+        {
+         "cap": "syringe.load",
+         "step": "fill the syringe"
+        },
+        {
+         "wait": {
+          "slot": "syringe.state",
+          "value": "loaded"
+         },
+         "max_s": 900,
+         "step": "wait until the syringe is filled",
+         "code": "LOAD_FAILED",
+         "message": "the syringe of {inst} did not fill.",
+         "fix": "check `chemlab run {inst} status` (tube volume, wash module), then retry."
+        },
+        {
+         "cap": "pipette.move",
+         "args": {
+          "location": "rest"
+         },
+         "step": "move the syringe to rest"
+        },
+        {
+         "wait": {
+          "slot": "pipette.location",
+          "value": "rest"
+         },
+         "max_s": 90,
+         "step": "wait until the syringe is at rest"
+        },
+        {
+         "cap": "tube.remove",
+         "step": "take the tube out of the loading station"
+        },
+        {
+         "cap": "fpa.detach",
+         "step": "detach the fill port adapter"
+        },
+        {
+         "cap": "pipette.move",
+         "args": {
+          "location": "cell"
+         },
+         "when": {
+          "slot": "cell.solution_id",
+          "null": false
+         },
+         "step": "lower the syringe into the cell"
+        },
+        {
+         "wait": {
+          "slot": "pipette.location",
+          "not": [
+           "moving"
+          ]
+         },
+         "max_s": 90,
+         "step": "wait until the syringe is in place"
+        }
+       ]
+      }
+     }
+    },
+    "unload": {
+     "item_slot": "cell.solution_id",
+     "steps": [
+      {
+       "cap": "pipette.move",
+       "args": {
+        "location": "rest"
+       },
+       "when": {
+        "slot": "pipette.location",
+        "value": "cell"
+       },
+       "step": "lift the syringe out of the cell"
+      },
+      {
+       "wait": {
+        "slot": "pipette.location",
+        "not": [
+         "moving"
+        ]
+       },
+       "max_s": 90,
+       "step": "wait until the syringe is out of the cell"
+      },
+      {
+       "cap": "cell.empty",
+       "step": "empty the sample cell ({item})"
+      }
+     ]
+    },
+    "method": {
+     "cap": "method.set",
+     "keys": {
+      "temp": {
+       "arg": "temperature_k",
+       "kind": "temperature"
+      },
+      "ref": {
+       "arg": "reference_power_w",
+       "kind": "power"
+      },
+      "feedback": {
+       "arg": "feedback"
+      },
+      "stir": {
+       "arg": "stir_rate_hz",
+       "kind": "rotation_hz"
+      },
+      "delay": {
+       "arg": "initial_delay_s",
+       "kind": "duration"
+      },
+      "injections": {
+       "arg": "injections",
+       "parse": "injections"
+      },
+      "cell": {
+       "arg": "cell_concentration_mol_m3",
+       "kind": "concentration"
+      },
+      "syringe": {
+       "arg": "syringe_concentration_mol_m3",
+       "kind": "concentration"
+      },
+      "comment": {
+       "arg": "comment"
+      }
+     },
+     "keep": {
+      "temperature_k": {
+       "slot": "method.current",
+       "key": "temperature_k"
+      },
+      "reference_power_w": {
+       "slot": "method.current",
+       "key": "reference_power_w"
+      },
+      "feedback": {
+       "slot": "method.current",
+       "key": "feedback"
+      },
+      "stir_rate_hz": {
+       "slot": "method.current",
+       "key": "stir_rate_hz"
+      },
+      "initial_delay_s": {
+       "slot": "method.current",
+       "key": "initial_delay_s"
+      },
+      "cell_concentration_mol_m3": {
+       "slot": "method.current",
+       "key": "cell_concentration_mol_m3"
+      },
+      "syringe_concentration_mol_m3": {
+       "slot": "method.current",
+       "key": "syringe_concentration_mol_m3"
+      }
+     },
+     "passthrough": true
+    },
+    "start": {
+     "cap": "run.start",
+     "name": {
+      "arg": "experiment_id",
+      "required": true,
+      "word": "experiment id",
+      "example": "e1"
+     },
+     "max_s": 172800
+    },
+    "stop": {
+     "cap": "instrument.stop",
+     "running": {
+      "any": [
+       {
+        "slot": "run.state",
+        "in": [
+         "equilibrating",
+         "initial_delay",
+         "injecting",
+         "spacing"
+        ]
+       },
+       {
+        "slot": "clean.state",
+        "value": "cleaning"
+       }
+      ]
+     }
+    },
+    "data": {
+     "cap": "data.read",
+     "id": {
+      "arg": "experiment_id",
+      "slot": "run.experiment_id",
+      "required": true,
+      "word": "experiment"
+     },
+     "opts": {
+      "max": {
+       "arg": "max_points",
+       "int": true
+      }
+     }
+    },
+    "analyze": {
+     "cap": "data.analyze",
+     "model_arg": "model",
+     "keys": {
+      "exclude": {
+       "arg": "exclude_injections"
+      },
+      "cell": {
+       "arg": "cell_concentration_mol_m3",
+       "kind": "concentration"
+      },
+      "syringe": {
+       "arg": "syringe_concentration_mol_m3",
+       "kind": "concentration"
+      }
+     },
+     "id": {
+      "arg": "experiment_id",
+      "slot": "run.experiment_id",
+      "required": true,
+      "word": "experiment"
+     }
+    },
+    "set-temp": {
+     "cap": "temperature.set",
+     "arg": "temperature_k"
+    }
+   },
+   "requires": {
+    "load:cell": [
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a titration is running on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "equilibrating",
+       "initial_delay",
+       "injecting",
+       "spacing"
+      ]
+     },
+     {
+      "slot": "cell.cleaning_tool_inserted",
+      "code": "CLEANING_TOOL_IN",
+      "message": "the cleaning tool is in the cell of {inst}.",
+      "fix": "take it out: `chemlab call {inst} cleaning_tool.remove`.",
+      "value": false
+     }
+    ],
+    "load:syringe": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a titration is running on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "equilibrating",
+       "initial_delay",
+       "injecting",
+       "spacing"
+      ]
+     },
+     {
+      "slot": "wash.powered",
+      "code": "WASH_MODULE_OFF",
+      "message": "the wash module of {inst} is switched off (it fills the syringe).",
+      "fix": "switch it on: `chemlab call {inst} wash.power_set --enabled true`.",
+      "value": true
+     },
+     {
+      "slot": "loading_station.tube_solution_id",
+      "code": "TUBE_PRESENT",
+      "message": "a tube ({value}) is still in the loading station of {inst}.",
+      "fix": "take it out: `chemlab call {inst} tube.remove`.",
+      "null": true
+     }
+    ],
+    "unload": [
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a titration is running on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "equilibrating",
+       "initial_delay",
+       "injecting",
+       "spacing"
+      ]
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a titration is running on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "equilibrating",
+       "initial_delay",
+       "injecting",
+       "spacing"
+      ]
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a titration is running on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "equilibrating",
+       "initial_delay",
+       "injecting",
+       "spacing"
+      ]
+     },
+     {
+      "slot": "method.current",
+      "code": "NO_METHOD",
+      "message": "{inst} has no experiment method yet.",
+      "fix": "set one: `chemlab run {inst} method temp=25C injections=... ...`.",
+      "null": false
+     },
+     {
+      "slot": "syringe.state",
+      "code": "SYRINGE_NOT_LOADED",
+      "message": "the syringe of {inst} is {value}.",
+      "fix": "load it: `chemlab run {inst} load SOLUTION --into syringe`.",
+      "value": "loaded"
+     },
+     {
+      "slot": "pipette.seated_in_cell",
+      "code": "PIPETTE_NOT_IN_CELL",
+      "message": "the syringe of {inst} is not in the cell.",
+      "fix": "load the cell (`chemlab run {inst} load SOLUTION --into cell`): with a filled syringe it lowers the syringe into the cell.",
+      "value": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "run.state",
+      "code": "RUN_ACTIVE",
+      "message": "a titration is running on {inst} ({value}).",
+      "fix": "wait for it or stop it: `chemlab run {inst} stop`.",
+      "not": [
+       "equilibrating",
+       "initial_delay",
+       "injecting",
+       "spacing"
+      ]
+     }
+    ]
+   },
+   "unsupported": {
+    "pause": "no pause: a titration runs to its end or is stopped (`stop`)",
+    "prime": "no fluid lines to prime; the cell and syringe are cleaned with the wash module"
+   },
+   "alternatives": {
+    "prime": "clean with the wash module: `chemlab call INST cleaning_tool.insert`, then `chemlab call INST clean.start ...`"
+   },
+   "params": {
+    "injection_rate_m3_s": 5e-10
+   },
+   "path": "run",
+   "path_exceptions": [
+    "instrument.stop"
+   ],
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "wash module",
+     "slot": "wash.powered"
+    },
+    {
+     "label": "cell",
+     "slot": "cell.solution_id"
+    },
+    {
+     "label": "syringe",
+     "slot": "syringe.state"
+    },
+    {
+     "label": "pipette",
+     "slot": "pipette.location"
+    },
+    {
+     "label": "run",
+     "slot": "run.state"
+    },
+    {
+     "label": "injection",
+     "slot": "run.injection_number"
+    },
+    {
+     "label": "cell temperature",
+     "slot": "temperature.cell_k",
+     "kind": "temperature"
+    },
+    {
+     "label": "set point",
+     "slot": "temperature.setpoint_k",
+     "kind": "temperature"
+    }
+   ],
+   "notes": {
+    "load": [
+     "--into cell (default; 300 uL, rinsed first unless --no-rinse) or --into syringe (from a 60 uL tube). The syringe ends in the cell when both are loaded, in either order. It moves the syringe and waits for each step (a few minutes for the syringe)."
+    ],
+    "method": [
+     "injection duration left out: volume / 0.5 uL/s (the contract example: 2 uL in 4 s)"
+    ],
+    "analyze": [
+     "MODEL is the fitting model (one_set_of_sites, two_sets_of_sites, ...); keys: exclude=1 cell=0.1mM syringe=1mM"
+    ]
+   },
+   "manual": {
+    "*": "PEAQ-ITC user manual MAN0573 pp. 51-68 (prepare and load instrument, start), pp. 91-100 (injection parameters); analysis manual MAN0576 pp. 54-76 (fitting models)"
+   },
+   "examples": {
+    "load": "load edta --into cell",
+    "method": "method temp=25C ref=5ucal/s stir=750rpm delay=60s injections=0.4uL@0.8s,18x2uL@4s spacing=150s cell=0.1mM syringe=1mM",
+    "start": "start e1",
+    "analyze": "analyze one_set_of_sites exclude=1",
+    "set-temp": "set-temp 25C"
+   }
+  },
+  "bd_facsariaiii": {
+   "role": "primary",
+   "verbs": {
+    "load": {
+     "items": {
+      "slot": "tubes.on_bench",
+      "where": " on the bench",
+      "none": "prepare one first (`chemlab call INST tube.prepare ...`)."
+     },
+     "word": "tube",
+     "steps": [
+      {
+       "cap": "tube.install",
+       "with": {
+        "tube_id": "$item"
+       },
+       "step": "put tube {item} on the sample port"
+      },
+      {
+       "cap": "sample.load",
+       "step": "load the sample"
+      },
+      {
+       "wait": {
+        "slot": "sample.port_state",
+        "value": "up"
+       },
+       "max_s": 30,
+       "step": "wait until the tube is up and acquiring"
+      }
+     ]
+    },
+    "unload": {
+     "item_slot": "sample.tube_id",
+     "steps": [
+      {
+       "cap": "sample.unload",
+       "when": {
+        "slot": "sample.port_state",
+        "value": "up"
+       },
+       "step": "unload the sample"
+      },
+      {
+       "wait": {
+        "slot": "sample.port_state",
+        "value": "down"
+       },
+       "max_s": 30,
+       "step": "wait until the sample port is down"
+      },
+      {
+       "cap": "tube.remove",
+       "step": "take tube {item} off the port"
+      }
+     ]
+    },
+    "method": {
+     "cap": "cytometer.settings",
+     "keys": {
+      "voltage": {
+       "arg": "voltages",
+       "kind": "voltage"
+      },
+      "logic": {
+       "arg": "threshold_logic"
+      }
+     },
+     "passthrough": true
+    },
+    "start": {
+     "cap": "acquisition.record",
+     "name": {
+      "arg": "record_id",
+      "required": true,
+      "word": "record id",
+      "example": "unstained"
+     },
+     "opts": {
+      "events": {
+       "arg": "events",
+       "required": true,
+       "example": "10000"
+      },
+      "gate": {
+       "arg": "storage_gate"
+      }
+     }
+    },
+    "stop": {
+     "cap": "acquisition.set",
+     "args": {
+      "acquiring": false
+     },
+     "running": {
+      "slot": "sample.acquiring",
+      "value": true
+     }
+    },
+    "data": {
+     "cap": "statistics.read",
+     "id": {
+      "arg": "source",
+      "default": "live"
+     }
+    },
+    "analyze": {
+     "models": {
+      "compensation": {
+       "cap": "compensation.calculate"
+      }
+     },
+     "keys": {
+      "unstained": {
+       "arg": "unstained_record"
+      },
+      "controls": {
+       "arg": "controls"
+      }
+     }
+    },
+    "prime": {
+     "steps": [
+      {
+       "cap": "fluidics.startup",
+       "step": "start up the fluidics"
+      },
+      {
+       "wait": {
+        "slot": "fluidics.state",
+        "value": "ready"
+       },
+       "max_s": 1200,
+       "step": "wait until the fluidics are ready (about 8 min)",
+       "code": "FLUIDICS_FAILED",
+       "message": "the fluidics of {inst} did not become ready.",
+       "fix": "check `chemlab run {inst} status` (sheath, waste, nozzle), then retry."
+      },
+      {
+       "cap": "stream.set",
+       "args": {
+        "on": true
+       },
+       "step": "switch the stream on"
+      }
+     ]
+    },
+    "set-temp": {
+     "cap": "sample.temperature",
+     "arg": "setpoint_k",
+     "off": true
+    }
+   },
+   "requires": {
+    "load": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "stream.on",
+      "code": "STREAM_OFF",
+      "message": "the stream of {inst} is off.",
+      "fix": "start the fluidics and the stream: `chemlab run {inst} prime`.",
+      "value": true
+     },
+     {
+      "slot": "sample.tube_id",
+      "code": "ALREADY_LOADED",
+      "message": "tube {value} is already on the sample port of {inst}.",
+      "fix": "unload it first: `chemlab run {inst} unload`.",
+      "null": true
+     }
+    ],
+    "start": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "sample.acquiring",
+      "code": "NOT_ACQUIRING",
+      "message": "{inst} is not acquiring (no sample tube is up).",
+      "fix": "load a tube: `chemlab run {inst} load TUBE`.",
+      "value": true
+     }
+    ],
+    "prime": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     },
+     {
+      "slot": "fluidics.state",
+      "code": "ALREADY_STARTED",
+      "message": "the fluidics of {inst} are {value}.",
+      "fix": "nothing to start; see `chemlab run {inst} status`.",
+      "value": "shutdown"
+     }
+    ],
+    "method": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ],
+    "set-temp": [
+     {
+      "slot": "power.enabled",
+      "code": "POWER_OFF",
+      "message": "{inst} is switched off.",
+      "fix": "switch it on: `chemlab run {inst} power on`.",
+      "value": true
+     }
+    ]
+   },
+   "unsupported": {
+    "pause": "a recording is not paused; sorting has its own pause"
+   },
+   "alternatives": {
+    "pause": "stop acquiring (`chemlab run INST stop`); a sort is paused with `chemlab call INST sort.pause`"
+   },
+   "path": "acquisition",
+   "view": [
+    {
+     "label": "power",
+     "slot": "power.enabled"
+    },
+    {
+     "label": "fluidics",
+     "slot": "fluidics.state"
+    },
+    {
+     "label": "stream",
+     "slot": "stream.on"
+    },
+    {
+     "label": "tube",
+     "slot": "sample.tube_id"
+    },
+    {
+     "label": "port",
+     "slot": "sample.port_state"
+    },
+    {
+     "label": "acquiring",
+     "slot": "sample.acquiring"
+    },
+    {
+     "label": "records",
+     "slot": "records.count"
+    },
+    {
+     "label": "sample chamber",
+     "slot": "sample.chamber_temperature_k",
+     "kind": "temperature"
+    }
+   ],
+   "notes": {
+    "prime": [
+     "fluidics startup, then the stream on: it waits about 8 min of lab time"
+    ],
+    "start": [
+     "RECORD is the new record id; --events N is required; --gate G stores only that gate"
+    ],
+    "set-temp": [
+     "the sample chamber has fixed settings: 4C, 20C, 37C, 42C (or off)"
+    ]
+   },
+   "manual": {
+    "*": "FACSAria III user guide 23-11654-01 pp. 115-164 (fluidics startup, stream, loading samples, recording), pp. 165-198 (sorting)"
+   },
+   "examples": {
+    "load": "load t1",
+    "method": "method voltage.B530_30=520V",
+    "start": "start unstained --events 10000",
+    "data": "data unstained",
+    "analyze": "analyze compensation unstained=unstained controls.B530_30=fitc_ctrl",
+    "set-temp": "set-temp 4C"
+   }
+  }
+ }
+}

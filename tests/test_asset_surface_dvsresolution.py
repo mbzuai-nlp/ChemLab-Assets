@@ -161,4 +161,12 @@ class TestDVSResolution(unittest.TestCase):
   for k in sa:self.assertTrue(lib[k]['source']['licence_flag'])
   for k,v in lib.items():
    if v['source']['source_id']=='nist_isodb_water' and not k.startswith('uio'):self.assertIsInstance(v['evidence']['digitized'],bool);self.assertTrue(all(0<=x<=1 for x in v['values']['relative_humidity']))
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): a tare with the sample on the pan is accepted by design (the zero and the reference of the
+ mass change); the contract now says so."""
+ def test_tare_with_the_sample_on_the_pan_is_documented(self):
+  h=setup();h.step(5.);call(h,'balance.tare');self.assertEqual(h._indicated_mass(),0.)
+  self.assertAlmostEqual(h.change_reference,h._mass(),places=15)
+  text=rt.export_surface_dvsresolution_contract_metadata()['capabilities']['balance.tare']['function_zh']
+  self.assertIn('含样品',text);self.assertIn('空盘去皮',text)
 if __name__=='__main__':unittest.main()

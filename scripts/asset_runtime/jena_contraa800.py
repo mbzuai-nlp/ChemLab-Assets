@@ -4,7 +4,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 import numpy as np
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='jena_contraa800'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-081'; PROTOCOL_VERSION='1.0.0'
+SLUG='jena_contraa800'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-081'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.1.1'
 TEMPLATE_REL='assets/expansion_batch03/t3_analytical/jena_contraa800/output_templates/library.json'
 BOOL={'type':'boolean'}; TEXT={'type':'string'}
 class ActionRejected(ValueError): pass
@@ -89,7 +89,7 @@ cap('blank.read',obj({}),obj({'valid':BOOL,'blank_json':TEXT}),['display_panel']
 cap('calibration.fit',CAL_INPUT,CAL_OUTPUT,['display_panel'],'三条以上真实参考液体浓度与实测模拟面积拟合，按元素/线/模式/温程分开','configuration','agent',CALIBRATION_EXAMPLE)
 cap('calibration.select',obj({'curve_id':TEXT}),obj({'selected':BOOL}),['display_panel'],'选择已有本方法响应签名标线，禁止跨元素/原子化模式错用','configuration','agent',{'curve_id':'illustrative_cu'})
 cap('calibration.read',obj({'curve_id':TEXT}),obj({'curve_json':TEXT}),['display_panel'],'纯读取标线与参考来源','query','agent',{'curve_id':'illustrative_cu'})
-cap('records.list',obj({}),obj({'capacity':integer(RESULT_CAPACITY,RESULT_CAPACITY),'count':integer(0,RESULT_CAPACITY),'record_ids':arr(TEXT),'curve_count':integer(0,CURVE_CAPACITY)}),['display_panel'],'实例256结果/32标线为工程内存边界，不宣称厂家容量','query')
+cap('records.list',obj({}),obj({'capacity':integer(RESULT_CAPACITY,RESULT_CAPACITY),'count':integer(0,RESULT_CAPACITY),'record_ids':arr(TEXT),'curve_count':integer(0,CURVE_CAPACITY),'curve_ids':arr(TEXT)}),['display_panel'],'列出结果记录ID与已拟合标线ID（curve_ids，1.1.1起；可用于calibration.select/calibration.read）；实例256结果/32标线为工程内存边界，不宣称厂家容量','query')
 cap('records.read',obj({'record_id':TEXT}),RESULT,['display_panel'],'按ID读历史完整峰和冻结方法','query','agent',{'record_id':'contraa_01:result:1'})
 cap('records.remove',obj({'record_id':TEXT}),obj({'removed':BOOL}),['display_panel'],'显式释放结果容量，受保护异步历史独立保留','configuration','agent',{'record_id':'contraa_01:result:1'})
 cap('template.read',obj({'substance_id':TEXT}),TEMPLATE,['display_panel'],'查询实测/赋值浓度或纯原子谱线，保留介质和缺测字段','query','agent',{'substance_id':SAMPLE_EXAMPLE['template_id']})
@@ -283,7 +283,7 @@ class JenaContraa800Runtime:
   if k=='calibration.read':
    if a['curve_id'] not in self._curves:raise ActionRejected('UNKNOWN_CURVE')
    return {'curve_json':json.dumps(self._curves[a['curve_id']],allow_nan=False)}
-  if k=='records.list':return dict(capacity=RESULT_CAPACITY,count=len(self._records),record_ids=list(self._records),curve_count=len(self._curves))
+  if k=='records.list':return dict(capacity=RESULT_CAPACITY,count=len(self._records),record_ids=list(self._records),curve_count=len(self._curves),curve_ids=list(self._curves))   # 1.1.1: curve ids
   if k=='records.read':
    if a['record_id'] not in self._records:raise ActionRejected('UNKNOWN_RECORD')
    return self._records[a['record_id']]
@@ -462,7 +462,7 @@ class JenaContraa800Session:
         if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
         if instance_id is not None:self._target(instance_id)
         if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-        m=export_jena_contraa800_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.1',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        m=export_jena_contraa800_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self,*,instance_id,state_ids=None):
         self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')

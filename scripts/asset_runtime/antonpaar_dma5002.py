@@ -12,6 +12,10 @@ import json
 import math
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected, number, obj, validate, BOOL, TEXT, PHASE
+
+
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.2.1: a refusal whose message names the cause
 ROOT=Path(__file__).resolve().parents[2]
 PROTOCOL_VERSION='1.0.0'
 ASSET_TYPE_ID='instrument.antonpaar_dma5002'
@@ -55,7 +59,7 @@ SLOTS={
 # ---------------------------------------------------------------- device layer and front panel (DMA M manual C76IB003EN-U 'dma p.N' = PDF page;
 # M series General Software Functions XPAIB001EN-V 'gsf p.N')
 from asset_runtime import _antonpaar_touch as _ap
-ASSET_VERSION='1.2.0'
+ASSET_VERSION='1.2.1'
 ASSET_DIR=ROOT/'assets/expansion_batch03/t4_measure/antonpaar_dma5002'
 SERIAL='DMA5002-0001'                                                     # assumption: serial number of the simulated instrument
 AMBIENT_HPA=1013.25                                                      # assumption: ambient pressure seen by the built-in sensor
@@ -602,25 +606,29 @@ class AntonpaarDma5002Runtime:
         elif capability=='method.configure': self.mode=a['mode']; r=dict(a)
         elif capability=='sample.configure':
             sid=a['substance_id']
-            if not self.powered or self.cell_kg>1e-12 or self.cleaner_remaining_kg>1e-12: raise ActionRejected('PRECONDITION_FAILED')
+            why=('the instrument is switched off' if not self.powered else 'the cell still holds sample; drain or clean it first' if self.cell_kg>1e-12 else
+                 'cleaning liquid is still in the cell; finish the cleaning first' if self.cleaner_remaining_kg>1e-12 else None)
+            if why: raise _rejected('PRECONDITION_FAILED',why)   # 1.2.1: the message names the cause
             if sid not in self.templates: raise ActionRejected('INVALID_ARGUMENT')
             t=self.templates[sid]
-            if not t.get('runtime_eligible',False): raise ActionRejected('PRECONDITION_FAILED')
-            if t['phase']=='unresolved' and abs(self.temperature_k-t['temperature_k'])>.001: raise ActionRejected('PRECONDITION_FAILED')
-            if not (t.get('melting_point_k') or 0)<self.temperature_k<(t.get('boiling_point_k') or 10000): raise ActionRejected('PRECONDITION_FAILED')
+            if not t.get('runtime_eligible',False): raise _rejected('PRECONDITION_FAILED','this substance has no runtime density reference')
+            if t['phase']=='unresolved' and abs(self.temperature_k-t['temperature_k'])>.001: raise _rejected('PRECONDITION_FAILED','the density reference exists only at %.2f K; the cell is at %.2f K'%(t['temperature_k'],self.temperature_k))
+            if not (t.get('melting_point_k') or 0)<self.temperature_k<(t.get('boiling_point_k') or 10000): raise _rejected('PRECONDITION_FAILED','the cell temperature %.2f K is outside the liquid range of the substance'%self.temperature_k)
             self.sid=sid; self.volume_m3=a['volume_m3']; self.bubbles=a['bubble_fraction']; self.contamination=a['contamination_fraction']
             self.cell_kg=template_density(t,self.temperature_k)*self.volume_m3*(1-self.bubbles)
             self.input_kg+=self.cell_kg; self.result=None; self.phase='idle'; self.operation='none'; self.elapsed_s=0.
             if self.ap['run'] is None: self.operation_id=None   # a run waiting for the next fill keeps its operation (and owner)
             r={'configured':True}
         elif capability=='acquisition.start':
-            if not self.powered or not self._values()['fill.detected'] or abs(self.temperature_k-self.target_k)>.05: raise ActionRejected('PRECONDITION_FAILED')
+            why=('the instrument is switched off' if not self.powered else 'the measuring cell is not filled' if not self._values()['fill.detected'] else
+                 'the cell temperature %.3f K has not reached the set point %.3f K within 0.05 K'%(self.temperature_k,self.target_k) if abs(self.temperature_k-self.target_k)>.05 else None)
+            if why: raise _rejected('PRECONDITION_FAILED',why)   # 1.2.1: the message names the cause
             t=self.templates[self.sid]
-            if t['phase']=='unresolved' and abs(self.target_k-t['temperature_k'])>.001: raise ActionRejected('PRECONDITION_FAILED')
-            if not (t.get('melting_point_k') or 0)<self.target_k<(t.get('boiling_point_k') or 10000): raise ActionRejected('PRECONDITION_FAILED')
+            if t['phase']=='unresolved' and abs(self.target_k-t['temperature_k'])>.001: raise _rejected('PRECONDITION_FAILED','the density reference exists only at %.2f K; set that temperature'%t['temperature_k'])
+            if not (t.get('melting_point_k') or 0)<self.target_k<(t.get('boiling_point_k') or 10000): raise _rejected('PRECONDITION_FAILED','the set point %.2f K is outside the liquid range of the sample'%self.target_k)
             self._reading_s=30.; r=self._start('measurement')
         elif capability=='cleaning.start':
-            if not self.powered: raise ActionRejected('PRECONDITION_FAILED')
+            if not self.powered: raise _rejected('PRECONDITION_FAILED','the instrument is switched off')
             mass=a['volume_m3']*1000.; self.cleaner_input_kg+=mass; self.cleaner_remaining_kg+=mass; self._clean_start_kg=self.cleaner_remaining_kg
             r=self._start('cleaning')
         elif capability=='acquisition.stop':
@@ -628,7 +636,8 @@ class AntonpaarDma5002Runtime:
             _ap.run_cancel(self)                                          # also a multiple filling / adjustment waiting for the next fill
             r={'phase':self.phase}
         elif capability=='calibration.check':
-            if not self.result or abs(a['reference_temperature_k']-self.result['temperature_k'])>.05: raise ActionRejected('PRECONDITION_FAILED')
+            if not self.result: raise _rejected('PRECONDITION_FAILED','there is no measurement result to check')
+            if abs(a['reference_temperature_k']-self.result['temperature_k'])>.05: raise _rejected('PRECONDITION_FAILED','the reference temperature differs from the measured %.2f K by more than 0.05 K'%self.result['temperature_k'])
             return dict(deviation_kg_m3=self.result['density_kg_m3']-a['reference_density_kg_m3'],adjusted=False)
         else: return self._measure()
         self.revision+=1; return copy.deepcopy(r)
@@ -714,7 +723,7 @@ class AntonpaarDma5002Session:
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,
                 status='rejected',state_revision=self._host.revision,clock={'domain':'simulation','time_s':self._host.time_s},
-                result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+                result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host

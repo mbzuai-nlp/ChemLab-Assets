@@ -165,9 +165,12 @@ def asset_batches() -> dict[str, str]:
     for c in glob.glob(str(ROOT / "assets" / "**" / "asset.contract.json"), recursive=True):
         rel = Path(c).resolve().relative_to(ROOT).parts
         try:
-            aid = json.loads(Path(c).read_text(encoding="utf-8")).get("asset_type_id")
+            contract = json.loads(Path(c).read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
+        if rel[1] == "labware":
+            continue                      # assets/labware/ (containers, consumables, furniture) are not instruments
+        aid = contract.get("asset_type_id")
         out[aid] = rel[1] if len(rel) > 3 else "assets"
     return out
 

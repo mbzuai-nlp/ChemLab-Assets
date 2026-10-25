@@ -11,6 +11,10 @@ import json
 import math
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected,number,obj,BOOL,TEXT,PHASE
+
+
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.1.3: a refusal whose message names the cause
 ROOT=Path(__file__).resolve().parents[2]
 ASSET_TYPE_ID='instrument.antonpaar_abbematadvanced'; CATALOG_ID='CHEM-004'; PROTOCOL_VERSION='1.0.0'
 TEMPLATE_REL='assets/reactions/antonpaar_abbematadvanced_refractive_library/templates.json'
@@ -86,7 +90,7 @@ def validate(schema,value):
 
 # ---------------------------------------------------------------- device layer and front panel (Abbemat 350/550 manual D22IB001PL-G, 'abm p.N')
 from asset_runtime import _antonpaar_touch as _ap
-ASSET_VERSION='1.1.2'
+ASSET_VERSION='1.1.3'
 ASSET_DIR=ROOT/'assets/expansion_batch03/t4_measure/antonpaar_abbematadvanced'
 SERIAL='AB5201-0001'                                                     # assumption: serial number of the simulated instrument
 WAVELENGTH_NM=589.3
@@ -434,9 +438,9 @@ class AntonpaarAbbematadvancedRuntime:
             if a['index']<=n<=b['index']: return a['mass_fraction']+(b['mass_fraction']-a['mass_fraction'])*(n-a['index'])/(b['index']-a['index'])
     def _check_phase(self,sid,temp):
         row=self.templates[sid]
-        if not row['runtime_eligible']: raise ActionRejected('PRECONDITION_FAILED')
-        if not (row.get('melting_point_k') or 0)<temp<(row.get('boiling_point_k') or 10000): raise ActionRejected('PRECONDITION_FAILED')
-        if (row.get('melting_point_k') is None or row.get('boiling_point_k') is None) and abs(temp-row['temperature_k'])>.001: raise ActionRejected('PRECONDITION_FAILED')
+        if not row['runtime_eligible']: raise _rejected('PRECONDITION_FAILED','%s has no runtime refractive-index reference'%sid)
+        if not (row.get('melting_point_k') or 0)<temp<(row.get('boiling_point_k') or 10000): raise _rejected('PRECONDITION_FAILED','%.2f K is outside the liquid range of %s'%(temp,sid))
+        if (row.get('melting_point_k') is None or row.get('boiling_point_k') is None) and abs(temp-row['temperature_k'])>.001: raise _rejected('PRECONDITION_FAILED','the refractive-index reference of %s exists only at %.2f K'%(sid,row['temperature_k']))
     def _start(self,kind):
         self._operation_count+=1; self.operation_id=f'{self.instance_id}:{kind}:{self._operation_count}'
         self.phase='running'; self.operation=kind; self.elapsed_s=0.; self.result=None
@@ -464,7 +468,9 @@ class AntonpaarAbbematadvancedRuntime:
         elif capability=='sample.configure':
             f=a['volume_fractions']
             if not f or not set(f)<=self.templates.keys() or not math.isclose(sum(f.values()),1.,abs_tol=1e-9) or not a['matrix_id'].strip() or any(x<=0 for x in f.values()): raise ActionRejected('INVALID_ARGUMENT')
-            if not self.powered or self.lid_angle<1.4 or sum(self.remaining.values())>1e-15 or self.cleaner_remaining_m3>1e-15: raise ActionRejected('PRECONDITION_FAILED')
+            why=('the instrument is switched off' if not self.powered else 'the lid is not open (lid.set_angle about pi/2)' if self.lid_angle<1.4 else
+                 'sample is still on the prism; clean it first' if sum(self.remaining.values())>1e-15 else 'cleaning liquid is still on the prism; finish the cleaning first' if self.cleaner_remaining_m3>1e-15 else None)
+            if why: raise _rejected('PRECONDITION_FAILED',why)   # 1.1.3: the message names the cause
             for sid in f: self._check_phase(sid,self.temperature_k)
             self.remaining={sid:fraction*a['volume_m3'] for sid,fraction in f.items()}
             for sid,v in self.remaining.items(): self.initial_species[sid]=self.initial_species.get(sid,0.)+v; self.waste_species.setdefault(sid,0.)
@@ -472,13 +478,17 @@ class AntonpaarAbbematadvancedRuntime:
             self.phase='idle'; self.operation='none'; self.elapsed_s=0.; r={'configured':True}
             if self.ap['run'] is None: self.operation_id=None   # a run waiting for the next fill keeps its operation (and owner)
         elif capability=='acquisition.start':
-            if not self.powered or self.lid_angle>1e-6 or not self._values()['sample.filled'] or abs(self.temperature_k-self.target_k)>.05: raise ActionRejected('PRECONDITION_FAILED')
+            why=('the instrument is switched off' if not self.powered else 'the lid is not closed (lid.set_angle 0)' if self.lid_angle>1e-6 else 'no sample is on the prism' if not self._values()['sample.filled'] else
+                 'the prism temperature %.3f K has not reached the set point %.3f K within 0.05 K'%(self.temperature_k,self.target_k) if abs(self.temperature_k-self.target_k)>.05 else None)
+            if why: raise _rejected('PRECONDITION_FAILED',why)   # 1.1.3: the message names the cause
             for sid in self.remaining: self._check_phase(sid,self.target_k)
             n=self._index()
-            if not 1.26<=n<=1.72 or (self.mode=='calibrated_concentration' and self._concentration(n) is None): raise ActionRejected('PRECONDITION_FAILED')
+            if not 1.26<=n<=1.72: raise _rejected('PRECONDITION_FAILED','the refractive index %.4f is outside the measuring range 1.26..1.72'%n)
+            if self.mode=='calibrated_concentration' and self._concentration(n) is None:
+                raise _rejected('PRECONDITION_FAILED','no concentration calibration covers this reading (calibration.configure for this matrix, at this temperature, spanning the index)')
             self._reading_s=10.; r=self._start('measurement')
         elif capability=='cleaning.start':
-            if not self.powered or self.lid_angle<1.4: raise ActionRejected('PRECONDITION_FAILED')
+            if not self.powered or self.lid_angle<1.4: raise _rejected('PRECONDITION_FAILED','the instrument is switched off' if not self.powered else 'the lid is not open (lid.set_angle about pi/2)')
             self.cleaner_input_m3+=a['volume_m3']; self.cleaner_remaining_m3+=a['volume_m3']; self._clean_start_m3=self.cleaner_remaining_m3
             r=self._start('cleaning')
         elif capability=='acquisition.stop':
@@ -559,7 +569,7 @@ class AntonpaarAbbematadvancedSession:
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,
                 status='rejected',state_revision=self._host.revision,clock={'domain':'simulation','time_s':self._host.time_s},
-                result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+                result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host

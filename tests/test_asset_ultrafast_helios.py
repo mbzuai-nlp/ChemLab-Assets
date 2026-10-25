@@ -100,7 +100,7 @@ class HeliosTests(unittest.TestCase):
   for _ in range(5):h.invoke('result.read');h.invoke('process.measure');h.invoke('raw.read')
   self.assertEqual(snap(h),before)
  def test_exposure_and_volume(self):
-  h=collect();r=h.invoke('product.read');self.assertEqual(r['pump_pulses'],120);self.assertEqual(r['probe_pulses'],240);self.assertAlmostEqual(r['pump_exposure_J'],6e-6,17);self.assertAlmostEqual(r['energy_residual_J'],0,17);self.assertEqual(r['volume_residual_m3'],0)
+  n=20*len(METHOD_EXAMPLE['delay_sequence_s']);h=collect();r=h.invoke('product.read');self.assertEqual(r['pump_pulses'],n);self.assertEqual(r['probe_pulses'],2*n);self.assertAlmostEqual(r['pump_exposure_J'],n*5e-8,17);   # 1.0.2: example with 14 delaysself.assertAlmostEqual(r['energy_residual_J'],0,17);self.assertEqual(r['volume_residual_m3'],0)
  def test_partial_pair_cancel(self):
   h=ready(method=short_method());h.invoke('acquisition.start');h.step_clock(h._next+1.0001/h.plant['laser_repetition_hz']);self.assertEqual(h._probe_pulses,1);self.assertEqual(h._pump_pulses,0);h.invoke('acquisition.stop');self.assertEqual(h.phase,'cancelled');self.assertEqual(h._energy,0);self.assertIsNotNone(h.invoke('result.read')['active_point'])
  def test_partial_data_cancel(self):
@@ -108,7 +108,7 @@ class HeliosTests(unittest.TestCase):
  def test_interlock_retains_exposure(self):
   h=ready(method=short_method());h.invoke('acquisition.start');h.step_clock(h._next+.0021);energy=h._energy;h.invoke('power.set',enabled=False);h.step_clock(10);self.assertEqual(h._energy,energy);self.assertEqual(h.phase,'cancelled')
  def test_scan_axis_and_shape(self):
-  h=collect(method=dict(METHOD_EXAMPLE,scans=2));r=h.invoke('result.read');self.assertEqual(len(r['points']),12);self.assertEqual([p['scan_index'] for p in r['points']],[0]*6+[1]*6);self.assertEqual(len(r['points'][0]['delta_absorbance']),len(r['wavelength_m']))
+  d=len(METHOD_EXAMPLE['delay_sequence_s']);h=collect(method=dict(METHOD_EXAMPLE,scans=2));r=h.invoke('result.read');self.assertEqual(len(r['points']),2*d);self.assertEqual([p['scan_index'] for p in r['points']],[0]*d+[1]*d);self.assertEqual(len(r['points'][0]['delta_absorbance']),len(r['wavelength_m']))
  def test_frozen_run_settings(self):
   h=collect(method=short_method());old=h.invoke('result.read')['settings_json'];h.invoke('method.configure',**METHOD_EXAMPLE);self.assertEqual(h.invoke('result.read')['settings_json'],old)
  def test_saturation_null_not_fake_zero(self):
@@ -185,4 +185,11 @@ class HeliosTests(unittest.TestCase):
   self.assertLessEqual({key for key in before if before[key]!=started[key]},immediate);self.assertNotIn('delay.optical_s',immediate);self.assertNotIn('scan.pump_exposure_j',immediate);h.step(.001);moved_state=h.read('evaluator');self.assertLessEqual({key for key in started if started[key]!=moved_state[key]},later);self.assertFalse(moved_state['laser.emitting']);self.assertEqual(moved_state['scan.pump_exposure_j'],0.)
   self.assertEqual(caps['kinetics.fit']['observes'],[]);self.assertEqual(caps['raw.read']['observes'],[]);self.assertEqual(m['state_slots']['scan.delta_absorbance_center']['sampling']['mode'],'interval_mean')
 def _templates_for_test():return UltrafastHeliosRuntime().templates
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): the method example had 6 delays but kinetics.fit needs at least 12."""
+ def test_example_method_feeds_kinetics_fit(self):
+  h=collect();r=h.invoke('result.read');d=[p['requested_delay_s'] for p in r['points']];self.assertGreaterEqual(len(d),12)
+  w=len(r['wavelength_m'])//2;da=[p['delta_absorbance'][w] for p in r['points']]
+  fit=h.invoke('kinetics.fit',delay_s=d,delta_absorbance=da,irf_fwhm_s=PLANT_EXAMPLE.get('pump_fwhm_s',80e-15),time_zero_s=0.,initial_lifetimes_s=[100e-12])
+  self.assertTrue(fit)
 if __name__=='__main__':unittest.main()

@@ -228,8 +228,8 @@ _AMC_NULL_STRING = {"anyOf": [{"type": "string"}, {"type": "null"}]}
 _AMC_SLOTS = {
     "power.enabled": _amc_slot({"type": "boolean"}, "1", "setpoint", capability="power.set", parameter="enabled"),
     "gas.selected_id": _amc_slot(_AMC_NULL_STRING, "1", "setpoint", capability="gas.select", parameter="gas_id"),
-    "gas.reference_temperature_K": _amc_slot(_amc_num("K", 0), "K", "setpoint"),
-    "gas.reference_pressure_Pa": _amc_slot(_amc_num("Pa", 0), "Pa", "setpoint"),
+    "gas.reference_temperature_k": _amc_slot(_amc_num("K", 0), "K", "setpoint"),
+    "gas.reference_pressure_pa": _amc_slot(_amc_num("Pa", 0), "Pa", "setpoint"),
     "flow.setpoint_m3_s": _amc_slot(_amc_num("m^3/s", 0, ALICAT_MC_FS_M3_S), "m^3/s", "setpoint", capability="flow.set_setpoint", parameter="flow_rate_m3_s"),
     "flow.zeroed": _amc_slot({"type": "boolean"}, "1", "derived"),
     "ports.upstream_node_id": _amc_slot(_AMC_NULL_STRING, "1", "scene"),
@@ -238,16 +238,16 @@ _AMC_SLOTS = {
     "measurement.standard_flow_m3_s": _amc_slot(_amc_num("m^3/s", 0, nullable=True), "m^3/s", "derived"),
     "measurement.actual_flow_m3_s": _amc_slot(_amc_num("m^3/s", 0, nullable=True), "m^3/s", "derived"),
     "measurement.mass_flow_kg_s": _amc_slot(_amc_num("kg/s", 0, nullable=True), "kg/s", "derived"),
-    "measurement.pressure_Pa": _amc_slot(_amc_num("Pa", 0, nullable=True), "Pa", "derived"),
-    "measurement.temperature_K": _amc_slot(_amc_num("K", 0, nullable=True), "K", "derived"),
+    "measurement.pressure_pa": _amc_slot(_amc_num("Pa", 0, nullable=True), "Pa", "derived"),
+    "measurement.temperature_k": _amc_slot(_amc_num("K", 0, nullable=True), "K", "derived"),
     "measurement.total_standard_volume_m3": _amc_slot(_amc_num("m^3", 0, nullable=True), "m^3", "derived"),
     "measurement.standard_accuracy_bound_m3_s": _amc_slot(_amc_num("m^3/s", 0, nullable=True), "m^3/s", "derived"),
     "measurement.accuracy_conditions_met": _amc_slot({"type": "boolean"}, "1", "derived"),
     "truth.standard_flow_m3_s": _amc_slot(_amc_num("m^3/s", 0, nullable=True), "m^3/s", "process_truth", "debug"),
     "truth.total_standard_volume_m3": _amc_slot(_amc_num("m^3", 0, nullable=True), "m^3", "process_truth", "debug"),
-    "truth.upstream_pressure_Pa": _amc_slot(_amc_num("Pa", 0, nullable=True), "Pa", "process_truth", "debug"),
-    "truth.downstream_pressure_Pa": _amc_slot(_amc_num("Pa", 0, nullable=True), "Pa", "process_truth", "debug"),
-    "truth.temperature_K": _amc_slot(_amc_num("K", 0, nullable=True), "K", "process_truth", "debug"),
+    "truth.upstream_pressure_pa": _amc_slot(_amc_num("Pa", 0, nullable=True), "Pa", "process_truth", "debug"),
+    "truth.downstream_pressure_pa": _amc_slot(_amc_num("Pa", 0, nullable=True), "Pa", "process_truth", "debug"),
+    "truth.temperature_k": _amc_slot(_amc_num("K", 0, nullable=True), "K", "process_truth", "debug"),
     "truth.equilibrium": _amc_slot({"type": "boolean"}, "1", "process_truth", "debug"),
     "truth.no_flow": _amc_slot({"type": "boolean"}, "1", "process_truth", "debug"),
     "truth.response_time_constant_s": _amc_slot(_amc_num("s", 0, nullable=True), "s", "process_truth", "debug"),
@@ -255,7 +255,7 @@ _AMC_SLOTS = {
     "device.settings": _amc_slot(_AMC_SETTINGS_SCHEMA, "1", "setpoint"),
     "flow.active_setpoint_m3_s": _amc_slot(_amc_num("m^3/s", 0, ALICAT_MC_FS_M3_S), "m^3/s", "derived"),
     "flow.ramp_rate_m3_s2": _amc_slot(_amc_num("m^3/s^2", 0), "m^3/s^2", "derived"),
-    "setpoint.analog_input_V": _amc_slot(_amc_num("V", 0, ALICAT_MC_ANALOG_FS_V), "V", "scene"),
+    "setpoint.analog_input_v": _amc_slot(_amc_num("V", 0, ALICAT_MC_ANALOG_FS_V), "V", "scene"),
     "totalizer.batch_size_m3": _amc_slot(_amc_num("m^3", 0, ALICAT_MC_BATCH_MAX_M3, nullable=True), "m^3", "setpoint", capability="totalizer.set_batch",
                                          parameter="batch_size_m3"),
     "totalizer.batch_remaining_m3": _amc_slot(_amc_num("m^3", 0, nullable=True), "m^3", "derived"),
@@ -312,7 +312,7 @@ def export_alicat_mc_contract_metadata(panel=True):
     for sid, slot in slots.items():
         slot["read_binding"] = "AlicatMCSession.read(instance_id=..., state_ids=['%s'])" % sid
         if "standard" in sid or sid == "flow.setpoint_m3_s" or sid.startswith("totalizer.batch"):
-            slot["reference_conditions"] = "Standard volume at gas.reference_temperature_K and gas.reference_pressure_Pa; defaults 298.15 K and 101325 Pa"
+            slot["reference_conditions"] = "Standard volume at gas.reference_temperature_k and gas.reference_pressure_pa; defaults 298.15 K and 101325 Pa"
         elif sid == "flow.active_setpoint_m3_s":
             slot["reference_conditions"] = "Control variable: standard flow (mass flow control) or actual flow at inlet conditions (volumetric flow control)"
         elif "pressure" in sid:
@@ -323,7 +323,7 @@ def export_alicat_mc_contract_metadata(panel=True):
         "power.set": {"enabled": {"type": "boolean"}},
         "gas.select": {"gas_id": {"type": "string", "description": "An explicitly host-registered compatible gas ID; no bundled gas library"}},
         "gas.set_reference_conditions": {"temperature_K": {"type": "number", "exclusiveMinimum": 0, "x-unit": "K"}, "pressure_Pa": {"type": "number", "exclusiveMinimum": 0, "x-unit": "Pa"}},
-        "flow.set_setpoint": {"flow_rate_m3_s": {"type": "number", "minimum": 0, "maximum": ALICAT_MC_FS_M3_S, "x-unit": "m^3/s", "x-reference-conditions": "gas.reference_temperature_K, gas.reference_pressure_Pa", "description": "0 stops the target; positive values must be >= 0.0001 full scale"}},
+        "flow.set_setpoint": {"flow_rate_m3_s": {"type": "number", "minimum": 0, "maximum": ALICAT_MC_FS_M3_S, "x-unit": "m^3/s", "x-reference-conditions": "gas.reference_temperature_k, gas.reference_pressure_pa", "description": "0 stops the target; positive values must be >= 0.0001 full scale"}},
         "flow.zero": {}, "flow.reset_total": {}, "flow.read": {}, "control.set_pid": {},
         "menu.configure": {k: _amc_copy.deepcopy(v[0]) for k, v in _AMC_SETTINGS.items()},
         "totalizer.set_batch": {"batch_size_m3": dict(_amc_num("m^3", 0, ALICAT_MC_BATCH_MAX_M3, nullable=True), **{"x-unit": "m^3"})},
@@ -340,12 +340,12 @@ def export_alicat_mc_contract_metadata(panel=True):
         "fault.clear": {},
     }
     direct = {"power.set": ["power.enabled"], "gas.select": ["gas.selected_id"],
-              "gas.set_reference_conditions": ["gas.reference_temperature_K", "gas.reference_pressure_Pa"],
+              "gas.set_reference_conditions": ["gas.reference_temperature_k", "gas.reference_pressure_pa"],
               "flow.set_setpoint": ["flow.setpoint_m3_s", "truth.equilibrium"], "flow.zero": ["flow.zeroed", "truth.standard_flow_m3_s"],
               "flow.reset_total": ["truth.total_standard_volume_m3"], "flow.read": [], "control.set_pid": [],
               "menu.configure": ["device.settings"], "totalizer.set_batch": ["totalizer.batch_size_m3"], "display.set_backlight": ["display.backlight_on"],
               "display.set_lock": ["display.locked"], "gas.create_mix": ["gas.user_mixes"], "gas.delete_mix": ["gas.user_mixes"],
-              "device.factory_restore": ["device.settings", "gas.selected_id", "gas.reference_temperature_K", "gas.reference_pressure_Pa"],
+              "device.factory_restore": ["device.settings", "gas.selected_id", "gas.reference_temperature_k", "gas.reference_pressure_pa"],
               "valve.set_drive_setpoint": ["valve.drive_setpoint_percent"], "fault.inject": ["device.alarms"], "fault.clear": ["device.alarms"]}
     # effects of the device functions behind the front panel on the original commands (new slots only; the old effects are unchanged)
     added = {"power.set": ["flow.setpoint_m3_s", "flow.active_setpoint_m3_s", "truth.equilibrium", "display.backlight_on", "totalizer.elapsed_s",
@@ -448,7 +448,7 @@ def export_alicat_mc_contract_metadata(panel=True):
                 "completion_criterion_zh": "手势瞬时完成（不推进仿真时钟）；结果只说明是否被仪器接受，屏幕须用panel.capture查看" if gesture else "同步返回当前画面",
                 "model_effects": {"mode": "none", "binding_ids": [], "description_zh": "没有3D模型绑定：屏幕纹理与按键关节联动属于后续Matterix步骤"}}
     return {"asset_types": {ALICAT_MC_TYPE: {"catalog_id": "CHEM-180", "model": "Alicat Scientific MC, 1 SLPM, standard accuracy, Rev6 (2025-07)",
-        "asset_version": "1.4.0", "state_slots": slots, "capabilities": caps, "panel_capabilities": panel_caps,
+        "asset_version": "1.4.1", "state_slots": slots, "capabilities": caps, "panel_capabilities": panel_caps,
         "parameters": {
             "full_scale_standard_flow_m3_s": {"value": ALICAT_MC_FS_M3_S, "unit": "m^3/s", "evidence": "catalog"},
             "minimum_positive_control_m3_s": {"value": ALICAT_MC_MIN_M3_S, "unit": "m^3/s", "evidence": "catalog"},
@@ -495,11 +495,11 @@ class AlicatMCRuntime:
             if not isinstance(instance_id, str) or not instance_id or instance_id in self._instances or asset_type_id != ALICAT_MC_TYPE:
                 raise ValueError("Unique nonempty instance ID and CHEM-180 asset type required")
             values = {sid: None for sid in _AMC_SLOTS}
-            values.update({"power.enabled": False, "gas.reference_temperature_K": 298.15, "gas.reference_pressure_Pa": 101325.0,
+            values.update({"power.enabled": False, "gas.reference_temperature_k": 298.15, "gas.reference_pressure_pa": 101325.0,
                 "flow.setpoint_m3_s": 0.0, "flow.zeroed": False, "simulation.dynamic_model_configured": False,
                 "measurement.accuracy_conditions_met": False, "truth.equilibrium": False, "truth.no_flow": False,
                 "device.settings": {k: _amc_copy.deepcopy(v[1]) for k, v in _AMC_SETTINGS.items()}, "flow.active_setpoint_m3_s": 0.0, "flow.ramp_rate_m3_s2": 0.0,
-                "setpoint.analog_input_V": 0.0, "totalizer.elapsed_s": 0.0, "display.backlight_on": True, "display.locked": False,
+                "setpoint.analog_input_v": 0.0, "totalizer.elapsed_s": 0.0, "display.backlight_on": True, "display.locked": False,
                 "gas.user_mixes": [], "gas.recent_ids": [], "valve.drive_percent": 0.0, "valve.drive_setpoint_percent": 0.0,
                 "device.alarms": [], "truth.adc_fault": False})
             self._instances[instance_id] = {"instance_id": instance_id, "values": values, "revision": 0, "dynamics_evidence": None,
@@ -551,9 +551,9 @@ class AlicatMCRuntime:
     def _boundaries_valid(s):
         lower, upper = 11.5 * ALICAT_MC_PSI_PA, 160 * ALICAT_MC_PSI_PA
         return (s["ports.upstream_node_id"] is not None and s["ports.downstream_node_id"] is not None
-            and all(_amc_number(s[key]) for key in ("truth.upstream_pressure_Pa", "truth.downstream_pressure_Pa", "truth.temperature_K"))
-            and lower <= s["truth.upstream_pressure_Pa"] <= upper and lower <= s["truth.downstream_pressure_Pa"] <= upper
-            and 263.15 <= s["truth.temperature_K"] <= 333.15)
+            and all(_amc_number(s[key]) for key in ("truth.upstream_pressure_pa", "truth.downstream_pressure_pa", "truth.temperature_k"))
+            and lower <= s["truth.upstream_pressure_pa"] <= upper and lower <= s["truth.downstream_pressure_pa"] <= upper
+            and 263.15 <= s["truth.temperature_k"] <= 333.15)
 
     @staticmethod
     def _stopped_for_configuration(s):
@@ -595,7 +595,7 @@ class AlicatMCRuntime:
     @staticmethod
     def _open_flow(s):
         """True standard flow at 100 % valve drive: full scale at the datasheet pressure drop, linear in the pressure difference (assumption)."""
-        up, down = s["truth.upstream_pressure_Pa"], s["truth.downstream_pressure_Pa"]
+        up, down = s["truth.upstream_pressure_pa"], s["truth.downstream_pressure_pa"]
         return None if up is None or down is None else ALICAT_MC_FS_M3_S * (up - down) / ALICAT_MC_DP_FS_PA
 
     def _drive(self, s):
@@ -619,7 +619,7 @@ class AlicatMCRuntime:
         self._readings(raw, inst)
         store, st = inst.setdefault("averages", {}), s["device.settings"]
         for sid, key in (("measurement.standard_flow_m3_s", "flow_averaging_ms"), ("measurement.actual_flow_m3_s", "flow_averaging_ms"),
-                         ("measurement.mass_flow_kg_s", "flow_averaging_ms"), ("measurement.pressure_Pa", "pressure_averaging_ms")):
+                         ("measurement.mass_flow_kg_s", "flow_averaging_ms"), ("measurement.pressure_pa", "pressure_averaging_ms")):
             tau, value, previous = st[key] / 1000.0, raw[sid], store.get(sid)
             if tau <= 0 or value is None:
                 store.pop(sid, None)
@@ -630,24 +630,24 @@ class AlicatMCRuntime:
     def _readings(self, s, inst=None):
         for sid in _AMC_MEASUREMENTS:
             s[sid] = False if sid == "measurement.accuracy_conditions_met" else None
-        p, temp, lo, hi = s["truth.upstream_pressure_Pa"], s["truth.temperature_K"], *ALICAT_MC_TEMPERATURE_RANGE_K
+        p, temp, lo, hi = s["truth.upstream_pressure_pa"], s["truth.temperature_k"], *ALICAT_MC_TEMPERATURE_RANGE_K
         s["device.alarms"] = [] if not s["power.enabled"] else \
             (["ADC"] if s["truth.adc_fault"] else []) + (["POV"] if _amc_number(p) and p > ALICAT_MC_FS_PRESSURE_PA else []) + \
             (["TOV"] if _amc_number(temp) and not lo <= temp <= hi else [])          # status messages of the main display (manual p.6)
         if not s["power.enabled"] or s["gas.selected_id"] is None or not self._boundaries_valid(s):
             return
-        s["measurement.pressure_Pa"] = s["truth.upstream_pressure_Pa"]
-        s["measurement.temperature_K"] = s["truth.temperature_K"]
+        s["measurement.pressure_pa"] = s["truth.upstream_pressure_pa"]
+        s["measurement.temperature_k"] = s["truth.temperature_k"]
         q = s["truth.standard_flow_m3_s"]
         if not s["flow.zeroed"] or q is None:
             return
         if _amc_template_backed(self, s, inst):  # template hook: library gas (NIST real-gas density, LFE viscosity)
             return _amc_templates().refresh_readings(self, s, inst)
         s["measurement.standard_flow_m3_s"] = q
-        s["measurement.actual_flow_m3_s"] = _amc_finite_result(q * (s["truth.temperature_K"] / s["gas.reference_temperature_K"]) * (s["gas.reference_pressure_Pa"] / s["truth.upstream_pressure_Pa"]))
+        s["measurement.actual_flow_m3_s"] = _amc_finite_result(q * (s["truth.temperature_k"] / s["gas.reference_temperature_k"]) * (s["gas.reference_pressure_pa"] / s["truth.upstream_pressure_pa"]))
         molar_mass = self._gases[s["gas.selected_id"]]["molar_mass_kg_mol"]
         if molar_mass is not None:
-            s["measurement.mass_flow_kg_s"] = _amc_finite_result(q * s["gas.reference_pressure_Pa"] * molar_mass / (ALICAT_MC_R * s["gas.reference_temperature_K"]))
+            s["measurement.mass_flow_kg_s"] = _amc_finite_result(q * s["gas.reference_pressure_pa"] * molar_mass / (ALICAT_MC_R * s["gas.reference_temperature_k"]))
         s["measurement.total_standard_volume_m3"] = s["truth.total_standard_volume_m3"]
         if s["truth.equilibrium"]:
             s["measurement.accuracy_conditions_met"] = True
@@ -665,7 +665,7 @@ class AlicatMCRuntime:
                 raise ValueError("Stop flow before reconnecting topology")
             s.update({"ports.upstream_node_id": upstream_node_id, "ports.downstream_node_id": downstream_node_id,
                 "flow.zeroed": False, "truth.standard_flow_m3_s": None, "truth.total_standard_volume_m3": None,
-                "truth.upstream_pressure_Pa": None, "truth.downstream_pressure_Pa": None, "truth.temperature_K": None,
+                "truth.upstream_pressure_pa": None, "truth.downstream_pressure_pa": None, "truth.temperature_k": None,
                 "truth.no_flow": False, "truth.equilibrium": False})
             self._commit(inst, s)
 
@@ -675,8 +675,8 @@ class AlicatMCRuntime:
             if any(not _amc_number(v) or v <= 0 for v in (upstream_pressure_Pa, downstream_pressure_Pa, temperature_K)) or type(equilibrium) is not bool or type(no_flow) is not bool:
                 raise ValueError("Positive finite SI boundaries and boolean host assertions required")
             s = _amc_copy.deepcopy(inst["values"])
-            s.update({"truth.upstream_pressure_Pa": float(upstream_pressure_Pa), "truth.downstream_pressure_Pa": float(downstream_pressure_Pa),
-                "truth.temperature_K": float(temperature_K), "truth.equilibrium": equilibrium, "truth.no_flow": no_flow})
+            s.update({"truth.upstream_pressure_pa": float(upstream_pressure_Pa), "truth.downstream_pressure_pa": float(downstream_pressure_Pa),
+                "truth.temperature_k": float(temperature_K), "truth.equilibrium": equilibrium, "truth.no_flow": no_flow})
             if no_flow:
                 s["truth.standard_flow_m3_s"] = 0.0
             elif not self._boundaries_valid(s) or upstream_pressure_Pa <= downstream_pressure_Pa:
@@ -718,7 +718,7 @@ class AlicatMCRuntime:
                 valve = s["device.settings"]["control_variable"] == "valve_drive"
                 if ready and s["truth.no_flow"]:
                     s["truth.standard_flow_m3_s"] = 0.0
-                elif ready and valve and tau is not None and old is not None and s["truth.upstream_pressure_Pa"] > s["truth.downstream_pressure_Pa"]:
+                elif ready and valve and tau is not None and old is not None and s["truth.upstream_pressure_pa"] > s["truth.downstream_pressure_pa"]:
                     # open loop: the drive setpoint sets the linear valve, the flow follows with the host tau (loop gains bypassed)
                     target = s["valve.drive_setpoint_percent"] / 100.0 * self._open_flow(s) * factor
                     s["truth.standard_flow_m3_s"], integral = self._integrate(s, old, tau, factor, 1.0, [(dt_s, target, 0.0)])
@@ -726,7 +726,7 @@ class AlicatMCRuntime:
                         if templated:
                             _amc_templates().totalize(inst, s["truth.total_standard_volume_m3"], integral, factor)
                         s["truth.total_standard_volume_m3"] += integral
-                elif ready and conv is not None and tau is not None and old is not None and s["truth.upstream_pressure_Pa"] > s["truth.downstream_pressure_Pa"]:
+                elif ready and conv is not None and tau is not None and old is not None and s["truth.upstream_pressure_pa"] > s["truth.downstream_pressure_pa"]:
                     # controller servos on the indicated (k * true) flow; k=1.0 legacy
                     s["truth.standard_flow_m3_s"], integral = self._integrate(s, old, self._loop_tau(s, tau), factor, conv, segments, self._open_flow(s))
                     if s["truth.total_standard_volume_m3"] is not None:
@@ -782,10 +782,10 @@ class AlicatMCRuntime:
         if _amc_template_backed(self, s, inst) and s["gas.selected_id"] not in self._gases:
             t = _amc_templates()
             users = t.user_records(s)
-            actual = t.gas_state(s["gas.selected_id"], s["truth.temperature_K"], s["truth.upstream_pressure_Pa"], users)
-            standard = t.gas_state(s["gas.selected_id"], s["gas.reference_temperature_K"], s["gas.reference_pressure_Pa"], users)
+            actual = t.gas_state(s["gas.selected_id"], s["truth.temperature_k"], s["truth.upstream_pressure_pa"], users)
+            standard = t.gas_state(s["gas.selected_id"], s["gas.reference_temperature_k"], s["gas.reference_pressure_pa"], users)
             return None if actual is None or standard is None else actual["density_kg_m3"] / standard["density_kg_m3"]
-        return _amc_finite_result((s["gas.reference_temperature_K"] / s["truth.temperature_K"]) * (s["truth.upstream_pressure_Pa"] / s["gas.reference_pressure_Pa"]))
+        return _amc_finite_result((s["gas.reference_temperature_k"] / s["truth.temperature_k"]) * (s["truth.upstream_pressure_pa"] / s["gas.reference_pressure_pa"]))
 
     def _integrate(self, s, old, tau, factor, conv, segments, q_open=None):
         """Exact first-order response x' = (target(t) - x) / tau over the active-setpoint segments (a ramp makes the target linear in time); the
@@ -844,9 +844,9 @@ class AlicatMCRuntime:
             return
         if st["control_variable"] == "valve_drive":                           # 0-5 V is 0-100 % drive, within the limits as % of full scale
             lo, hi = (100.0 * st[k] / ALICAT_MC_FS_M3_S for k in ("setpoint_min_m3_s", "setpoint_max_m3_s"))
-            s["valve.drive_setpoint_percent"] = min(max(s["setpoint.analog_input_V"] / ALICAT_MC_ANALOG_FS_V * 100.0, lo), hi)
+            s["valve.drive_setpoint_percent"] = min(max(s["setpoint.analog_input_v"] / ALICAT_MC_ANALOG_FS_V * 100.0, lo), hi)
             return
-        value = min(max(s["setpoint.analog_input_V"] / ALICAT_MC_ANALOG_FS_V * ALICAT_MC_FS_M3_S, st["setpoint_min_m3_s"]), st["setpoint_max_m3_s"])
+        value = min(max(s["setpoint.analog_input_v"] / ALICAT_MC_ANALOG_FS_V * ALICAT_MC_FS_M3_S, st["setpoint_min_m3_s"]), st["setpoint_max_m3_s"])
         self._new_setpoint(s, inst, 0.0 if value < ALICAT_MC_MIN_M3_S else value)
 
     def _autotare(self, s, inst, dt_s):
@@ -880,7 +880,7 @@ class AlicatMCRuntime:
             if not _amc_number(volts) or not 0 <= volts <= ALICAT_MC_ANALOG_FS_V:
                 raise ValueError("Analog setpoint input must be finite in 0..5 V")
             s = _amc_copy.deepcopy(inst["values"])
-            s["setpoint.analog_input_V"] = float(volts)
+            s["setpoint.analog_input_v"] = float(volts)
             self._apply_analog(s, inst)
             self._commit(inst, s)
 
@@ -1057,7 +1057,7 @@ class AlicatMCSession:
             s.update({"flow.zeroed": False, "truth.standard_flow_m3_s": None, "truth.total_standard_volume_m3": None})
             s["gas.recent_ids"] = ([args["gas_id"]] + [g for g in s["gas.recent_ids"] if g != args["gas_id"]])[:ALICAT_MC_RECENT]
         elif cid == "gas.set_reference_conditions":
-            s["gas.reference_temperature_K"], s["gas.reference_pressure_Pa"] = float(args["temperature_K"]), float(args["pressure_Pa"])
+            s["gas.reference_temperature_k"], s["gas.reference_pressure_pa"] = float(args["temperature_K"]), float(args["pressure_Pa"])
             s.update({"flow.zeroed": False, "truth.standard_flow_m3_s": None, "truth.total_standard_volume_m3": None})
         elif cid == "flow.set_setpoint":
             value = args["flow_rate_m3_s"]
@@ -1144,7 +1144,7 @@ class AlicatMCSession:
             s["gas.recent_ids"] = [g for g in s["gas.recent_ids"] if g != gas_id]
         elif cid == "device.factory_restore":
             s["device.settings"] = {k: _amc_copy.deepcopy(v[1]) for k, v in _AMC_SETTINGS.items()}
-            s.update({"gas.reference_temperature_K": 298.15, "gas.reference_pressure_Pa": 101325.0, "totalizer.batch_size_m3": None,
+            s.update({"gas.reference_temperature_k": 298.15, "gas.reference_pressure_pa": 101325.0, "totalizer.batch_size_m3": None,
                       "flow.zeroed": False, "truth.standard_flow_m3_s": None, "truth.total_standard_volume_m3": None})
             if templates.is_selectable(host, "mix_air"):
                 s["gas.selected_id"] = "mix_air"
@@ -2507,7 +2507,7 @@ def export_ziath_dp5_contract_metadata():
                 ('BUSY', '扫描资源正在使用。', 'none'), ('REQUEST_CONFLICT', '同一请求ID被用于不同参数。', 'none'),
                 ('UNSUPPORTED', '需要的场景回调尚未绑定。', 'none'), ('DEVICE_ERROR', '外部回调未确认；内部状态未提交，外部可能已部分改变。', 'unknown'),
                 ('UNKNOWN_OPERATION', '操作不存在或不属于当前实例和调用者。', 'none')]]}
-    return {'asset_type_id': ZIATH_DP5_TYPE, 'asset_version': '1.0.1', 'catalog_id': 'CHEM-179', 'state_slots': slots, 'capabilities': caps,
+    return {'asset_type_id': ZIATH_DP5_TYPE, 'asset_version': '1.0.2', 'catalog_id': 'CHEM-179', 'state_slots': slots, 'capabilities': caps,
         'parameters': {'scan_time_s': {'value': 2.0, 'unit': 's', 'evidence': 'catalog_approximation', 'note_zh': '约2 s规格用于固定时长仿真近似。'},
             'supported_rack_capacities': {'value': list(ZIATH_DP5_FORMATS), 'unit': '1', 'evidence': 'catalog'},
             'rack_lift_limit_m': {'value': .10, 'unit': 'm', 'evidence': 'assumed'},
@@ -2676,12 +2676,12 @@ class ZiathDP5Runtime:
         with self._lock:
             return _dp5_copy.deepcopy({'time_s': self.time_s, 'instances': {k: {field: val for field, val in v.items() if field != 'adapter'} for k, v in self._instances.items()}, 'operations': self._operations})
 
-    def _response(self, instance_id, request_id=None, *, status='succeeded', result=None, operation_id=None, code=None, side_effects='none'):
+    def _response(self, instance_id, request_id=None, *, status='succeeded', result=None, operation_id=None, code=None, side_effects='none', message=None):
         item = self._get(instance_id)
         return {'protocol_version': '1.0.0', 'instance_id': instance_id, 'request_id': request_id, 'operation_id': operation_id,
             'status': status, 'state_revision': item['revision'] if item else None, 'clock': {'domain': 'simulation', 'time_s': self.time_s},
             'result': _dp5_copy.deepcopy(result), 'observations': {},
-            'error': None if code is None else {'code': code, 'message': 'Operation not permitted or could not be confirmed: ' + code,
+            'error': None if code is None else {'code': code, 'message': message or 'Operation not permitted or could not be confirmed: ' + code,
                 'retryable': False, 'side_effects': side_effects, 'known_progress': None}}
 
     @staticmethod
@@ -2691,7 +2691,7 @@ class ZiathDP5Runtime:
 
     def _invoke(self, principal_id, instance_id, cid, args, request_id):
         with self._lock:
-            reject = lambda code, status='rejected', side='none': self._response(instance_id, request_id, status=status, code=code, side_effects=side)
+            reject = lambda code, status='rejected', side='none', why=None: self._response(instance_id, request_id, status=status, code=code, side_effects=side, message=why)
             item = self._get(instance_id, principal_id)
             if item is None:
                 return reject('UNKNOWN_INSTANCE')
@@ -2719,23 +2719,26 @@ class ZiathDP5Runtime:
             if not valid:
                 return reject('INVALID_ARGUMENT')
             s = item['state']
+            # 1.0.2: PRECONDITION_FAILED keeps its code (no finer one is declared); the message names the cause
             if cid in ('configuration.set', 'acquisition.start') and not s['power.enabled']:
-                return reject('PRECONDITION_FAILED')
+                return reject('PRECONDITION_FAILED', why='The reader is switched off (power.set enabled=true).')
             if cid in ('configuration.set', 'acquisition.start', 'scene.set_rack_lift') and s['acquisition.status'] == 'running':
                 return reject('BUSY')
             if cid == 'configuration.set' and s['rack.loaded'] and args['rack_format'] != item['rack_format']:
-                return reject('PRECONDITION_FAILED')
+                return reject('PRECONDITION_FAILED', why='The loaded rack has %d positions; rack_format %d does not match it (remove the rack first).' % (item['rack_format'], args['rack_format']))
             if cid == 'acquisition.start' and (not s['rack.loaded'] or s['scene.rack_lift_m'] != 0.0 or s['configuration.rack_format'] != item['rack_format']):
-                return reject('PRECONDITION_FAILED')
+                return reject('PRECONDITION_FAILED', why='No rack is on the reader.' if not s['rack.loaded'] else
+                              'The rack is not seated (scene.set_rack_lift lift_m=0).' if s['scene.rack_lift_m'] != 0.0 else
+                              'The configured rack format %d does not match the loaded %d-position rack (configuration.set).' % (s['configuration.rack_format'], item['rack_format']))
             if cid == 'scene.set_rack_lift' and not s['rack.loaded']:
-                return reject('PRECONDITION_FAILED')
+                return reject('PRECONDITION_FAILED', why='No rack is on the reader.')
             op = None
             if cid in ('acquisition.poll', 'acquisition.cancel'):
                 op = self._operations.get(args['operation_id'])
                 if op is None or op['instance_id'] != instance_id or op['principal_id'] != principal_id:
                     return reject('UNKNOWN_OPERATION')
             if cid == 'results.export' and s['results.data'] is None:
-                return reject('PRECONDITION_FAILED')
+                return reject('PRECONDITION_FAILED', why='There are no scan results to export (run acquisition.start to completion).')
             if cid in ('power.set', 'configuration.set', 'scene.set_rack_lift'):
                 if item['adapter'] is None:
                     return reject('UNSUPPORTED', 'unsupported')
@@ -3675,8 +3678,8 @@ _AHS_Q = _ahs_num('m', 0, AZENTA_HEAT_SEALER_Q_MAX_M)
 _AHS_STATUS = {'type': 'string', 'enum': ['idle', 'running', 'succeeded', 'cancelled', 'failed']}
 _AHS_SLOTS = {
     'power.enabled': _ahs_slot(_AHS_BOOL, '1', 'setpoint', via=('power.set', 'enabled')),
-    'thermal.setpoint_K': _ahs_slot(_ahs_nullable(_AHS_TEMP), 'K', 'setpoint', via=('thermal.set_temperature', 'temperature_K')),
-    'measurement.temperature_K': _ahs_slot(_ahs_nullable(_ahs_num('K')), 'K', 'derived'),
+    'thermal.setpoint_k': _ahs_slot(_ahs_nullable(_AHS_TEMP), 'K', 'setpoint', via=('thermal.set_temperature', 'temperature_K')),
+    'measurement.temperature_k': _ahs_slot(_ahs_nullable(_ahs_num('K')), 'K', 'derived'),
     'thermal.target_reached': _ahs_slot(_AHS_BOOL, '1', 'derived'),
     'simulation.thermal_rate_configured': _ahs_slot(_AHS_BOOL, '1', 'derived'),
     'configuration.press_time_s': _ahs_slot(_ahs_nullable(_AHS_DURATION), 's', 'setpoint'),
@@ -3694,12 +3697,12 @@ _AHS_SLOTS = {
     'sealing.status': _ahs_slot(_AHS_STATUS, '1', 'derived'),
     'sealing.elapsed_s': _ahs_slot(_ahs_num('s', 0, 10), 's', 'derived'),
     'sealing.progress': _ahs_slot(_ahs_num('1', 0, 1), '1', 'derived'),
-    'truth.temperature_K': _ahs_slot(_ahs_nullable(_ahs_num('K')), 'K', 'process_truth', 'debug'),
-    'truth.thermal_rate_K_s': _ahs_slot(_ahs_nullable(_ahs_num('K/s')), 'K/s', 'process_truth', 'debug'),
+    'truth.temperature_k': _ahs_slot(_ahs_nullable(_ahs_num('K')), 'K', 'process_truth', 'debug'),
+    'truth.thermal_rate_k_s': _ahs_slot(_ahs_nullable(_ahs_num('K/s')), 'K/s', 'process_truth', 'debug'),
 }
 _AHS_OPERATION = _ahs_obj({'operation_id': _AHS_STR, 'status': _AHS_STATUS, 'elapsed_s': _ahs_num('s', 0, 10),
     'progress': _ahs_num('1', 0, 1), 'simulated_sealed': _AHS_BOOL})
-_AHS_READ_IDS = ['measurement.temperature_K', 'thermal.target_reached', 'film.remaining_seals', 'plate.simulated_sealed', 'sealing.status', 'sealing.elapsed_s', 'sealing.progress']
+_AHS_READ_IDS = ['measurement.temperature_k', 'thermal.target_reached', 'film.remaining_seals', 'plate.simulated_sealed', 'sealing.status', 'sealing.elapsed_s', 'sealing.progress']
 _AHS_COMPONENTS = {'power.set': ['power_data_panel'], 'thermal.set_temperature': ['press_head'],
     'configuration.set': ['plate_adapter', 'roll_support'], 'scene.set_press_displacement': ['press_head', 'guide_rails'],
     'sealing.start': ['press_head', 'film_path', 'external_plate'], 'sealing.poll': ['status_display'],
@@ -3707,7 +3710,7 @@ _AHS_COMPONENTS = {'power.set': ['power_data_panel'], 'thermal.set_temperature':
 _AHS_LIMITATIONS = [
     '温度100–195°C、时间0.1–10s、板高3–60mm、膜宽75–85mm来自CHEM-176三表；SI接口采用K、s、m。',
     '热初始值和热速率没有缺省值；温度推进只采用宿主明确给定且附证据的线性接近设定值模型，无热容、功率、冷却曲线或PID推断。',
-    'measurement.temperature_K为理想化过程代理且quality=estimated；target_reached只比较模型目标，不是实测稳定性或厂家互锁。±1K均匀性只作为规格，不作为目标公差。',
+    'measurement.temperature_k为理想化过程代理且quality=estimated；target_reached只比较模型目标，不是实测稳定性或厂家互锁。±1K均匀性只作为规格，不作为目标公差。',
     '压合q=0..0.074m、压头底z=.105-q、板顶z=.028+height和接触q=.077-height均是几何假设，非厂家行程或接触力学。',
     '一卷最多5000次是上限；宿主须提供实际剩余次数，默认null。每次已接受封膜消耗1次膜配额；取消或失败不退回膜。未推断膜长度或实际进给距离。',
     'film_roll_position_id与plate_adapter_id引用宿主装载的兼容配置；真实位置坐标和厂家适配器枚举未知，不生成任意假坐标。',
@@ -3723,8 +3726,8 @@ def export_azenta_heat_sealer_contract_metadata():
         slot['read_binding'] = 'AzentaHeatSealerSession.read(instance_id=..., state_ids=[%r])' % sid
     slots['scene.press_displacement_m']['reference_conditions'] = 'q positive down; ahs__press_joint.location.z=-q; 0..0.074m geometric assumption'
     specs = {
-        'power.set': ({'enabled': _AHS_BOOL}, _ahs_obj({'enabled': _AHS_BOOL}), {'enabled': True}, ['power.enabled', 'thermal.target_reached', 'measurement.temperature_K', 'sealing.status'], 'device_command', '设置仿真供电；断电取消封膜并保留压头、时间和已消耗膜。'),
-        'thermal.set_temperature': ({'temperature_K': _AHS_TEMP}, _ahs_obj({'setpoint_K': _AHS_TEMP}), {'temperature_K': 423.15}, ['thermal.setpoint_K', 'thermal.target_reached'], 'device_command', '写入封膜温度目标；只在宿主推进时才更新已配置的温度过程。'),
+        'power.set': ({'enabled': _AHS_BOOL}, _ahs_obj({'enabled': _AHS_BOOL}), {'enabled': True}, ['power.enabled', 'thermal.target_reached', 'measurement.temperature_k', 'sealing.status'], 'device_command', '设置仿真供电；断电取消封膜并保留压头、时间和已消耗膜。'),
+        'thermal.set_temperature': ({'temperature_K': _AHS_TEMP}, _ahs_obj({'setpoint_K': _AHS_TEMP}), {'temperature_K': 423.15}, ['thermal.setpoint_k', 'thermal.target_reached'], 'device_command', '写入封膜温度目标；只在宿主推进时才更新已配置的温度过程。'),
         'configuration.set': ({'press_time_s': _AHS_DURATION, 'plate_adapter_id': _AHS_STR, 'film_roll_position_id': _AHS_STR}, _ahs_obj({'press_time_s': _AHS_DURATION, 'plate_adapter_id': _AHS_STR, 'film_roll_position_id': _AHS_STR}), {'press_time_s': 1.0, 'plate_adapter_id': 'host_adapter', 'film_roll_position_id': 'host_roll_position'}, ['configuration.press_time_s', 'configuration.plate_adapter_id', 'configuration.film_roll_position_id'], 'configuration', '选择时间和宿主已装载的板适配器、膜卷位置标识。'),
         'scene.set_press_displacement': ({'displacement_m': _AHS_Q}, _ahs_obj({'displacement_m': _AHS_Q}), {'displacement_m': .017}, ['scene.press_displacement_m'], 'configuration', '宿主确认压合展示关节；装板时不能穿过几何接触平面。'),
         'sealing.start': ({}, _AHS_OPERATION, {}, ['sealing.status', 'sealing.elapsed_s', 'sealing.progress', 'plate.simulated_sealed', 'film.remaining_seals'], 'device_command', '开始计时封膜，立即消耗1次膜配额；accepted不表示密封完成。'),
@@ -3743,7 +3746,7 @@ def export_azenta_heat_sealer_contract_metadata():
     for cid, (props, out, example, effects, kind, desc) in specs.items():
         entries = [{'state_id': k, 'timing': 'immediate', 'description_zh': '本调用成功后的明确状态更新。'} for k in effects]
         if cid == 'thermal.set_temperature':
-            entries += [{'state_id': k, 'timing': 'on_step', 'description_zh': '仅宿主已给出初值、线性热速率及证据时，随共同时间更新。'} for k in ['truth.temperature_K', 'measurement.temperature_K', 'thermal.target_reached']]
+            entries += [{'state_id': k, 'timing': 'on_step', 'description_zh': '仅宿主已给出初值、线性热速率及证据时，随共同时间更新。'} for k in ['truth.temperature_k', 'measurement.temperature_k', 'thermal.target_reached']]
         if cid == 'sealing.start':
             entries += [{'state_id': k, 'timing': 'on_step', 'description_zh': '只由宿主共同时间推进；满设定持续时间后改变模拟密封状态。'} for k in ['sealing.status', 'sealing.elapsed_s', 'sealing.progress', 'plate.simulated_sealed']]
         unsupported = cid == 'sealing.set_pressure'
@@ -3832,8 +3835,8 @@ class AzentaHeatSealerRuntime:
 
     @staticmethod
     def _refresh(s):
-        s['measurement.temperature_K'] = s['truth.temperature_K'] if s['power.enabled'] else None
-        s['thermal.target_reached'] = bool(s['power.enabled'] and s['truth.temperature_K'] is not None and s['thermal.setpoint_K'] is not None and _ahs_math.isclose(s['truth.temperature_K'], s['thermal.setpoint_K'], rel_tol=0, abs_tol=1e-9))
+        s['measurement.temperature_k'] = s['truth.temperature_k'] if s['power.enabled'] else None
+        s['thermal.target_reached'] = bool(s['power.enabled'] and s['truth.temperature_k'] is not None and s['thermal.setpoint_k'] is not None and _ahs_math.isclose(s['truth.temperature_k'], s['thermal.setpoint_k'], rel_tol=0, abs_tol=1e-9))
 
     def _stop(self, item, status):
         s = item['state']
@@ -3878,7 +3881,7 @@ class AzentaHeatSealerRuntime:
             item = self._get(instance_id)
             if item is None or not _ahs_number(temperature_K) or temperature_K <= 0 or not _ahs_string(evidence):
                 raise ValueError('Positive finite host temperature and evidence required')
-            item['state']['truth.temperature_K'] = float(temperature_K)
+            item['state']['truth.temperature_k'] = float(temperature_K)
             item['evidence']['temperature'] = evidence
             self._refresh(item['state'])
             if not item['state']['thermal.target_reached']:
@@ -3890,7 +3893,7 @@ class AzentaHeatSealerRuntime:
             item = self._require_idle(instance_id)
             if not _ahs_number(thermal_rate_K_s) or thermal_rate_K_s <= 0 or not _ahs_string(evidence):
                 raise ValueError('Positive finite explicit linear thermal rate and evidence required')
-            item['state'].update({'truth.thermal_rate_K_s': float(thermal_rate_K_s), 'simulation.thermal_rate_configured': True})
+            item['state'].update({'truth.thermal_rate_k_s': float(thermal_rate_K_s), 'simulation.thermal_rate_configured': True})
             item['evidence']['thermal_rate'] = evidence
             item['revision'] += 1
 
@@ -3924,12 +3927,12 @@ class AzentaHeatSealerRuntime:
             for item in self._instances.values():
                 s = item['state']
                 before = _ahs_copy.deepcopy(s)
-                temp, target, rate = s['truth.temperature_K'], s['thermal.setpoint_K'], s['truth.thermal_rate_K_s']
+                temp, target, rate = s['truth.temperature_k'], s['thermal.setpoint_k'], s['truth.thermal_rate_k_s']
                 if s['power.enabled'] and temp is not None and target is not None and rate is not None:
                     # Clamp before multiplication so even a huge finite rate cannot overflow.
                     span = abs(target - temp)
                     change = span if dt_s >= span / rate else dt_s * rate
-                    s['truth.temperature_K'] = target if change >= span else temp + _ahs_math.copysign(change, target - temp)
+                    s['truth.temperature_k'] = target if change >= span else temp + _ahs_math.copysign(change, target - temp)
                 self._refresh(s)
                 if s['sealing.status'] == 'running':
                     op = self._operations[item['active_operation']]
@@ -4034,9 +4037,9 @@ class AzentaHeatSealerRuntime:
                     self._stop(item, 'cancelled')
                 result = {'enabled': args['enabled']}
             elif cid == 'thermal.set_temperature':
-                s['thermal.setpoint_K'] = float(args['temperature_K'])
+                s['thermal.setpoint_k'] = float(args['temperature_K'])
                 self._refresh(s)
-                result = {'setpoint_K': s['thermal.setpoint_K']}
+                result = {'setpoint_K': s['thermal.setpoint_k']}
             elif cid == 'configuration.set':
                 for k, v in args.items(): s['configuration.' + k] = v
                 result = args
@@ -4313,6 +4316,17 @@ def export_opentrons_flex_contract_metadata():
             'host.sync_scene': 'OpentronsFlexRuntime.host_sync_scene(instance_id)',
             'host.set_clock': 'OpentronsFlexRuntime.host_set_clock(time_s), monotonic common simulation clock'},
         'limitations': list(_FLEX_LIMITATIONS), 'output_schema_scope': 'output_schema validates response.result; observations and describe are filtered by trusted host identity'}
+
+
+# read(): why a slot has no value (quality 'unavailable')
+_FLEX_EMPTY_REASONS = {
+    'tip.attached_id': 'No tip is attached.',
+    'tip.last_slot_id': 'No tip has been picked up or dropped yet.',
+    'truth.tip_volume_m3': 'No tip is attached.',
+    'run.state': 'No protocol run is set up.',
+    'protocols.newest_id': 'No protocol is stored on the robot.',
+    'usb.drive': 'No USB drive is inserted.',
+}
 
 
 class OpentronsFlexRuntime:
@@ -4596,7 +4610,7 @@ class OpentronsFlexSession:
                 value = _flex_copy.deepcopy(item['state'][sid])
                 response['observations'][sid] = {'value': value, 'unit': _FLEX_SLOTS[sid]['unit'], 'quality': 'unavailable' if value is None else 'estimated' if _FLEX_SLOTS[sid]['origin'] == 'process_truth' else 'valid', 'sample_time_s': h.time_s, 'sample_window_s': None}
                 if value is None:
-                    response['observations'][sid]['reason'] = 'No current attached tip or prior slot event.'
+                    response['observations'][sid]['reason'] = _FLEX_EMPTY_REASONS.get(sid, 'No value yet.')
             return response
 
     def invoke(self, *, instance_id, capability_id, arguments, request_id):
@@ -4618,6 +4632,7 @@ import copy as _qt_copy
 import json as _qt_json
 import math as _qt_math
 import threading as _qt_threading
+import sys as _qt_sys
 
 QUANTOS_Q2_TYPE = 'instrument.mt_quantos_q2_xpe206dr'
 
@@ -4685,7 +4700,7 @@ _QT_LIMITATIONS = [
     '范围1 mg–5 g仅适用于宿主明确确认的自由流动粉末；无默认物料、库存、允许偏差、速率、天平容量或读数精度。',
     '碳酸钙10 mg典型22 s、RSD 1.15%；50 mg RSD 0.26%；1000 mg典型71 s仅作为清单资料，不计算任意粉末速率、RSD或随机误差。',
     '投料采用显式宿主速率与理想闭环连续停止模型，实际读数为estimated理想质量代理；没有粉体流变、扬尘、残留、天平动态或真实误差模型。',
-    '门为宿主确认的展示滑移关节，几何行程由宿主带证据配置；不声称是原厂门行程、速度或安全互锁认证。',
+    '前门为杠杆抬起的上挂玻璃门（说明书p.25-26、p.67-68；宣传册p.10侧视图）：scene.door_opening_m为门上沿铰销沿杠杆圆弧走过的距离（杠杆转角=开度/0.198 m，全开0.5495 m，图纸推算），宿主带证据配置行程并经场景回调确认；左右侧门沿+Y后滑，Doorway 100 %行程0.16 m为图纸估计（说明书未给数值）；不声称原厂门速度或安全互锁认证。',
     'attach/release仅在外部约束回调明确确认后登记；没有机器人规划、接触抓取或硬件驱动。',
     '只有可信宿主管理库存、物质转移账本、身份和时间；API过滤不是Python或共享文件系统隔离。请求去重仅当前内存有效。',
 ]
@@ -4695,7 +4710,9 @@ def export_quantos_q2_contract_metadata():
     slots = _qt_copy.deepcopy(_QT_SLOTS)
     for sid, slot in slots.items():
         slot['read_binding'] = 'QuantosQ2Session.read(instance_id=..., state_ids=[%r])' % sid
-    slots['scene.door_opening_m']['reference_conditions'] = 'quantos__door_slide.location.y=q; +Y opening from authored closed pose; host-configured geometric upper bound'
+    slots['scene.door_opening_m']['reference_conditions'] = ('front door: q = path of the door top hinge pin along the lever arc; quantos__front_door_lever.rotation_euler.x=-q/%g, '
+                                                             'quantos__front_door_hinge follows as mimic (x%g); 0 = closed, full open %.4f m; host-configured upper bound'
+                                                             % (QUANTOS_FRONT_DOOR['lever_length_m'], QUANTOS_FRONT_DOOR['mimic'], QUANTOS_FRONT_DOOR['travel_m']))
     specs = {
         'power.set': ({'enabled': _QT_BOOL}, ['power.enabled'] + _QT_MEASURE_IDS + ['balance.tared', 'dosing.status'], ['power.enabled'], {'enabled': True}, ['terminal'], []),
         'dosing.set_target': ({'target_mass_kg': _qt_num('kg', 1e-6, .005)}, ['dosing.target_mass_kg'] + _QT_MEASURE_IDS, ['dosing.target_mass_kg'], {'target_mass_kg': 1e-5}, ['terminal'], ['上电且无运行操作；范围仅自由流动粉末。']),
@@ -4710,7 +4727,7 @@ def export_quantos_q2_contract_metadata():
         'dosing.cancel': ({'operation_id': _QT_STR}, ['dosing.status'], _QT_READ_IDS, {'operation_id': 'qt_op_1'}, ['terminal', 'dosing_head'], ['操作属于当前身份与实例；取消保留已转移粉末与耗时。']),
         'autosampler.advance': ({}, [], [], {}, ['autosampler_option'], ['该批次单头配置未安装可选30位自动进样器。']),
     }
-    desc = {'power.set': '设置仿真供电，断电取消任务并保留已投料。', 'dosing.set_target': '设置目标质量。', 'dosing.set_tolerance': '设置绝对允许偏差。', 'head.select': '选择宿主装入的粉末头。', 'container.select_position': '选择宿主已经放置容器的位置。', 'door.set_opening': '设置门展示滑移位置并等待宿主场景确认。', 'balance.tare': '记录显式理想读数模型的容器质量基线。', 'dosing.start': '启动有源库存守恒的异步仿真投料。', 'dosing.read': '读取投料结果且不推进时间。', 'dosing.poll': '读取当前身份拥有的投料进度。', 'dosing.cancel': '取消投料且保留部分转移。', 'autosampler.advance': '可选自动进样器未装配，不支持转位。'}
+    desc = {'power.set': '设置仿真供电，断电取消任务并保留已投料。', 'dosing.set_target': '设置目标质量。', 'dosing.set_tolerance': '设置绝对允许偏差。', 'head.select': '选择宿主装入的粉末头。', 'container.select_position': '选择宿主已经放置容器的位置。', 'door.set_opening': '设置前门开度（门上沿铰销沿杠杆圆弧的行程，0为关）并等待宿主场景确认。', 'balance.tare': '记录显式理想读数模型的容器质量基线。', 'dosing.start': '启动有源库存守恒的异步仿真投料。', 'dosing.read': '读取投料结果且不推进时间。', 'dosing.poll': '读取当前身份拥有的投料进度。', 'dosing.cancel': '取消投料且保留部分转移。', 'autosampler.advance': '可选自动进样器未装配，不支持转位。'}
     caps = {}
     for cid, (props, effects, observed, example, components, prereq) in specs.items():
         scene, unsupported = cid == 'door.set_opening', cid == 'autosampler.advance'
@@ -4722,7 +4739,7 @@ def export_quantos_q2_contract_metadata():
             'state_effects': entries, 'preconditions_zh': prereq, 'example_arguments': [_qt_copy.deepcopy(example)],
             'binding': None if unsupported else 'basic40_runtime_automation.QuantosQ2Session.invoke(instance_id=..., capability_id=%r, arguments=..., request_id=...)' % cid,
             'implementation': {'process': 'absent' if unsupported else 'implemented', 'scene': 'implemented' if scene else 'not_applicable', 'host': 'absent' if unsupported else 'implemented', 'hardware': 'absent', 'robot': 'absent'},
-            'model_effects': {'mode': 'host_required' if scene else 'none', 'binding_ids': [], 'description_zh': 'scene_adapter(instance_id,{scene.door_opening_m:q})返回True后提交，apply_quantos_q2_scene_patch映射quantos__door_slide.location.y=q。' if scene else '逻辑装载、称量和投料读数不驱动额外几何；粒子粉末流和屏幕同步未实现。'},
+            'model_effects': {'mode': 'host_required' if scene else 'none', 'binding_ids': [], 'description_zh': 'scene_adapter(instance_id,{scene.door_opening_m:q})返回True后提交，apply_quantos_q2_scene_patch把前门杠杆转到q/0.198 rad，门板按mimic跟随。' if scene else '逻辑装载、称量和投料读数不驱动额外几何；粒子粉末流和屏幕同步未实现。'},
             'execution_notes': {'mode': 'asynchronous' if cid == 'dosing.start' else 'synchronous', 'time_domain': 'simulation', 'cancellable': cid == 'dosing.start', 'completion_zh': '理想观测达到目标即停止，缺料则failed保留部分转移。' if cid == 'dosing.start' else '返回succeeded表示本次操作完成。', 'partial_failure_zh': '取消、断电和缺料保留已转移的质量和已用时间；外部场景回调失败的副作用为unknown。', 'retry_zh': '当前内存中相同请求ID及参数返回原响应；不同参数拒绝；不保证跨重启。'},
             'errors': [{'code': c, 'description_zh': d, 'side_effects': s} for c, d, s in [('INVALID_ARGUMENT', '参数类型、范围或额外字段无效。', 'none'), ('UNKNOWN_INSTANCE', '实例不存在或不在身份范围。', 'none'), ('UNKNOWN_CAPABILITY', '能力不存在。', 'none'), ('ACCESS_DENIED', '槽不可写或身份不能访问。', 'none'), ('PRECONDITION_FAILED', '供电、装载、门、去皮、配置或库存条件不满足。', 'none'), ('BUSY', '投料占用设备。', 'none'), ('REQUEST_CONFLICT', '请求ID参数冲突。', 'none'), ('UNKNOWN_OPERATION', '操作不属于当前身份与实例。', 'none'), ('UNSUPPORTED', '能力未装配或门场景未绑定。', 'none'), ('DEVICE_ERROR', '场景回调失败或未确认。', 'unknown'), ('SOURCE_DEPLETED', '粉末源在达到目标前耗尽；保留部分投料。', 'partial')]]}
     return {'asset_type_id': QUANTOS_Q2_TYPE, 'asset_version': '1.0.2', 'catalog_id': 'CHEM-174', 'state_slots': slots, 'capabilities': caps,
@@ -4732,19 +4749,53 @@ def export_quantos_q2_contract_metadata():
         'limitations': list(_QT_LIMITATIONS), 'output_schema_scope': 'capabilities.output_schema validates response.result; no process truth/evidence in agent response'}
 
 
-def apply_quantos_q2_scene_patch(scene, patch):
-    """Blender scene bridge; caller must separately verify evaluated geometry."""
-    if not isinstance(patch, dict) or set(patch) != {'scene.door_opening_m'} or not _qt_number(patch['scene.door_opening_m']) or patch['scene.door_opening_m'] < 0:
-        raise ValueError('Only a finite nonnegative door patch is accepted')
-    door = scene.objects.get('quantos__door_slide')
-    if door is None:
-        raise ValueError('Quantos door target missing')
-    if door.animation_data and (door.animation_data.action or door.animation_data.drivers):
+# Doors (2026-10-23): the front door is lifted by a lever on each side and guided at the front top edge (brochure 30084648A p.10
+# side view, manual p.25-26, p.67-68); the side doors slide back (+Y), travel at Doorway 100 % is a drawing estimate (p.10).
+QUANTOS_FRONT_DOOR = {'lever_length_m': 0.198, 'lever_max_rad': 2.775073510670984, 'mimic': -0.51264, 'travel_m': 0.198 * 2.775073510670984,
+                      'lever_object': 'quantos__front_door_lever', 'hinge_object': 'quantos__front_door_hinge'}
+QUANTOS_SIDE_DOOR = {'travel_m': 0.16, 'objects': ('quantos__side_door_left_slide', 'quantos__side_door_right_slide')}
+
+
+def _qt_scene_target(scene, name):
+    o = scene.objects.get(name)
+    if o is None:
+        raise ValueError('Quantos door target missing: ' + name)
+    if o.animation_data and (o.animation_data.action or o.animation_data.drivers):
         raise ValueError('Door must have a single host authority without animation/driver override')
-    if len(door.constraints):
+    if len(o.constraints):
         raise ValueError('Door constraints require explicit authority reconciliation')
-    door.location.y = float(patch['scene.door_opening_m'])
+    return o
+
+
+def apply_quantos_q2_scene_patch(scene, patch):
+    """Blender scene bridge; caller must separately verify evaluated geometry.  scene.door_opening_m (m, path of the front door's top
+    hinge pin along the lever arc): lever angle q / 0.198 m, the door hinge follows as the URDF mimic; door.side_opening_fraction (the
+    process state mirrored by the host): both side doors slide fraction x 0.16 m."""
+    keys = {'scene.door_opening_m', 'door.side_opening_fraction'}
+    if not isinstance(patch, dict) or not patch or not set(patch) <= keys or not all(_qt_number(v) and v >= 0 for v in patch.values()):
+        raise ValueError('Only a finite nonnegative door patch is accepted')
+    if 'scene.door_opening_m' in patch:
+        q = float(patch['scene.door_opening_m'])
+        if q > QUANTOS_FRONT_DOOR['travel_m'] + 1e-9:
+            raise ValueError('Front door opening beyond the geometric travel %.4f m' % QUANTOS_FRONT_DOOR['travel_m'])
+        lever, hinge = (_qt_scene_target(scene, QUANTOS_FRONT_DOOR[k]) for k in ('lever_object', 'hinge_object'))
+        beta = q / QUANTOS_FRONT_DOOR['lever_length_m']
+        lever.rotation_euler.x = -beta                                       # joint axis -X: positive lever angle lifts the door
+        hinge.rotation_euler.x = -QUANTOS_FRONT_DOOR['mimic'] * beta
+    if 'door.side_opening_fraction' in patch:
+        f = float(patch['door.side_opening_fraction'])
+        if f > 1:
+            raise ValueError('Side door fraction above 1')
+        for name in QUANTOS_SIDE_DOOR['objects']:
+            _qt_scene_target(scene, name).location.y = f * QUANTOS_SIDE_DOOR['travel_m']
     return True
+
+
+def _qt_resolution(s):
+    """Numerical resolution of the dosed mass (kg): relative 1e-12 of the target, at least a few ulp of the masses involved (2026-10-22)."""
+    big = max(abs(s['dosing.target_mass_kg'] or 0.0), abs(s['truth.container_mass_kg'] or 0.0), abs(s['truth.source_mass_kg'] or 0.0),
+              abs(s['truth.actual_dosed_kg'] or 0.0))
+    return max(1e-12 * abs(s['dosing.target_mass_kg'] or 0.0), 8.0 * _qt_sys.float_info.epsilon * big)
 
 
 class QuantosQ2Runtime:
@@ -4904,15 +4955,20 @@ class QuantosQ2Runtime:
                 if i['active_operation'] is None:
                     continue
                 s, rate = i['state'], i['rate_kg_s']
-                remaining = max(0.0, s['dosing.target_mass_kg'] - s['truth.actual_dosed_kg'])
+                # 2026-10-22 (1.2.1): the dose sum of many steps can stop a few ulp short of the target (20 mg at 5e-7 kg/s in 1 s steps ends
+                # 1e-20 kg short); that residue is below the resolution of the masses.  The target counts as reached within the numerical
+                # resolution res of the dose (relative 1e-12 of the target, or a few ulp of the masses involved), and a step whose transfer is
+                # below the resolution moves nothing but still advances the clock (it used to raise and drop the clock step).
+                res = _qt_resolution(s)
+                remaining = s['dosing.target_mass_kg'] - s['truth.actual_dosed_kg']
+                remaining = 0.0 if remaining <= res else remaining
                 amount = min(remaining, s['truth.source_mass_kg'], rate * dt_s)
-                if amount == 0 and remaining > 0 and s['truth.source_mass_kg'] > 0:
-                    raise ValueError('Transfer below numerical resolution; no instance advanced')
+                if amount > 0 and (s['truth.container_mass_kg'] + amount == s['truth.container_mass_kg'] or s['truth.source_mass_kg'] - amount == s['truth.source_mass_kg']):
+                    amount = 0.0                                                    # below the resolution of the masses: nothing moves this step
+                amount = max(0.0, amount)
                 elapsed = min(dt_s, amount / rate)
                 if not all(_qt_number(v) for v in [amount, elapsed, s['truth.container_mass_kg'] + amount, s['dosing.elapsed_s'] + elapsed]):
                     raise ValueError('Transfer would overflow; no instance advanced')
-                if amount > 0 and (s['truth.container_mass_kg'] + amount == s['truth.container_mass_kg'] or s['truth.source_mass_kg'] - amount == s['truth.source_mass_kg']):
-                    raise ValueError('Mass change below numerical resolution; no instance advanced')
                 updates.append((iid, i, amount, elapsed))
             for iid,i,amount,elapsed in updates:
                 s, opid = i['state'], i['active_operation']
@@ -4923,9 +4979,10 @@ class QuantosQ2Runtime:
                 self._refresh(i)
                 if amount > 0:
                     self._ledger.append({'transaction_id': '%s_transfer_%d' % (opid,len(self._ledger)+1), 'operation_id': opid, 'instance_id': iid, 'donor_id': s['head.loaded_id'], 'receiver_id': s['container.loaded_id'], 'mass_kg': amount, 'unit': 'kg', 'time_s': self.time_s + elapsed})
-                if s['truth.actual_dosed_kg'] >= s['dosing.target_mass_kg']:
+                res = _qt_resolution(s)
+                if s['truth.actual_dosed_kg'] >= s['dosing.target_mass_kg'] - res:
                     self._stop(i, 'succeeded')
-                elif s['truth.source_mass_kg'] <= 0:
+                elif s['truth.source_mass_kg'] <= res:                             # what is left in the head is below the resolution: empty
                     self._stop(i, 'failed', 'SOURCE_DEPLETED')
                 self._operations[opid]['result'] = self._result(i)
                 i['revision'] += 1
@@ -5126,34 +5183,9 @@ class QuantosQ2Session:
         return self.invoke(instance_id=instance_id,capability_id='dosing.cancel',arguments={'operation_id':operation_id},request_id=request_id)
 # END CHEM-174 QUANTOS Q2 XPE206DR APPEND-ONLY RUNTIME
 
-# CHEM-176 canonical contract state IDs are lowercase; preserve legacy SI-suffix labels.
-_AHS_CONTRACT_STATE_ALIASES = {sid.lower(): sid for sid in _AHS_SLOTS}
-_ahs_session_read_legacy = AzentaHeatSealerSession.read
-_ahs_session_write_legacy = AzentaHeatSealerSession.write
-_ahs_session_describe_legacy = AzentaHeatSealerSession.describe
-def _ahs_session_read_contract(self, *, instance_id, state_ids=None):
-    if state_ids is None or not isinstance(state_ids, list) or any(not isinstance(sid,str) for sid in state_ids):
-        return _ahs_session_read_legacy(self, instance_id=instance_id, state_ids=state_ids)
-    actual = [_AHS_CONTRACT_STATE_ALIASES.get(sid,sid) for sid in state_ids]
-    response = _ahs_session_read_legacy(self, instance_id=instance_id, state_ids=actual)
-    if response['status'] == 'succeeded':
-        response['observations'] = {requested: _ahs_copy.deepcopy(response['observations'][source]) for requested,source in zip(state_ids,actual)}
-    return response
-def _ahs_session_write_contract(self, *, instance_id, state_id, value, request_id):
-    actual = _AHS_CONTRACT_STATE_ALIASES.get(state_id,state_id) if isinstance(state_id,str) else state_id
-    return _ahs_session_write_legacy(self, instance_id=instance_id, state_id=actual, value=value, request_id=request_id)
-def _ahs_session_describe_contract(self, *, asset_type_id=None, instance_id=None):
-    metadata = _ahs_session_describe_legacy(self, asset_type_id=asset_type_id, instance_id=instance_id)
-    if 'state_slots' in metadata:
-        metadata['state_slots'] = {sid.lower():slot for sid,slot in metadata['state_slots'].items()}
-        for cap in metadata['capabilities'].values():
-            cap['observes'] = [sid.lower() for sid in cap['observes']]
-            for effect in cap['state_effects']: effect['state_id'] = effect['state_id'].lower()
-        metadata['limitations'].append('合同状态ID采用小写_k/_k_s；显式read/write接受这些规范ID。省略state_ids的旧便捷read保留原实现的SI后缀标签；标准lab.read应显式传入合同状态ID。')
-    return metadata
-AzentaHeatSealerSession.read = _ahs_session_read_contract
-AzentaHeatSealerSession.write = _ahs_session_write_contract
-AzentaHeatSealerSession.describe = _ahs_session_describe_contract
+# CHEM-176 state IDs are the contract IDs (lower case _k / _k_s).  Until 1.2.1 the runtime kept SI-suffix labels (thermal.setpoint_K, ...)
+# and a wrapper here lower-cased describe() and mapped explicit reads/writes, while read() without state_ids still returned the old labels;
+# 1.2.2 (2026-10-22) renamed the slots themselves, so describe, read, write and the contract use one set of IDs and the wrapper is gone.
 
 # BEGIN CHEM-176 AZENTA HEAT SEALER FRONT PANEL
 # Front panel (panel.touch / panel.switch / panel.capture / panel.frame): the colour touch screen and the rear power switch of the user manual
@@ -5191,7 +5223,7 @@ _AHS_PANEL_SLOTS = {
     'protocol.unlocked': _ahs_slot(_AHS_BOOL, '1', 'derived'),
     'power_saving.enabled': _ahs_slot(_AHS_BOOL, '1', 'setpoint'),
     'power_saving.idle_time_s': _ahs_slot(_ahs_num('s', 1800, 43200), 's', 'setpoint'),
-    'power_saving.hold_temperature_K': _ahs_slot(_ahs_nullable({'type': 'number', 'enum': [323.15, 373.15], 'x-unit': 'K'}), 'K', 'setpoint'),
+    'power_saving.hold_temperature_k': _ahs_slot(_ahs_nullable({'type': 'number', 'enum': [323.15, 373.15], 'x-unit': 'K'}), 'K', 'setpoint'),
     'power_saving.active': _ahs_slot(_AHS_BOOL, '1', 'derived'),
     'carrier.position': _ahs_slot({'type': 'string', 'enum': ['out', 'in', 'loading']}, '1', 'derived'),
     'carrier.cut_seal_present': _ahs_slot(_AHS_BOOL, '1', 'derived'),
@@ -5200,9 +5232,8 @@ _AHS_PANEL_SLOTS = {
     'device.error_code': _ahs_slot(_ahs_nullable({'type': 'integer', 'enum': sorted(AZENTA_HEAT_SEALER_ERRORS), 'x-unit': '1'}), '1', 'derived'),
 }
 _AHS_SLOTS.update(_AHS_PANEL_SLOTS)
-_AHS_CONTRACT_STATE_ALIASES.update({sid.lower(): sid for sid in _AHS_PANEL_SLOTS})
 _AHS_PANEL_DEFAULTS = {'device.seal_count': 0, 'protocol.current': None, 'protocol.unlocked': False, 'power_saving.enabled': True,
-                       'power_saving.idle_time_s': 3600.0, 'power_saving.hold_temperature_K': 373.15, 'power_saving.active': False,
+                       'power_saving.idle_time_s': 3600.0, 'power_saving.hold_temperature_k': 373.15, 'power_saving.active': False,
                        'carrier.position': 'out', 'carrier.cut_seal_present': False, 'door.inspection_closed': True, 'film.released': False,
                        'device.error_code': None}
 _AHS_PANEL_CAPS = {   # id: (input properties, output slots, example, effects, kind, component ids, meaning, preconditions)
@@ -5214,8 +5245,8 @@ _AHS_PANEL_CAPS = {   # id: (input properties, output slots, example, effects, k
                            '前面板Seal：载板收入、压头压下、保持封膜时间、压头抬起、载板送出；采用宿主已装的板与膜，消耗1次膜配额；accepted不表示完成。',
                            ['已上电；载板在外；已装未封的板与未释放且有余量的膜；温度到达设定（Seal图标绿色）；封膜时间已设；侧检修门关闭；有场景回调时须确认压头位置']),
     'power_saving.configure': ({'enabled': _AHS_BOOL, 'idle_time_s': _ahs_num('s', 1800, 43200), 'hold_temperature_K': _ahs_nullable({'type': 'number', 'enum': [323.15, 373.15], 'x-unit': 'K'})},
-                               ['power_saving.enabled', 'power_saving.idle_time_s', 'power_saving.hold_temperature_K'], {'enabled': True, 'idle_time_s': 3600.0, 'hold_temperature_K': 373.15},
-                               ['power_saving.enabled', 'power_saving.idle_time_s', 'power_saving.hold_temperature_K', 'power_saving.active'], 'configuration', ['status_display'],
+                               ['power_saving.enabled', 'power_saving.idle_time_s', 'power_saving.hold_temperature_k'], {'enabled': True, 'idle_time_s': 3600.0, 'hold_temperature_K': 373.15},
+                               ['power_saving.enabled', 'power_saving.idle_time_s', 'power_saving.hold_temperature_k', 'power_saving.active'], 'configuration', ['status_display'],
                                '节能：开关、空闲时间0.5–12 h（0.5 h步长）、节能时加热块温度（关加热/50 °C/100 °C）。', ['已上电；空闲时间为0.5 h的整数倍']),
     'power_saving.wake': ({}, ['power_saving.active'], {}, ['power_saving.active'], 'device_command', ['status_display'],
                           '结束节能、重新计空闲时间（触摸屏幕）。', ['已上电']),
@@ -5237,8 +5268,8 @@ _AHS_PANEL_CAPS = {   # id: (input properties, output slots, example, effects, k
                       ['protocol.list', 'protocol.current'], 'configuration', ['status_display'],
                       '新建（original_name为null）或修改协议：名称、温度、时间、信息、安全级别与密码（≤4位）；修改有锁协议须给当前密码。',
                       ['已上电；名称非空且新名称不重复；温度100–195 °C；时间0.1–10 s；low/high须有1–4位密码']),
-    'protocol.select': ({'name': _AHS_NAME, 'password': _AHS_PASSWORD}, ['protocol.current', 'thermal.setpoint_K', 'configuration.press_time_s'], {'name': '4ti-0520', 'password': ''},
-                        ['protocol.current', 'protocol.unlocked', 'thermal.setpoint_K', 'configuration.press_time_s', 'thermal.target_reached'], 'configuration', ['status_display'],
+    'protocol.select': ({'name': _AHS_NAME, 'password': _AHS_PASSWORD}, ['protocol.current', 'thermal.setpoint_k', 'configuration.press_time_s'], {'name': '4ti-0520', 'password': ''},
+                        ['protocol.current', 'protocol.unlocked', 'thermal.setpoint_k', 'configuration.press_time_s', 'thermal.target_reached'], 'configuration', ['status_display'],
                         '选用协议：其温度与时间载入主屏；红锁协议须给密码。', ['已上电；无封膜任务；协议存在；红锁协议密码正确']),
     'protocol.delete': ({'name': _AHS_NAME, 'password': _AHS_PASSWORD}, ['protocol.list'], {'name': 'MyPlate', 'password': ''}, ['protocol.list', 'protocol.current'],
                         'configuration', ['status_display'], '删除协议；有锁协议须给其密码或Administrator密码。', ['已上电；协议存在；密码正确']),
@@ -5286,7 +5317,7 @@ _ahs_export_metadata_v1b = export_azenta_heat_sealer_contract_metadata
 
 def _ahs_export_metadata_v2(panel=True):
     m = _ahs_export_metadata_v1b()
-    m['asset_version'] = '1.2.1'
+    m['asset_version'] = '1.2.2'   # 1.2.2: slot ids = contract ids (lower case, 2026-10-22)
     errors = m['capabilities']['power.set']['errors'] + [{'code': 'ACCESS_DENIED', 'description_zh': '协议密码或Administrator密码不正确；或另一会话的封膜进行中'
                                                           '（改温度/时间/协议被拒）。', 'side_effects': 'none'}]
     for cid, (props, outs, example, effects, kind, comps, desc, pre) in _AHS_PANEL_CAPS.items():
@@ -5533,7 +5564,7 @@ def _ahs_invoke_panel_device(self, principal, iid, item, cid, args, request_id):
             if not float(args['idle_time_s'] / 1800.0).is_integer():
                 return reject('INVALID_ARGUMENT')
             s.update({'power_saving.enabled': args['enabled'], 'power_saving.idle_time_s': float(args['idle_time_s']),
-                      'power_saving.hold_temperature_K': args['hold_temperature_K']})
+                      'power_saving.hold_temperature_k': args['hold_temperature_K']})
         elif cid == 'power_saving.wake':
             pass
         elif cid == 'carrier.close_door':
@@ -5584,7 +5615,7 @@ def _ahs_invoke_panel_device(self, principal, iid, item, cid, args, request_id):
                 return reject('PRECONDITION_FAILED' if p is None else 'BUSY')
             if p['security'] == 'high' and args['password'] != p['password']:
                 return reject('ACCESS_DENIED')
-            s.update({'protocol.current': p['name'], 'protocol.unlocked': False, 'thermal.setpoint_K': p['temperature_K'], 'configuration.press_time_s': p['press_time_s']})
+            s.update({'protocol.current': p['name'], 'protocol.unlocked': False, 'thermal.setpoint_k': p['temperature_K'], 'configuration.press_time_s': p['press_time_s']})
             self._refresh(s)
         elif cid == 'protocol.delete':
             p = _ahs_protocol(item, args['name'])
@@ -5679,15 +5710,15 @@ def _ahs_host_step(self, dt_s, *, world_time_s):
         for iid, item in self._instances.items():                                 # power saving: the block heads for the hold temperature
             s = item['state']
             if s['power.enabled'] and s['power_saving.active']:
-                saved[iid] = s['thermal.setpoint_K']
-                hold = s['power_saving.hold_temperature_K']
-                s['thermal.setpoint_K'] = AZENTA_HEAT_SEALER_ROOM_K if hold is None else hold
+                saved[iid] = s['thermal.setpoint_k']
+                hold = s['power_saving.hold_temperature_k']
+                s['thermal.setpoint_k'] = AZENTA_HEAT_SEALER_ROOM_K if hold is None else hold
         statuses = {iid: item['state']['sealing.status'] for iid, item in self._instances.items()}
         try:
             result = _ahs_step_legacy(self, dt_s, world_time_s=world_time_s)
         finally:
             for iid, setpoint in saved.items():
-                self._instances[iid]['state']['thermal.setpoint_K'] = setpoint
+                self._instances[iid]['state']['thermal.setpoint_k'] = setpoint
                 self._refresh(self._instances[iid]['state'])
         for iid, item in self._instances.items():
             s = item['state']
@@ -6818,8 +6849,9 @@ def _qtp_cap_specs():
                                     '[Adjust.int]：用内置砝码校正，记入校正历史（p.36-37）；理想天平无校正误差。', 'device_command'),
         'balance.test_internal': ({}, ['balance.adjustment_history'], ['balance.adjustment_history'], {}, ['balance'], ['上电、空闲、门关。'],
                                   '[Test int]：用内置砝码检查校正（p.37），记入历史。', 'device_command'),
-        'door.set_side': ({'open': B}, ['door.side_opening_fraction', 'balance.tared'] + _QT_MEASURE_IDS, ['door.side_opening_fraction'], {'open': True}, ['draft_shield'],
-                          ['空闲。'], '侧门开/关（侧门键），开启宽度按用户设置Doorway（p.25、p.71）；侧门无独立几何。', 'device_command'),
+        'door.set_side': ({'open': B}, ['door.side_opening_fraction', 'balance.tared'] + _QT_MEASURE_IDS, ['door.side_opening_fraction'], {'open': True},
+                          ['side_door_left', 'side_door_right'], ['空闲。'],
+                          '左右侧门开/关（侧门键，内部电机同时驱动两扇），开启宽度按用户设置Doorway（p.25、p.71）：两扇侧门沿+Y后滑Doorway×0.16 m（行程为图纸估计）。', 'device_command'),
         'tapper.tap': ({}, ['tapper.taps', 'tapper.last_tap_s', 'tapper.last_tap'], ['tapper.taps', 'tapper.last_tap'], {}, ['dosing_head'], ['上电、空闲、已装头。'],
                        '[Tapper]：按设定强度与时长手动拍打一次并记录（p.66-67）；没有粉末流动模型，强度不改变出粉。', 'device_command'),
         'display.set_resolution': ({'resolution': {'type': 'string', 'enum': list(QUANTOS_RESOLUTIONS)}}, ['display.resolution'], ['display.resolution'], {'resolution': '1/10d'},
@@ -6905,7 +6937,10 @@ def export_quantos_q2_contract_metadata(panel=False):
                                           'description_zh': '宿主（场景）给出水平泡位置（以水平玻璃半径计，-1..1；0,0为水平）与依据；水平传感器据此报告balance.level_ok。'}
     for cid in ('fault.inject', 'fault.clear'):
         caps[cid]['visibility'] = 'evaluator'
-    meta['asset_version'] = '1.2.0'
+    meta['asset_version'] = '1.2.2'   # 1.2.1 (2026-10-22): dose residue below the numerical resolution ends the dosing; the clock always advances
+    #                                   1.2.2 (2026-10-23): real front door (lever-lifted), left / right side doors with travel, open dosing head support
+    caps['door.set_side']['model_effects'] = {'mode': 'coupled', 'binding_ids': ['side_door_left_slide', 'side_door_right_slide'],
+                                              'description_zh': '两扇侧门的平移关节跟随door.side_opening_fraction（宿主镜像，apply_quantos_q2_scene_patch：位置=比例×0.16 m）。'}
     if panel:
         meta['panel_capabilities'] = _qtp_panel_caps()
     return meta
@@ -8229,6 +8264,11 @@ def _fts_check_protocol(item, p):
     for c in p.get('commands') or []:
         if c.get('cmd') not in ('pick_up_tip', 'drop_tip', 'aspirate', 'dispense', 'delay', 'move', 'comment', 'capture_image'):
             raise ValueError('command %r' % c.get('cmd'))
+        for k_, v_ in c.items():                                          # parameter references: {param}, {param, unit} or {param, scale}
+            if isinstance(v_, dict) and 'param' in v_:
+                if set(v_) not in ({'param'}, {'param', 'unit'}, {'param', 'scale'}) or \
+                        ('unit' in v_ and (k_ != 'volume_m3' or v_['unit'] not in _FTS_PARAM_UNITS)) or ('scale' in v_ and not _flex_number(v_['scale'])):
+                    raise ValueError('parameter reference %r in %r' % (v_, c.get('cmd')))
     return dict(_flex_copy.deepcopy(p), kind=p.get('kind', 'protocol'), pipette_mount=p.get('pipette_mount', 'left'), fixtures=dict(p.get('fixtures') or {}),
                 labware=list(p.get('labware') or []), liquids=list(p.get('liquids') or []), parameters=list(p.get('parameters') or []), tips=list(p.get('tips') or []),
                 commands=list(p.get('commands') or []))
@@ -8449,7 +8489,7 @@ def _fts_advance(host, iid, item):
             break
         if out == 'done':
             run['index'] += 1
-            run['next_t'] = max(run['next_t'], host.time_s - FLEX_COMMAND_S) + (c.get('s', FLEX_COMMAND_S) if c['cmd'] == 'delay' else FLEX_COMMAND_S)
+            run['next_t'] += c.get('s', FLEX_COMMAND_S) if c['cmd'] == 'delay' else FLEX_COMMAND_S   # keep the schedule, so one long clock jump runs every command due in it
             continue
         kind = out[1]
         run['error'] = {'type': kind, 'index': run['index'], 'step': _fts_step_text(c), 'time_s': host.time_s}
@@ -8495,7 +8535,7 @@ def _fts_confirm(self, instance_id, *, event, tip_id, slot_id, position_m, evide
         item = self._instances[instance_id]
         run = item.get('ts', {}).get('run')
         if run is not None and run['status'] == 'running' and run['waiting'] is not None:
-            run['next_t'] = min(run['next_t'], self.time_s)
+            run['next_t'] = self.time_s                                    # the waiting step ends now; the next one is due a step later
             _fts_advance(self, instance_id, item)
 
 
@@ -8913,11 +8953,18 @@ def _fts_param_ok(par, v, ts):
     return isinstance(v, str)
 
 
+_FTS_PARAM_UNITS = {'uL': 1e-9, 'mL': 1e-6}                              # protocol parameter given in uL / mL for a volume_m3 field
+
+
 def _fts_resolve(c, params):
     out = _flex_copy.deepcopy(c)
     for k_, v_ in list(out.items()):
+        if isinstance(v_, dict) and 'param' in v_ and v_['param'] not in params:
+            raise ValueError('protocol parameter %r is not defined' % v_['param'])     # run.play refuses with INVALID_ARGUMENT
         if isinstance(v_, dict) and set(v_) == {'param'}:
-            out[k_] = params[v_['param']] if k_ != 'volume_m3' else float(params[v_['param']]) * 1e-9 if v_.get('unit') == 'uL' else params[v_['param']]
+            out[k_] = params[v_['param']]
+        elif isinstance(v_, dict) and set(v_) == {'param', 'unit'}:
+            out[k_] = float(params[v_['param']]) * _FTS_PARAM_UNITS[v_['unit']]
         elif isinstance(v_, dict) and set(v_) == {'param', 'scale'}:
             out[k_] = float(params[v_['param']]) * v_['scale']
     return out

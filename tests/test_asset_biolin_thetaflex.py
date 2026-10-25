@@ -177,4 +177,12 @@ class TestThetaFlex(unittest.TestCase):
   with mock.patch.object(rt.BiolinThetaFlexRuntime,'invoke',invoke),mock.patch.object(rt.BiolinThetaFlexRuntime,'step',step):
    h,r=ex.static_example();h.invoke('power.set',enabled=False);h.invoke('power.set',enabled=True);h.invoke('method.configure',**dict(h.method,field_width_m=.005));h.invoke('drop.clean');h.invoke('stock.unload');h.invoke('sample.remove');h.invoke('stage.move',x_m=0.,y_m=0.,z_m=0.);h.invoke('sim.step',dt_s=.1);h.invoke('acquisition.stop');h.invoke('power.set',enabled=False);h.invoke('service.set',distance_m=.09);d,a,b,c=ex.dynamic_example();d.invoke('drop.clean')
   self.assertTrue(set(rt.IMMEDIATE_EFFECTS)<=observed);self.assertTrue(set(rt.STEP_EFFECTS)<=stepped)
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): the dispenser.move example (0.010 m) was below liquid.transfer's 0.014 m minimum."""
+ def test_dispenser_example_allows_the_transfer_example(self):
+  caps=rt.export_biolin_thetaflex_contract_metadata()['capabilities']
+  ex_move=caps['dispenser.move']['example_arguments'];ex_move=ex_move[0] if isinstance(ex_move,list) else ex_move
+  ex_tr=caps['liquid.transfer']['example_arguments'];ex_tr=ex_tr[0] if isinstance(ex_tr,list) else ex_tr
+  self.assertGreaterEqual(ex_move['position_m'],.014)
+  h=ex.setup();h.invoke('dispenser.move',**ex_move);ex.finish(h);h.invoke('liquid.transfer',**ex_tr);ex.finish(h)
 if __name__=='__main__':unittest.main()

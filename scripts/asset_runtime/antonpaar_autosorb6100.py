@@ -1,7 +1,7 @@
 """CHEM-115 finite volumetric N2 physisorption with explicit source-branch uncertainty."""
 from pathlib import Path
 import copy,math,json,importlib.util
-PROTOCOL_VERSION='1.0.0';SLUG='antonpaar_autosorb6100';CATALOG_ID='CHEM-115';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.1';SLUG='antonpaar_autosorb6100';CATALOG_ID='CHEM-115';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t4_measure'/SLUG
 class ActionRejected(ValueError):pass
 def number(unit='1',lo=None,hi=None):
@@ -127,7 +127,7 @@ for i in range(3):
 slot('degas.phase',PHASE,'1','两温区脱气程序状态');slot('degas.target_k',number('K',280,730),'K','脱气程序当前温度目标','setpoint')
 for i in range(2):slot('degas'+str(i)+'.temperature_k',number('K',280,730),'K','脱气加热套温度','sensor',c='heater_'+str(i))
 slot('degas.water_kg',number('kg',0),'kg','当前脱气水分真值','process_truth','evaluator');slot('degas.dry_enough',BOOL,'1','达到宿主水分阈值，非经验脱气完成判据')
-cap('sample.backfill',obj({'station':STATION}),obj({'started':BOOL}),['sample_0','sample_1','sample_2'],'杜瓦放下后用有限N2回填至环境压力，step完成后才能拆管',ex={'station':0})
+cap('sample.backfill',obj({'station':STATION}),obj({'started':BOOL}),['sample_0','sample_1','sample_2'],'杜瓦放下后用有限N2回填至环境压力，step完成后才能拆管；升温样品仍在脱附时超出环境压力的气体经放空阀排出，压力回到环境压力且样品余下的吸附量最多再使压力升高10 Pa时才结束',ex={'station':0})
 class AntonpaarAutosorb6100Runtime:
  def __init__(self,instance_id='autosorb6100_01'):
   self.instance_id=instance_id;self.time_s=0.;self.pending=0.;self.revision=0;self.plant=None;self.powered=False;self.motion={k:0. for k,p,a,h,u in MOTIONS};self.temp=308.15;self.target=308.15;self.source=0.;self.source_initial=0.;self.n_initial=0.;self.pumped=0.;self.mass_loaded=0.;self.mass_returned=0.;self.ln2=0.;self.ln2_added=0.;self.boiled=0.;self.heat=0.;self.loss=0.;self.cold_energy=0.;self.phase='idle';self.stage='idle';self.failure='';self.elapsed=0.;self.active=[];self.serial=0;self.operation_id=None;self.records={};self.trace=[];self._principals={};self._owners={};self._requests={};self.stations=[dict(sample=None,method=None,pcal=None,vcal=None,n=0.,ads=0.,p=0.,phase='idle',stage='idle',time=0.,stable=0.,index=0,points=[],baseline=0.,admitted=0.,removed=0.,mass_run=None,bet=bet_fit([])) for _ in range(3)];self.degas=[None]*6;self.dtemps=[298.15]*2;self.dstart=[298.15]*2;self.dheat=[0.]*2;self.dloss=[0.]*2;self.degas_phase='idle';self.dprogram=None;self.dindex=0;self.dhold=0.;self.dtarget=298.15;self.water_loaded=0.;self.water_returned=0.;self.trap=0.
@@ -282,6 +282,11 @@ class AntonpaarAutosorb6100Runtime:
   s=self.stations[i];p=self.pressure(i);sp=self.source*R*self.plant['ambient_k']/self.plant['source_volume_m3'];alpha=self.alpha(i);delta=min(target-p,sp-p)
   if delta<=0:return
   dn=min(self.source,max(0.,self.plant['source_conductance']*(sp-p)*DT),max(0.,delta*alpha),max(0.,(sp-p)/(1/alpha+R*self.plant['ambient_k']/self.plant['source_volume_m3'])));self.source-=dn;s['n']+=dn;s['admitted']+=dn
+ def _vent(self,i,target):
+  # 1.0.1 (2026-10-22): over-pressure relief of the station during the backfill (vent valve to the room); the vented N2 is booked with the pumped
+  # gas (the N2 ledger's outflow); without it a run cancelled at high loading stuck at ~105-110 kPa (BUSY, tube locked) forever
+  s=self.stations[i];p=self.pressure(i);alpha=self.alpha(i)
+  dn=min(max(0.,s['n']-s['ads']),max(0.,self.plant['source_conductance']*(p-target)*DT),max(0.,(p-target)*alpha));s['n']-=dn;s['removed']+=dn;self.pumped+=dn
  def _pump(self,i):
   s=self.stations[i];dn=min(max(0.,s['n']-s['ads']),self.plant['pump_conductance']*self.pressure(i)*DT);s['n']-=dn;s['removed']+=dn;self.pumped+=dn
  def _relax(self,i,pump=0.):
@@ -302,10 +307,12 @@ class AntonpaarAutosorb6100Runtime:
   return max(0.,s['ads']-old)*self.plant['adsorption_heat_j_mol']
  def _station_tick(self,i):
   s=self.stations[i];previous=self.pressure(i);stage=s['stage'];s['time']+=DT
-  if stage=='backfill' and self.powered:self._fill(i,101325.)
+  if stage=='backfill' and self.powered:
+   if self.pressure(i)>101325.+10.:self._vent(i,101325.)   # 1.0.1: a warming sample still releases adsorbate: the excess leaves through the vent
+   else:self._fill(i,101325.)
   elif stage=='dose' and self.phase=='running':self._fill(i,s['method']['relative_pressures'][s['index']]*self.pzero())
   cold=self._relax(i,self.plant['pump_conductance'] if stage in ['evacuate','finish','pump'] else 0.);now=self.indicated(i)
-  if stage=='backfill' and abs(self.pressure(i)-101325.)<10.:s['stage']='idle'
+  if stage=='backfill' and abs(self.pressure(i)-101325.)<10. and s['ads']<=10.*self.alpha(i):s['stage']='idle'   # 1.0.1: ends once what the sample still holds could add at most 10 Pa (stays inside the 30 Pa access window)
   if stage=='pump' and s['n']<1e-10:s['stage']='idle'
   if self.phase=='running' and i in self.active and s['phase']=='running':
    if s['time']>s['method']['point_timeout_s']:self._end('failed','POINT_TIMEOUT');return cold
@@ -362,7 +369,7 @@ class AntonpaarAutosorb6100Session:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  m=export_antonpaar_autosorb6100_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  m=export_antonpaar_autosorb6100_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')

@@ -4,8 +4,8 @@
 
 # ChemLab-Assets
 
-**203 simulation-ready chemistry laboratory instruments**<br>
-part-level geometry · working joints · front-panel menus · executable behaviour models · machine-readable contracts
+**203 simulation-ready chemistry laboratory instruments, for robots and LLM agents**<br>
+part-level geometry · working joints · front-panel menus · executable behaviour models · machine-readable contracts · an agent command line
 
 <a href="https://mbzuai-nlp.github.io/ChemLab-Assets/"><img alt="Website" src="https://img.shields.io/badge/website-project%20page-0a6bc2"></a>
 <a href="https://huggingface.co/datasets/MBZUAI/ChemLab-Assets"><img alt="Hugging Face dataset" src="https://img.shields.io/badge/%F0%9F%A4%97%20dataset-ChemLab--Assets-ffcc4d"></a>
@@ -21,38 +21,140 @@ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI)
 
 </div>
 
+<p align="center"><a href="https://mbzuai-nlp.github.io/ChemLab-Assets/#video"><img src="docs/media/video/chemlab_assets_1_5_0_teaser.webp" width="800" alt="85-second video: the instruments, their joints and front panels, a robot running the lab in Isaac Sim, and an LLM agent running it with chemlab"></a><br><sub>Watch the 85-second video on the <a href="https://mbzuai-nlp.github.io/ChemLab-Assets/#video">project website</a>.</sub></p>
+
 ## News
 
-- **[2026-10-21] v1.4.0:** working front-panel menus for 106 instruments; step through a menu and preview the screen after each step.
-- **[2026-10-17] v1.3.0:** 5 new instruments (203 in total); 44 instruments rebuilt with more realistic 3D models.
-- **[2026-10-16] v1.2:** 103 built-in reactions, now including light- and current-driven ones; richer reference data; instrument request form.
-- **[2026-10-15] v1.1:** real reference data for 17 more instruments, a shared table of 200 compounds, 38 built-in reactions.
-- **[2026-10-14] v1.0:** 198 simulation-ready laboratory instruments.
+- **[2026-10-25] v1.5.0:** chemlab, a command line that lets LLM agents run all 203 instruments; plus labware, storage and reagents.
+- **[2026-10-21] v1.4.0:** front-panel menus for 106 instruments, with a tool that shows the screen after each step.
+- **[2026-10-17] v1.3.0:** 5 new instruments (203 in total) and more detailed 3D models for 44 others.
+- **[2026-10-16] v1.2:** 103 built-in reactions, including light- and current-driven ones; an instrument request form.
+- **[2026-10-15] v1.1:** real reference data for 17 more instruments and a shared table of 200 compounds.
+- **[2026-10-14] v1.0:** first release, 198 simulation-ready laboratory instruments.
 
 ## Overview
 
 Agents that work in a chemistry lab need more than meshes. They need to know that a fume-hood sash travels 673 mm and
 stops at 457 mm, that moving a balance's draft-shield door restarts its stability check, and which quantities a policy
-may observe and which are hidden ground truth kept for evaluation. ChemLab-Assets ships that knowledge with the geometry.
+may observe and which are hidden ground truth kept for evaluation. ChemLab-Assets ships that knowledge with the geometry,
+for robots that operate the instruments by hand and for LLM agents that run them from a command line.
 
 Each asset is one specific commercial instrument, chosen from a survey of 200 instruments and modules used in university
 chemistry teaching and research, and built from published brochures, manuals and papers. The models reproduce documented
-behaviour; they are not manufacturer CAD and have not been calibrated against physical units.
+behaviour.
 
-This repository holds the code (runtimes, tests, examples, contract validator), the catalog, the project website (`docs/`) and the 3D explorer (`explorer/`). The models and data (about 1.9 GB) live in the [Hugging Face dataset](https://huggingface.co/datasets/MBZUAI/ChemLab-Assets); `python tools/download_assets.py` fetches them into `assets/`.
+This repository holds the code (runtimes, tests, examples, contract validator, the `chemlab` command line), the catalog, the project website (`docs/`) and the 3D explorer (`explorer/`). The models and data (about 1.9 GB) live in the [Hugging Face dataset](https://huggingface.co/datasets/MBZUAI/ChemLab-Assets); `python tools/download_assets.py` fetches them into `assets/`.
+
+## Two ways to use ChemLab
+
+Each instrument runs on one behaviour model. A robot can work it by hand, or an LLM agent can work it from a shell, and
+the instrument behaves the same either way.
+
+| | Embodied mode | Agentic mode |
+|---|---|---|
+| **Who acts** | a robot in a 3D simulator | an LLM agent in a shell |
+| **How it acts** | opens doors and lids, presses keys, turns knobs, taps touchscreens, grasps bottles and plates | `chemlab` commands |
+| **What it sees** | camera images, including the instrument screens | text replies, readings and screenshots of the screens |
+| **What you need** | a simulator: Isaac Sim / Isaac Lab, or any URDF loader | Python on Linux, no GPU |
+
+### Embodied mode: robots operate the instruments
+
+Every instrument is a 3D model with working joints (doors, lids, sashes, keys, knobs), grasp and place points, and
+colliders. On the 106 instruments with a front panel, the screen is drawn by the instrument's own menu engine, so a
+robot sees the result of what it pressed. All 203 instruments were converted to USD and run in NVIDIA Isaac Sim through
+the Matterix framework, where a robot arm pressed a key or tapped the screen on 97 front panels.
+
+<p align="center"><img src="docs/media/figs/joints_motion.webp" width="820" alt="Four instruments at the start and end of a joint move: the Esco fume-hood sash raised, the IKA RV 10 lift raised with its glassware, the Rigaku XtaLAB Synergy-R doors opened and its goniometer turned, and the Quantos doors opened"></p>
+<p align="center"><sub>Joints of the shipped models, start (top) and end (bottom): (1) Esco fume-hood sash up 450 mm; (2) IKA RV 10 lift up
+140 mm, glassware included; (3) Rigaku XtaLAB Synergy-R doors open, goniometer turned (omega 69°, kappa −63°, phi 180°)
+and detector moved; (4) Quantos front and side doors open.</sub></p>
+
+New in 1.5.0, the lab has its supplies: 62 models of specific products, from DURAN screw-cap bottles, vials, tubes,
+well plates and Opentrons tip racks to a reagent shelf, safety cabinets, a refrigerator and a desiccator. Caps are
+separate parts, and every container records its grasp points and inside volume. A table of 239 substances gives their
+hazard codes and storage classes.
+
+<p align="center"><img src="docs/media/figs/isaac_storage_lab.webp" width="820" alt="The storage room of our Isaac Sim lab: safety cabinets and refrigerators, the robot bench with a reagent shelf, the robot at the shelf, and gas cylinders"></p>
+<p align="center"><sub>The storage room of our Isaac Sim lab, furnished with these models: (1) safety cabinets and refrigerators; (2) the robot's
+bench with the reagent shelf; (3) the robot reaching into the shelf; (4) gas cylinders by a cylinder stand.</sub></p>
+
+The instruments' behaviour models run inside the scene, so the balance reading, the hotplate temperature, the reaction
+and the powder dose all come from them. Two robot workflows in our Isaac Sim lab:
+
+<p align="center"><img src="docs/media/figs/isaac_workflow_esterification.webp" width="820" alt="Four key frames of a robot esterification in Isaac Sim: acetic acid (amber) pouring onto ethanol (blue) in the reaction beaker, the balance reading 191.8 g, the beaker on the IKA hotplate, and the hotplate after heating at 300 rpm"></p>
+
+**Esterification.** (1) The robot pours 50 mL of ethanol and then 40 mL of acetic acid into the reaction beaker; 89.3 mL
+arrive. The liquids are simulated as particles and tinted so they show up (ethanol blue, acetic acid amber; both are
+really colourless). (2) The OHAUS balance reads 191.8 g. (3) The robot sets the beaker on the IKA hotplate. (4) The
+hotplate heats with a 70 °C set point and stirs at 300 rpm; after 200 s the liquid is at 77 °C and 1.91 g of ethyl
+acetate has formed.
+
+<p align="center"><img src="docs/media/figs/isaac_workflow_quantos.webp" width="820" alt="Four key frames of robot powder dosing with the Quantos in Isaac Sim: the dosing head going into its holder, a vial on the weighing pan, the finished dose, and the vial back in the rack"></p>
+
+**Powder dosing with the Quantos.** (1) The robot slides a potassium bromide dosing head into the Quantos. (2) It sets an
+empty vial on the weighing pan. (3) The Quantos closes its doors and doses 50.000 mg, exactly the target. (4) The robot
+puts the vial back in the rack.
+
+The robot scenes were built with Matterix, which is not part of this release. ChemLab-Assets ships the instruments,
+labware and behaviour models they load.
+
+### Agentic mode: chemlab, a command line for LLM agents
+
+`chemlab` puts the whole lab behind one shell command. An agent lists the instruments, reads their help, sets them up,
+runs them and reads the results, as a person would at the bench. Time in the lab moves only when the agent waits.
+
+<p align="center"><img src="docs/media/figs/chemlab_tour.webp" width="820" alt="A chemlab session: list the lab, set a hotplate to 80 °C, start heating, wait 600 s, read 80.2 °C, and an out-of-range set point refused with a fix"></p>
+
+* **Plain commands for each kind of instrument.** `chemlab run` gives each of 30 instrument classes (balances, temperature
+  control, pipetting, chromatography and more) one set of verbs, with units, range checks and named positions.
+  `chemlab call` reaches every capability in an instrument's contract.
+* **Errors that say what to do.** Each error says what is wrong, how to fix it and whether the instrument changed.
+* **A stocked lab.** The default lab starts with all 203 instruments ready, 97 containers on shelves and in cabinets
+  (solvents, buffers, certified standards, plates, gas cylinders) and 189 items already loaded in the instruments.
+  `chemlab list --inventory` shows what is where.
+* **Ready for evaluation.** An agent sees only what the instrument shows; true values are kept for evaluators. Its shell
+  runs in a sandbox that reaches nothing but `chemlab`. The basic commands (list, describe, call, read, wait, screen and
+  more) also work as MCP tools.
+
+**A complete task.** 276 tasks come with automatic checkers. Each gives the agent an instruction in plain words; the checker
+then reads the instrument's own state, so writing the right answer is not enough. Below, an agent verifies a water-activity
+meter against a certified standard. The meter is still warming up, nothing has been measured, and the chamber lever is
+open. The agent fixes each problem from the error message alone.
+
+<p align="center"><img src="docs/media/figs/chemlab_task.webp" width="820" alt="A complete chemlab task: the AQUALAB 4TE verification, three refused commands each fixed from the error message, the standard measured at aw 0.8821, verification passed, and the checker's PASS"></p>
+
+**Screens as images.** An agent can also work the front panel like a person, with keys and knobs only. A gesture reports
+only whether the instrument accepted it, so the agent looks at the display to see what happened. `chemlab screen` saves
+the display as a PNG for a vision-language model to read.
+
+<p align="center"><img src="docs/media/figs/chemlab_panel.webp" width="820" alt="A chemlab session that sets an IKA hotplate by turning its knobs, then saves its LCD as plate.png showing 80.2 °C and 240 rpm"></p>
+
+**Try it.**
+
+```bash
+cd ChemLab-Assets/chemlab
+python -m chemlab.gserve --only ika_plate_rctdigital mt_xpr204e --shell    # a sandboxed shell with two instruments
+python -m chemlab.tasks list                                               # the 276 tasks
+python -m chemlab.tasks shell pm04_recover_aw_verify                       # do a task yourself; the checker runs when you exit
+python -m chemlab.tasks run pm04_recover_aw_verify --solution my_agent.sh  # or score your agent's commands
+```
+
+The full command reference is in [`chemlab/README.md`](chemlab/README.md).
 
 ## At a glance
 
 | | |
 |---|---|
 | **Instruments** | 203 commercial models from 119 manufacturers, in 16 capability domains |
-| **Geometry** | GLB, URDF with primitive collision proxies, 15,323 per-part OBJ meshes, Blender sources |
-| **Articulation** | 1,327 joints (891 prismatic, 405 revolute, 31 continuous): doors, sashes, lids, keys and knobs |
-| **Contracts** | 15,299 components, 7,769 typed state slots, 6,823 capabilities with JSON-Schema arguments and declared errors |
-| **Interfaces** | 663 readouts (displays, LEDs) and 2,547 interface points (place, grasp, ports) |
+| **Geometry** | GLB, URDF with primitive collision proxies, 15,326 per-part OBJ meshes, Blender sources |
+| **Articulation** | 1,330 joints (892 prismatic, 407 revolute, 31 continuous): doors, sashes, lids, keys and knobs |
+| **Contracts** | 15,302 components, 7,769 typed state slots, 6,823 capabilities with JSON-Schema arguments and declared errors |
+| **Interfaces** | 663 readouts (displays, LEDs) and 2,548 interface points (place, grasp, ports) |
 | **Behaviour** | a Python runtime per instrument: time-stepped process models behind `describe` / `read` / `invoke` / `poll`, agent and evaluator views, seeded noise |
 | **Front panels** | 106 instruments with working keys, knobs, touchscreens and menus; `examples/preview_menu.py` shows the screen after each step |
-| **Provenance** | 3,615 cited sources; raw third-party documents are not redistributed |
+| **Agent interface** | `chemlab`: a command line for LLM agents over all 203 instruments, with plain verbs for 30 instrument classes, a sandbox, MCP tools and 276 tasks with checkers |
+| **Lab supplies** | 62 labware and furniture models of specific products, 239 substances with hazard and storage data, a default inventory of 97 stored containers and 189 items loaded in instruments |
+| **Provenance** | 3,617 cited sources; raw third-party documents are not redistributed |
 | **Simulation** | all 203 converted to USD and stepped in NVIDIA Isaac Lab through the Matterix framework |
 
 ## Gallery
@@ -61,6 +163,9 @@ This repository holds the code (runtimes, tests, examples, contract validator), 
 <tr><td align="center" width="25%"><img src="docs/media/thumb/esco_efa5uduvw.webp" width="190" alt="Chemical fume hood"><br><sub><b>Chemical fume hood</b><br>Esco Lifesciences Frontier Acela EFA-5UDUVW-9</sub></td><td align="center" width="25%"><img src="docs/media/thumb/agilent_7890b_ssl_fid.webp" width="190" alt="Gas chromatograph (S/SL inlet + FID)"><br><sub><b>Gas chromatograph (S/SL inlet + FID)</b><br>Agilent 7890B</sub></td><td align="center" width="25%"><img src="docs/media/thumb/mt_xpr204e.webp" width="190" alt="Analytical balance"><br><sub><b>Analytical balance</b><br>METTLER TOLEDO XPR204E</sub></td><td align="center" width="25%"><img src="docs/media/thumb/brooks_preciseflex_400.webp" width="190" alt="Lab sample-transfer robot arm"><br><sub><b>Lab sample-transfer robot arm</b><br>Brooks Automation PreciseFlex 400</sub></td></tr>
 <tr><td align="center" width="25%"><img src="docs/media/thumb/ika_rv10_digital_v.webp" width="190" alt="Rotary evaporator"><br><sub><b>Rotary evaporator</b><br>IKA RV 10 digital V</sub></td><td align="center" width="25%"><img src="docs/media/thumb/thermo_orbitrapexploris.webp" width="190" alt="High-resolution Orbitrap mass spectrometer"><br><sub><b>High-resolution Orbitrap mass spectrometer</b><br>Thermo Fisher Scientific Orbitrap Exploris 120</sub></td><td align="center" width="25%"><img src="docs/media/thumb/jeol_jsmit200.webp" width="190" alt="Scanning electron microscope"><br><sub><b>Scanning electron microscope</b><br>JEOL JSM-IT200 LA</sub></td><td align="center" width="25%"><img src="docs/media/thumb/buchi_lyovapor_l250_pro.webp" width="190" alt="Freeze dryer"><br><sub><b>Freeze dryer</b><br>BUCHI Lyovapor L-250 Pro</sub></td></tr>
 <tr><td align="center" width="25%"><img src="docs/media/thumb/opentrons_flex_single_5_1000ul.webp" width="190" alt="Automated liquid-handling robot"><br><sub><b>Automated liquid-handling robot</b><br>Opentrons Flex (1-channel 5–1000 µL)</sub></td><td align="center" width="25%"><img src="docs/media/thumb/magritek_spinsolve80.webp" width="190" alt="Benchtop NMR spectrometer"><br><sub><b>Benchtop NMR spectrometer</b><br>Magritek Spinsolve 80 Carbon</sub></td><td align="center" width="25%"><img src="docs/media/thumb/inert_purelab_he_2gb.webp" width="190" alt="Inert-atmosphere glovebox"><br><sub><b>Inert-atmosphere glovebox</b><br>Inert PureLab HE 2GB</sub></td><td align="center" width="25%"><img src="docs/media/thumb/park_nx10.webp" width="190" alt="Atomic force microscope"><br><sub><b>Atomic force microscope</b><br>Park Systems NX10</sub></td></tr>
+<tr><td align="center" width="25%"><img src="docs/media/thumb/rigaku_xtalabsynergy.webp" width="190" alt="Single-crystal X-ray diffractometer"><br><sub><b>Single-crystal X-ray diffractometer</b><br>Rigaku Oxford Diffraction XtaLAB Synergy-R</sub></td><td align="center" width="25%"><img src="docs/media/thumb/mt_quantos_q2_xpe206dr.webp" width="190" alt="Automated powder dosing system"><br><sub><b>Automated powder dosing system</b><br>METTLER TOLEDO Quantos Q2 + XPE206DR</sub></td><td align="center" width="25%"><img src="docs/media/thumb/jeol_jem1400flash.webp" width="190" alt="Transmission electron microscope"><br><sub><b>Transmission electron microscope</b><br>JEOL JEM-1400Flash</sub></td><td align="center" width="25%"><img src="docs/media/thumb/bd_facsariaiii.webp" width="190" alt="Flow cytometer & cell sorter"><br><sub><b>Flow cytometer & cell sorter</b><br>BD Biosciences FACSAria III</sub></td></tr>
+<tr><td align="center" width="25%"><img src="docs/media/thumb/antonpaar_monowave400.webp" width="190" alt="Microwave synthesis reactor"><br><sub><b>Microwave synthesis reactor</b><br>Anton Paar Monowave 400</sub></td><td align="center" width="25%"><img src="docs/media/thumb/agilent_gc8890b.webp" width="190" alt="Gas chromatograph"><br><sub><b>Gas chromatograph</b><br>Agilent 8890B GC</sub></td><td align="center" width="25%"><img src="docs/media/thumb/evident_bx53p.webp" width="190" alt="Polarizing microscope"><br><sub><b>Polarizing microscope</b><br>Evident / Olympus BX53-P</sub></td><td align="center" width="25%"><img src="docs/media/thumb/kratos_axissupra.webp" width="190" alt="X-ray photoelectron spectrometer"><br><sub><b>X-ray photoelectron spectrometer</b><br>Kratos / Shimadzu AXIS Supra+</sub></td></tr>
+<tr><td align="center" width="25%"><img src="docs/media/thumb/teledyne_atomxxyz.webp" width="190" alt="Purge-and-trap autosampler"><br><sub><b>Purge-and-trap autosampler</b><br>Teledyne Tekmar Atomx XYZ</sub></td><td align="center" width="25%"><img src="docs/media/thumb/antonpaar_saxspace.webp" width="190" alt="Small-angle X-ray scattering system"><br><sub><b>Small-angle X-ray scattering system</b><br>Anton Paar SAXSpace</sub></td><td align="center" width="25%"><img src="docs/media/thumb/cytiva_nanoassemblrignite.webp" width="190" alt="Microfluidic nanoparticle formulation system"><br><sub><b>Microfluidic nanoparticle formulation system</b><br>Cytiva / Precision NanoSystems NanoAssemblr Ignite</sub></td><td align="center" width="25%"><img src="docs/media/thumb/eppendorf_cryocubef570n.webp" width="190" alt="Ultra-low temperature freezer"><br><sub><b>Ultra-low temperature freezer</b><br>Eppendorf CryoCube F570n</sub></td></tr>
 </table>
 
 Browse all 203 in 3D, with joint sliders and part-by-part annotations, in the [3D explorer](https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer).
@@ -94,12 +199,11 @@ to see what happened. `panel.capture` returns the image of a display, as a camer
 `panel_ui.json` describes its screens and menus and cites the manufacturer's documents for each of them.
 
 **Checked in Isaac Sim.** All 106 front panels were checked in Isaac Sim through the Matterix framework: the rendered
-screen matches the menu engine; keys, knobs and touchscreens drive the menu in each simulated copy separately; and a robot
+screen matches the menu engine, and keys, knobs and touchscreens drive the menu in each simulated copy separately. A robot
 arm pressed a key or tapped the screen on 97 of them.
 
 <table>
 <tr><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_aqualab_screen.webp" width="380" alt="The AquaLab 4TE screen rendered in Isaac Sim, rectified, and drawn by the menu engine"><br><sub>AquaLab 4TE: the screen rendered in Isaac Sim (top), rectified (bottom left) and drawn by the menu engine (bottom right).</sub></td><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_xpr204e_screen.webp" width="380" alt="The XPR204E terminal rendered in Isaac Sim next to the menu engine's image"><br><sub>Mettler Toledo XPR204E terminal: the same comparison on a touchscreen.</sub></td></tr>
-<tr><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_julabo_press.webp" width="380" alt="A robot arm pressing a key of the JULABO CORIO CD-200F in Isaac Sim"><br><sub>A robot arm presses a key on the JULABO CORIO CD-200F.</sub></td><td align="center" width="50%"><img src="docs/media/figs/isaac_panel_xpr204e_touch.webp" width="380" alt="A robot arm tapping the XPR204E touchscreen in Isaac Sim"><br><sub>A robot arm taps the XPR204E touchscreen.</sub></td></tr>
 </table>
 
 ## Instruments by domain
@@ -301,7 +405,7 @@ arm pressed a key or tapped the screen on 97 of them.
 | CHEM-171 | Respirometric BOD system | WTW (Xylem) | OxiTop-i | Biochemical & Wet-Chemistry Assays | 30 | 46 | 39 |
 | CHEM-172 | Segmented continuous-flow analyzer | SEAL Analytical | AA500 | Biochemical & Wet-Chemistry Assays | 11 | 29 | 40 |
 | CHEM-173 | Multi-mode microplate reader | BMG LABTECH | CLARIOstar Plus | Biochemical & Wet-Chemistry Assays | 5 | 22 | 37 |
-| CHEM-174 | Automated powder dosing system | METTLER TOLEDO | Quantos Q2 + XPE206DR | Automation & Gas/Liquid Supply | 3 | 51 | 43 |
+| CHEM-174 | Automated powder dosing system | METTLER TOLEDO | Quantos Q2 + XPE206DR | Automation & Gas/Liquid Supply | 6 | 51 | 43 |
 | CHEM-175 | Automated liquid-handling robot | Opentrons | Flex (1-channel 5–1000 µL) | Automation & Gas/Liquid Supply | 4 | 33 | 41 |
 | CHEM-176 | Automated microplate heat sealer | Azenta Life Sciences | Automated Roll Heat Sealer (a4S) | Automation & Gas/Liquid Supply | 1 | 35 | 29 |
 | CHEM-177 | Automated tube decapper/recapper | Azenta Life Sciences | IntelliXcap S1 46-0001 | Automation & Gas/Liquid Supply | 5 | 16 | 11 |
@@ -400,6 +504,8 @@ hood.show()
 For Isaac Lab, convert `model.urdf` with the Isaac Lab URDF importer. GLB files keep the Z-up asset frame; rotate −90° about
 X in Y-up viewers (the catalog's `glb_up` column says which files need it).
 
+**4. Run the lab as an agent.** Start `chemlab` as shown in [Agentic mode](#agentic-mode-chemlab-a-command-line-for-llm-agents).
+
 ## What an asset contains
 
 ```text
@@ -442,21 +548,11 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
 * **Trademarks.** Product and company names identify the modelled instrument only. This project is not affiliated
   with or endorsed by any manufacturer.
 * **Limits.** 787 capabilities are declared but marked unsupported. Contracts do not claim robot-contact or
-  real-hardware validation for any capability; the robot presses shown above were made in simulation. Treat the assets as documented, testable behaviour models for embodied-AI research, not
-  as certified digital twins.
+  real-hardware validation for any capability; the robot actions shown above were made in simulation, and `chemlab` drives
+  the behaviour models, not real instruments. Treat the assets as documented, testable behaviour models for embodied-AI
+  and agent research, not as certified digital twins.
 * **Build records.** Contracts list the files of the original build (validation logs, review records, cached source
   documents). Those are not part of the release; `release_manifest.json` says which artifacts ship.
-
-## To-Do List
-
-- [x] Real reference data for every instrument that measures samples (v1.1)
-- [x] Shared compound table linked to the instruments (v1.1)
-- [x] About 100 built-in chemical reactions, including light- and current-driven ones (v1.2)
-- [x] Working front-panel menus for the 106 instruments that have a menu on the device (v1.4.0)
-- [ ] At least 50 reference compounds for the FVS-6000 VCD spectrometer (40 now)
-- [ ] Calibrated reaction rates
-- [ ] Data recorded on the exact instrument models
-- [ ] Validation with real robots and hardware
 
 ## Citation
 
@@ -468,6 +564,6 @@ validator is `skills/chemistry-lab-assets/scripts/asset_tool.py`.
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.4.0}
+  note         = {Dataset, release 1.5.0}
 }
 ```

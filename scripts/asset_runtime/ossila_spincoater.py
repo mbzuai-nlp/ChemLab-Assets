@@ -4,7 +4,7 @@ import copy, importlib.util, json, math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-SLUG='ossila_spincoater'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-053'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.2.2'
+SLUG='ossila_spincoater'; ASSET_TYPE_ID='instrument.'+SLUG; CATALOG_ID='CHEM-053'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.2.3'
 ASSET_DIR=ROOT/'assets/expansion_batch04/t5_automation/ossila_spincoater'
 TEMPLATE_REL='assets/reactions/ossila_spincoater_film_library/templates.json'
 RPM=2*math.pi/60; BOOL={'type':'boolean'}; TEXT={'type':'string'}
@@ -246,7 +246,7 @@ class OssilaSpincoaterRuntime:
             out=a.copy()
         elif capability=='acquisition.start':
             if not all([self.plant,self.method,self.sample_present,self.powered]) or self.lid_angle>.001 or self.lid_target>.001 or self.speed>1e-12 or self.phase in ('running','stopping'):raise ActionRejected('PRECONDITION_FAILED')
-            self.phase='running';self.elapsed_s=0.;self.step_elapsed=0.;self.step_index=1;self.target_speed=self.method['steps'][0]['speed_rad_s'];self._operation_count+=1;self.operation_id=self.instance_id+':spin:'+str(self._operation_count);out=dict(phase=self.phase,operation_id=self.operation_id)
+            self._archive_op();self.phase='running';self.elapsed_s=0.;self.step_elapsed=0.;self.step_index=1;self.target_speed=self.method['steps'][0]['speed_rad_s'];self._operation_count+=1;self.operation_id=self.instance_id+':spin:'+str(self._operation_count);out=dict(phase=self.phase,operation_id=self.operation_id)
         elif capability=='acquisition.stop':
             if self._foreign_run():raise ActionRejected('ACCESS_DENIED')
             self._stop();out={'phase':self.phase}
@@ -278,6 +278,11 @@ class OssilaSpincoaterRuntime:
             expelled=self.film[i]*(1-remaining);self.film[i]-=expelled;self.waste[i]+=expelled
         pressure=self._reference(s['solvent_id'],self.plant['temperature_k'])['vapor_pressure_pa'];mw=self.templates[s['solvent_id']]['molar_mass_kg_mol'];f=self.film[0]/max(1e-30,sum(self.film))
         rate=self.plant['mass_transfer_m_s']*area*pressure*mw/(8.314462618*self.plant['temperature_k'])*f;ev=min(self.film[0],rate*dt);self.film[0]-=ev;self.evaporated[0]+=ev
+    def _archive_op(self):
+        # 2026-10-22 (chemlab findings B D4): the final record (status and coating.measure) of a finished operation is kept, so an older operation of a
+        # caller stays pollable after a newer one started (poll used to accept only the latest operation)
+        op=self.operation_id;arch=self.__dict__.setdefault('_op_final',{})
+        if op and self.phase not in ('running','stopping') and op not in arch:arch[op]=dict(status=self.phase,result=self.invoke('coating.measure'))
     def step(self,dt_s):
         validate(number('s',1e-12,1000),dt_s);remaining=float(dt_s)
         while remaining>1e-12:
@@ -291,7 +296,7 @@ class OssilaSpincoaterRuntime:
                     if self.step_index==len(self.method['steps']):self._stop('succeeded')
                     else:self.step_index+=1;self.step_elapsed=0.;self.target_speed=self.method['steps'][self.step_index-1]['speed_rad_s']
             elif self.phase=='stopping' and self.speed<=1e-12:self.speed=0.;self.phase=self.stop_result
-            self.time_s+=dt;remaining-=dt
+            self.time_s+=dt;remaining-=dt;self._archive_op()
         self.revision+=1;return self.read('evaluator')
 
 class OssilaSpincoaterSession:
@@ -326,6 +331,7 @@ class OssilaSpincoaterSession:
             before=h.operation_id;h._caller=self._principal
             try:result=h.invoke(capability_id,**arguments)
             finally:h._caller=None
+            if ALL_CAPS[capability_id][4]!='query':h._archive_op()
             op=result.get('operation_id')
             if op:h._owners[op]=self._principal
             elif capability_id in PANEL_CAPS and h.operation_id and h.operation_id!=before:h._owners[h.operation_id]=self._principal   # a run started by the START key belongs to the caller
@@ -337,10 +343,16 @@ class OssilaSpincoaterSession:
         cap,arg=SLOTS[state_id][5];return self.invoke(instance_id=instance_id,capability_id=cap,arguments={arg:value},request_id=request_id)
     def poll(self,operation_id):
         h=self._host
-        if operation_id!=h.operation_id or h._owners.get(operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
+        if h._owners.get(operation_id)!=self._principal:raise ActionRejected('ACCESS_DENIED')
+        if operation_id!=h.operation_id:                                    # an older operation of this caller: its final record (2026-10-22)
+            rec=h.__dict__.get('_op_final',{}).get(operation_id)
+            if rec is None:raise ActionRejected('ACCESS_DENIED')
+            return dict(operation_id=operation_id,status=rec['status'],result=copy.deepcopy(rec['result']))
         return dict(operation_id=operation_id,status=h.phase,result=h.invoke('coating.measure'))
     def cancel(self,operation_id,request_id):
-        self.poll(operation_id);return self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
+        r=self.poll(operation_id)
+        if operation_id!=self._host.operation_id:return r                 # finished before a newer operation started: nothing to cancel
+        return self.invoke(instance_id=self._host.instance_id,capability_id='acquisition.stop',arguments={},request_id=request_id)
 
 def export_ossila_spincoater_contract_metadata():
     caps={};slots={}

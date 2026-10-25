@@ -167,6 +167,14 @@ class ToclTests(unittest.TestCase):
   h.describe();self.assertEqual(before,repr(h.debug_snapshot()));self.assertEqual(json.loads(h.invoke('result.export',format='json')['content']),h._result());self.assertIn('peak_json',h.invoke('result.export',format='csv')['content'])
  def test_public_agent_cannot_read_source_identity_or_warehouse(self):
   h=ready();load(h);s=h.session();d=s.describe(instance_id=h.instance_id);self.assertNotIn('sample.load',d['capabilities']);self.assertNotIn('truth.ledger',d['state_slots']);q=s.invoke(instance_id=h.instance_id,capability_id='product.read',arguments={},request_id='deny');self.assertEqual(q['error']['code'],'ACCESS_DENIED');self.assertNotIn('shimadzu_pfos_1',json.dumps(s.read(instance_id=h.instance_id)))
+ def test_agent_read_contains_only_contract_agent_slots(self):
+  # 1.3.1: the agent read returned the evaluator slot fault.injected (it tells the agent which faults were injected)
+  c=json.loads((ROOT/'assets/expansion_batch03/t3_analytical/shimadzu_tocl/asset.contract.json').read_text());agent={k for k,v in c['state_slots'].items() if v['visibility']=='agent'};hidden=set(c['state_slots'])-agent
+  self.assertIn('fault.injected',hidden);self.assertIn('truth.ledger',hidden)
+  h=ready();load(h);h.invoke('fault.inject',code='main_fan_stop');s=h.session()
+  for obs in [set(h.read('agent')),set(s.read(instance_id=h.instance_id)['observations']),set(s.describe(instance_id=h.instance_id)['state_slots'])]:self.assertLessEqual(obs,agent);self.assertFalse(obs&hidden)
+  with self.assertRaisesRegex(r.ActionRejected,'ACCESS_DENIED'):s.read(instance_id=h.instance_id,state_ids=['fault.injected'])
+  h.register_principal('judge','evaluator');e=h.session('judge').read(instance_id=h.instance_id)['observations'];self.assertEqual(e['fault.injected']['value'],['main_fan_stop']);self.assertIn('truth.ledger',e)
  def test_trusted_session_write_uses_power_interlock(self):
   h=r.ShimadzuToclRuntime(library=LIB);h.register_principal('host','evaluator');s=h.session('host');self.assertEqual(s.invoke(instance_id=h.instance_id,capability_id='plant.configure',arguments=r.PLANT_EXAMPLE,request_id='plant')['status'],'succeeded');self.assertIn('truth.ledger',s.read(instance_id=h.instance_id)['observations']);self.assertEqual(s.write(instance_id=h.instance_id,state_id='power.enabled',value=True,request_id='power')['status'],'succeeded')
  def test_request_replay_and_conflict_do_not_toggle_twice(self):

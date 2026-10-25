@@ -654,7 +654,8 @@ class PanelRules(unittest.TestCase):
         for k in rt.SIM_CAPS:
             self.assertEqual(c['capabilities'][k]['visibility'], 'evaluator')
         self.assertNotIn('理想显示偏置', c['capabilities']['thermal.set_offset']['function_zh'])
-        self.assertEqual(sorted(f['id'] for f in c['extensions']['chemistry_lab.fixes']), ['crash_warning_fault', 'hotplate_offset_controls', 'panel_caller_rules',
+        self.assertEqual(sorted(f['id'] for f in c['extensions']['chemistry_lab.fixes']), ['crash_warning_fault', 'hotplate_offset_controls',
+                                                                                             'older_operations_pollable', 'panel_caller_rules',
                                                                                              'sweep_hard_power_switch'])
         for cid in ('led_coating', 'led_heater', 'gauge_keys_left', 'gauge_keys_right'):
             self.assertEqual(c['components'][cid]['geometry_status'], 'absent')

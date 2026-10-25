@@ -303,4 +303,22 @@ class ThinLibraryRound20261015(unittest.TestCase):
   new=[r for r in self.C.values() if r['source'] in ('din38409_59','kinani2017','customs1985')];self.assertEqual(len({r['substance_identity'] for r in new if r['source']=='kinani2017'}),44)
   for r in new:self.assertIn(r['license_flag'],['public_download_no_licence_stated_numbers_only','hal_authorisation_v1_no_open_licence_numbers_only','japan_customs_site_terms_reuse_with_attribution']);self.assertEqual(r['accessed'],'2026-10-15');self.assertEqual(r['evidence']['value_evidence'],'measured_literature')
 def _load_actual_library():return json.loads((ROOT/TEMPLATE_REL).read_text())
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22): with the contract example integration of 12 s the AOX endpoint of the library standards was not
+ resolved (INVALID_STANDARD_OBSERVATION at calibration.fit); the example is 60 s now."""
+ def fit(self,integration):
+  r=JenaMultixRuntime('u');r.invoke('plant.configure',**(PLANT_EXAMPLE|dict(optional_pox_installed=True)))
+  r.invoke('method.configure',**dict(METHOD_CONTRACT_EXAMPLE,integration_s=integration))
+  r.invoke('cover.set',door='chlorine',opened=True);r.invoke('cell.prepare',cell_type='sensitive');r.invoke('cover.set',door='chlorine',opened=False);r.invoke('power.set',enabled=True);r.invoke('gas.set',enabled=True);r.step(.6)
+  def meas(kind,fr):
+   if r.sample:r.invoke('sample.unload',recipient_id='returned')
+   r.invoke('product.drain',recipient_id='waste');r.invoke('sample.load',**(SAMPLE_EXAMPLE|dict(template_id='' if kind=='blank' else SAMPLE_EXAMPLE['template_id'],kind=kind,reference_fraction=fr)))
+   r.invoke('measurement.start');r.step(r.method['integration_s']);return r.invoke('result.read')
+  meas('blank',1.);ids=[meas('standard',f)['record_id'] for f in (.25,.5,1.)]
+  return r.invoke('calibration.fit',curve_id='observed',record_ids=ids)
+ def test_contract_example_integration_resolves_the_standards(self):
+  self.assertEqual(METHOD_CONTRACT_EXAMPLE['integration_s'],60.)
+  self.assertEqual(export_jena_multix_contract_metadata()['capabilities']['method.configure']['example_arguments'],METHOD_CONTRACT_EXAMPLE)
+  self.assertGreater(self.fit(60.)['r_squared'],.999)
+  with self.assertRaisesRegex(ActionRejected,'INVALID_STANDARD_OBSERVATION'):self.fit(12.)
 if __name__=='__main__':unittest.main()

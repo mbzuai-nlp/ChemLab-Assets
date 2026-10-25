@@ -234,6 +234,53 @@ def thermo(sid: str) -> dict:
     return out
 
 
+ALKANE_SERIES_RANGE = (8, 20)            # n-alkanes whose NIST tables bracket 373 K (the C8-C20 retention-index standard)
+# 2026-10-23 D-1: a compound's own pick further than 3 kJ/mol from the fit was replaced by it; D-2: the 105-point series fit is
+# better evidence than the single closest entry, so every C8-C20 n-alkane uses it (tolerance 0)
+ALKANE_SERIES_TOLERANCE_KJ = 0.0
+
+
+def alkane_dvap_series() -> dict | None:
+    """Homologous-series fit of the NIST WebBook enthalpies of vaporization of the C8-C20 n-alkanes (2026-10-23).
+
+    Per-compound picks (choose_delta_vap: the entry closest to 373 K) are noisy for the heavy alkanes (C17: one 304 K value;
+    C20: 110 kJ/mol at 368 K beside 89.6 at 378 K), and the model uses delta_h for the temperature dependence of k, so an
+    outlier swaps the elution order in a temperature program.  All entries 300-480 K of the C8-C20 n-alkanes in the list are
+    fitted with dvapH = a + b n + c (T - 373) + d n (T - 373) by least squares with iterative 3 x MAD outlier rejection;
+    the series value of n is a + b n (at 373 K)."""
+    rows = []
+    for sid, _, _, _, cls in COMPOUNDS:
+        props_file = RAW / sid / "pubchem_props.json"
+        if cls != "alkane" or not props_file.exists():
+            continue
+        try:
+            smiles = (lambda p: p.get("SMILES") or p.get("ConnectivitySMILES"))(json.loads(props_file.read_text())["PropertyTable"]["Properties"][0])
+        except Exception:
+            continue
+        if not smiles or not re.fullmatch(r"C+", smiles) or not ALKANE_SERIES_RANGE[0] <= len(smiles) <= ALKANE_SERIES_RANGE[1]:
+            continue
+        for v in thermo(sid).get("enthalpy_of_vaporization") or []:
+            if v["T_K"] and 300 <= v["T_K"] <= 480:
+                rows.append((len(smiles), v["T_K"], v["delta_vap_H_kJ_mol"]))
+    if len(rows) < 8:
+        return None
+    keep = np.array(rows, dtype=float)
+    dropped = []
+    for _ in range(10):
+        A = np.c_[np.ones(len(keep)), keep[:, 0], keep[:, 1] - 373.0, keep[:, 0] * (keep[:, 1] - 373.0)]
+        coef = np.linalg.lstsq(A, keep[:, 2], rcond=None)[0]
+        res = keep[:, 2] - A @ coef
+        mad = float(np.median(np.abs(res - np.median(res)))) * 1.4826
+        bad = np.abs(res) > 3 * mad
+        if not bad.any():
+            break
+        dropped += keep[bad].tolist()
+        keep = keep[~bad]
+    return {"coefficients_kJ_mol": [round(float(x), 5) for x in coef], "points": len(rows), "points_kept": len(keep), "dropped": len(dropped),
+            "range_n": list(ALKANE_SERIES_RANGE), "reference_temperature_K": 373.0,
+            "value": lambda n: float(coef[0] + coef[1] * n)}
+
+
 def choose_delta_vap(th: dict) -> tuple[float | None, str]:
     vap = th.get("enthalpy_of_vaporization") or []
     with_T = [v for v in vap if v["T_K"] and 300 <= v["T_K"] <= 480]
@@ -473,6 +520,17 @@ def main():
     m = GC_MODEL["column"]
     core = m["inner_diameter_m"] - 2 * m["film_thickness_m"]
     t0 = m["length_m"] / (m["flow_m3_s"] / (math.pi * core**2 / 4))
+    series = alkane_dvap_series()
+    if series:
+        GC_MODEL["alkane_delta_vap_series"] = {
+            "rule": "n-alkanes C%d-C%d: delta_vap_H = the homologous-series fit of all their NIST entries 300-480 K (dvapH = a + b n + "
+                    "c (T-373) + d n (T-373), least squares, iterative 3 x MAD outlier rejection) at 373 K; the compound's own closest-to-373 K "
+                    "NIST value is quoted in delta_vap_H_source (2026-10-23 D-1 used the fit only when that value was > 3 kJ/mol off; D-2 uses "
+                    "it for all, since 105 points are better evidence than one entry)" % ALKANE_SERIES_RANGE,
+            "changes": ["2026-10-23 D-1: series rule added for C16-C20 (own values > 3 kJ/mol off)",
+                        "2026-10-23 D-2: applied to all C8-C20 (C8 37.8 -> 37.76, C9 42.7 -> 42.16, C10 45.5 -> 46.55, C11 49.1 -> 50.95, "
+                        "C12 57.4 -> 55.34, C13 62.3 -> 59.74, C14 64.1 -> 64.14, C15 68.8 -> 68.53 kJ/mol)"],
+            **{k: v for k, v in series.items() if k != "value"}}
     for sid, name_en, name_zh, cas, cls in COMPOUNDS:
         d = RAW / sid
         if not d.exists():
@@ -507,6 +565,14 @@ def main():
                 ri.setdefault(cls_name, {"median": 100.0 * len(smiles), "mean": 100.0 * len(smiles), "std": 0.0, "min": 100.0 * len(smiles), "max": 100.0 * len(smiles),
                                          "n": 0, "n_raw": 0, "n_references": 0, "phases": [], "source": "Kovats retention index definition (n-alkane anchor)", "evidence": "definition"})
         dh, dh_src = choose_delta_vap(th)
+        n_alkane = len(smiles) if smiles and re.fullmatch(r"C+", smiles) else None
+        if series and n_alkane and ALKANE_SERIES_RANGE[0] <= n_alkane <= ALKANE_SERIES_RANGE[1]:
+            fit_kj = series["value"](n_alkane)
+            if dh is None or abs(dh / 1000.0 - fit_kj) >= ALKANE_SERIES_TOLERANCE_KJ:
+                own = f"own NIST value {dh / 1000.0:.1f} kJ/mol ({dh_src}) is {dh / 1000.0 - fit_kj:+.1f} kJ/mol off the series" if dh else "no own NIST value"
+                dh = round(fit_kj, 2) * 1000.0
+                dh_src = (f"NIST WebBook enthalpies of vaporization of the C{ALKANE_SERIES_RANGE[0]}-C{ALKANE_SERIES_RANGE[1]} n-alkanes, homologous-series "
+                          f"fit at 373 K (gc_model.alkane_delta_vap_series); {own}")
         if dh is None and ri:
             dh, dh_src = 60000.0, "assumption: 60 kJ/mol for a high-boiling solid without a NIST boiling point"
         fp = {}

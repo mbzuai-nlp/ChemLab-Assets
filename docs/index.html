@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta property="og:title" content="ChemLab-Assets">
-<meta property="og:description" content="203 simulation-ready chemistry laboratory instruments with geometry, joints, working front-panel menus, executable behaviour models and machine-readable contracts.">
+<meta property="og:description" content="203 simulation-ready chemistry laboratory instruments with geometry, joints, working front-panel menus, executable behaviour models, machine-readable contracts and a command line for LLM agents.">
 <meta property="og:image" content="media/og.jpg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 2.5h6M10 2.5v6.2L4.4 18.6A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.8-2.9L14 8.7V2.5' fill='none' stroke='%2315202a' stroke-width='1.8'/%3E%3Cpath d='M7.3 15h9.4' stroke='%230a6bc2' stroke-width='1.8'/%3E%3C/svg%3E">
 <title>ChemLab-Assets</title>
-<meta name="description" content="203 simulation-ready chemistry laboratory instruments with geometry, joints, working front-panel menus, executable behaviour models and machine-readable contracts.">
+<meta name="description" content="203 simulation-ready chemistry laboratory instruments with geometry, joints, working front-panel menus, executable behaviour models, machine-readable contracts and a command line for LLM agents.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,300..650;1,8..60,400&display=swap">
@@ -285,6 +285,12 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
 .sheet-links { display: flex; flex-wrap: wrap; gap: 8px; }
 .sheet-close { position: absolute; top: 12px; right: 12px; z-index: 3; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.modes th { width: 22%; }
+.modes td { color: var(--ink); }
+.mode-head { font-size: 1.15rem; font-weight: 700; margin: 28px 0 0; }
+.chemlab-shot img, .workflow-shot img { aspect-ratio: auto; }
+.chemlab-shot, .workflow-shot { max-width: 820px; }
+.video-slot video { display: block; width: 100%; height: auto; background: #000; }
 </style>
 
 <header class="topbar">
@@ -294,7 +300,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       ChemLab-Assets
     </a>
     <nav class="topnav" aria-label="Sections">
-      <a href="#instruments">Instruments</a><a href="#overview">Overview</a><a href="#anatomy">Anatomy</a><a href="#numbers">Numbers</a><a href="#quickstart">Quick start</a><a href="#panels">Front panels</a><a href="#cite">Cite</a>
+      <a href="#instruments">Instruments</a><a href="#overview">Overview</a><a href="#modes">Two ways</a><a href="#anatomy">Anatomy</a><a href="#numbers">Numbers</a><a href="#quickstart">Quick start</a><a href="#panels">Front panels</a><a href="#cite">Cite</a>
     </nav>
     <span class="spacer"></span>
     <a class="btn small" data-link="dataset" href="#">Dataset</a>
@@ -305,7 +311,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
 <main id="top">
   <section class="wrap wide title-block">
     <div>
-      <div class="eyebrow">Open dataset · Release 1.4.0 · October 2026</div>
+      <div class="eyebrow">Open dataset · Release 1.5.0 · October 2026</div>
       <h1>ChemLab<span class="hy">-</span>Assets</h1>
       <p class="deck">203 simulation-ready chemistry laboratory instruments. Each one comes with part-level geometry, working joints, an executable behaviour model and a contract that records what every value means and where it came from.</p>
       <div class="authors">
@@ -320,7 +326,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       </div>
     </div>
     <aside class="plate" aria-label="Release summary">
-      <div class="plate-head"><b>CHEMLAB-ASSETS</b><span>REL 1.4.0 · 2026-10</span></div>
+      <div class="plate-head"><b>CHEMLAB-ASSETS</b><span>REL 1.5.0 · 2026-10</span></div>
       <dl>
         <dt>Instruments</dt><dd>203 in 16 domains</dd>
         <dt>Manufacturers</dt><dd>119 brands</dd>
@@ -333,6 +339,15 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
         <dt>License</dt><dd>MIT code · CC BY-NC 4.0 assets</dd>
       </dl>
     </aside>
+  </section>
+
+  <section class="wrap wide sec video-slot" id="video" aria-label="Release video">
+    <figure class="shot">
+      <video controls preload="none" poster="media/video/chemlab_assets_1_5_0_poster.jpg" width="1280" height="720">
+        <source src="media/video/chemlab_assets_1_5_0_720p.mp4" type="video/mp4">
+      </video>
+      <figcaption>ChemLab-Assets 1.5.0: a robot at the bench and an agent in a shell. <a href="https://huggingface.co/datasets/MBZUAI/ChemLab-Assets/resolve/main/media/video/chemlab_assets_1_5_0.mp4">Full HD (1080p)</a></figcaption>
+    </figure>
   </section>
 
   <figure class="wrap wide wall-fig" id="instruments">
@@ -396,8 +411,69 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
     </div>
   </section>
 
+  <section class="wrap wide sec" id="modes">
+    <div class="sec-head"><div class="eyebrow">02 · Two ways to use ChemLab</div><h2>A robot at the bench or an agent in a shell</h2></div>
+    <div class="sec-body">
+      <div class="aside">New in release 1.5.0: chemlab, the lab's supplies and 276 tasks with checkers.</div>
+      <div class="main panel-stack">
+      <div class="prose">
+        <p>Each instrument runs on one behaviour model. A robot can work it by hand, or an LLM agent can work it from a shell, and the instrument behaves the same either way.</p>
+      </div>
+      <div class="table-scroll">
+        <table class="spec modes">
+          <caption class="sr">Embodied mode and agentic mode</caption>
+          <thead><tr><th></th><td><strong>Embodied mode</strong></td><td><strong>Agentic mode</strong></td></tr></thead>
+          <tbody>
+            <tr><th>Who acts</th><td>a robot in a 3D simulator</td><td>an LLM agent in a shell</td></tr>
+            <tr><th>How it acts</th><td>opens doors and lids, presses keys, turns knobs, taps touchscreens, grasps bottles and plates</td><td><code>chemlab</code> commands</td></tr>
+            <tr><th>What it sees</th><td>camera images, including the instrument screens</td><td>text replies, readings and screenshots of the screens</td></tr>
+            <tr><th>What you need</th><td>a simulator: Isaac Sim / Isaac Lab, or any URDF loader</td><td>Python on Linux, no GPU</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="mode-head">Embodied mode: robots operate the instruments</h3>
+      <div class="prose">
+        <p>Every instrument is a 3D model with working joints (doors, lids, sashes, keys, knobs), grasp and place points, and colliders. On the 106 instruments with a front panel, the screen is drawn by the instrument's own menu engine, so a robot sees the result of what it pressed. All 203 instruments were converted to USD and run in NVIDIA Isaac Sim through the Matterix framework, where a robot arm pressed a key or tapped the screen on 97 front panels.</p>
+        <p>New in 1.5.0, the lab has its supplies: 62 models of specific products, from DURAN screw-cap bottles, vials, tubes, well plates and Opentrons tip racks to a reagent shelf, safety cabinets, a refrigerator and a desiccator. Caps are separate parts, and every container records its grasp points and inside volume. A table of 239 substances gives their hazard codes and storage classes.</p>
+        <p>The instruments' behaviour models run inside the scene, so the balance reading, the hotplate temperature, the reaction and the powder dose all come from them. Two robot workflows in our Isaac Sim lab:</p>
+      </div>
+      <figure class="shot workflow-shot"><img src="media/figs/isaac_workflow_esterification.webp" width="1612" height="912" loading="lazy" alt="Four key frames of a robot esterification in Isaac Sim: acetic acid (amber) pouring onto ethanol (blue) in the reaction beaker, the balance reading 191.8 g, the beaker on the IKA hotplate, and the hotplate after heating at 300 rpm"><figcaption><strong>Esterification.</strong> (1) The robot pours 50 mL of ethanol and then 40 mL of acetic acid into the reaction beaker; 89.3 mL arrive. The liquids are simulated as particles and tinted so they show up (ethanol blue, acetic acid amber; both are really colourless). (2) The OHAUS balance reads 191.8 g. (3) The robot sets the beaker on the IKA hotplate. (4) The hotplate heats with a 70 °C set point and stirs at 300 rpm; after 200 s the liquid is at 77 °C and 1.91 g of ethyl acetate has formed.</figcaption></figure>
+      <figure class="shot workflow-shot"><img src="media/figs/isaac_workflow_quantos.webp" width="1612" height="912" loading="lazy" alt="Four key frames of robot powder dosing with the Quantos in Isaac Sim: the dosing head going into its holder, a vial on the weighing pan, the finished dose, and the vial back in the rack"><figcaption><strong>Powder dosing with the Quantos.</strong> (1) The robot slides a potassium bromide dosing head into the Quantos. (2) It sets an empty vial on the weighing pan. (3) The Quantos closes its doors and doses 50.000 mg, exactly the target. (4) The robot puts the vial back in the rack.</figcaption></figure>
+      <div class="prose"><p>The robot scenes were built with Matterix, which is not part of this release. ChemLab-Assets ships the instruments, labware and behaviour models they load.</p></div>
+
+      <h3 class="mode-head">Agentic mode: chemlab, a command line for LLM agents</h3>
+      <div class="prose">
+        <p><code>chemlab</code> puts the whole lab behind one shell command. An agent lists the instruments, reads their help, sets them up, runs them and reads the results, as a person would at the bench. Time in the lab moves only when the agent waits.</p>
+      </div>
+      <figure class="shot chemlab-shot"><img src="media/figs/chemlab_tour.webp" width="1653" height="1148" loading="lazy" alt="A chemlab session: list the lab, set a hotplate to 80 °C, start heating, wait 600 s, read 80.2 °C, and an out-of-range set point refused with a fix"></figure>
+      <div class="prose">
+        <ul>
+          <li><strong>Plain commands for each kind of instrument.</strong> <code>chemlab run</code> gives each of 30 instrument classes (balances, temperature control, pipetting, chromatography and more) one set of verbs, with units, range checks and named positions. <code>chemlab call</code> reaches every capability in an instrument's contract.</li>
+          <li><strong>Errors that say what to do.</strong> Each error says what is wrong, how to fix it and whether the instrument changed.</li>
+          <li><strong>A stocked lab.</strong> The default lab starts with all 203 instruments ready, 97 containers on shelves and in cabinets (solvents, buffers, certified standards, plates, gas cylinders) and 189 items already loaded in the instruments. <code>chemlab list --inventory</code> shows what is where.</li>
+          <li><strong>Ready for evaluation.</strong> An agent sees only what the instrument shows; true values are kept for evaluators. Its shell runs in a sandbox that reaches nothing but <code>chemlab</code>. The basic commands (list, describe, call, read, wait, screen and more) also work as MCP tools.</li>
+        </ul>
+        <p><strong>A complete task.</strong> 276 tasks come with automatic checkers. Each gives the agent an instruction in plain words; the checker then reads the instrument's own state, so writing the right answer is not enough. Below, an agent verifies a water-activity meter against a certified standard. The meter is still warming up, nothing has been measured, and the chamber lever is open. The agent fixes each problem from the error message alone.</p>
+      </div>
+      <figure class="shot chemlab-shot"><img src="media/figs/chemlab_task.webp" width="1653" height="2100" loading="lazy" alt="A complete chemlab task: the AQUALAB 4TE verification, three refused commands each fixed from the error message, the standard measured at aw 0.8821, verification passed, and the checker's PASS"></figure>
+      <div class="prose">
+        <p><strong>Screens as images.</strong> An agent can also work the front panel like a person, with keys and knobs only. A gesture reports only whether the instrument accepted it, so the agent looks at the display to see what happened. <code>chemlab screen</code> saves the display as a PNG for a vision-language model to read.</p>
+      </div>
+      <figure class="shot chemlab-shot"><img src="media/figs/chemlab_panel.webp" width="1653" height="1516" loading="lazy" alt="A chemlab session that sets an IKA hotplate by turning its knobs, then saves its LCD as plate.png showing 80.2 °C and 240 rpm"></figure>
+      <div class="prose"><p><strong>Try it.</strong></p></div>
+<pre class="code" style="margin:0">cd ChemLab-Assets/chemlab
+python -m chemlab.gserve --only ika_plate_rctdigital mt_xpr204e --shell    <span class="c"># a sandboxed shell with two instruments</span>
+python -m chemlab.tasks list                                               <span class="c"># the 276 tasks</span>
+python -m chemlab.tasks shell pm04_recover_aw_verify                       <span class="c"># do a task yourself; the checker runs when you exit</span>
+python -m chemlab.tasks run pm04_recover_aw_verify --solution my_agent.sh  <span class="c"># or score your agent's commands</span></pre>
+      <div class="prose"><p>The full command reference is in <a data-link="chemlab" href="#"><code>chemlab/README.md</code></a> on GitHub.</p></div>
+      </div>
+    </div>
+  </section>
+
   <section class="wrap wide sec" id="anatomy">
-    <div class="sec-head"><div class="eyebrow">02 · Anatomy</div><h2>One asset, read through its contract</h2></div>
+    <div class="sec-head"><div class="eyebrow">03 · Anatomy</div><h2>One asset, read through its contract</h2></div>
     <div class="anatomy">
       <figure class="specimen" id="specimen">
         <img src="media/hero/esco_efa5uduvw.webp" width="1200" height="900" alt="Esco Frontier Acela EFA-5UDUVW-9 benchtop fume hood with Sentinel XL airflow monitor">
@@ -422,7 +498,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
   </section>
 
   <section class="wrap wide sec" id="numbers">
-    <div class="sec-head"><div class="eyebrow">03 · Numbers</div><h2>The release at a glance</h2></div>
+    <div class="sec-head"><div class="eyebrow">04 · Numbers</div><h2>The release at a glance</h2></div>
     <div class="two">
       <div class="table-scroll">
         <table class="spec" id="spec">
@@ -432,7 +508,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
       </div>
       <div class="chart-card" id="sources-card">
         <h3>Where the numbers come from</h3>
-        <p class="sub">3,615 sources cited across the 203 contracts, by kind</p>
+        <p class="sub">3,617 sources cited across the 203 contracts, by kind</p>
         <div class="bars" id="bars" role="img" aria-label="Bar chart of cited sources by kind"></div>
         <p class="chart-note">Raw third-party documents are not redistributed; contracts keep the citation and the derived values.</p>
         <details class="tbl"><summary>Show as table</summary><table id="bars-table"></table></details>
@@ -441,7 +517,7 @@ dialog.sheet::backdrop { background: rgba(9, 14, 18, .55); backdrop-filter: blur
   </section>
 
   <section class="wrap wide sec" id="quickstart">
-    <div class="sec-head"><div class="eyebrow">04 · Quick start</div><h2>Download an instrument and run it</h2></div>
+    <div class="sec-head"><div class="eyebrow">05 · Quick start</div><h2>Download an instrument and run it</h2></div>
     <div class="sec-body">
       <div class="aside">Tested with Python 3.12 and NumPy 2.3. No simulator is needed to run the behaviour models.</div>
       <div class="main">
@@ -507,7 +583,7 @@ after calibration    reading 0.31 m/s   alarm none</pre>
   </section>
 
   <section class="wrap wide sec" id="panels">
-    <div class="sec-head"><div class="eyebrow">05 · Front panels</div><h2>Menus a robot can read and press</h2></div>
+    <div class="sec-head"><div class="eyebrow">06 · Front panels</div><h2>Menus a robot can read and press</h2></div>
     <div class="sec-body">
       <div class="aside">New in release 1.4.0. 58 touchscreens, 28 text-menu displays and 20 simple displays that step through settings.</div>
       <div class="main panel-stack">
@@ -529,15 +605,13 @@ python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close</pre>
       <div class="panel-shots" style="margin-top:0">
         <figure class="shot"><img src="media/figs/isaac_panel_aqualab_screen.webp" width="720" height="561" loading="lazy" alt="The AquaLab 4TE screen rendered in Isaac Sim, rectified, and drawn by the menu engine"><figcaption>AquaLab 4TE: the screen rendered in Isaac Sim (top), rectified (bottom left) and drawn by the menu engine (bottom right).</figcaption></figure>
         <figure class="shot"><img src="media/figs/isaac_panel_xpr204e_screen.webp" width="720" height="561" loading="lazy" alt="The XPR204E terminal rendered in Isaac Sim next to the menu engine's image"><figcaption>Mettler Toledo XPR204E terminal: the same comparison on a touchscreen.</figcaption></figure>
-        <figure class="shot"><img src="media/figs/isaac_panel_julabo_press.webp" width="720" height="405" loading="lazy" alt="A robot arm pressing a key of the JULABO CORIO CD-200F in Isaac Sim"><figcaption>A robot arm presses a key on the JULABO CORIO CD-200F.</figcaption></figure>
-        <figure class="shot"><img src="media/figs/isaac_panel_xpr204e_touch.webp" width="720" height="405" loading="lazy" alt="A robot arm tapping the XPR204E touchscreen in Isaac Sim"><figcaption>A robot arm taps the XPR204E touchscreen.</figcaption></figure>
       </div>
       </div>
     </div>
   </section>
 
   <section class="wrap wide sec" id="provenance">
-    <div class="sec-head"><div class="eyebrow">06 · Provenance &amp; limits</div><h2>What the models claim, and what they don't</h2></div>
+    <div class="sec-head"><div class="eyebrow">07 · Provenance &amp; limits</div><h2>What the models claim, and what they don't</h2></div>
     <div class="sec-body">
       <div class="aside">Every capability records its verification level for process, host, scene, robot and hardware.</div>
       <div class="main prov-grid">
@@ -554,7 +628,7 @@ python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close</pre>
   </section>
 
   <section class="wrap wide sec" id="cite">
-    <div class="sec-head"><div class="eyebrow">07 · Cite</div><h2>BibTeX</h2></div>
+    <div class="sec-head"><div class="eyebrow">08 · Cite</div><h2>BibTeX</h2></div>
     <div class="sec-body">
       <div class="aside">If you use the assets, please cite the release.</div>
       <div class="main cite-box">
@@ -565,7 +639,7 @@ python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close</pre>
                   Ma, Xiaosong and Chang, Xiaojun and Chen, Xiuying},
   year         = {2026},
   howpublished = {\url{https://huggingface.co/datasets/MBZUAI/ChemLab-Assets}},
-  note         = {Dataset, release 1.4.0}
+  note         = {Dataset, release 1.5.0}
 }</pre>
         <button class="btn small" id="copy-bib" type="button">Copy</button>
       </div>
@@ -601,8 +675,9 @@ python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close</pre>
 <script>
 (() => {
   const LINKS = {
-    github: "__GITHUB_URL__",
+    github: "https://github.com/mbzuai-nlp/ChemLab-Assets",
     dataset: "https://huggingface.co/datasets/MBZUAI/ChemLab-Assets",
+    chemlab: "https://github.com/mbzuai-nlp/ChemLab-Assets/blob/main/chemlab/README.md",
     explorer: "https://huggingface.co/spaces/MBZUAI/ChemLab-Assets-Explorer",
   };
   const LOCAL_MODELS = window.CHEMLAB_LOCAL_MODELS || [];   // GLBs shipped next to the page (preview builds)
@@ -618,7 +693,7 @@ python examples/preview_menu.py mt_xpr204e tap:Methods tap:Tests tap:Close</pre>
 
   /* ---------- sources chart (single series, one hue, values labelled) ---------- */
   const SOURCES = [
-    ["Publications, standards and open databases", 1990],
+    ["Publications, standards and open databases", 1992],
     ["Manufacturer brochures and manuals", 873],
     ["Project code and geometry records", 543],
     ["Stated modelling assumptions", 179],

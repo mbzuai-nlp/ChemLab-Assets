@@ -12,9 +12,13 @@ import copy, json, math
 from asset_runtime import _annotations as _ann
 from pathlib import Path
 from asset_runtime.mt_hx204 import ActionRejected, number, obj, BOOL, TEXT, PHASE
+
+
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.2.2: a refusal whose message names the cause
 from asset_runtime.antonpaar_abbematadvanced import validate
 ROOT=Path(__file__).resolve().parents[2]
-ASSET_TYPE_ID='instrument.mt_mp70'; CATALOG_ID='CHEM-006'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.2.1'
+ASSET_TYPE_ID='instrument.mt_mp70'; CATALOG_ID='CHEM-006'; PROTOCOL_VERSION='1.0.0'; ASSET_VERSION='1.2.2'
 ASSET_DIR=ROOT/'assets/expansion_batch03/t4_measure/mt_mp70'
 TEMPLATE_REL='assets/reactions/mt_mp70_thermal_library/templates.json'
 TEMP=number('K',293.15,623.15); NULL_TEMP={'anyOf':[TEMP,{'type':'null'}]}; FRAC=number('1',0,1); NULL_FRAC={'anyOf':[FRAC,{'type':'null'}]}
@@ -648,24 +652,31 @@ class MtMp70Runtime:
         elif capability=='thermal.set_temperature': self.target_k=a['temperature_k']; self.furnace_on=True; r=dict(a)
         elif capability=='method.configure':
             if not a['method_id'].strip() or a['start_k']>=a['end_k']: raise ActionRejected('INVALID_ARGUMENT')
-            if a['method_id'] not in self.methods and len(self.methods)>=20: raise ActionRejected('PRECONDITION_FAILED')
+            if a['method_id'] not in self.methods and len(self.methods)>=20: raise _rejected('PRECONDITION_FAILED','all 20 method slots are in use; overwrite an existing method_id')
             self.methods[a['method_id']]=copy.deepcopy(a); r={'stored_count':len(self.methods)}
         elif capability=='method.select':
-            if a['method_id'] not in self.methods: raise ActionRejected('PRECONDITION_FAILED')
+            if a['method_id'] not in self.methods: raise _rejected('PRECONDITION_FAILED','no stored method %r (method.configure first)'%a['method_id'])
             self.selected=a['method_id']; r=dict(a)
         elif capability=='sample.configure':
             t=self.templates.get(a['substance_id'])
-            if not t or not t['runtime_eligible'] or a['channel'] in self.samples or self.temperature_k>323.15 or self.temperature_k>=t['value']-1: raise ActionRejected('PRECONDITION_FAILED')
+            why=('substance %r has no runtime melting-point reference'%a['substance_id'] if not t or not t['runtime_eligible'] else 'capillary channel %d is occupied'%a['channel'] if a['channel'] in self.samples else
+                 'the furnace is above 50 C (%.2f K); let it cool before inserting capillaries'%self.temperature_k if self.temperature_k>323.15 else
+                 'the furnace (%.2f K) is within 1 K of the melting point of the substance'%self.temperature_k if self.temperature_k>=t['value']-1 else None)
+            if why: raise _rejected('PRECONDITION_FAILED',why)   # 1.2.2: the message names the cause
             if a['decomposition_onset_k'] is not None and not a['decomposition_source'].strip(): raise ActionRejected('INVALID_ARGUMENT')
             s=copy.deepcopy(a); s.update(temperature_k=self.temperature_k,melt_fraction=0.,degraded=0.,onset_k=None,clear_k=None,transmission=.05,curve=[],truncated=False,used=False)
             self.samples[int(a['channel'])]=s; self.input_kg+=a['mass_kg']; r={'configured':True}
         elif capability=='sample.unload':
-            if a['channel'] not in self.samples or self.temperature_k>323.15: raise ActionRejected('PRECONDITION_FAILED')
+            if a['channel'] not in self.samples or self.temperature_k>323.15:
+                raise _rejected('PRECONDITION_FAILED','capillary channel %d is empty'%a['channel'] if a['channel'] not in self.samples else 'the furnace is above 50 C (%.2f K); let it cool first'%self.temperature_k)
             self.removed_kg+=self.samples.pop(a['channel'])['mass_kg']; r={'unloaded':True}
         elif capability=='acquisition.start':
-            if not self.powered or self.selected not in self.methods or not self.samples or any(s['used'] for s in self.samples.values()): raise ActionRejected('PRECONDITION_FAILED')
+            why=('the instrument is switched off' if not self.powered else 'no method is selected (method.select)' if self.selected not in self.methods else
+                 'no capillary is inserted' if not self.samples else 'a capillary has already been measured; replace it (sample.unload, then a fresh one)' if any(s['used'] for s in self.samples.values()) else None)
+            if why: raise _rejected('PRECONDITION_FAILED',why)   # 1.2.2: the message names the cause
             m=self.methods[self.selected]
-            if any(m['start_k']>=self.templates[s['substance_id']]['value']-1 for s in self.samples.values()): raise ActionRejected('PRECONDITION_FAILED')
+            if any(m['start_k']>=self.templates[s['substance_id']]['value']-1 for s in self.samples.values()):
+                raise _rejected('PRECONDITION_FAILED','the method start temperature %.2f K is not at least 1 K below the melting point of every sample'%m['start_k'])
             self._operation_count+=1; self.operation_id=f'{self.instance_id}:measurement:{self._operation_count}'; self.phase='running'; self.stage='preheat'; self.elapsed_s=0.; self.target_k=m['start_k']
             self.analysis=None; self.furnace_on=True
             for s in self.samples.values(): s['used']=True
@@ -847,7 +858,7 @@ class MtMp70Session:
         except ActionRejected as exc:
             return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,
                 status='rejected',state_revision=self._host.revision,clock={'domain':'simulation','time_s':self._host.time_s},
-                result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+                result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
 
     def _invoke(self,*,instance_id,capability_id,arguments,request_id):
         self._target(instance_id); h=self._host

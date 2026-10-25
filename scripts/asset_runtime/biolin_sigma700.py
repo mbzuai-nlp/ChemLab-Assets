@@ -1,7 +1,7 @@
 """CHEM-120 finite force tensiometry with literature surface tension references."""
 from pathlib import Path
 import copy,math,json,importlib.util
-PROTOCOL_VERSION='1.0.0';SLUG='biolin_sigma700';CATALOG_ID='CHEM-120';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.1';SLUG='biolin_sigma700';CATALOG_ID='CHEM-120';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t4_measure'/SLUG
 class ActionRejected(ValueError):pass
 def number(unit='1',lo=None,hi=None):
@@ -85,7 +85,7 @@ cap('sample.load',SAMPLE,obj({'loaded':BOOL}),['sample_vessel'],'宿主加载有
 cap('sample.remove',obj({}),obj({'removed':BOOL}),['sample_vessel'],'宿主取出样品并记入外部收集账本','configuration','evaluator',effects=['sample.present','truth.liquid_volume_m3'])
 STOCK=obj({'volume_m3':number('m^3',0,2e-5),'concentration_kg_m3':number('kg/m^3',0,100)})
 cap('stock.load',STOCK,obj({'loaded':BOOL}),['dispenser_port'],'外接20mL计量滴定器库存初始化','configuration','evaluator',dict(volume_m3=2e-5,concentration_kg_m3=1.),['truth.stock_volume_m3'])
-cap('balance.tare',obj({}),obj({'tared':BOOL}),['balance'],'空中探针去皮，不扣除后续浮力',effects=['balance.tared'])
+cap('balance.tare',obj({}),obj({'tared':BOOL}),['balance'],'空中探针去皮，不扣除后续浮力；读数稳定前（开机后力传感器读数从零建立，未稳定到半个0.1 µN分辨率内）拒绝FORCE_NOT_SETTLED',effects=['balance.tared'])
 CAL=obj({'reference_forces_n':arr(number('N',-2,2),2),'observed_raw_forces_n':arr(number('N',-3,3),2)})
 cap('balance.calibrate',CAL,obj({'gain':number('1'),'offset_n':number('N')}),['balance','calibration_weight'],'按外部独立参比作两点仿射校准，非原厂内校序列','configuration',ex=dict(reference_forces_n=[0.,.1],observed_raw_forces_n=[0.,.1]))
 for k,inp,ex,z in [('stage.move',obj({'position_m':number('m',0,STAGE_MAX_M)}),{'position_m':0.},'按当前速度异步升降载台'),('acquisition.start',obj({}),{},'板浸入保持撤回或环拉脱峰值测量'),('dose.start',obj({'volume_m3':number('m^3',1e-9,2e-5),'flow_m3_s':number('m^3/s',1e-10,1e-6)}),{'volume_m3':1e-6,'flow_m3_s':1e-7},'有限外接滴定液异步加入')]:cap(k,inp,obj({'operation_id':TEXT}),['stage' if k!='dose.start' else 'dispenser_port','balance'],z,ex=ex,effects=['acquisition.phase'])
@@ -189,6 +189,7 @@ class BiolinSigma700Runtime:
    self.plant=copy.deepcopy(a);self.temperature=self.thermal_target=a['ambient_k'];return {'configured':True}
   if k=='power.set':
    if a['enabled'] and (not self.plant or self.service>1e-6):raise ActionRejected('NOT_READY')
+   if a['enabled'] and not self.power:self.raw=0.;self._on_ticks=0   # 1.0.1: switching on restarts the force electronics (the reading settles from zero)
    self.power=a['enabled'];return a
   if k=='door.set':self.door=a['angle_rad'];return a
   if k=='service.set':
@@ -212,6 +213,7 @@ class BiolinSigma700Runtime:
   self._ready()
   if k=='balance.tare':
    if self._depth()>=-.0005:raise ActionRejected('PROBE_NOT_IN_AIR')
+   if getattr(self,'_on_ticks',1)<1 or abs(self.raw-getattr(self,'_signal',self.raw))>.5e-7:raise ActionRejected('FORCE_NOT_SETTLED')   # 1.0.1: half a 0.1 uN digit
    self.tare=self.gain*self.raw+self.offset;self.tared=True;self.force=0.;return {'tared':True}
   if k=='balance.calibrate':
    x=a['observed_raw_forces_n'];y=a['reference_forces_n']
@@ -262,7 +264,7 @@ class BiolinSigma700Runtime:
     theta=p['contact_rec_rad'] if moving and sign<0 else p['contact_adv_rad'];capillary=2*(m['plate_width_m']+m['plate_thickness_m'])*self.gamma*math.cos(theta);buoy=(p['liquid_density_kg_m3']-p['upper_density_kg_m3'])*G*m['plate_width_m']*m['plate_thickness_m']*min(depth,.020)
    elif self.probe=='ring' and self.stage=='withdraw' and -p['film_height_m']<=depth<=0:
     u=-depth/p['film_height_m'];capillary=4*math.pi*m['ring_radius_m']*self.gamma/p['true_ring_factor']*4*u*(1-u)
-  self.trueforce=p['probe_mass_kg']*G+capillary-buoy;signal=p['force_gain']*self.trueforce+p['force_offset_n'];self.raw=signal+(self.raw-signal)*math.exp(-DT/p['sensor_tau_s']);quant=round(self.raw/1e-7)*1e-7;self.force=self.gain*quant+self.offset-self.tare
+  self.trueforce=p['probe_mass_kg']*G+capillary-buoy;signal=p['force_gain']*self.trueforce+p['force_offset_n'];self._signal=signal;self._on_ticks=getattr(self,'_on_ticks',1)+1;self.raw=signal+(self.raw-signal)*math.exp(-DT/p['sensor_tau_s']);quant=round(self.raw/1e-7)*1e-7;self.force=self.gain*quant+self.offset-self.tare
   indicated=None
   if self.probe=='plate' and depth>=0 and self.tared and self.volume:indicated=(self.force+m['analysis_density_difference_kg_m3']*G*m['plate_width_m']*m['plate_thickness_m']*min(depth,.020))/(2*(m['plate_width_m']+m['plate_thickness_m'])*math.cos(m['analysis_contact_rad']))
   if self.probe=='ring' and self.stage=='withdraw' and depth<=0 and self.tared:indicated=self.force*m['ring_correction']/(4*math.pi*m['ring_radius_m'])
@@ -301,7 +303,7 @@ class BiolinSigma700Session:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  m=export_biolin_sigma700_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  m=export_biolin_sigma700_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in m['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in m['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;v=h.read(self._role);ids=list(v) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')
@@ -348,7 +350,7 @@ class BiolinSigma700Session:
 def export_biolin_sigma700_contract_metadata():
  caps={};slots={}
  for k,(s,u,o,v,c,w) in SLOTS.items():slots[k]=dict(meaning_zh=SLOT_ZH[k],component_ids=c,value_schema=copy.deepcopy(s),unit=u,reference_conditions='SI; stage relative to fixed home, force downward positive, bath absolute temperature; concentration is mass per liquid volume',origin=o,visibility=v,access='read_write' if w else 'read_only',read_binding=dict(backend='host',artifact_id='runtime',accessor=f'BiolinSigma700Session.read(state_ids=[{k!r}])'),write_via=dict(capability_id=w[0],argument=w[1],fixed_arguments={}) if w else None,sampling=dict(mode='instant',time_domain='simulation',window_description='0.01s physical ticks; readings use0.1µN quantization; tension mean from latehold observations'),source_ids=['simulation_assumption'])
- errors=['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','UNKNOWN_OPERATION','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','INITIALIZATION_ONLY','BUSY','NOT_READY','NOT_RUNNING','MODEL_NOT_ACCEPTED','SAMPLE_ACCESS','POWER_INTERLOCK','SAMPLE_PRESENT','NO_SAMPLE','STOCK_PRESENT','PROBE_NOT_IN_AIR','INVALID_CALIBRATION','NOT_TARED','RING_MODEL_NOT_ACCEPTED','STAGE_NOT_HOME','STAGE_RANGE','FINITE_STOCK_OR_CAPACITY','INVALID_REFERENCE','TEMPERATURE_RANGE','CONCENTRATION_RANGE','UNKNOWN_CONDITIONS','NO_BREAKPOINT','OVERIMMERSION','STOCK_EXHAUSTED']
+ errors=['INVALID_ARGUMENT','UNKNOWN_INSTANCE','UNKNOWN_CAPABILITY','UNKNOWN_OPERATION','UNSUPPORTED','ACCESS_DENIED','REQUEST_CONFLICT','INITIALIZATION_ONLY','BUSY','NOT_READY','NOT_RUNNING','MODEL_NOT_ACCEPTED','SAMPLE_ACCESS','POWER_INTERLOCK','SAMPLE_PRESENT','NO_SAMPLE','STOCK_PRESENT','PROBE_NOT_IN_AIR','FORCE_NOT_SETTLED','INVALID_CALIBRATION','NOT_TARED','RING_MODEL_NOT_ACCEPTED','STAGE_NOT_HOME','STAGE_RANGE','FINITE_STOCK_OR_CAPACITY','INVALID_REFERENCE','TEMPERATURE_RANGE','CONCENTRATION_RANGE','UNKNOWN_CONDITIONS','NO_BREAKPOINT','OVERIMMERSION','STOCK_EXHAUSTED']
  async_ids=['acquisition.start','stage.move','dose.start']
  for k,(inp,out,c,z,kind,vis,ex,effects) in CAPS.items():
   un=k in UNSUPPORTED;asyn=k in async_ids;caps[k]=dict(function_zh=z,kind=kind,visibility=vis,component_ids=c,availability='unsupported' if un else 'implemented',input_schema=copy.deepcopy(inp),output_schema=copy.deepcopy(out),implementation=dict(process='absent' if un else 'implemented',scene='absent',robot='absent',hardware='absent',host='absent' if un else 'implemented'),binding=None if un else dict(backend='host',artifact_id='runtime',entrypoint='asset_runtime.biolin_sigma700.BiolinSigma700Session.invoke',invocation=f'session.invoke(instance_id="sigma700_01",capability_id={k!r},arguments={ex!r},request_id="unique")'),preconditions=[] if kind in ['query','analysis'] or un else [dict(description_zh='原子化参数、访问、防风罩/样品/去皮/载台/供电及库存检查；仿真操作互锁，非原厂硬件认证',state_ids=['power.enabled','plant.configured','acquisition.phase','door.angle_rad','stage.position_m'],enforced_by='runtime',check='atomic invoke;registered Session;host step only')],state_effects=[dict(state_id=x,timing='immediate',description_zh='直接命令状态') for x in IMMEDIATE_EFFECTS.get(k,effects)],observes=[],model_effects=dict(mode='none',description_zh='联动须由实际姿态与读数另行验证',binding_ids=[]),execution=dict(mode='asynchronous' if asyn else 'synchronous',time_domain='simulation',completion_criterion='到达位置、测量撤回完成、有限剂量已加完' if asyn else '命令已接受；物理时间仅宿主step推进',completion_state_ids=['acquisition.phase'] if asyn else [],timeout_s=None,cancellation='supported' if asyn else 'unsupported',retry='same_request_id',resources=['host_clock','balance','stage','liquid','stock'],partial_failure_zh='已移动位置、已加库存、热量和采样保留，不回滚真实部分效果'),errors=[dict(code=x,meaning_zh=x,side_effects='partial' if asyn and x=='STOCK_EXHAUSTED' else 'none') for x in errors],example_arguments=copy.deepcopy(ex),verification=[],limitations=['硬件误差、污染、蒸发、故障和噪声统计未取得','环法有限薄膜峰形及校正系数是明确工程代理；不声称Huh-Mason'],source_ids=['manufacturer_specs','simulation_assumption'])

@@ -229,4 +229,17 @@ class TestTGA5500ExtendedLibrary(unittest.TestCase):
    q=call(h,'reference.query',reference_id=rid);self.assertEqual(json.loads(q['template_source'])['source_id'],rt.library()['substances'][rid]['source']['source_id'])
    with self.assertRaisesRegex(rt.ActionRejected,'INVALID_REFERENCE'):h.invoke('sample.load',**dict(rt.SAMPLE_EXAMPLE,reference_id=rid))
   self.assertIs(rt.library(),rt.library())
+class FixRoundB(unittest.TestCase):
+ """chemlab finding (2026-10-22)."""
+ def test_tray_place_example_uses_a_real_reference(self):
+  ex=rt.export_ta_tga5500_contract_metadata()['capabilities']['tray.place']['example_arguments']
+  ex=ex[0] if isinstance(ex,list) else ex
+  self.assertEqual(ex['sample']['reference_id'],'fsri_abs_n2_10k_r1')
+  h=rt.TaTga5500Runtime('fixb');call(h,'plant.configure',**rt.PLANT_EXAMPLE);call(h,'tray.place',**ex)   # placeholder reference: INVALID_REFERENCE before
+ def test_gas_open_refusal_names_the_cause(self):
+  h=rt.TaTga5500Runtime('fixb');call(h,'plant.configure',**rt.PLANT_EXAMPLE);call(h,'power.set',enabled=True)
+  call(h,'gas.load',**rt.GAS_EXAMPLE);h.register_principal('fixb_a','agent');s=h.session('fixb_a')
+  call(h,'gas.set_flow',sample_flow_m3_s=1e-6,balance_flow_m3_s=0.)
+  r=s.invoke(instance_id=h.instance_id,capability_id='gas.set_open',arguments={'opened':True},request_id='fixb1')
+  self.assertEqual(r['error']['code'],'NO_GAS');self.assertIn('balance purge flow is 0',r['error']['message'])
 if __name__=='__main__':unittest.main()

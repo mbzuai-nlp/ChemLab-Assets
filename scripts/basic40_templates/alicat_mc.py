@@ -41,7 +41,7 @@ CAPABILITY_IDS = ("template.list", "template.read", "flow.read_template")
 LINE_KEY = "template_line_gas_id"
 TOTALIZER_KEY = "template_totalizer"
 ENABLED_ATTR = "_amc_template_enabled_gases"
-CONTRACT_ASSET_VERSION = "1.4.0"   # 1.2.0: front panel (panel_ui.json) and the device functions behind it; 1.3.0: valve-drive control (2026-10-19); 1.4.0: status alarms ADC/POV/TOV, fault.inject (2026-10-19 sweep)
+CONTRACT_ASSET_VERSION = "1.4.1"   # 1.2.0: front panel (panel_ui.json) and the device functions behind it; 1.3.0: valve-drive control (2026-10-19); 1.4.0: status alarms ADC/POV/TOV, fault.inject (2026-10-19 sweep); 1.4.1: slot ids = contract ids (lower case, 2026-10-22)
 
 LIMITATIONS = [
     "Pure-gas density/viscosity are NIST SRD 69 reference-correlation values on a 253.15-343.15 K x 0.01-1.2 MPa grid; values between nodes are linear interpolations of Z and viscosity (derived).",
@@ -304,14 +304,14 @@ def indication_factor(host, values, inst):
     selected, line = values["gas.selected_id"], inst.get(LINE_KEY)
     if selected in host._gases:
         return 1.0 if line is None else None
-    temperature, pressure = values["truth.temperature_K"], values["truth.upstream_pressure_Pa"]
+    temperature, pressure = values["truth.temperature_k"], values["truth.upstream_pressure_pa"]
     users = user_records(values)
     selected_actual = gas_state(selected, temperature, pressure, users)
     if selected_actual is None:
         return None
     if line is None or line == selected:
         return 1.0
-    t_ref, p_ref = values["gas.reference_temperature_K"], values["gas.reference_pressure_Pa"]
+    t_ref, p_ref = values["gas.reference_temperature_k"], values["gas.reference_pressure_pa"]
     line_actual = gas_state(line, temperature, pressure)
     selected_std, line_std = gas_state(selected, t_ref, p_ref, users), gas_state(line, t_ref, p_ref)
     states = (selected_actual, line_actual, selected_std, line_std)
@@ -341,8 +341,8 @@ def refresh_readings(host, values, inst):
     selected = values["gas.selected_id"]
     if q is not None and selected not in host._gases:
         users = user_records(values)
-        actual = gas_state(selected, values["truth.temperature_K"], values["truth.upstream_pressure_Pa"], users)
-        standard = gas_state(selected, values["gas.reference_temperature_K"], values["gas.reference_pressure_Pa"], users)
+        actual = gas_state(selected, values["truth.temperature_k"], values["truth.upstream_pressure_pa"], users)
+        standard = gas_state(selected, values["gas.reference_temperature_k"], values["gas.reference_pressure_pa"], users)
         if actual is not None and standard is not None:
             values["measurement.actual_flow_m3_s"] = _finite(float(q * standard["density_kg_m3"] / actual["density_kg_m3"]))
         if standard is not None:
@@ -397,7 +397,7 @@ FLOW_OUTPUT = _obj({
     "gas_id": _TEXT, "gas_name": _TEXT, "kind": {"type": "string", "enum": ["pure", "mixture"]},
     "measurement.standard_flow_m3_s": _num("m^3/s", minimum=0), "measurement.actual_flow_m3_s": _num("m^3/s", minimum=0),
     "measurement.mass_flow_kg_s": _num("kg/s", minimum=0), "measurement.total_standard_volume_m3": _num("m^3", minimum=0),
-    "measurement.pressure_Pa": _num("Pa", minimum=0), "measurement.temperature_K": _num("K", minimum=0),
+    "measurement.pressure_pa": _num("Pa", minimum=0), "measurement.temperature_k": _num("K", minimum=0),
     "reference_temperature_K": _num("K", False, 0), "reference_pressure_Pa": _num("Pa", False, 0),
     "viscosity_actual_Pa_s": _num("Pa*s"), "density_actual_kg_m3": _num("kg/m^3"), "compressibility_actual": _num("1"),
     "density_standard_kg_m3": _num("kg/m^3"), "compressibility_standard": _num("1"), "molar_mass_kg_mol": _num("kg/mol", False, 0),
@@ -422,7 +422,7 @@ def capability_metadata():
         "flow.read_template": dict(common, description_zh="读取当前所选库气体的流量读数及所用物性（黏度、实际/标准密度、Z）和来源；不推进时间。",
                                    input_schema=_obj({}), output_schema=copy.deepcopy(FLOW_OUTPUT),
                                    observes=["measurement.standard_flow_m3_s", "measurement.actual_flow_m3_s", "measurement.mass_flow_kg_s",
-                                             "measurement.total_standard_volume_m3", "measurement.pressure_Pa", "measurement.temperature_K"],
+                                             "measurement.total_standard_volume_m3", "measurement.pressure_pa", "measurement.temperature_k"],
                                    preconditions_zh=["已经通过gas.select选择库气体（非宿主登记气体）"], example_arguments=[{}],
                                    binding=binding % "flow.read_template"),
     }
@@ -500,14 +500,14 @@ def invoke(session, host, inst, capability_id, arguments, request_id):
         return fail("PRECONDITION_FAILED")
     rec = users.get(selected) or record(selected)
     actual = standard = None
-    if values["measurement.pressure_Pa"] is not None and values["measurement.temperature_K"] is not None:
-        actual = gas_state(selected, values["measurement.temperature_K"], values["measurement.pressure_Pa"], users)
-    standard = gas_state(selected, values["gas.reference_temperature_K"], values["gas.reference_pressure_Pa"], users)
+    if values["measurement.pressure_pa"] is not None and values["measurement.temperature_k"] is not None:
+        actual = gas_state(selected, values["measurement.temperature_k"], values["measurement.pressure_pa"], users)
+    standard = gas_state(selected, values["gas.reference_temperature_k"], values["gas.reference_pressure_pa"], users)
     result = {"gas_id": selected, "gas_name": rec["name"], "kind": rec["kind"]}
     for key in ("measurement.standard_flow_m3_s", "measurement.actual_flow_m3_s", "measurement.mass_flow_kg_s",
-                "measurement.total_standard_volume_m3", "measurement.pressure_Pa", "measurement.temperature_K"):
+                "measurement.total_standard_volume_m3", "measurement.pressure_pa", "measurement.temperature_k"):
         result[key] = values[key]
-    result.update({"reference_temperature_K": values["gas.reference_temperature_K"], "reference_pressure_Pa": values["gas.reference_pressure_Pa"],
+    result.update({"reference_temperature_K": values["gas.reference_temperature_k"], "reference_pressure_Pa": values["gas.reference_pressure_pa"],
                    "viscosity_actual_Pa_s": None if actual is None else actual["viscosity_Pa_s"],
                    "density_actual_kg_m3": None if actual is None else actual["density_kg_m3"],
                    "compressibility_actual": None if actual is None else actual["compressibility_factor"],

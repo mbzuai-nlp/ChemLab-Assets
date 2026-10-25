@@ -2,7 +2,7 @@
 from pathlib import Path
 import copy,json,math,importlib.util
 import numpy as np
-PROTOCOL_VERSION='1.0.0';SLUG='surface_dvsresolution';CATALOG_ID='CHEM-123';ASSET_TYPE_ID='instrument.'+SLUG
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.1.1';SLUG='surface_dvsresolution';CATALOG_ID='CHEM-123';ASSET_TYPE_ID='instrument.'+SLUG
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch03/t4_measure'/SLUG
 R=8.31446261815324;PREF=101325.;TREF=273.15;NREF=PREF/(R*TREF);MW=.0180153;MN=.0280134;DT=.1
 class ActionRejected(ValueError):pass
@@ -96,7 +96,7 @@ cap('humidity.set',obj({'relative_humidity':number('1',0,.98)}),obj({'relative_h
 cap('vapor.set_pressure',obj({'pressure_pa':number('Pa',0,20000)}),obj({'relative_humidity':number('1')}),['gas_manifold'],'水蒸气分压按目标温度IAPWS饱和压换算RH',example={'pressure_pa':1000.},effects=['humidity.target','acquisition.branch'])
 cap('gas.set_flow',obj({'reference_m3_s':number('m^3/s',0,1e-4)}),obj({'reference_m3_s':number('m^3/s')}),['gas_manifold'],'氮气水蒸气混合物参考总流量，范围由显式工程配置限定',example={'reference_m3_s':100e-6/60},effects=['flow.target_ref_m3_s'])
 cap('gas.open',obj({'enabled':BOOL}),obj({'enabled':BOOL}),['gas_manifold'],'关闭仓体和水瓶后开关有限气路',example={'enabled':True},effects=['gas.enabled'])
-cap('balance.tare',obj({}),obj({'tared':BOOL}),['balance'],'以当前观测值去皮；不声明原厂精度认证',effects=['mass.indicated_kg','balance.tared'])
+cap('balance.tare',obj({}),obj({'tared':BOOL}),['balance'],'以当前观测值去皮；不声明原厂精度认证。去皮把秤盘上现有的一切（含样品）记为零点和质量变化的基准：带样品去皮后mass.indicated_kg是相对去皮时的质量变化，±150 mg质量变化范围以去皮点为中心（宣传册p.6 Ultrabalance Mass change ±150 mg）；要读样品绝对质量须在装样前空盘去皮',effects=['mass.indicated_kg','balance.tared'])
 CAL=obj({'reference_masses_kg':array(number('kg',0,1e-3),2,2),'observed_masses_kg':array(number('kg',-1e-3,1e-3),2,2)})
 cap('balance.calibrate',CAL,obj({'gain':number('1'),'offset_kg':number('kg')}),['balance'],'外部标准砝码及独立观测的两点标定','configuration',example=dict(reference_masses_kg=[0.,1e-4],observed_masses_kg=[0.,1e-4]),effects=['balance.calibrated','balance.tared','mass.indicated_kg'])
 cap('method.configure',METHOD,METHOD,['controller','chamber','humidity_sensor'],'RH阶跃、循环、最小最大驻留及滑窗dm/dt，不将最大驻留称为平衡','configuration',example=METHOD_EXAMPLE)
@@ -359,7 +359,7 @@ class SurfaceDvsresolutionSession:
   if (instance_id is None)==(asset_type_id is None):raise ActionRejected('INVALID_ARGUMENT')
   if instance_id is not None:self._target(instance_id)
   if asset_type_id is not None and asset_type_id!=ASSET_TYPE_ID:raise ActionRejected('UNKNOWN_INSTANCE')
-  meta=export_surface_dvsresolution_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version='1.0.0',capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+  meta=export_surface_dvsresolution_contract_metadata();return dict(protocol_version=PROTOCOL_VERSION,asset_type_id=ASSET_TYPE_ID,asset_version=ASSET_VERSION,capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'},state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
  def read(self,*,instance_id,state_ids=None):
   self._target(instance_id);h=self._host;values=h.read(self._role);ids=list(values) if state_ids is None else state_ids
   if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids):raise ActionRejected('INVALID_ARGUMENT')

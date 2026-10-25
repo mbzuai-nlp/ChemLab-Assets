@@ -8,7 +8,7 @@ import copy,hashlib,importlib.util,json,math,os,sys,tempfile
 from pathlib import Path
 import numpy as np
 from scipy.integrate import solve_ivp
-PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.3.0';SLUG='signatone_quadpro2';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-142'
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.3.1';SLUG='signatone_quadpro2';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-142'
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch04/t1_thermal'/SLUG;LIBRARY_PATH=ASSET/'sheet_resistance_library.json'
 
 class ActionRejected(ValueError):pass
@@ -104,6 +104,7 @@ SAMPLE=obj(dict(THERMAL_PROPERTIES,reference_id=TEXT,gradient_x_fraction=number(
 STANDARD_EXAMPLE=dict(THERMAL_SAMPLE,actual_sheet_resistance_ohm_sq=100.,accept_host_standard_not_certified=True)
 STANDARD=obj(dict(THERMAL_PROPERTIES,actual_sheet_resistance_ohm_sq=number('ohm/sq',1e-12,1e15),accept_host_standard_not_certified=BOOL))
 POINT=obj({'x_m':number('m',-.15,.15),'y_m':number('m',-.15,.15)})
+STAGE_POINT=obj({'x_m':number('m',-.13,.13),'y_m':number('m',-.13,.13)})   # 1.3.1: stage.move schema = the modelled +-130 mm XY travel (map points may lie outside: excluded with STAGE_TRAVEL)
 MAP_EXAMPLE=dict(points=[dict(x_m=x,y_m=y) for x,y in [(0,0),(.02,0),(0,.02),(-.02,0),(0,-.02),(.049,0)]],edge_exclusion_m=.003,thickness_prior_m=1e-6)
 MAP=obj({'points':array(POINT,1,14000),'edge_exclusion_m':number('m',0,.15),'thickness_prior_m':nullable(number('m',1e-9,5e-5))})
 METHOD_EXAMPLE=dict(auto_current=True,current_min_a=1e-8,current_max_a=.001,fixed_current_a=.0001,voltage_range_v=.2,voltage_compliance_v=20.,target_voltage_min_v=.005,target_voltage_max_v=.08,phase_duration_s=.3,settling_s=.2,require_calibration=True,require_warmup=False)
@@ -128,7 +129,7 @@ cap('sample.load',SAMPLE,obj({'loaded':BOOL}),['sample_wafer'],'装载真实rho�
 cap('standard.load',STANDARD,obj({'loaded':BOOL}),['sample_wafer'],'宿主装入独立给定实际Rs的薄膜标样代理，证书/NIST真实性未验证','configuration','evaluator',STANDARD_EXAMPLE)
 cap('sample.remove',obj({}),obj({'loaded':BOOL}),['sample_wafer'],'卸除全部膜/基底质量和显热，既有测量与耗散账不回滚','configuration','evaluator')
 cap('power.set',obj({'enabled':BOOL}),obj({'enabled':BOOL}),['power_switch','source_meter'],'整系统源与自动运动电源，2450额定精度预热状态随真实时间累计',example={'enabled':True})
-cap('stage.move',POINT,obj({'target_x_m':number('m'),'target_y_m':number('m')}),['stage_x','sample_stage'],'安全抬针后移动真实XY机械坐标，测点坐标与样品台位移取反',example={'x_m':.01,'y_m':-.01})
+cap('stage.move',STAGE_POINT,obj({'target_x_m':number('m'),'target_y_m':number('m')}),['stage_x','sample_stage'],'安全抬针后移动真实XY机械坐标，测点坐标与样品台位移取反',example={'x_m':.01,'y_m':-.01})
 cap('probe.set_contact',obj({'contact':BOOL}),obj({'target_m':number('m',0,PROBE_RAISED_M)}),['probe_head'],'有限速度下降接触或抬针，不跳跃针尖姿态',example={'contact':True})
 cap('enclosure.set_open',obj({'opened':BOOL}),obj({'target_rad':number('rad',0,1.1)}),['hood'],'宿主手动暗箱翻盖有限速度代理，打开装样、关闭测量','simulation','evaluator',{'opened':False})
 cap('map.configure',MAP,obj({'configured':BOOL,'accepted_points':dict(type='integer',minimum=0,maximum=14000,**{'x-unit':'1'}),'excluded_points':dict(type='integer',minimum=0,maximum=14000,**{'x-unit':'1'})}),['sample_stage','controller'],'最多14000自定义点及边缘排除；无导电厚度先验时仅报告Rs','configuration',example=MAP_EXAMPLE)

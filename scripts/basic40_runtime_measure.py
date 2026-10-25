@@ -86,6 +86,8 @@ class FilteredAnalyticalBalance(_XPRLegacyBalance):
         self.filter_age_s = 0.0
         self._stability_samples = _xpr_deque()
         self._window_range_kg = None
+        self._raw_samples = _xpr_deque()                                     # (time, dt, raw force) of the stability window (settle check)
+        self._settled_since = None                                          # time of the first sample of the current settled run
 
     @classmethod
     def for_model(cls, model):
@@ -101,9 +103,47 @@ class FilteredAnalyticalBalance(_XPRLegacyBalance):
         self.last_environment_valid = False
         self._stability_samples.clear()
         self._window_range_kg = None
+        self._raw_samples.clear()
+        self._settled_since = None
         if clear_filter:
             self.filtered_force_N = None
             self.filter_age_s = 0.0
+
+    def _settled(self, dt_s, cutoff):
+        """Settle check of the stability detector (2026-10-22, CHEM-001 1.3.1).  The N-division window alone let the flag rise while the
+        low-pass reading was still approaching a new load (Standard: about 68 d short of the settled value), and kept it up for a moment after
+        a load change.  The reading must also have reached its input: |input force now - filtered force| / g <= max(0.5 d, 4 s) and
+        |time mean of the input over the stability window - filtered force| / g <= max(0.5 d, 4 s / sqrt(n)), s = robust input noise
+        (1.4826 / sqrt(2) x median of successive input differences, 0 without noise; a load step does not count as noise), n = effective
+        number of input samples in the window.  The update holds the check for the stability window before the flag rises.  0.5 d follows the
+        MT-SICS stability criteria (a tolerance in digits held for an observation time; USTB / I100 examples 0.5-1 d), so a stable reading is
+        within one display step of the settled one; the noise terms keep the specified white-noise experiment able to reach STABLE
+        (assumption)."""
+        raw = self._raw_samples
+        raw.append((self.sample_time_s, dt_s, self.raw_force_N))
+        while raw and raw[0][0] <= cutoff + 1e-10:
+            raw.popleft()
+        w = [min(d, t - cutoff) for t, d, _ in raw]
+        total = sum(w)
+        if total <= 0:
+            return False
+        forces = [f for _, _, f in raw]
+        steps = sorted(abs(b - a) for a, b in zip(forces, forces[1:]))
+        noise = 1.4826 / _xpr_math.sqrt(2) * steps[len(steps) // 2] if steps else 0.0
+        mean = sum(wi * f for wi, f in zip(w, forces)) / total
+        n_eff = total * total / sum(wi * wi for wi in w)
+        floor = 0.5 * self.readability_kg * self.g_cal
+        return (abs(self.raw_force_N - self.filtered_force_N) <= max(floor, 4 * noise) + 1e-15
+                and abs(mean - self.filtered_force_N) <= max(floor, 4 * noise / _xpr_math.sqrt(n_eff)) + 1e-15)
+
+    def _settle_hold(self, dt_s, cutoff):
+        """_settled held without a break for the stability window (the settling time), counted like the window: from the first settled sample."""
+        if not self._settled(dt_s, cutoff):
+            self._settled_since = None
+            return False
+        if self._settled_since is None:
+            self._settled_since = self.sample_time_s
+        return self.sample_time_s - self._settled_since + 1e-10 >= self.settling_s - dt_s
 
     @property
     def stability_band_kg(self):
@@ -168,7 +208,8 @@ class FilteredAnalyticalBalance(_XPRLegacyBalance):
         self.elapsed_s = min(self.settling_s, self.sample_time_s - samples[0][0]) if inside else 0.0
         warmed = self.filter_age_s + 1e-10 >= 5 * XPR204E_FILTERS[self.filter_level]["time_constant_s"]
         self.last_environment_valid = True
-        self.stable = bool(inside and warmed and self.elapsed_s + 1e-10 >= self.settling_s)
+        settled = self._settle_hold(dt_s, cutoff)
+        self.stable = bool(inside and warmed and settled and self.elapsed_s + 1e-10 >= self.settling_s)
         return self.read()
 
     def read(self):
@@ -883,7 +924,7 @@ def export_gamry_reference620_contract_metadata():
         "electrode_area_m2": {"value": None, "unit": "m^2", "evidence": "unknown", "note_zh": "未提供电极几何或有效面积。"},
         "calibration_error_v": {"value": None, "unit": "V", "evidence": "unknown", "note_zh": "未提供校准或误差数据。"},
     }
-    return {"asset_types": {GAMRY_REFERENCE620_TYPE: {"catalog_id": "CHEM-103", "model": "Gamry Reference 620", "asset_version": "1.1.0",
+    return {"asset_types": {GAMRY_REFERENCE620_TYPE: {"catalog_id": "CHEM-103", "model": "Gamry Reference 620", "asset_version": "1.1.1",   # 1.1.1: template.read example (2026-10-22)
         "state_slots": slots, "capabilities": caps, "parameters": parameters}},
         "host_capabilities": {"sim.step": {"kind": "simulation", "visibility": "trusted_host_only",
             "binding": "GamryReference620Runtime.step(dt_s)", "effects": playback_effects,
@@ -1264,6 +1305,32 @@ METROHM914_CHANNELS = {"ph": (-13.0, 20.0, "1"), "conductance": (1e-7, 0.5, "S")
 METROHM914_TEMPLATE_CAPABILITIES = ("template.list", "template.read", "electrochemistry.template_reading")
 
 
+def _m914_standard_tolerance(slot, value):
+    """2026-10-22 (1.2.4): the entered standard identifies the standard in the cell to the meter's resolution, as the buffer recognition maps a
+    value to one entry of the selected buffer series (manual p.55, p.88-99): 0.002 pH (two digits of the 0.001 pH display; the value of another
+    series, e.g. a nominal 4.00 for the NIST 4.005 buffer, stays a different standard); conductance and DO standards 0.5 % relative.  Before,
+    float equality was required (6.864 vs 6.865 refused)."""
+    return 0.002 + 1e-12 if slot == "ph" else 0.005 * abs(value) + 1e-12
+
+
+def _m914_calibrate_refusal(host, inst, args):
+    """The reason electrochemistry.calibrate is refused (None: accepted); the code stays PRECONDITION_FAILED, the message names the cause."""
+    slot, value, truth = args["slot"], args["standard_value"], inst["truth"]
+    if inst["running"]:
+        return "A recording is running; stop it before calibrating."
+    if not inst["power"]:
+        return "The meter is switched off."
+    if inst["selected"] != slot or not inst["installed"][slot]:
+        return "Select the installed %s channel before calibrating it." % slot
+    if truth["standard_slot"] != slot or truth["standard_value"] is None:
+        return "No %s calibration standard is in the measuring cell (the host has not supplied one)." % slot
+    if abs(truth["standard_value"] - value) > _m914_standard_tolerance(slot, truth["standard_value"]):
+        return "The entered standard %g does not match the standard in the cell (buffer recognition tolerance %g)." % (value, _m914_standard_tolerance(slot, truth["standard_value"]))
+    if inst["sample_time"] != host.time_s or not inst["stable"]:
+        return "The reading is not stable yet (wait for the endpoint criterion on a current reading)."
+    return None
+
+
 def _m914_template_module():
     """Lazy import of the public-data template extension (scripts/basic40_templates/metrohm_914.py)."""
     try:
@@ -1355,7 +1422,7 @@ def export_metrohm914_contract_metadata():
         "electrochemistry.configure_temperature": cap({"mode": {"type": "string", "enum": ["automatic", "manual"]}, "manual_temperature_k": _m914_num("K", nullable=True)}, {"mode": {"type": "string"}, "manual_temperature_k": _m914_num("K", nullable=True)}, {"mode": "automatic", "manual_temperature_k": None}, "自动模式使用宿主样品温度；手动模式必须明确给定正开尔文温度；Nernst及可选电导线性温补均为工程假设。", ["temperature.mode", "temperature.manual_k"] + measurement_effects, ["temperature.mode", "temperature.manual_k"], "未在记录；manual需正有限温度，automatic需null。"),
         "electrochemistry.configure_endpoint": cap({"hold_s": _m914_num("s", 0, 3600), "tolerance_fraction": _m914_num("1", 0, 1)}, {"hold_s": _m914_num("s"), "tolerance_fraction": _m914_num("1")}, {"hold_s": 2, "tolerance_fraction": 0.001}, "显式设定稳定窗口与全量程比例阈值；同窗口最大最小值差不超过阈值时为稳定；上限仅为运行层资源边界。", ["endpoint.hold_s", "endpoint.tolerance_fraction"] + measurement_effects, ["endpoint.hold_s", "endpoint.tolerance_fraction"], "未在记录；hold_s必须大于零。"),
         "acquisition.set_interval": cap({"interval_s": _m914_num("s", 1, 86400)}, {"interval_s": _m914_num("s")}, {"interval_s": 1}, "记录间隔为1s的整数倍；上限86400s是运行层资源边界，非厂家规格。", ["acquisition.interval_s"], ["acquisition.interval_s"], "未在记录；间隔为整数秒。"),
-        "electrochemistry.calibrate": cap({"slot": channel, "standard_value": _m914_num("1", -13, 20)}, {"slot": channel, "calibrated": boolean, "synthetic": {"type": "boolean", "const": True}}, {"slot": "ph", "standard_value": 7}, "有界单点合成校准：标准值按slot单位解释（ph=1、conductance=S、do=kg/m3）；建立加性偏置修正，不声称厂家校准算法、精度或溯源。", calibration_effects + measurement_effects, [f"probe.{n}.calibrated" for n in METROHM914_CHANNELS], "供电、选中且安装槽、当前新鲜读数稳定、未记录；宿主明确标定匹配槽与已知标准值；标准值在该槽规格范围内。"),
+        "electrochemistry.calibrate": cap({"slot": channel, "standard_value": _m914_num("1", -13, 20)}, {"slot": channel, "calibrated": boolean, "synthetic": {"type": "boolean", "const": True}}, {"slot": "ph", "standard_value": 7}, "有界单点合成校准：标准值按slot单位解释（ph=1、conductance=S、do=kg/m3）；建立加性偏置修正，不声称厂家校准算法、精度或溯源。", calibration_effects + measurement_effects, [f"probe.{n}.calibrated" for n in METROHM914_CHANNELS], "供电、选中且安装槽、当前新鲜读数稳定、未记录；宿主明确标定匹配槽与已知标准值，输入的标准值与池中标准值之差不超过识别容差（pH 0.002，即0.001 pH显示的两个数字，其他缓冲系列的值如4.00对NIST 4.005仍算不同标准；电导与溶解氧相对0.5%；手册p.55、p.88–99缓冲表），校准用输入值；标准值在该槽规格范围内；拒绝时消息写明原因。"),
         "acquisition.start": cap({}, {"running": boolean}, {}, "开始记录后续实际宿主样本；不补造中间记录或推进时间。", ["acquisition.running"], ["acquisition.running"], "供电、已安装选中槽、已配置终点。"),
         "acquisition.stop": cap({}, {"running": boolean}, {}, "停止后保留已记录数据。", ["acquisition.running"], ["acquisition.running"]),
         "electrochemistry.reading": cap({}, reading_fields, {}, "返回所选配置的同版本合成读数；不暴露宿主真值，不推进时间。", [], [sid for sid in slots if sid.startswith("measurement.")] + ["endpoint.stable"], kind="query"),
@@ -1643,12 +1710,12 @@ class Metrohm914Session:
             "state_revision": inst["revision"] if inst else None, "clock": {"domain": "simulation", "time_s": self.__host.time_s},
             "result": _m914_copy.deepcopy(result or {}), "observations": _m914_copy.deepcopy(observations or {}), "error": error}
 
-    def _error(self, instance_id, code, request_id=None, status="rejected"):
+    def _error(self, instance_id, code, request_id=None, status="rejected", message=None):
         messages = {"UNKNOWN_INSTANCE": "Instance unavailable to this session.", "UNKNOWN_CAPABILITY": "Capability unavailable.",
             "INVALID_ARGUMENT": "Arguments do not match schema or bounded configuration.", "ACCESS_DENIED": "Request is outside session access policy.",
             "PRECONDITION_FAILED": "Required operating state, calibration fixture or configuration unavailable.",
             "REQUEST_CONFLICT": "Request ID already belongs to different arguments.", "DEVICE_ERROR": "Scene synchronization did not complete."}
-        return self._envelope(instance_id, request_id, status=status, error={"code": code, "message": messages[code], "retryable": False,
+        return self._envelope(instance_id, request_id, status=status, error={"code": code, "message": message or messages[code], "retryable": False,
             "side_effects": "unknown" if code == "DEVICE_ERROR" else "none", "progress": None})
 
     def describe(self, *, asset_type_id=None, instance_id=None):
@@ -1751,8 +1818,10 @@ class Metrohm914Session:
             return fail("PRECONDITION_FAILED")
         if cap in ("electrochemistry.configure_temperature", "electrochemistry.configure_endpoint", "acquisition.set_interval") and inst["running"]:
             return fail("PRECONDITION_FAILED")
-        if cap == "electrochemistry.calibrate" and (inst["running"] or not inst["power"] or not inst["stable"] or inst["sample_time"] != host.time_s or inst["selected"] != args["slot"] or not inst["installed"][args["slot"]] or inst["truth"]["standard_slot"] != args["slot"] or inst["truth"]["standard_value"] != args["standard_value"]):
-            return fail("PRECONDITION_FAILED")
+        if cap == "electrochemistry.calibrate":
+            why = _m914_calibrate_refusal(host, inst, args)
+            if why:
+                return self._error(instance_id, "PRECONDITION_FAILED", request_id, message=why)
         if cap == "acquisition.start" and (not inst["power"] or not inst["installed"][inst["selected"]] or inst["hold"] is None or len(inst["records"]) >= 1024):
             return fail("PRECONDITION_FAILED")
         if cap == "electrochemistry.reading":
@@ -3260,7 +3329,7 @@ def export_magritek_spinsolve80_contract_metadata():
     limitations = ["所有FID、1D频谱与数值积分均为synthetic；工程假设教学模型不能声称复现Spinsolve响应、Classic线宽、灵敏度或真实测量。", "只实现1H/13C单脉冲1D、宿主显式扫描计时与无噪声平均；2D、耦合多重峰自动求解、解耦、梯度、结构约束、定量核磁、真实校准与故障概率未实现。", "每扫描耗时=用户弛豫延迟+用户采集时间；不模拟T1饱和恢复、脉冲时宽、接收器死区、磁场漂移或厂商固件。", "幅度任意且无量纲，积分单位Hz；积分不是浓度或核数。13C载频未知，不输出ppm横轴。", "样品槽仅逻辑关联；插入占比为示意映射，不执行机器人插入、接触或真实磁场作用。", "注册样品、共同绝对时钟由可信宿主管理；公开session过滤是API边界，不是同进程Python或文件系统沙箱。请求幂等缓存仅在内存中。", "可选scene_adapter失败时过程不提交；外部场景可能已部分修改，需宿主协调恢复。"]
     mechanisms = {"synthetic_nmr_signal": {"component_ids": ["magnet_module", "sample_port"], "state_ids": ["truth.registered_samples", "method.nucleus", "method.acquisition_time_s", "method.points", "measurement.fid", "measurement.spectrum", "measurement.integral_hz"], "meaning_zh": "engineering_assumption：阻尼复正弦合成FID、归一化DFT和观测频带积分；全部输出synthetic。", "implementation": "numerical", "equations": ["FID[n]=sum(A_j*exp(-t_n/T2_j)*exp(i*2*pi*f_j*t_n)); t_n=n*T_acq/N", "S[k]=sum(FID[n]*exp(-i*2*pi*k*n/N))/N; f_k=(k-floor(N/2))/T_acq", "integral=piecewise-linear trapezoid integral of abs(S) over explicit observed frequency interval"], "parameters": parameters, "source_ids": ["runtime_code", "workbook_parameters"], "limitations": limitations[:4]},
         "host_timed_scanning": {"component_ids": ["magnet_module", "control_panel"], "state_ids": ["method.scans", "method.relaxation_delay_s", "method.acquisition_time_s", "acquisition.elapsed_s", "acquisition.completed_scans", "acquisition.progress", "acquisition.status"], "meaning_zh": "engineering_assumption：由共享宿主绝对时钟推进离散完整扫描。", "implementation": "numerical", "equations": ["cycle=T_relax+T_acq; completed_scans=min(scans,floor((host_time-start_time)/cycle)); progress=min(1,elapsed/(scans*cycle))"], "parameters": {}, "source_ids": ["runtime_code"], "limitations": ["无自动世界推进；read/describe/query不推进时钟。", "未完成扫描不产生伪完整谱；取消保留已完成扫描。"]}}
-    return {"asset_types": {SPINSOLVE80_TYPE: {"catalog_id": "CHEM-068", "model": "Magritek | Spinsolve 80 Carbon", "asset_version": "1.1.0", "state_slots": slots, "capabilities": caps, "parameters": parameters}}, "mechanisms": mechanisms, "scene_snapshot_keys": list(SPINSOLVE80_SCENE_KEYS), "limitations": limitations,
+    return {"asset_types": {SPINSOLVE80_TYPE: {"catalog_id": "CHEM-068", "model": "Magritek | Spinsolve 80 Carbon", "asset_version": "1.1.1", "state_slots": slots, "capabilities": caps, "parameters": parameters}}, "mechanisms": mechanisms, "scene_snapshot_keys": list(SPINSOLVE80_SCENE_KEYS), "limitations": limitations,
         "host_capabilities": {"sim.host_step": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "MagritekSpinsolve80Runtime.host_step(time_s)", "state_effects": reset}, "sim.register_sample": {"kind": "simulation", "visibility": "trusted_host_only", "binding": "MagritekSpinsolve80Runtime.register_sample(instance_id, sample_id, signals)", "state_effects": ["truth.registered_samples"]}}, "host_sample_schema": fixture}
 
 
@@ -3430,8 +3499,8 @@ class MagritekSpinsolve80Session:
         inst = self._instance(instance_id)
         return {"protocol_version": "1.0.0", "instance_id": instance_id, "request_id": request_id, "operation_id": None, "status": status, "state_revision": inst["revision"] if inst else None, "clock": {"domain": "simulation", "time_s": self.__host.time_s}, "result": _sp80_copy.deepcopy(result or {}), "observations": _sp80_copy.deepcopy(observations or {}), "error": error}
 
-    def _error(self, instance_id, code, request_id=None):
-        return self._envelope(instance_id, request_id, status="failed" if code == "DEVICE_ERROR" else "rejected", error={"code": code, "message": "Request unavailable under current arguments, state or access policy." if code != "DEVICE_ERROR" else "External scene synchronization failed; process not committed.", "retryable": False, "side_effects": "unknown" if code == "DEVICE_ERROR" else "none", "progress": None})
+    def _error(self, instance_id, code, request_id=None, message=None):
+        return self._envelope(instance_id, request_id, status="failed" if code == "DEVICE_ERROR" else "rejected", error={"code": code, "message": message or ("Request unavailable under current arguments, state or access policy." if code != "DEVICE_ERROR" else "External scene synchronization failed; process not committed."), "retryable": False, "side_effects": "unknown" if code == "DEVICE_ERROR" else "none", "progress": None})
 
     def describe(self, *, asset_type_id=None, instance_id=None):
         with self.__host._lock:
@@ -3497,20 +3566,34 @@ class MagritekSpinsolve80Session:
             return self._error(instance_id, "UNSUPPORTED", request_id)
         if inst["running"] and cap in ("sample.insert", "sample.remove", "acquisition.configure", "acquisition.start"):
             return self._error(instance_id, "BUSY", request_id)
-        if cap == "sample.insert" and (inst["sample_id"] is not None or args["sample_id"] not in inst["samples"]):
-            return self._error(instance_id, "PRECONDITION_FAILED", request_id)
+        # 2026-10-22 (1.1.1): the refusals keep PRECONDITION_FAILED (the only declared code) and say why
+        why = lambda m: self._error(instance_id, "PRECONDITION_FAILED", request_id, m)   # noqa: E731
+        if cap == "sample.insert" and inst["sample_id"] is not None:
+            return why("A sample tube is already in the magnet; remove it first.")
+        if cap == "sample.insert" and args["sample_id"] not in inst["samples"]:
+            return why("No sample %r has been prepared by the host." % args["sample_id"])
         if cap == "acquisition.start":
             cfg = inst["method"]
-            if not inst["power"] or inst["sample_id"] is None or cfg is None:
-                return self._error(instance_id, "PRECONDITION_FAILED", request_id)
+            if not inst["power"]:
+                return why("The spectrometer is switched off.")
+            if inst["sample_id"] is None:
+                return why("No sample tube is in the magnet.")
+            if cfg is None:
+                return why("No acquisition is configured (acquisition.configure).")
             signals = inst["samples"][inst["sample_id"]][cfg["nucleus"]]
             nyquist = cfg["points"] / cfg["acquisition_time_s"] / 2
-            if not signals or any(abs(p["frequency_offset_hz"]) >= nyquist for p in signals) or host.time_s + cfg["scans"] * (cfg["relaxation_delay_s"] + cfg["acquisition_time_s"]) <= host.time_s:
-                return self._error(instance_id, "PRECONDITION_FAILED", request_id)
+            if not signals:
+                return why("The sample has no %s signal to acquire." % cfg["nucleus"])
+            if any(abs(p["frequency_offset_hz"]) >= nyquist for p in signals):
+                return why("A signal lies outside the spectral window (+-%.0f Hz): more points or a shorter acquisition time." % nyquist)
+            if host.time_s + cfg["scans"] * (cfg["relaxation_delay_s"] + cfg["acquisition_time_s"]) <= host.time_s:
+                return why("The scan is too short to advance the clock.")
         if cap == "nmr.integrate":
             a, b, spectrum = args["frequency_min_hz"], args["frequency_max_hz"], inst["spectrum"]
-            if not spectrum or not spectrum[0]["frequency_offset_hz"] <= a < b <= spectrum[-1]["frequency_offset_hz"]:
-                return self._error(instance_id, "PRECONDITION_FAILED", request_id)
+            if not spectrum:
+                return why("There is no spectrum yet.")
+            if not spectrum[0]["frequency_offset_hz"] <= a < b <= spectrum[-1]["frequency_offset_hz"]:
+                return why("The integration range must lie inside the spectrum (%.1f..%.1f Hz) with min < max." % (spectrum[0]["frequency_offset_hz"], spectrum[-1]["frequency_offset_hz"]))
         new = _sp80_copy.deepcopy(inst)
         if cap == "power.set":
             new["power"] = args["enabled"]
@@ -4460,7 +4543,7 @@ import tempfile as _xt_tempfile
 from collections import deque as _xt_deque
 from pathlib import Path as _xt_Path
 
-XPR204E_ASSET_VERSION = "1.3.0"   # 1.3.0 (2026-10-20): XPR terminal + draft shield geometry (contract only; runtime behaviour unchanged)
+XPR204E_ASSET_VERSION = "1.3.1"   # 1.3.0 (2026-10-20): XPR terminal + draft shield geometry (contract only; runtime behaviour unchanged); 1.3.1 (2026-10-22): stability settle check
 XPR204E_ASSET_DIR =_xt_Path(__file__).resolve().parents[1] / "assets/basic40_batch02/t4_measure/mt_xpr204e"
 _XT_G0 = 9.80665
 _XT_EPOCH = _xt_dt.datetime(2026, 1, 1, 0, 0, 0)        # device clock at simulation time 0 until clock.set (assumption)
@@ -5121,7 +5204,8 @@ class XPRWeighingCell(FilteredAnalyticalBalance):
         self.elapsed_s = min(self.settling_s, self.sample_time_s - samples[0][0]) if inside else 0.0
         warmed = self.filter_age_s + 1e-10 >= 5 * tau
         self.last_environment_valid = True
-        self.stable = bool(inside and warmed and self.elapsed_s + 1e-10 >= self.settling_s)
+        settled = self._settle_hold(dt_s, cutoff)                            # the reading has reached its input (FilteredAnalyticalBalance._settled)
+        self.stable = bool(inside and warmed and settled and self.elapsed_s + 1e-10 >= self.settling_s)
         self.stable_age_s = self.stable_age_s + dt_s if self.stable else 0.0
         if self.zero_drift and self.stable and self.tare_kg == 0.0 and 0.0 < abs(self.gross_kg - self.zero_kg) <= 0.5 * self.readability_kg:
             self.zero_kg = self.gross_kg                                     # zero drift compensation (AZT)
@@ -9325,7 +9409,7 @@ class Metrohm899DeviceSession(Metrohm899Session):
 # the sensor's slope / pH(0), its conductivity from the conductance and the cell constant, its DO from the optical phase angle (dphi) of the
 # O2 Lumitrode (Stern-Volmer) and the stored 0 % / 100 % phase angles.  Sensor errors (pH asymmetry is the host's reference potential; the
 # cell constant follows the host's conductance; the phase-angle errors here) are trusted-host parameters, 0 (ideal) by default.
-KS_ASSET_VERSION = "1.2.3"
+KS_ASSET_VERSION = "1.2.4"   # 1.2.4 (2026-10-22): calibrate standard tolerance (buffer recognition) and refusal messages
 KS_ASSET_DIR = _kd_Path(__file__).resolve().parents[1] / "assets/basic40_batch02/t4_measure/metrohm_914"
 KS_BOOT_S = 3.0                                            # start image (p.33 'takes some time'; assumption)
 KS_K = _m914_math.log(10) * 8.31446261815324 / 96485.33212331001       # ln10 R / F (V/K)

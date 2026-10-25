@@ -7,10 +7,12 @@ from __future__ import annotations
 import copy,importlib.util,json,math
 from pathlib import Path
 import numpy as np
-PROTOCOL_VERSION='1.0.0';SLUG='lakeshore_8604vsm';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-143'
+PROTOCOL_VERSION='1.0.0';ASSET_VERSION='1.0.1';SLUG='lakeshore_8604vsm';ASSET_TYPE_ID='instrument.'+SLUG;CATALOG_ID='CHEM-143'
 ROOT=Path(__file__).resolve().parents[2];ASSET=ROOT/'assets/expansion_batch04/t1_thermal'/SLUG;LIBRARY_PATH=ASSET/'magnetic_library.json'
 MU0=4e-7*math.pi;MAX_FIELD_T=2.37;FIELD_RESOLUTION_T=1e-7;MIN_MOMENT_A_M2=2.5e-11;MAX_MOMENT_A_M2=1.
 class ActionRejected(ValueError):pass
+def _rejected(code,detail):
+    e=ActionRejected(code);e.detail=detail;return e   # 1.0.1: a refusal whose message names the cause
 
 def number(unit='1',lo=None,hi=None):
     s={'type':'number','x-unit':unit}
@@ -352,14 +354,17 @@ class LakeShore8604VsmRuntime:
         elif capability=='calibration.clear':self.calibration_valid=False;self.calibration_gain=1.;self.calibration_offset=0.;out=dict(valid=False)
         elif capability in ('acquisition.start','calibration.start'):
             iscal=capability=='calibration.start'
-            if not self.power or not self.plant or not self.coil or not self.vibration['enabled']:raise ActionRejected('NOT_CONFIGURED')
+            # 1.0.1: power off is the declared POWER_OFF; vibration off keeps NOT_CONFIGURED (no finer code) with the cause
+            if not self.power:raise _rejected('POWER_OFF','the instrument is switched off')
+            if not self.plant or not self.coil:raise _rejected('NOT_CONFIGURED','the host has not configured the magnet (plant.configure)' if not self.plant else 'no pickup coil set is configured (coil.configure)')
+            if not self.vibration['enabled']:raise _rejected('NOT_CONFIGURED','the sample vibration is off (vibration.configure enabled=true)')
             if not self.sample:raise ActionRejected('NO_SAMPLE')
             if self._pos('lift')>1e-9 or self._moving('lift') or self._moving('angle'):raise ActionRejected('MEASUREMENT_POSITION_REQUIRED')
             if not self._temperature_valid():raise ActionRejected('REFERENCE_TEMPERATURE_RANGE')
             if iscal:
                 method=dict(ramp_rate_t_s=1.,averaging_time_s=a['averaging_time_s'],settling_time_s=max(.05,10*self.plant['detector_tau_s']));sequence=[dict(field_t=quant(B,FIELD_RESOLUTION_T),record=True,reversal_field_t=None) for B in [a['field_t'],-a['field_t']]]
             else:
-                if not self.method:raise ActionRejected('NOT_CONFIGURED')
+                if not self.method:raise _rejected('NOT_CONFIGURED','no measurement method is configured (method.configure)')
                 if self.method['require_calibration'] and not self.calibration_valid:raise ActionRejected('CALIBRATION_REQUIRED')
                 method=copy.deepcopy(self.method);sequence=[]
                 if method['kind']=='points':sequence=[dict(field_t=quant(B,FIELD_RESOLUTION_T),record=True,reversal_field_t=None) for B in method['field_points_t']]
@@ -405,7 +410,7 @@ class LakeShore8604VsmSession:
         if instance_id is not None: self._target(instance_id)
         if asset_type_id is not None and asset_type_id != ASSET_TYPE_ID: raise ActionRejected('UNKNOWN_INSTANCE')
         meta = export_lakeshore_8604vsm_contract_metadata()
-        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version='1.0.0', capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
+        return dict(protocol_version=PROTOCOL_VERSION, asset_type_id=ASSET_TYPE_ID, asset_version=ASSET_VERSION, capabilities={k:v for k,v in meta['capabilities'].items() if v['visibility']=='agent' or self._role!='agent'}, state_slots={k:v for k,v in meta['state_slots'].items() if v['visibility']=='agent' or self._role!='agent'})
     def read(self, *, instance_id, state_ids=None):
         self._target(instance_id); h=self._host; values=h.read(self._role); ids=list(values) if state_ids is None else state_ids
         if not isinstance(ids,list) or any(not isinstance(k,str) for k in ids): raise ActionRejected('INVALID_ARGUMENT')
@@ -439,7 +444,7 @@ class LakeShore8604VsmSession:
             response=dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=operation,status='accepted' if operation else 'succeeded',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result=result,observations={},error=None)
             h._requests[key]=(digest,copy.deepcopy(response)); return response
         except ActionRejected as exc:
-            return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=str(exc),retryable=False,side_effects='none'))
+            return dict(protocol_version=PROTOCOL_VERSION,instance_id=instance_id,request_id=request_id,operation_id=None,status='unsupported' if str(exc)=='UNSUPPORTED' else 'rejected',state_revision=h.revision,clock={'domain':'simulation','time_s':h.time_s},result={},observations={},error=dict(code=str(exc),message=getattr(exc,'detail',None) or str(exc),retryable=False,side_effects='none'))
     def write(self, *, instance_id, state_id, value, request_id):
         self._target(instance_id); entry=SLOTS.get(state_id)
         if not entry or not entry['write']: raise ActionRejected('ACCESS_DENIED')
